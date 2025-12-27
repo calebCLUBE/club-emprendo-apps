@@ -31,16 +31,16 @@ DEBUG = os.environ.get("DJANGO_DEBUG", "True").lower() == "true"
 
 # In Render you usually want to allow the Render hostname too.
 # You can set ALLOWED_HOSTS in Render to: yourdomain.com,*.onrender.com
-ALLOWED_HOSTS = [h.strip() for h in os.environ.get("ALLOWED_HOSTS", "").split(",") if h.strip()]
+ALLOWED_HOSTS = [
+    "apply.clubemprendo.org",
+    "club-emprendo-apps.onrender.com",
+    "127.0.0.1",
+    "localhost",
+]
 
-# Nice Render default: if they didn't set ALLOWED_HOSTS, don't crash local dev
-if DEBUG and not ALLOWED_HOSTS:
-    ALLOWED_HOSTS = ["127.0.0.1", "localhost"]
-
-# If you are deploying on Render, it provides RENDER_EXTERNAL_HOSTNAME sometimes
-render_host = os.environ.get("RENDER_EXTERNAL_HOSTNAME")
-if render_host and render_host not in ALLOWED_HOSTS:
-    ALLOWED_HOSTS.append(render_host)
+CSRF_TRUSTED_ORIGINS = [
+    "https://apply.clubemprendo.org",
+]
 
 # --- Apps ---
 INSTALLED_APPS = [
@@ -120,10 +120,3 @@ STORAGES = {
     },
 }
 
-# --- CSRF / Cookies ---
-# Add your production domain(s) here via env var.
-# Example Render env var:
-# CSRF_TRUSTED_ORIGINS=https://apply2.yourdomain.com,https://your-service.onrender.com
-CSRF_TRUSTED_ORIGINS = [
-    o.strip() for o in os.environ.get("CSRF_TRUSTED_ORIGINS", "").split(",") if o.strip()
-]

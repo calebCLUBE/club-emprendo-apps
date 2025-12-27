@@ -1,0 +1,20 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+  <div class="ce-admin-wrap">
+    <div class="ce-admin-card">
+      <h1 class="ce-heading">Add admin user</h1>
+
+      <form method="post" class="ce-form">
+        {% csrf_token %}
+        <label class="ce-label">Email</label>
+        <input class="ce-input" name="email" type="email" required>
+
+        <label class="ce-label" style="margin-top:10px;">Username (optional)</label>
+        <input class="ce-input" name="username" type="text">
+
+        <button class="ce-btn" style="margin-top:14px;" type="submit">Create user & send setup email</button>
+      </form>
+    </div>
+  </div>
+{% endblock %}

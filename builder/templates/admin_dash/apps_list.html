@@ -1,0 +1,24 @@
+{% extends "admin/base_site.html" %}
+{% load app_extras %}
+
+{% block content %}
+  <div class="ce-admin-wrap">
+    <div class="ce-admin-card">
+      <h1 class="ce-heading">Applications</h1>
+
+      <div class="ce-admin-list">
+        {% for f in forms %}
+          <a class="ce-admin-row" href="{% url 'admin_app_detail' f.id %}">
+            <div>
+              <div class="ce-admin-row-title">{{ f.name }}</div>
+              <div class="ce-admin-row-sub">{{ f.slug }}</div>
+            </div>
+            <div class="ce-pill">{{ counts|get_item:f.id }} submissions</div>
+          </a>
+        {% empty %}
+          <div class="ce-muted">No applications created yet.</div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+{% endblock %}

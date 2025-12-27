@@ -1,0 +1,16 @@
+<ul style="list-style:none; padding:0; margin:0;">
+    {% for q in questions %}
+      <li style="padding:10px; border:1px solid rgba(0,0,0,0.06); border-radius:10px; margin-bottom:10px; cursor:pointer;"
+          hx-get="{% url 'builder:question_panel' q.id %}"
+          hx-target="#editor-panel"
+          hx-swap="innerHTML">
+        <div style="font-weight:700;">{{ q.text|default:q.slug }}</div>
+        <div class="ce-muted" style="font-size:12px;">
+          {{ q.field_type }} · {% if q.required %}Requerida{% else %}Opcional{% endif %} · {% if q.active %}Activa{% else %}Oculta{% endif %}
+        </div>
+      </li>
+    {% empty %}
+      <li class="ce-muted">No hay preguntas todavía.</li>
+    {% endfor %}
+  </ul>
+  

@@ -1,0 +1,149 @@
+/* static/ce-admin.css */
+
+/* --- Brand palette (from your guidelines) --- */
+:root {
+  --ce-green: #223413;
+  --ce-pink: #FEE3E3;
+  --ce-text: #111111;
+  --ce-muted: #444444;
+  --ce-border: rgba(0,0,0,0.08);
+}
+
+/* Force readable text everywhere */
+#header, #header * {
+  color: var(--ce-text) !important;
+}
+
+/* Make admin background white and remove default sidebar clutter */
+body {
+  background: #ffffff !important;
+  color: var(--ce-text) !important;
+}
+
+/* Hide the left sidebar + its toggle (your “extra column of buttons”) */
+#nav-sidebar,
+.toggle-nav-sidebar {
+  display: none !important;
+}
+.main {
+  margin-left: 0 !important;
+}
+
+/* --- Header sizing fix --- */
+#header {
+  background: #ffffff !important;
+  border-bottom: 1px solid var(--ce-border);
+  padding: 12px 18px !important;
+  height: auto !important;
+  min-height: 0 !important;
+}
+
+/* Branding row */
+.ce-admin-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* Logo: clamp size so it can’t take over the screen */
+.ce-admin-logo {
+  display: block;
+  height: 44px;      /* ✅ adjust if you want slightly bigger */
+  width: auto;
+  max-width: 220px;  /* prevents “giant banner logo” */
+  object-fit: contain;
+}
+
+/* Brand text */
+.ce-admin-title {
+  font-weight: 800;
+  letter-spacing: 0.2px;
+  line-height: 1.1;
+}
+.ce-admin-subtitle {
+  color: var(--ce-muted) !important;
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+/* Make header user tools readable (top-right links) */
+#user-tools, #user-tools a {
+  color: var(--ce-text) !important;
+}
+
+/* Your nice admin tiles */
+.ce-admin-wrap {
+  padding: 22px;
+}
+.ce-admin-card {
+  max-width: 980px;
+  background: #fff;
+  border: 1px solid var(--ce-border);
+  border-radius: 16px;
+  padding: 18px;
+}
+.ce-admin-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0,1fr));
+  gap: 14px;
+}
+.ce-admin-tile {
+  display: block;
+  text-decoration: none;
+  border: 1px solid var(--ce-border);
+  border-radius: 14px;
+  padding: 14px;
+  background: linear-gradient(180deg, rgba(254,227,227,0.35), rgba(255,255,255,0.0));
+}
+.ce-admin-tile:hover {
+  border-color: rgba(34,52,19,0.35);
+}
+.ce-admin-tile-title {
+  font-weight: 800;
+  color: var(--ce-green) !important;
+}
+.ce-admin-tile-sub {
+  margin-top: 6px;
+  color: var(--ce-muted) !important;
+  font-size: 13px;
+}
+
+/* Mobile */
+@media (max-width: 900px) {
+  .ce-admin-grid { grid-template-columns: 1fr; }
+  .ce-admin-logo { height: 40px; max-width: 200px; }
+}
+/* Collapsible filters */
+.ce-filter {
+  border: 1px solid rgba(0,0,0,0.08);
+  border-radius: 14px;
+  padding: 10px 12px;
+  background: #fff;
+  margin-bottom: 14px;
+}
+
+.ce-filter__summary {
+  cursor: pointer;
+  font-weight: 800;
+  color: #111;
+  list-style: none;
+}
+
+.ce-filter__summary::-webkit-details-marker {
+  display: none;
+}
+
+/* little chevron */
+.ce-filter__summary::after {
+  content: "▾";
+  float: right;
+  opacity: 0.6;
+}
+
+.ce-filter[closed] .ce-filter__summary::after {
+  content: "▴";
+}
+
+.ce-filter__body {
+  margin-top: 10px;
+}

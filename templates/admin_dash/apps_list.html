@@ -1,0 +1,20 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+<div class="ce-admin-wrap">
+  <div class="ce-admin-card">
+    <h1 style="margin:0 0 12px 0; font-weight:800;">Applications</h1>
+
+    <div class="ce-admin-grid">
+      {% for f in forms %}
+        <a class="ce-admin-tile" href="/admin/apps/forms/{{ f.id }}/">
+          <div class="ce-admin-tile-title">{{ f.name }}</div>
+          <div class="ce-admin-tile-sub">{{ f.slug }}</div>
+        </a>
+      {% empty %}
+        <p>No forms yet. Create FormDefinitions in Django admin.</p>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endblock %}

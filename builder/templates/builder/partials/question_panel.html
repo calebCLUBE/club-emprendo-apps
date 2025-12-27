@@ -1,0 +1,40 @@
+<h2 style="margin-top:0;">Editar pregunta</h2>
+
+<form hx-post="{% url 'builder:question_update' q.id %}"
+      hx-target="#save-status"
+      hx-swap="innerHTML">
+  {% csrf_token %}
+
+  <label class="ce-label">Texto</label>
+  <input class="ce-input" name="text" value="{{ q.text }}" />
+
+  <label class="ce-label" style="margin-top:12px;">Slug</label>
+  <input class="ce-input" name="slug" value="{{ q.slug }}" />
+
+  <label class="ce-label" style="margin-top:12px;">Tipo</label>
+  <select class="ce-input" name="field_type">
+    <option value="short_text" {% if q.field_type == "short_text" %}selected{% endif %}>Texto corto</option>
+    <option value="long_text" {% if q.field_type == "long_text" %}selected{% endif %}>Texto largo</option>
+    <option value="single_choice" {% if q.field_type == "single_choice" %}selected{% endif %}>Opción múltiple</option>
+    <option value="multi_choice" {% if q.field_type == "multi_choice" %}selected{% endif %}>Casillas</option>
+  </select>
+
+  <div style="display:flex; gap:16px; margin-top:12px;">
+    <label><input type="checkbox" name="required" {% if q.required %}checked{% endif %}/> Requerida</label>
+    <label><input type="checkbox" name="active" {% if q.active %}checked{% endif %}/> Activa</label>
+  </div>
+
+  <div style="display:flex; gap:10px; margin-top:16px;">
+    <button class="ce-btn" type="submit">Guardar</button>
+
+    <button class="ce-btn ce-btn-danger"
+            type="button"
+            hx-post="{% url 'builder:question_delete' q.id %}"
+            hx-target="#question-list"
+            hx-swap="innerHTML">
+      Eliminar
+    </button>
+  </div>
+</form>
+
+<div id="save-status" class="ce-muted" style="margin-top:10px;"></div>

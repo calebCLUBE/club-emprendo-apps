@@ -1,0 +1,46 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+<div class="ce-admin-wrap">
+  <div class="ce-admin-card">
+    <h1 style="margin:0 0 6px 0; font-weight:800;">{{ form_def.name }}</h1>
+    <p style="margin:0 0 16px 0; color:#444;">Slug: {{ form_def.slug }}</p>
+
+    <div class="ce-admin-grid" style="grid-template-columns: repeat(2, minmax(0,1fr));">
+      <a class="ce-admin-tile" href="/apply/{% if form_def.slug|slice:":1" == "E" %}emprendedora{% else %}mentora{% endif %}/">
+        <div class="ce-admin-tile-title">Preview application</div>
+        <div class="ce-admin-tile-sub">Open the public page</div>
+      </a>
+
+      <a class="ce-admin-tile" href="/builder/">
+        <div class="ce-admin-tile-title">Edit application</div>
+        <div class="ce-admin-tile-sub">Open the form builder</div>
+      </a>
+
+      <a class="ce-admin-tile" href="#">
+        <div class="ce-admin-tile-title">Responder link</div>
+        <div class="ce-admin-tile-sub">Token-based invite link (we’ll wire this next)</div>
+      </a>
+
+      <a class="ce-admin-tile" href="#">
+        <div class="ce-admin-tile-title">Submission files</div>
+        <div class="ce-admin-tile-sub">Export CSV (we’ll wire this next)</div>
+      </a>
+    </div>
+
+    <hr style="margin:18px 0; border:none; border-top:1px solid rgba(0,0,0,0.08);">
+
+    <h2 style="margin:0 0 10px 0; font-size:16px; font-weight:800;">Submissions</h2>
+    <ul style="margin:0; padding-left:16px;">
+      {% for s in submissions %}
+        <li>
+          <a href="/admin/submissions/{{ s.id }}/">{{ s.name }}</a>
+          — {{ s.email }} — {{ s.created_at }}
+        </li>
+      {% empty %}
+        <li>No submissions yet for this application.</li>
+      {% endfor %}
+    </ul>
+  </div>
+</div>
+{% endblock %}

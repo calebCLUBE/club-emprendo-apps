@@ -1,0 +1,334 @@
+/* ===============================
+   Club Emprendo – Global Styles
+   =============================== */
+
+/* Color palette */
+:root {
+  --ce-pink: #ffd1d1;
+  --ce-soft-pink: #f6dad9;
+  --ce-deep-green: #163108;
+  --ce-muted-green: #889480;
+  --ce-bg: #fcfbfa;
+  --ce-white: #ffffff;
+
+  --ce-radius-lg: 18px;
+  --ce-radius-md: 12px;
+  --ce-radius-sm: 8px;
+
+  --ce-shadow-soft: 0 10px 30px rgba(0, 0, 0, 0.06);
+}
+
+/* Reset-ish */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  background-color: var(--ce-bg);
+  color: #222;
+  line-height: 1.5;
+}
+
+/* You’ll get the full Aileron look once you add the font file yourself */
+h1,
+h2,
+h3,
+h4,
+.ce-heading {
+  font-family: "Aileron", system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", sans-serif;
+}
+
+/* Layout */
+.ce-page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.ce-main {
+  flex: 1;
+}
+
+/* Top bar */
+.ce-header {
+    padding: 1.25rem 2rem 1rem;
+    display: flex;
+    justify-content: flex-start;
+    align-items: flex-start;
+    background: var(--ce-white);
+    border-bottom: 1px solid rgba(0,0,0,0.05);
+  }
+  
+  
+  .ce-header-inner {
+    width: 100%;
+    max-width: 1120px;              /* a bit wider for a more open feel */
+    margin: 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+/* Branding block */
+.ce-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.ce-logo {
+    display: flex;
+    align-items: center;
+  }
+  
+  .ce-logo img {
+    width: 140px;     /* adjust size here */
+    height: auto;
+    display: block;
+  }
+  
+.ce-brand-name {
+    font-size: 1.2rem;     /* was 1.1rem */
+    font-weight: 800;
+    color: var(--ce-deep-green);
+    letter-spacing: 0.03em;
+  }
+  
+
+.ce-brand-text {
+  display: flex;
+  flex-direction: column;
+}
+
+.ce-brand-name {
+  font-size: 1.1rem;
+  font-weight: 800;
+  color: var(--ce-deep-green);
+  letter-spacing: 0.03em;
+}
+
+.ce-brand-tagline {
+  font-size: 0.75rem;
+  color: var(--ce-muted-green);
+}
+
+/* Role chips (top-right) */
+.ce-role-chips {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.ce-chip {
+  border-radius: 999px;
+  padding: 0.25rem 0.9rem;
+  font-size: 0.75rem;
+  border: 1px solid rgba(0, 0, 0, 0.05);
+  background: var(--ce-soft-pink);
+  color: var(--ce-deep-green);
+  font-weight: 600;
+}
+
+/* Main content area */
+.ce-container {
+    width: 100%;
+    max-width: 960px;
+    margin: 2.25rem auto 2.75rem;  /* more space under header */
+    padding: 0 1.25rem;
+  }
+  
+  
+
+/* Card */
+.ce-card {
+  background: var(--ce-white);
+  border-radius: 24px;
+  box-shadow: var(--ce-shadow-soft);
+  padding: 2.25rem 2.5rem;
+  border: 1px solid rgba(0, 0, 0, 0.03);
+}
+
+@media (max-width: 768px) {
+  .ce-card {
+    padding: 1.5rem 1.25rem;
+  }
+}
+
+/* Form header inside card */
+.ce-form-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-bottom: 1.75rem;
+}
+
+.ce-form-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.78rem;
+  padding: 0.25rem 0.8rem;
+  border-radius: 999px;
+  background: var(--ce-soft-pink);
+  color: var(--ce-deep-green);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.ce-form-title {
+  font-size: 1.5rem;
+  margin: 0;
+}
+
+.ce-form-subtitle {
+  font-size: 0.9rem;
+  color: #666;
+  margin: 0;
+}
+
+/* Form fields */
+form {
+  margin: 0;
+}
+
+.form-row {
+  margin-bottom: 1.1rem;
+}
+
+.form-row label {
+  display: block;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--ce-deep-green);
+  margin-bottom: 0.35rem;
+}
+
+.form-help {
+  display: block;
+  font-size: 0.78rem;
+  color: #777;
+  margin-bottom: 0.4rem;
+}
+
+/* Django default widgets: inputs, textareas, selects, radios, checkboxes */
+input[type="text"],
+input[type="email"],
+input[type="number"],
+input[type="tel"],
+textarea,
+select {
+  width: 100%;
+  border-radius: var(--ce-radius-md);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  padding: 0.5rem 0.7rem;
+  font-size: 0.9rem;
+  font-family: inherit;
+  background-color: #fff;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease,
+    background-color 0.15s ease;
+}
+
+textarea {
+  min-height: 110px;
+  resize: vertical;
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  outline: none;
+  border-color: var(--ce-deep-green);
+  box-shadow: 0 0 0 2px rgba(22, 49, 8, 0.12);
+}
+
+/* Radio & checkbox groups */
+.form-row ul {
+  list-style: none;
+  margin: 0.15rem 0 0;
+  padding: 0;
+}
+
+.form-row ul li {
+  margin-bottom: 0.2rem;
+}
+
+.form-row input[type="radio"],
+.form-row input[type="checkbox"] {
+  margin-right: 0.4rem;
+}
+
+/* Required indicator */
+label.required::after {
+  content: " *";
+  color: #d14b4b;
+}
+
+/* Buttons */
+.ce-actions {
+  margin-top: 1.5rem;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.ce-button-primary {
+  border: none;
+  border-radius: 999px;
+  padding: 0.55rem 1.6rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+  background: var(--ce-deep-green);
+  color: var(--ce-pink);
+  box-shadow: 0 8px 20px rgba(22, 49, 8, 0.25);
+  transition: transform 0.12s ease, box-shadow 0.12s ease,
+    background-color 0.12s ease;
+}
+
+.ce-button-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 24px rgba(22, 49, 8, 0.28);
+}
+
+.ce-button-primary:active {
+  transform: translateY(0);
+  box-shadow: 0 6px 14px rgba(22, 49, 8, 0.22);
+}
+
+/* Alert / info box */
+.ce-alert {
+  border-radius: var(--ce-radius-md);
+  background: var(--ce-soft-pink);
+  color: var(--ce-deep-green);
+  padding: 0.75rem 0.9rem;
+  font-size: 0.82rem;
+  margin-bottom: 1.2rem;
+}
+
+/* Thanks page */
+.ce-thanks {
+  text-align: center;
+}
+
+.ce-thanks h1 {
+  margin-bottom: 0.75rem;
+}
+
+.ce-thanks p {
+  max-width: 420px;
+  margin: 0.25rem auto 0;
+  color: #555;
+}
+
+/* Footer */
+.ce-footer {
+  padding: 1rem 1.5rem 1.4rem;
+  font-size: 0.78rem;
+  color: #999;
+  text-align: center;
+}

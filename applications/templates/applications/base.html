@@ -1,0 +1,57 @@
+{% load static %}
+
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <title>{% block title %}Club Emprendo{% endblock %}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link
+      rel="stylesheet"
+      href="{% static 'applications/css/styles.css' %}"
+    />
+  </head>
+  <body>
+    <div class="ce-page">
+      <header class="ce-header">
+        <div class="ce-header-inner">
+          <div class="ce-brand">
+            <div class="ce-logo">
+              <img
+                src="{% static 'applications/img/logo.png' %}"
+                alt="Club Emprendo"
+              />
+            </div>
+            <div class="ce-brand-text">
+              <span class="ce-brand-name">Club Emprendo</span>
+              <span class="ce-brand-tagline"
+                >Mentorías para emprendedoras latinoamericanas</span
+              >
+            </div>
+          </div>
+
+          <div class="ce-role-chips">
+            {% block role_chips %}
+            <!-- Default chips, can be overridden -->
+            <span class="ce-chip">Emprendedoras</span>
+            <span class="ce-chip">Mentoras</span>
+            {% endblock %}
+          </div>
+        </div>
+      </header>
+
+      <main class="ce-main">
+        <div class="ce-container">
+          <div class="ce-card">
+            {% block content %}{% endblock %}
+          </div>
+        </div>
+      </main>
+
+      <footer class="ce-footer">
+        © {{ now|date:"Y" }} Club Emprendo · Construyendo redes de apoyo para
+        emprendedoras.
+      </footer>
+    </div>
+  </body>
+</html>

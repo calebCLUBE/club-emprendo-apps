@@ -1,0 +1,18 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<div class="ce-admin-wrap">
+  <div class="ce-admin-card">
+    <h1 style="margin:0 0 12px 0; font-weight:800;">All submissions</h1>
+    <ul style="margin:0; padding-left:16px;">
+      {% for a in applications %}
+        <li>
+          <a href="/admin/submissions/{{ a.id }}/">{{ a.form.slug }}</a>
+          — {{ a.name }} — {{ a.email }} — {{ a.created_at }}
+        </li>
+      {% empty %}
+        <li>No submissions yet.</li>
+      {% endfor %}
+    </ul>
+  </div>
+</div>
+{% endblock %}

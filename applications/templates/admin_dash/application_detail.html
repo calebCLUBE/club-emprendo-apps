@@ -1,0 +1,37 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+<div class="ce-admin-wrap">
+  <div class="ce-admin-card">
+    <h1 class="ce-heading">{{ form_def.name }}</h1>
+    <p class="ce-muted">{{ form_def.slug }}</p>
+
+    <div class="ce-admin-grid" style="margin-top: 16px;">
+      <a class="ce-admin-tile" href="/apply/{{ form_def.slug|lower|cut:'_' }}/">
+        <div class="ce-admin-tile-title">Preview application</div>
+        <div class="ce-admin-tile-sub">Open a preview in a new tab</div>
+      </a>
+
+      <a class="ce-admin-tile" href="/builder/forms/{{ form_def.id }}/">
+        <div class="ce-admin-tile-title">Edit application</div>
+        <div class="ce-admin-tile-sub">Google-Forms-style editor</div>
+      </a>
+
+      <a class="ce-admin-tile" href="#">
+        <div class="ce-admin-tile-title">Application responder link</div>
+        <div class="ce-admin-tile-sub">Public link for applicants (we’ll wire this)</div>
+      </a>
+
+      <a class="ce-admin-tile" href="#">
+        <div class="ce-admin-tile-title">Submission files (CSV)</div>
+        <div class="ce-admin-tile-sub">Download merged CSV (we’ll wire this)</div>
+      </a>
+
+      <a class="ce-admin-tile" href="#">
+        <div class="ce-admin-tile-title">Duplicate & rename</div>
+        <div class="ce-admin-tile-sub">Clone this application for new groups</div>
+      </a>
+    </div>
+  </div>
+</div>
+{% endblock %}

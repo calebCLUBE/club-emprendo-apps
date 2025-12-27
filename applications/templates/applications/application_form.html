@@ -1,0 +1,78 @@
+{% extends "applications/base.html" %}
+
+{% block title %}{{ form_def.name }} · Club Emprendo{% endblock %}
+
+{% block role_chips %}
+  {% if form_def.slug|slice:":1" == "E" %}
+    <span class="ce-chip">Emprendedoras</span>
+  {% elif form_def.slug|slice:":1" == "M" %}
+    <span class="ce-chip">Mentoras</span>
+  {% else %}
+    {{ block.super }}
+  {% endif %}
+{% endblock %}
+
+{% block content %}
+  <div class="ce-form-header">
+    <span class="ce-form-pill">
+        {% if second_stage %}
+          Paso 2 · Aplicación detallada
+        {% else %}
+          Paso 1 · Aplicación inicial
+        {% endif %}
+      </span>
+
+    <h1 class="ce-form-title ce-heading">{{ form_def.name }}</h1>
+
+    <p class="ce-form-subtitle">
+      {% if second_stage %}
+        Esta es la segunda parte del proceso de selección. Tómate tu tiempo para
+        responder con calma; tus respuestas nos ayudan a conectar mejor mentoras
+        y emprendedoras.
+      {% else %}
+        Cuéntanos un poco sobre ti y confirma si cumples con los requisitos del
+        programa.
+      {% endif %}
+    </p>
+  </div>
+
+  {% if second_stage %}
+    <div class="ce-alert">
+      Tus datos básicos (nombre y correo) ya están registrados de la primera
+      aplicación. Aquí nos enfocamos en conocer mejor tu experiencia,
+      motivación y disponibilidad.
+    </div>
+  {% endif %}
+
+  <form method="post">
+    {% csrf_token %}
+
+    {# Render each field with our own markup instead of form.as_p #}
+    {% for field in form %}
+      <div class="form-row">
+        <label
+          {% if field.field.required %}class="required"{% endif %}
+          for="{{ field.id_for_label }}"
+        >
+          {{ field.label }}
+        </label>
+
+        {% if field.help_text %}
+          <span class="form-help">{{ field.help_text }}</span>
+        {% endif %}
+
+        {{ field }}
+
+        {% if field.errors %}
+          <span class="form-help" style="color:#d14b4b;">
+            {{ field.errors|striptags }}
+          </span>
+        {% endif %}
+      </div>
+    {% endfor %}
+
+    <div class="ce-actions">
+      <button type="submit" class="ce-button-primary">Enviar aplicación</button>
+    </div>
+  </form>
+{% endblock %}

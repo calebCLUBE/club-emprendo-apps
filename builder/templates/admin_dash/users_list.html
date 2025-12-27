@@ -1,0 +1,27 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+  <div class="ce-admin-wrap">
+    <div class="ce-admin-card">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <h1 class="ce-heading">Admin users</h1>
+        <a class="ce-btn" href="{% url 'admin_user_add' %}">Add user</a>
+      </div>
+      <p class="ce-muted">Passwords are not viewable (Django stores hashes). Use setup/reset links instead.</p>
+
+      <div class="ce-admin-list">
+        {% for u in users %}
+          <div class="ce-admin-row" style="cursor:default;">
+            <div>
+              <div class="ce-admin-row-title">{{ u.get_full_name|default:u.username }}</div>
+              <div class="ce-admin-row-sub">{{ u.email }} · staff: {{ u.is_staff }} · active: {{ u.is_active }}</div>
+            </div>
+            <div class="ce-pill">ID {{ u.id }}</div>
+          </div>
+        {% empty %}
+          <div class="ce-muted">No users.</div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+{% endblock %}

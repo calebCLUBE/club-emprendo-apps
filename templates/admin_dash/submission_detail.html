@@ -1,0 +1,13 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<div class="ce-admin-wrap">
+  <div class="ce-admin-card">
+    <h1 style="margin:0 0 6px 0; font-weight:800;">Submission</h1>
+    <p style="margin:0 0 14px 0; color:#444;">{{ app.form.slug }} — {{ app.name }} — {{ app.email }}</p>
+
+    <p><strong>Created:</strong> {{ app.created_at }}</p>
+
+    <p style="color:#444;">(Next: show answers here in a clean table.)</p>
+  </div>
+</div>
+{% endblock %}

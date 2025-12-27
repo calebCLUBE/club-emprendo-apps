@@ -1,0 +1,24 @@
+{# templates/admin/base_site.html #}
+{% extends "admin/base.html" %}
+{% load static %}
+
+{% block extrahead %}
+  {{ block.super }}
+  <link rel="stylesheet" href="{% static 'ce-admin.css' %}">
+{% endblock %}
+
+{% block branding %}
+  <div class="ce-admin-brand">
+    <a class="ce-admin-brand-link" href="/admin/">
+      <img
+        class="ce-admin-logo"
+        src="{% static 'brand/club-emprendo-logo.png' %}"
+        alt="Club Emprendo"
+      />
+    </a>
+    <div class="ce-admin-brand-text">
+      <div class="ce-admin-title">Club Emprendo</div>
+      <div class="ce-admin-subtitle">Admin</div>
+    </div>
+  </div>
+{% endblock %}

@@ -1,0 +1,57 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+  <div class="ce-admin-wrap">
+    <div class="ce-admin-card">
+      <h1 class="ce-heading">{{ form.name }}</h1>
+      <p class="ce-muted">Slug: {{ form.slug }}</p>
+
+      <div class="ce-admin-grid" style="margin-top:14px;">
+        <a class="ce-admin-tile" href="{% url 'admin_app_preview_link' form.id %}">
+          <div class="ce-admin-tile-title">Preview application</div>
+          <div class="ce-admin-tile-sub">See the form layout</div>
+        </a>
+
+        <a class="ce-admin-tile" href="{% url 'admin_app_responder_link' form.id %}">
+          <div class="ce-admin-tile-title">Application responder link</div>
+          <div class="ce-admin-tile-sub">Public link (A1 only)</div>
+        </a>
+
+        <a class="ce-admin-tile" href="/builder/form/{{ form.id }}/">
+          <div class="ce-admin-tile-title">Edit application</div>
+          <div class="ce-admin-tile-sub">Google-forms style editor</div>
+        </a>
+
+        <a class="ce-admin-tile" href="{% url 'admin_app_csv_download' form.id %}">
+          <div class="ce-admin-tile-title">Submission files (CSV)</div>
+          <div class="ce-admin-tile-sub">Always up-to-date export</div>
+        </a>
+
+        <a class="ce-admin-tile" href="{% url 'admin_app_duplicate' form.id %}">
+          <div class="ce-admin-tile-title">Duplicate & rename</div>
+          <div class="ce-admin-tile-sub">Copy this application</div>
+        </a>
+      </div>
+    </div>
+
+    <div class="ce-admin-card" style="margin-top:18px;">
+      <h2 class="ce-heading" style="font-size:18px;">Recent submissions</h2>
+
+      {% if submissions %}
+        <div class="ce-admin-list">
+          {% for s in submissions %}
+            <div class="ce-admin-row" style="cursor:default;">
+              <div>
+                <div class="ce-admin-row-title">{{ s.name }}</div>
+                <div class="ce-admin-row-sub">{{ s.email }} · {{ s.created_at }}</div>
+              </div>
+              <div class="ce-pill">ID {{ s.id }}</div>
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="ce-muted">0 submissions yet.</div>
+      {% endif %}
+    </div>
+  </div>
+{% endblock %}

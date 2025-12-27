@@ -1,0 +1,21 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+<div class="ce-admin-wrap">
+  <div class="ce-admin-card">
+    <h1 class="ce-heading">Applications</h1>
+    <p class="ce-muted">Select an application to manage it.</p>
+
+    <div class="ce-admin-grid" style="margin-top: 16px;">
+      {% for f in forms %}
+        <a class="ce-admin-tile" href="/admin/apps/{{ f.id }}/">
+          <div class="ce-admin-tile-title">{{ f.name }}</div>
+          <div class="ce-admin-tile-sub">{{ f.slug }}</div>
+        </a>
+      {% empty %}
+        <p class="ce-muted">No FormDefinitions yet. Create them in the database.</p>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endblock %}

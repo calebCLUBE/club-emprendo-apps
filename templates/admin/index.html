@@ -1,0 +1,24 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+  <div class="ce-admin-wrap">
+    <div class="ce-admin-card">
+      <div class="ce-admin-grid">
+        <a class="ce-admin-tile" href="/admin/apps/">
+          <div class="ce-admin-tile-title">Applications</div>
+          <div class="ce-admin-tile-sub">Manage application waves, links, and exports</div>
+        </a>
+
+        <a class="ce-admin-tile" href="/admin/auth/user/">
+          <div class="ce-admin-tile-title">Admin users</div>
+          <div class="ce-admin-tile-sub">Manage staff accounts</div>
+        </a>
+
+        <a class="ce-admin-tile" href="/admin/database/">
+          <div class="ce-admin-tile-title">Database</div>
+          <div class="ce-admin-tile-sub">Exports and CSV files</div>
+        </a>
+      </div>
+    </div>
+  </div>
+{% endblock %}

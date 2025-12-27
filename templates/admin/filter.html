@@ -1,0 +1,12 @@
+{% load i18n %}
+<details class="ce-filter" open>
+  <summary class="ce-filter__summary">
+    {% translate "Filters" %}
+  </summary>
+
+  <div class="ce-filter__body">
+    {% for spec in cl.filter_specs %}
+      {% admin_list_filter cl spec %}
+    {% endfor %}
+  </div>
+</details>

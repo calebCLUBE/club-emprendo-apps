@@ -1,0 +1,20 @@
+{% extends "applications/base.html" %}
+
+{% block content %}
+  <div class="ce-card">
+    <h1 class="ce-heading">Form Builder</h1>
+    <p class="ce-muted">Select a form to edit.</p>
+
+    <ul style="margin-top: 16px;">
+      {% for f in forms %}
+        <li style="margin: 10px 0;">
+          <a href="{% url 'builder:form_editor' f.id %}">
+            {{ f.slug }} — {{ f.name }}
+          </a>
+        </li>
+      {% empty %}
+        <li class="ce-muted">No FormDefinitions found yet.</li>
+      {% endfor %}
+    </ul>
+  </div>
+{% endblock %}

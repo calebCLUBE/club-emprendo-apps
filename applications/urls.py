@@ -1,5 +1,6 @@
 from django.urls import path
 from . import views
+from applications.admin_invites import invite_user
 
 urlpatterns = [
     # First applications
@@ -39,4 +40,5 @@ urlpatterns = [
     ),
 
     path("thanks/", views.application_thanks, name="application_thanks"),
+    path("admin/invite-user/<int:user_id>/", invite_user, name="admin_invite_user"),
 ]

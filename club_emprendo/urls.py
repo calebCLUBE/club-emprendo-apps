@@ -13,7 +13,7 @@ urlpatterns = [
     path("admin/submissions/", admin_views.submissions_list, name="admin_submissions_list"),
     path("admin/submissions/<int:app_id>/", admin_views.submission_detail, name="admin_submission_detail"),
     path("admin/database/", admin_views.database_home, name="admin_database"),
-
+    path("accounts/", include("django.contrib.auth.urls")),
     # Django admin
     path("admin/", admin.site.urls),
 

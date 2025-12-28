@@ -3,6 +3,7 @@ from django.utils.html import format_html
 from django.urls import reverse
 
 from .models import FormDefinition, Question, Choice, Application
+from django.contrib.auth.models import User
 
 from django.contrib import admin
 from django.contrib.auth import get_user_model
@@ -13,10 +14,74 @@ from django.utils.html import format_html
 from django.utils.crypto import get_random_string
 from django.core.mail import send_mail
 from django.conf import settings
+from django import forms
+class CEUserChangeForm(forms.ModelForm):
+    class Meta:
+        model = User
+        fields = "__all__"
 
+class CEUserCreationForm(forms.ModelForm):
+    password1 = forms.CharField(label="Password", widget=forms.PasswordInput)
+    password2 = forms.CharField(label="Password confirmation", widget=forms.PasswordInput)
+
+    class Meta:
+        model = User
+        fields = ("username", "email")
+
+    def clean_email(self):
+        email = (self.cleaned_data.get("email") or "").strip()
+        if not email:
+            raise forms.ValidationError("Email is required.")
+        if User.objects.filter(email__iexact=email).exists():
+            raise forms.ValidationError("A user with this email already exists.")
+        return email
+
+    def clean(self):
+        cleaned = super().clean()
+        if cleaned.get("password1") != cleaned.get("password2"):
+            self.add_error("password2", "Passwords do not match.")
+        return cleaned
+
+    def save(self, commit=True):
+        user = super().save(commit=False)
+        user.set_password(self.cleaned_data["password1"])
+        if commit:
+            user.save()
+        return user
+
+admin.site.unregister(User)
+
+@admin.register(User)
+class CEUserAdmin(DjangoUserAdmin):
+    add_form = CEUserCreationForm
+    form = CEUserChangeForm
+
+    add_fieldsets = (
+        (None, {"classes": ("wide",), "fields": ("username", "email", "password1", "password2")}),
+    )
+
+    fieldsets = (
+        (None, {"fields": ("username", "password")}),
+        ("Personal info", {"fields": ("first_name", "last_name", "email")}),
+        ("Permissions", {"fields": ("is_active", "is_staff", "is_superuser", "groups", "user_permissions")}),
+        ("Important dates", {"fields": ("last_login", "date_joined")}),
+    )
+
+    list_display = ("username", "email", "is_staff", "is_active")
 User = get_user_model()
 
+admin.site.unregister(User)
 
+@admin.register(User)
+class CEUserAdmin(admin.ModelAdmin):
+    list_display = ("username", "email", "is_staff", "invite_link")
+    search_fields = ("username", "email")
+
+    def invite_link(self, obj):
+        url = reverse("admin_invite_user", args=[obj.pk])
+        return format_html('<a class="button" href="{}">Send invite</a>', url)
+
+    invite_link.short_description = "Invite"
 # Unregister default admin (Django registers it automatically)
 try:
     admin.site.unregister(User)

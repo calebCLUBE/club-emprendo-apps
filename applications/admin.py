@@ -1,152 +1,11 @@
+# applications/admin.py
+
 from django.contrib import admin
-from django.utils.html import format_html
 from django.urls import reverse
+from django.utils.html import format_html
 
 from .models import FormDefinition, Question, Choice, Application
-from django.contrib.auth.models import User
 
-from django.contrib import admin
-from django.contrib.auth import get_user_model
-from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
-from django.contrib.auth.forms import AdminPasswordChangeForm
-from django.urls import path, reverse
-from django.utils.html import format_html
-from django.utils.crypto import get_random_string
-from django.core.mail import send_mail
-from django.conf import settings
-from django import forms
-class CEUserChangeForm(forms.ModelForm):
-    class Meta:
-        model = User
-        fields = "__all__"
-
-class CEUserCreationForm(forms.ModelForm):
-    password1 = forms.CharField(label="Password", widget=forms.PasswordInput)
-    password2 = forms.CharField(label="Password confirmation", widget=forms.PasswordInput)
-
-    class Meta:
-        model = User
-        fields = ("username", "email")
-
-    def clean_email(self):
-        email = (self.cleaned_data.get("email") or "").strip()
-        if not email:
-            raise forms.ValidationError("Email is required.")
-        if User.objects.filter(email__iexact=email).exists():
-            raise forms.ValidationError("A user with this email already exists.")
-        return email
-
-    def clean(self):
-        cleaned = super().clean()
-        if cleaned.get("password1") != cleaned.get("password2"):
-            self.add_error("password2", "Passwords do not match.")
-        return cleaned
-
-    def save(self, commit=True):
-        user = super().save(commit=False)
-        user.set_password(self.cleaned_data["password1"])
-        if commit:
-            user.save()
-        return user
-
-admin.site.unregister(User)
-
-@admin.register(User)
-class CEUserAdmin(DjangoUserAdmin):
-    add_form = CEUserCreationForm
-    form = CEUserChangeForm
-
-    add_fieldsets = (
-        (None, {"classes": ("wide",), "fields": ("username", "email", "password1", "password2")}),
-    )
-
-    fieldsets = (
-        (None, {"fields": ("username", "password")}),
-        ("Personal info", {"fields": ("first_name", "last_name", "email")}),
-        ("Permissions", {"fields": ("is_active", "is_staff", "is_superuser", "groups", "user_permissions")}),
-        ("Important dates", {"fields": ("last_login", "date_joined")}),
-    )
-
-    list_display = ("username", "email", "is_staff", "is_active")
-User = get_user_model()
-
-admin.site.unregister(User)
-
-@admin.register(User)
-class CEUserAdmin(admin.ModelAdmin):
-    list_display = ("username", "email", "is_staff", "invite_link")
-    search_fields = ("username", "email")
-
-    def invite_link(self, obj):
-        url = reverse("admin_invite_user", args=[obj.pk])
-        return format_html('<a class="button" href="{}">Send invite</a>', url)
-
-    invite_link.short_description = "Invite"
-# Unregister default admin (Django registers it automatically)
-try:
-    admin.site.unregister(User)
-except admin.sites.NotRegistered:
-    pass
-
-
-@admin.register(User)
-class UserAdmin(DjangoUserAdmin):
-    """
-    Custom User admin:
-    - cleaner list display
-    - optional "Invite user" flow (email them a password-setup link)
-    """
-
-    list_display = ("username", "email", "is_staff", "is_active", "last_login", "invite_link")
-    list_filter = ("is_staff", "is_superuser", "is_active")
-    search_fields = ("username", "email", "first_name", "last_name")
-    ordering = ("email",)
-
-    def invite_link(self, obj):
-        # only show if user has an email
-        if not obj.email:
-            return "-"
-        url = reverse("admin:auth_user_password_change", args=[obj.pk])
-        return format_html('<a class="button" href="{}">Set/Reset password</a>', url)
-
-    invite_link.short_description = "Password"
-
-    # Optional: add a bulk action that emails a reset link
-    actions = ["send_password_setup_email"]
-
-    def send_password_setup_email(self, request, queryset):
-        """
-        Sends password setup instructions.
-        This uses Django’s "password reset" flow (recommended), not plain passwords.
-        """
-        sent = 0
-        for user in queryset:
-            if not user.email:
-                continue
-
-            # Create a one-time password reset link using Django’s built-in mechanism:
-            # We don’t generate it manually here; easiest is to point them to the reset page.
-            # (If you want a direct tokenized link, we can implement it next.)
-            reset_url = request.build_absolute_uri(reverse("admin:password_reset"))
-            subject = "Set up your Club Emprendo admin password"
-            message = (
-                f"Hi {user.get_full_name() or user.username},\n\n"
-                f"Please set your password using this link:\n{reset_url}\n\n"
-                f"Use your email address ({user.email}).\n"
-            )
-
-            send_mail(
-                subject,
-                message,
-                getattr(settings, "DEFAULT_FROM_EMAIL", "no-reply@clubemprendo.org"),
-                [user.email],
-                fail_silently=False,
-            )
-            sent += 1
-
-        self.message_user(request, f"Sent {sent} password setup email(s).")
-
-    send_password_setup_email.short_description = "Send password setup email"
 
 # ---------- FormDefinition admin (with Preview button) ----------
 
@@ -158,12 +17,9 @@ class FormDefinitionAdmin(admin.ModelAdmin):
     """
     list_display = ("__str__", "slug", "preview_link")
     search_fields = ("slug", "name")
-    readonly_fields = ("preview_link",)  # also show in the detail page
+    readonly_fields = ("preview_link",)
 
     def preview_link(self, obj):
-        """
-        Map each slug to the correct public/preview URL.
-        """
         slug = getattr(obj, "slug", None)
         if not slug:
             return "-"
@@ -185,24 +41,20 @@ class FormDefinitionAdmin(admin.ModelAdmin):
             return "-"
 
         return format_html(
-            '<a href="{}" target="_blank" '
-            'style="padding:4px 10px; '
-            'background:#163108; color:white; '
-            'border-radius:6px; text-decoration:none; '
-            'font-size:12px; font-weight:600;">'
-            'Preview</a>',
+            '<a href="{}" target="_blank" class="button">Preview</a>',
             url,
         )
 
     preview_link.short_description = "Preview"
 
 
-# ---------- Very simple admin for the other models ----------
+# ---------- Question / Choice / Application admins ----------
 
 @admin.register(Question)
 class QuestionAdmin(admin.ModelAdmin):
-    list_display = ("id", "__str__")
-    search_fields = ("id",)
+    list_display = ("id", "__str__", "active")
+    list_filter = ("active",)
+    search_fields = ("id", "slug", "text")
 
 
 @admin.register(Choice)
@@ -213,5 +65,7 @@ class ChoiceAdmin(admin.ModelAdmin):
 
 @admin.register(Application)
 class ApplicationAdmin(admin.ModelAdmin):
-    list_display = ("id", "__str__")
-    search_fields = ("id",)
+    list_display = ("id", "form", "name", "email", "created_at")
+    list_filter = ("form",)
+    search_fields = ("id", "name", "email")
+    ordering = ("-created_at",)

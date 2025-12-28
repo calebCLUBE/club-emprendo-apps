@@ -20,4 +20,5 @@ urlpatterns = [
     # Public site routes
     path("", include("applications.urls")),
     path("builder/", include("builder.urls")),
+    path("accounts/", include("django.contrib.auth.urls")),
 ]

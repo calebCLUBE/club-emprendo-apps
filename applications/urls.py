@@ -1,9 +1,9 @@
 from django.urls import path
 from . import views
-from applications.admin_invites import invite_user
 
 urlpatterns = [
-    # First applications
+    # ---------- FIRST STAGE (PUBLIC) ----------
+
     path(
         "apply/emprendedora/",
         views.apply_emprendedora_first,
@@ -15,7 +15,8 @@ urlpatterns = [
         name="apply_mentora_first",
     ),
 
-    # Second applications – preview (no token)
+    # ---------- SECOND STAGE (PREVIEW – NO TOKEN) ----------
+
     path(
         "apply/emprendedora/continue/preview/",
         views.apply_emprendedora_second_preview,
@@ -27,7 +28,8 @@ urlpatterns = [
         name="preview_mentora_second",
     ),
 
-    # Second applications – real (with token)
+    # ---------- SECOND STAGE (REAL – TOKEN REQUIRED) ----------
+
     path(
         "apply/emprendedora/continue/<uuid:token>/",
         views.apply_emprendedora_second,
@@ -39,6 +41,7 @@ urlpatterns = [
         name="apply_mentora_second",
     ),
 
+    # ---------- THANK YOU ----------
+
     path("thanks/", views.application_thanks, name="application_thanks"),
-    path("admin/invite-user/<int:user_id>/", invite_user, name="admin_invite_user"),
 ]

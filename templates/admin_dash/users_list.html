@@ -1,0 +1,36 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<div class="ce-admin-wrap">
+  <div class="ce-admin-card">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;">
+      <h1 class="ce-heading">Admin users</h1>
+      <a class="ce-btn" href="{% url 'admin_users_invite' %}">Invite user</a>
+    </div>
+
+    <table class="ce-table" style="width:100%;margin-top:16px;">
+      <thead>
+        <tr>
+          <th>Email</th>
+          <th>Name</th>
+          <th>Staff</th>
+          <th>Superuser</th>
+          <th>Last login</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for u in users %}
+        <tr>
+          <td>{{ u.email|default:u.username }}</td>
+          <td>{{ u.first_name }} {{ u.last_name }}</td>
+          <td>{{ u.is_staff }}</td>
+          <td>{{ u.is_superuser }}</td>
+          <td>{{ u.last_login|default:"—" }}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="5">No users found.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

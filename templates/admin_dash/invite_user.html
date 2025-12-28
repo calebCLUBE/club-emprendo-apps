@@ -1,0 +1,16 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<div class="ce-admin-wrap">
+  <div class="ce-admin-card">
+    <h1 class="ce-heading">Invite user</h1>
+    <p class="ce-muted">Enter email and name. They’ll receive a link to set their password.</p>
+
+    <form method="post" style="margin-top:16px;">
+      {% csrf_token %}
+      {{ form.as_p }}
+      <button class="ce-btn" type="submit">Send invite</button>
+      <a class="ce-btn ce-btn--ghost" href="{% url 'admin_users_list' %}">Cancel</a>
+    </form>
+  </div>
+</div>
+{% endblock %}

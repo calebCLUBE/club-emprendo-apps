@@ -1,20 +1,44 @@
 {% extends "admin/base_site.html" %}
+{% load static %}
 
 {% block content %}
-<div class="ce-admin-wrap">
-  <div class="ce-admin-card">
-    <h1 style="margin:0 0 12px 0; font-weight:800;">Applications</h1>
+  <div class="ce-admin-wrap">
+    <h1>Master Applications</h1>
 
-    <div class="ce-admin-grid">
-      {% for f in forms %}
-        <a class="ce-admin-tile" href="/admin/apps/forms/{{ f.id }}/">
-          <div class="ce-admin-tile-title">{{ f.name }}</div>
-          <div class="ce-admin-tile-sub">{{ f.slug }}</div>
+    <div style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:24px;">
+      {% for fd in masters %}
+        <a class="ce-admin-tile" href="/admin/applications/formdefinition/{{ fd.id }}/change/">
+          <div class="ce-admin-tile-title">{{ fd.slug }}</div>
+          <div class="ce-admin-tile-sub">{{ fd.name }}</div>
         </a>
       {% empty %}
-        <p>No forms yet. Create FormDefinitions in Django admin.</p>
+        <p>No master forms found yet.</p>
       {% endfor %}
     </div>
+
+    <hr style="margin:24px 0;"/>
+
+    <h2>Groups</h2>
+
+    <form method="post" action="{% url 'admin_create_group' %}" style="margin: 12px 0 18px;">
+      {% csrf_token %}
+      <label>Create new group:</label>
+      <input name="group_num" placeholder="6" style="width:80px; margin:0 8px;" />
+      <button class="button" type="submit">Create Group</button>
+    </form>
+
+    {% for gnum, items in group_list %}
+      <h3>Group {{ gnum }}</h3>
+      <ul>
+        {% for fd in items %}
+          <li>
+            <a href="/admin/applications/formdefinition/{{ fd.id }}/change/">{{ fd.slug }}</a>
+            — {{ fd.name }}
+          </li>
+        {% endfor %}
+      </ul>
+    {% empty %}
+      <p>No groups yet.</p>
+    {% endfor %}
   </div>
-</div>
 {% endblock %}

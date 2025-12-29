@@ -8,9 +8,9 @@
 
     <div class="ce-admin-grid" style="margin-top: 16px;">
       {% for f in forms %}
-        <a class="ce-admin-tile" href="/admin/apps/{{ f.id }}/">
-          <div class="ce-admin-tile-title">{{ f.name }}</div>
-          <div class="ce-admin-tile-sub">{{ f.slug }}</div>
+        <a class="ce-admin-tile" href="/admin/apps/">
+          <div class="ce-admin-tile-title">Applications</div>
+          <div class="ce-admin-tile-sub">Manage the application forms people can take</div>
         </a>
       {% empty %}
         <p class="ce-muted">No FormDefinitions yet. Create them in the database.</p>

@@ -44,7 +44,6 @@ CSRF_TRUSTED_ORIGINS = [
 
 # --- Apps ---
 INSTALLED_APPS = [
-    "accounts",
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -52,10 +51,9 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
 
-    "django.contrib.sites",   # ✅ add this
-
-    "builder",
+    "accounts",      # ✅ must be here
     "applications",
+    "builder",
 ]
 
 # --- Middleware ---
@@ -125,14 +123,22 @@ STORAGES = {
 }
 
 # settings.py
+# settings.py (LOCAL ONLY)
+import os
 
+import os
 
+# Email (SMTP)
+# ---------- Email (SMTP) ----------
 EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+
 EMAIL_HOST = os.getenv("EMAIL_HOST", "")
 EMAIL_PORT = int(os.getenv("EMAIL_PORT", "587"))
 EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "True") == "True"
 EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")
 EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
-DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "no-reply@clubemprendo.org")
+
+DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "contacto@clubemprendo.org")
+
 SITE_ID = 1
 AUTH_USER_MODEL = "accounts.User"

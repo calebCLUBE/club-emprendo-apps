@@ -76,3 +76,6 @@
     </div>
   </form>
 {% endblock %}
+{% if rendered_description %}
+  <div class="form-intro">{{ rendered_description|linebreaks }}</div>
+{% endif %}

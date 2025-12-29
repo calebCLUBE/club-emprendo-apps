@@ -20,12 +20,12 @@
 
     <h2>Groups</h2>
 
-    <form method="post" action="{% url 'admin_create_group' %}" style="margin: 12px 0 18px;">
-      {% csrf_token %}
-      <label>Create new group:</label>
-      <input name="group_num" placeholder="6" style="width:80px; margin:0 8px;" />
-      <button class="button" type="submit">Create Group</button>
-    </form>
+    <form method="post" action="{% url 'admin_create_group' %}">
+        {% csrf_token %}
+        {{ create_group_form.as_p }}
+        <button type="submit">Create group</button>
+      </form>
+      
 
     {% for gnum, items in group_list %}
       <h3>Group {{ gnum }}</h3>

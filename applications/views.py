@@ -17,8 +17,10 @@ def _handle_application_form(request, form_slug: str, second_stage: bool = False
                 name=form.cleaned_data["name"],
                 email=form.cleaned_data["email"],
             )
+            RESERVED_Q_SLUGS = {"name", "email", "correo", "correo_electronico", "nombre", "nombre_completo"}
 
-            for q in form_def.questions.filter(active=True):
+            for q in form_def.questions.filter(active=True).exclude(slug__in=RESERVED_Q_SLUGS):
+
                 field_name = f"q_{q.slug}"
                 value = form.cleaned_data.get(field_name)
                 # MultipleChoiceField returns a list: join into comma string

@@ -3,17 +3,49 @@ from django.db import models
 import uuid
 
 
+class FormGroup(models.Model):
+    """
+    Represents a cohort/group like 'Group 6', with dates used for #(month)/#(year) placeholders.
+    """
+    number = models.PositiveIntegerField(unique=True)
+    start_month = models.CharField(max_length=30)
+    end_month = models.CharField(max_length=30)
+    year = models.PositiveIntegerField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["number"]
+
+    def __str__(self):
+        return f"Group {self.number} ({self.start_month}–{self.end_month} {self.year})"
+
+
 class FormDefinition(models.Model):
     """
-    Logical form (E_A1, E_A2, M_A1, M_A2).
+    Logical form (E_A1, E_A2, M_A1, M_A2) or a group copy (G6_E_A1 etc).
     """
-
-    slug = models.SlugField(unique=True)  # e.g. "E_A1"
+    slug = models.SlugField(unique=True)  # e.g. "E_A1" or "G6_E_A1"
     name = models.CharField(max_length=200)
     description = models.TextField(blank=True)
+
+    # master vs group copy
+    is_master = models.BooleanField(default=False)
+
+    # if is_master=False, this can optionally point to the group it belongs to
+    group = models.ForeignKey(
+        "applications.FormGroup",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="forms",
+    )
+
     is_public = models.BooleanField(
         default=True,
-        help_text="Public forms are linked directly from the website (A1). A2 forms are private and used via invite link.",
+        help_text=(
+            "Public forms are linked directly from the website (A1). "
+            "A2 forms are private and used via invite link."
+        ),
     )
 
     def __str__(self) -> str:
@@ -24,8 +56,8 @@ class Question(models.Model):
     SHORT_TEXT = "short_text"
     LONG_TEXT = "long_text"
     INTEGER = "integer"
-    BOOLEAN = "boolean"         # single checkbox
-    CHOICE = "choice"           # single choice (radio/dropdown)
+    BOOLEAN = "boolean"            # single checkbox
+    CHOICE = "choice"              # single choice (radio/dropdown)
     MULTI_CHOICE = "multi_choice"  # multiple choice (checkbox list)
 
     FIELD_TYPES = [
@@ -42,14 +74,17 @@ class Question(models.Model):
         on_delete=models.CASCADE,
         related_name="questions",
     )
+
     text = models.CharField(max_length=255)
     help_text = models.TextField(blank=True)
     field_type = models.CharField(max_length=20, choices=FIELD_TYPES)
     required = models.BooleanField(default=True)
     position = models.PositiveIntegerField(default=0)
+
     slug = models.SlugField(
-        help_text="Stable identifier for grading (e.g. 'e2_hours_per_week')."
+        help_text="Stable identifier for grading (e.g. 'm_a1_requisitos')."
     )
+
     active = models.BooleanField(default=True)
 
     class Meta:
@@ -89,6 +124,7 @@ class Application(models.Model):
         related_name="applications",
     )
 
+    # These fields are OK to keep for now (even if you later remove them from the forms)
     name = models.CharField(max_length=200)
     email = models.EmailField()
 

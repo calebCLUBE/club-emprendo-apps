@@ -31,15 +31,12 @@ def _fill_placeholders(text: str | None, group_num: int, start_month: str, end_m
     """
     Replace placeholders like:
       #(group number), #(month) (twice), #(year)
-
-    Your copy uses #(month) twice; we fill first=start_month, second=end_month.
     """
     if not text:
         return text
 
     out = text.replace("#(group number)", str(group_num))
 
-    # first and second #(month)
     if "#(month)" in out:
         out = out.replace("#(month)", start_month, 1)
     if "#(month)" in out:
@@ -52,12 +49,10 @@ def _fill_placeholders(text: str | None, group_num: int, start_month: str, end_m
 def _clone_form(master_fd: FormDefinition, group: FormGroup) -> FormDefinition:
     """
     Clone a master FormDefinition into a specific group:
-      E_A1 -> G6_E_A1, etc.
-    Also clones Questions and Choices.
+      M_A1 -> G6_M_A1, etc.
 
-    IMPORTANT:
-    - Preserves Question.slug from master (so grading can rely on stable slugs).
-    - unique_together(form, slug) is satisfied because we're cloning into a NEW form.
+    - Preserves Question.slug from master (so grading relies on stable slugs).
+    - Sets clone.group = group, clone.is_master = False
     """
     group_num = group.number
     start_month = group.start_month
@@ -67,7 +62,6 @@ def _clone_form(master_fd: FormDefinition, group: FormGroup) -> FormDefinition:
     new_slug = f"G{group_num}_{master_fd.slug}"
     new_name = f"Grupo {group_num} — {master_fd.name}"
 
-    # If already exists, just return it (prevents duplicates)
     existing = FormDefinition.objects.filter(slug=new_slug).first()
     if existing:
         return existing
@@ -87,7 +81,6 @@ def _clone_form(master_fd: FormDefinition, group: FormGroup) -> FormDefinition:
         group=group,
     )
 
-    # Clone questions in position order
     master_questions = Question.objects.filter(form=master_fd).order_by("position", "id")
     for q in master_questions:
         q_clone = Question.objects.create(
@@ -97,11 +90,10 @@ def _clone_form(master_fd: FormDefinition, group: FormGroup) -> FormDefinition:
             field_type=q.field_type,
             required=q.required,
             position=q.position,
-            slug=q.slug,          # ✅ keep stable identifier
+            slug=q.slug,   # ✅ keep stable identifier
             active=q.active,
         )
 
-        # Clone choices
         for c in Choice.objects.filter(question=q).order_by("position", "id"):
             Choice.objects.create(
                 question=q_clone,
@@ -115,8 +107,7 @@ def _clone_form(master_fd: FormDefinition, group: FormGroup) -> FormDefinition:
 
 def _group_numbers_present_in_forms() -> set[int]:
     """
-    Defensive: sometimes you might have orphaned G#_ slugs without FormGroup.
-    This detects those so you can display them (and delete them).
+    Detect orphaned groups where FormDefinition has G#_... slugs but no FormGroup row exists.
     """
     nums: set[int] = set()
     for fd in FormDefinition.objects.exclude(slug__in=MASTER_SLUGS).only("slug"):
@@ -134,28 +125,21 @@ def apps_list(request):
     """
     /admin/apps/
 
-    Shows:
-      - Master applications
-      - Groups (from FormGroup + also any "orphan" groups detected from slugs)
-      - Create group form
-      - Delete group buttons
+    Context:
+      masters: list[FormDefinition]
+      group_list: list[(group_obj_or_int, forms_list)]
+        - group_obj_or_int is either FormGroup OR int (orphan)
     """
     masters = list(FormDefinition.objects.filter(slug__in=MASTER_SLUGS).order_by("slug"))
-
-    # Groups that truly exist
     groups = list(FormGroup.objects.order_by("number"))
 
-    # Orphan group numbers found in FormDefinition slugs, but missing FormGroup row
     orphan_nums = sorted(_group_numbers_present_in_forms() - {g.number for g in groups})
 
-    # Build group_list as list of 2-tuples: (group_obj_or_int, [forms])
     group_list: list[tuple[object, list[FormDefinition]]] = []
-
     for g in groups:
         forms_in_group = list(FormDefinition.objects.filter(group=g).order_by("slug"))
         group_list.append((g, forms_in_group))
 
-    # Also show orphan groups (no FormGroup row)
     for n in orphan_nums:
         forms_in_group = list(FormDefinition.objects.filter(slug__startswith=f"G{n}_").order_by("slug"))
         group_list.append((n, forms_in_group))
@@ -180,7 +164,7 @@ def apps_list(request):
 def create_group(request):
     """
     POST /admin/apps/create-group/
-    Creates a FormGroup and clones all masters into it.
+    Creates a FormGroup row and clones all 4 masters into that group.
     """
     form = CreateGroupForm(request.POST)
     if not form.is_valid():
@@ -191,7 +175,6 @@ def create_group(request):
     end_month = form.cleaned_data["end_month"].strip()
     year = form.cleaned_data["year"]
 
-    # If group already exists, bounce
     if FormGroup.objects.filter(number=gnum).exists():
         return redirect("admin_apps_list")
 
@@ -216,12 +199,10 @@ def create_group(request):
 @transaction.atomic
 def delete_group(request, group_num: int):
     """
-    Deletes a group and all its forms.
-    Also supports deleting orphan groups (no FormGroup row).
+    Deletes a group and all its cloned forms.
+    Supports orphan groups too.
     """
-    # Delete forms first
     FormDefinition.objects.filter(slug__startswith=f"G{group_num}_").delete()
-    # Then group record if it exists
     FormGroup.objects.filter(number=group_num).delete()
     return redirect("admin_apps_list")
 

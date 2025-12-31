@@ -1,5 +1,33 @@
+
+
 {% extends "admin/base_site.html" %}
+{% load app_extras %}
 {% block content %}
-  <h1>Database</h1>
-  <p>This is where CSV exports / merged submissions and grading will live.</p>
+  <h1>Database exports</h1>
+
+  {% for group_num, existing in group_rows %}
+    <div style="border:1px solid #ddd; padding:12px; border-radius:10px; margin:12px 0; background:#fff;">
+      <h2 style="margin:0 0 10px;">Group {{ group_num }}</h2>
+
+      <p style="margin:0 0 10px;">
+        <a class="button" href="{% url 'admin_group_zip' group_num=group_num %}">Download ZIP (all forms)</a>
+      </p>
+
+      <ul style="margin:0;">
+        {% for ms in masters %}
+          <li style="margin:6px 0;">
+            {{ ms }}
+            {% if existing.ms %}{% endif %}
+            {% if existing|get_item:ms %}
+              — <a href="{% url 'admin_group_form_csv' group_num=group_num master_slug=ms %}">Download CSV</a>
+            {% else %}
+              — <em>form not created</em>
+            {% endif %}
+          </li>
+        {% endfor %}
+      </ul>
+    </div>
+  {% empty %}
+    <p>No groups found.</p>
+  {% endfor %}
 {% endblock %}

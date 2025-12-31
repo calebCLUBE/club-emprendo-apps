@@ -1,4 +1,6 @@
 # applications/views.py
+import re
+
 from django.conf import settings
 from django.core.mail import EmailMultiAlternatives
 from django.shortcuts import render, redirect, get_object_or_404
@@ -8,44 +10,59 @@ from .forms import build_application_form
 from .models import Application, Answer, FormDefinition
 
 
+GROUP_SLUG_RE = re.compile(r"^G(?P<num>\d+)_")
+
+
 # -------------------------
-# Email helpers (Mentora A1 autograde)
+# Email helpers
 # -------------------------
 def _send_html_email(to_email: str, subject: str, html_body: str):
     msg = EmailMultiAlternatives(
         subject=subject,
         body="",
-        from_email=settings.DEFAULT_FROM_EMAIL,
+        from_email=getattr(settings, "DEFAULT_FROM_EMAIL", None),
         to=[to_email],
     )
     msg.attach_alternative(html_body, "text/html")
     msg.send(fail_silently=False)
 
 
-def _mentor_a1_autograde_and_email(app: Application):
+def _mentor_a1_autograde_and_email(request, app: Application):
     """
-    Replicates your Google Apps Script logic for M_A1:
-    - Check meets_requirements + availability_ok
-    - If both yes -> send approval email with link to M_A2 (token)
-    - Else -> send rejection email
-    Also writes app.invited_to_second_stage.
+    Replicates your Google Apps Script logic for Mentora A1 (M_A1 and G#_M_A1):
+
+    - Check answers to:
+        meets_requirements (yes/no)
+        availability_ok (yes/no)
+
+    - If both yes:
+        generate token
+        email token-link to /apply/mentora/continue/<token>/
+    - else:
+        rejection email
+
+    Also sets invited_to_second_stage flag.
     """
-    # Pull answers by slug
-    answers = {a.question.slug: (a.value or "") for a in app.answers.select_related("question").all()}
+
+    answers = {
+        a.question.slug: (a.value or "")
+        for a in app.answers.select_related("question").all()
+    }
 
     requisitos = (answers.get("meets_requirements") or "").strip().lower()
     disponibilidad = (answers.get("availability_ok") or "").strip().lower()
 
-    passes_requisitos = "yes" in requisitos  # we stored yes/no values
-    passes_disponibilidad = "yes" in disponibilidad
+    passes_requisitos = requisitos == "yes"
+    passes_disponibilidad = disponibilidad == "yes"
 
     if passes_requisitos and passes_disponibilidad:
-        # ✅ Eligible: generate token + send link
         app.generate_invite_token()
         app.invited_to_second_stage = True
         app.save()
 
-        form2_url = settings.SITE_URL.rstrip("/") + reverse("apply_mentora_second", kwargs={"token": app.invite_token})
+        form2_url = request.build_absolute_uri(
+            reverse("apply_mentora_second", kwargs={"token": app.invite_token})
+        )
 
         subject = "Siguiente paso: Completa la segunda solicitud"
         html_body = (
@@ -59,17 +76,15 @@ def _mentor_a1_autograde_and_email(app: Application):
             f'<li>Haz clic aquí: 👉 <a href="{form2_url}">Aplicación 2</a></li>'
             "<li>Lee con atención y responde cada pregunta.</li>"
             "</ol>"
-            "<p>📅 <strong>Fecha límite para completarlo:</strong> Domingo 7 de Septiembre.</p>"
-            "<p>📩 Una vez completes esta segunda aplicación, evaluaremos tu postulación y te contactaremos por correo electrónico en las próximas semanas para informarte si has sido seleccionada como mentora para este grupo. Te invitamos a estar atenta a tu bandeja de entrada.</p>"
+            "<p>📩 Una vez completes esta segunda aplicación, evaluaremos tu postulación y te contactaremos por correo electrónico en las próximas semanas para informarte si has sido seleccionada como mentora para este grupo.</p>"
             "<p>Gracias nuevamente por tu interés y compromiso con otras mujeres emprendedoras 💛</p>"
             "<p>Con cariño,<br><strong>El equipo de Club Emprendo</strong></p>"
             "</div>"
         )
-
         _send_html_email(app.email, subject, html_body)
         return
 
-    # ❌ Not eligible
+    # rejection
     app.invited_to_second_stage = False
     app.save()
 
@@ -102,7 +117,9 @@ def _mentor_a1_autograde_and_email(app: Application):
 def _handle_application_form(request, form_slug: str, second_stage: bool = False):
     """
     Creates Application + Answers for any FormDefinition.slug (master or group clone).
-    We do NOT hardcode name/email fields; we read them from question slugs.
+
+    IMPORTANT: We do NOT assume the form has top-level "name" and "email" fields.
+    We extract them from question slugs (q_full_name, q_email, etc).
     """
     form_def = get_object_or_404(FormDefinition, slug=form_slug)
     ApplicationForm = build_application_form(form_slug)
@@ -111,20 +128,19 @@ def _handle_application_form(request, form_slug: str, second_stage: bool = False
         form = ApplicationForm(request.POST)
         if form.is_valid():
             # Extract name/email from known question slugs
-            # Masters you built use: full_name + email
-            full_name = form.cleaned_data.get("q_full_name") or ""
-            email = form.cleaned_data.get("q_email") or ""
+            full_name = (form.cleaned_data.get("q_full_name") or "").strip()
+            email = (form.cleaned_data.get("q_email") or "").strip()
 
-            # Fallbacks (if you ever use different slugs later)
+            # fallback slugs if you ever rename later
             if not full_name:
-                full_name = form.cleaned_data.get("q_name") or form.cleaned_data.get("q_nombre") or ""
+                full_name = (form.cleaned_data.get("q_name") or form.cleaned_data.get("q_nombre") or "").strip()
             if not email:
-                email = form.cleaned_data.get("q_correo") or form.cleaned_data.get("q_correo_electronico") or ""
+                email = (form.cleaned_data.get("q_correo") or form.cleaned_data.get("q_correo_electronico") or "").strip()
 
             app = Application.objects.create(
                 form=form_def,
-                name=full_name.strip(),
-                email=email.strip(),
+                name=full_name,
+                email=email,
             )
 
             for q in form_def.questions.filter(active=True).order_by("position", "id"):
@@ -132,11 +148,15 @@ def _handle_application_form(request, form_slug: str, second_stage: bool = False
                 value = form.cleaned_data.get(field_name)
                 if isinstance(value, list):
                     value = ",".join(value)
-                Answer.objects.create(application=app, question=q, value=str(value or ""))
+                Answer.objects.create(
+                    application=app,
+                    question=q,
+                    value=str(value or ""),
+                )
 
-            # Mentora A1: autograde + send email with M_A2 token link
+            # ✅ Mentora A1 autograde+email
             if form_def.slug.endswith("M_A1"):
-                _mentor_a1_autograde_and_email(app)
+                _mentor_a1_autograde_and_email(request, app)
 
             return redirect("application_thanks")
     else:
@@ -158,15 +178,37 @@ def apply_mentora_first(request):
     return _handle_application_form(request, "M_A1", second_stage=False)
 
 
-# ---------- SECOND-STAGE (EMAIL LINK) ----------
+# ---------- SECOND-STAGE (TOKEN REQUIRED) ----------
 def apply_emprendedora_second(request, token):
     first_app = get_object_or_404(Application, invite_token=token)
-    return _handle_application_form(request, "E_A2", second_stage=True)
+
+    # If first stage was G#_E_A1, try to route to G#_E_A2
+    form_slug = "E_A2"
+    m = GROUP_SLUG_RE.match(first_app.form.slug or "")
+    if m:
+        gnum = m.group("num")
+        candidate = f"G{gnum}_E_A2"
+        if FormDefinition.objects.filter(slug=candidate).exists():
+            form_slug = candidate
+
+    return _handle_application_form(request, form_slug, second_stage=True)
 
 
 def apply_mentora_second(request, token):
     first_app = get_object_or_404(Application, invite_token=token)
-    return _handle_application_form(request, "M_A2", second_stage=True)
+
+    # Default to master M_A2
+    form_slug = "M_A2"
+
+    # If first stage was group like G6_M_A1, try G6_M_A2
+    m = GROUP_SLUG_RE.match(first_app.form.slug or "")
+    if m:
+        gnum = m.group("num")
+        candidate = f"G{gnum}_M_A2"
+        if FormDefinition.objects.filter(slug=candidate).exists():
+            form_slug = candidate
+
+    return _handle_application_form(request, form_slug, second_stage=True)
 
 
 # ---------- PREVIEW (NO TOKEN) ----------
@@ -180,7 +222,7 @@ def apply_mentora_second_preview(request):
 
 # ---------- GROUP/SLUG ROUTE ----------
 def apply_by_slug(request, form_slug):
-    # A2 should be treated as “second_stage”
+    # A2 (or *_A2) should be treated as second stage for grading/etc
     second_stage = str(form_slug).endswith("_A2")
     return _handle_application_form(request, form_slug, second_stage=second_stage)
 

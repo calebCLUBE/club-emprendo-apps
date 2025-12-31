@@ -7,7 +7,56 @@ from django.db import transaction
 from django.shortcuts import render, redirect, get_object_or_404
 from django.views.decorators.http import require_POST
 
-from .models import FormDefinition, Question, Choice, FormGroup
+from .models import FormDefinition, Question, Choice, FormGroup, Application
+import csv
+from django.http import HttpResponse
+
+@staff_member_required
+def database_home(request):
+    # Pull all forms, grouped by group number (including masters)
+    masters = list(FormDefinition.objects.filter(slug__in=MASTER_SLUGS).order_by("slug"))
+
+    groups = list(FormGroup.objects.order_by("number"))
+    group_blocks = []
+    for g in groups:
+        forms = list(FormDefinition.objects.filter(group=g).order_by("slug"))
+        group_blocks.append((g, forms))
+
+    return render(
+        request,
+        "admin_dash/database_home.html",
+        {"masters": masters, "group_blocks": group_blocks},
+    )
+
+
+@staff_member_required
+def export_form_csv(request, form_slug: str):
+    form_def = get_object_or_404(FormDefinition, slug=form_slug)
+
+    # Applications for this form
+    apps = (
+        Application.objects
+        .filter(form=form_def)
+        .prefetch_related("answers__question")
+        .order_by("created_at")
+    )
+
+    # Determine columns from questions in form order
+    questions = list(form_def.questions.filter(active=True).order_by("position", "id"))
+    headers = ["created_at", "application_id", "name", "email"] + [q.slug for q in questions]
+
+    resp = HttpResponse(content_type="text/csv; charset=utf-8")
+    resp["Content-Disposition"] = f'attachment; filename="{form_slug}.csv"'
+
+    w = csv.writer(resp)
+    w.writerow(headers)
+
+    for app in apps:
+        amap = {a.question.slug: a.value for a in app.answers.all()}
+        row = [app.created_at.isoformat(), app.id, app.name, app.email] + [amap.get(q.slug, "") for q in questions]
+        w.writerow(row)
+
+    return resp
 
 
 MASTER_SLUGS = ["E_A1", "E_A2", "M_A1", "M_A2"]
@@ -198,13 +247,15 @@ def create_group(request):
 @require_POST
 @transaction.atomic
 def delete_group(request, group_num: int):
-    """
-    Deletes a group and all its cloned forms.
-    Supports orphan groups too.
-    """
-    FormDefinition.objects.filter(slug__startswith=f"G{group_num}_").delete()
+    # Delete all applications for forms in this group first (because Application.form is PROTECT)
+    group_forms = FormDefinition.objects.filter(slug__startswith=f"G{group_num}_")
+    Application.objects.filter(form__in=group_forms).delete()
+    # Now delete the forms
+    group_forms.delete()
+    # And delete the FormGroup record (if present)
     FormGroup.objects.filter(number=group_num).delete()
     return redirect("admin_apps_list")
+
 
 
 @staff_member_required
@@ -218,6 +269,3 @@ def app_form_detail(request, form_id: int):
     )
 
 
-@staff_member_required
-def database_home(request):
-    return render(request, "admin_dash/database_home.html")

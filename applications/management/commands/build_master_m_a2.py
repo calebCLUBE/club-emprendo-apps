@@ -185,10 +185,11 @@ class Command(BaseCommand):
             pos += 1
 
         availability_rows = [
-            ("Estoy disponible para participar desde (#(month) hasta #(month) de #(year).)", "req_avail_sept_dec"),
+            ("Estoy disponible para participar desde #(month) hasta #(month) de #(year).", "req_avail_period"),
             ("Puedo donar al menos 2 horas semanales durante estas 12 semanas, de forma voluntaria (sin pago económico).", "req_avail_2hrs_week"),
-            ("Estoy disponible el lunes de (#(mont)) de 2025 para asistir a la reunión de lanzamiento del programa de 1 hora (por la tarde).", "req_avail_kickoff"),
+            ("Estoy disponible el lunes de #(month) de #(year) para asistir a la reunión de lanzamiento del programa de 1 hora (por la tarde).", "req_avail_kickoff"),
         ]
+
         for text, slug_row in availability_rows:
             q = Question.objects.create(
                 form=fd,

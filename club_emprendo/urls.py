@@ -15,6 +15,7 @@ urlpatterns = [
     
     path("admin/apps/delete-group/<int:group_num>/", admin_views.delete_group, name="admin_delete_group"),
     path("admin/database/", admin_views.database_home, name="admin_database"),
+    path("admin/database/export/<slug:form_slug>.csv", admin_views.export_form_csv, name="admin_export_form_csv"),
 
     # Django admin (this includes a greedy catch-all)
     path("admin/", admin.site.urls),

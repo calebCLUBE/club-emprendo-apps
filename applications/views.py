@@ -1,100 +1,142 @@
 # applications/views.py
-from django.shortcuts import render, redirect, get_object_or_404
 from django.conf import settings
 from django.core.mail import EmailMultiAlternatives
+from django.shortcuts import render, redirect, get_object_or_404
+from django.urls import reverse
 
 from .forms import build_application_form
 from .models import Application, Answer, FormDefinition
-from .grading import grade_from_answers
-from .mentora_a1_autograde import autograde_and_email_mentora_a1
 
 
-def _render_description_with_group(form_def: FormDefinition) -> str:
-    """
-    Replace #(group number), #(month), #(year) placeholders using FormGroup.
-    NOTE: This is simple string replacement. It's deterministic + easy.
-    """
-    desc = form_def.description or ""
-    g = getattr(form_def, "group", None)
-    if not g:
-        return desc
-
-    # Replace group number and year
-    desc = desc.replace("#(group number)", str(g.number))
-    desc = desc.replace("#(year)", str(g.year))
-
-    # Replace the first two occurrences of #(month) (start then end)
-    if "#(month)" in desc:
-        desc = desc.replace("#(month)", g.start_month, 1)
-    if "#(month)" in desc:
-        desc = desc.replace("#(month)", g.end_month, 1)
-
-    return desc
-
-
-def _get_cleaned(form, slug: str, default=""):
-    return (form.cleaned_data.get(f"q_{slug}") or default)
-
-
-def _send_email(to_email: str, subject: str, html_body: str):
-    """
-    Uses Django EMAIL_* settings.
-    If EMAIL_HOST is blank, it will fail. We'll fail loudly in dev; in prod you can decide.
-    """
-    from_email = getattr(settings, "DEFAULT_FROM_EMAIL", None) or "contacto@clubemprendo.org"
-    msg = EmailMultiAlternatives(subject=subject, body="", from_email=from_email, to=[to_email])
+# -------------------------
+# Email helpers (Mentora A1 autograde)
+# -------------------------
+def _send_html_email(to_email: str, subject: str, html_body: str):
+    msg = EmailMultiAlternatives(
+        subject=subject,
+        body="",
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        to=[to_email],
+    )
     msg.attach_alternative(html_body, "text/html")
     msg.send(fail_silently=False)
 
 
-# applications/views.py
-from django.shortcuts import render, redirect, get_object_or_404
-from .forms import build_application_form
-from .models import Application, Answer, FormDefinition
+def _mentor_a1_autograde_and_email(app: Application):
+    """
+    Replicates your Google Apps Script logic for M_A1:
+    - Check meets_requirements + availability_ok
+    - If both yes -> send approval email with link to M_A2 (token)
+    - Else -> send rejection email
+    Also writes app.invited_to_second_stage.
+    """
+    # Pull answers by slug
+    answers = {a.question.slug: (a.value or "") for a in app.answers.select_related("question").all()}
+
+    requisitos = (answers.get("meets_requirements") or "").strip().lower()
+    disponibilidad = (answers.get("availability_ok") or "").strip().lower()
+
+    passes_requisitos = "yes" in requisitos  # we stored yes/no values
+    passes_disponibilidad = "yes" in disponibilidad
+
+    if passes_requisitos and passes_disponibilidad:
+        # ✅ Eligible: generate token + send link
+        app.generate_invite_token()
+        app.invited_to_second_stage = True
+        app.save()
+
+        form2_url = settings.SITE_URL.rstrip("/") + reverse("apply_mentora_second", kwargs={"token": app.invite_token})
+
+        subject = "Siguiente paso: Completa la segunda solicitud"
+        html_body = (
+            '<div style="font-family:Arial,Helvetica,sans-serif;line-height:1.6;max-width:700px;margin:0 auto;word-break:break-word;white-space:normal;">'
+            "<p><strong>Querida aplicante a Mentora,</strong></p>"
+            "<p>Gracias por completar la primera aplicación para ser mentora en Club Emprendo. 🌱</p>"
+            "<p>Con base en tus respuestas, confirmamos que cumples con los requisitos y la disponibilidad necesaria, por lo que estás habilitada para continuar con el proceso.</p>"
+            "<p>A continuación, te compartimos la <strong>Aplicación #2</strong>, que es el segundo y último paso para postularte como mentora voluntaria.</p>"
+            "<p><strong>📌 Instrucciones para acceder a la Aplicación #2:</strong></p>"
+            "<ol>"
+            f'<li>Haz clic aquí: 👉 <a href="{form2_url}">Aplicación 2</a></li>'
+            "<li>Lee con atención y responde cada pregunta.</li>"
+            "</ol>"
+            "<p>📅 <strong>Fecha límite para completarlo:</strong> Domingo 7 de Septiembre.</p>"
+            "<p>📩 Una vez completes esta segunda aplicación, evaluaremos tu postulación y te contactaremos por correo electrónico en las próximas semanas para informarte si has sido seleccionada como mentora para este grupo. Te invitamos a estar atenta a tu bandeja de entrada.</p>"
+            "<p>Gracias nuevamente por tu interés y compromiso con otras mujeres emprendedoras 💛</p>"
+            "<p>Con cariño,<br><strong>El equipo de Club Emprendo</strong></p>"
+            "</div>"
+        )
+
+        _send_html_email(app.email, subject, html_body)
+        return
+
+    # ❌ Not eligible
+    app.invited_to_second_stage = False
+    app.save()
+
+    subject = "Sobre tu aplicación como mentora voluntaria 🌟"
+    html_body = (
+        '<div style="font-family:Arial,Helvetica,sans-serif;line-height:1.6;max-width:700px;margin:0 auto;word-break:break-word;white-space:normal;">'
+        "<p>Querida aplicante a mentora,</p>"
+        "<p>Gracias por tu interés en ser parte del programa de mentoría de Club Emprendo. Valoramos profundamente tu deseo de donar tu tiempo y experiencia para apoyar a otras mujeres emprendedoras en su camino. 💛</p>"
+        "<p>En la aplicación que completaste, indicaste que actualmente no cumples con uno o más de los requisitos fundamentales o con la disponibilidad necesaria para participar en esta cohorte. Por esa razón, en este momento no podremos enviarte la segunda y última parte del proceso de aplicación.</p>"
+        "<p>📌 <strong>Los requisitos esenciales para ser mentora son:</strong></p>"
+        "<ul>"
+        "<li>Ser mujer</li>"
+        "<li>Tener experiencia en emprender o trabajar en negocios de alguna forma</li>"
+        "<li>Ser puntual</li>"
+        "<li>Tener conexión a internet estable</li>"
+        "<li>Estar dispuesta a completar una capacitación previa al programa</li>"
+        "<li>Estar dispuesta a responder 3 encuestas de retroalimentación durante el proceso</li>"
+        "</ul>"
+        "<p>✨ Si por alguna razón marcaste alguna respuesta por error, o si tus circunstancias cambian en los próximos días, puedes volver a completar la aplicación antes de la fecha límite y con gusto la revisaremos nuevamente.</p>"
+        "<p>Sabemos que cada etapa de la vida es distinta y que a veces no es el momento adecuado. Agradecemos profundamente tu intención de sumarte, y si en el futuro decides postularte nuevamente, estaremos felices de recibirte.</p>"
+        "<p>Con cariño,<br><strong>El equipo de Club Emprendo</strong></p>"
+        "</div>"
+    )
+    _send_html_email(app.email, subject, html_body)
 
 
+# -------------------------
+# Core handler
+# -------------------------
 def _handle_application_form(request, form_slug: str, second_stage: bool = False):
-    ApplicationForm = build_application_form(form_slug)
+    """
+    Creates Application + Answers for any FormDefinition.slug (master or group clone).
+    We do NOT hardcode name/email fields; we read them from question slugs.
+    """
     form_def = get_object_or_404(FormDefinition, slug=form_slug)
+    ApplicationForm = build_application_form(form_slug)
 
     if request.method == "POST":
         form = ApplicationForm(request.POST)
         if form.is_valid():
+            # Extract name/email from known question slugs
+            # Masters you built use: full_name + email
+            full_name = form.cleaned_data.get("q_full_name") or ""
+            email = form.cleaned_data.get("q_email") or ""
 
-            # Pull name/email from Question slugs (so we never duplicate them)
-            full_name = form.cleaned_data.get("q_full_name", "").strip()
-            email = form.cleaned_data.get("q_email", "").strip()
+            # Fallbacks (if you ever use different slugs later)
+            if not full_name:
+                full_name = form.cleaned_data.get("q_name") or form.cleaned_data.get("q_nombre") or ""
+            if not email:
+                email = form.cleaned_data.get("q_correo") or form.cleaned_data.get("q_correo_electronico") or ""
 
             app = Application.objects.create(
                 form=form_def,
-                name=full_name,
-                email=email,
+                name=full_name.strip(),
+                email=email.strip(),
             )
 
-            answers_by_slug = {}
-
-            for q in form_def.questions.filter(active=True).order_by("position"):
+            for q in form_def.questions.filter(active=True).order_by("position", "id"):
                 field_name = f"q_{q.slug}"
                 value = form.cleaned_data.get(field_name)
-
                 if isinstance(value, list):
                     value = ",".join(value)
+                Answer.objects.create(application=app, question=q, value=str(value or ""))
 
-                value_str = "" if value is None else str(value)
-
-                Answer.objects.create(
-                    application=app,
-                    question=q,
-                    value=value_str,
-                )
-                answers_by_slug[q.slug] = value_str
-
-            # If this is Mentora A1, do the autograde + email here
-            if form_slug == "M_A1":
-                from .mentora_autograde import autograde_and_email_mentora_a1
-                result = autograde_and_email_mentora_a1(request, app, answers_by_slug)
-                app.recommendation = result
-                app.save(update_fields=["recommendation"])
+            # Mentora A1: autograde + send email with M_A2 token link
+            if form_def.slug.endswith("M_A1"):
+                _mentor_a1_autograde_and_email(app)
 
             return redirect("application_thanks")
     else:
@@ -107,6 +149,7 @@ def _handle_application_form(request, form_slug: str, second_stage: bool = False
     )
 
 
+# ---------- PUBLIC FIRST-STAGE FORMS ----------
 def apply_emprendedora_first(request):
     return _handle_application_form(request, "E_A1", second_stage=False)
 
@@ -115,27 +158,18 @@ def apply_mentora_first(request):
     return _handle_application_form(request, "M_A1", second_stage=False)
 
 
+# ---------- SECOND-STAGE (EMAIL LINK) ----------
 def apply_emprendedora_second(request, token):
     first_app = get_object_or_404(Application, invite_token=token)
-    request.GET._mutable = True
-    request.GET["prefill_name"] = first_app.name
-    request.GET["prefill_email"] = first_app.email
     return _handle_application_form(request, "E_A2", second_stage=True)
 
 
 def apply_mentora_second(request, token):
     first_app = get_object_or_404(Application, invite_token=token)
-    request.GET._mutable = True
-    request.GET["prefill_name"] = first_app.name
-    request.GET["prefill_email"] = first_app.email
     return _handle_application_form(request, "M_A2", second_stage=True)
 
 
-def application_thanks(request):
-    return render(request, "applications/thanks.html")
-
-
-
+# ---------- PREVIEW (NO TOKEN) ----------
 def apply_emprendedora_second_preview(request):
     return _handle_application_form(request, "E_A2", second_stage=True)
 
@@ -143,3 +177,13 @@ def apply_emprendedora_second_preview(request):
 def apply_mentora_second_preview(request):
     return _handle_application_form(request, "M_A2", second_stage=True)
 
+
+# ---------- GROUP/SLUG ROUTE ----------
+def apply_by_slug(request, form_slug):
+    # A2 should be treated as “second_stage”
+    second_stage = str(form_slug).endswith("_A2")
+    return _handle_application_form(request, form_slug, second_stage=second_stage)
+
+
+def application_thanks(request):
+    return render(request, "applications/thanks.html")

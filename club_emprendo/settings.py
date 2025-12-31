@@ -146,6 +146,7 @@ EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER")
 EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD")
 
 
+SITE_URL = os.environ.get("SITE_URL", "http://127.0.0.1:8000")
 
 SITE_ID = 1
 AUTH_USER_MODEL = "accounts.User"

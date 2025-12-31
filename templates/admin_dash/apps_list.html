@@ -2,43 +2,106 @@
 {% load static %}
 
 {% block content %}
-  <div class="ce-admin-wrap">
-    <h1>Master Applications</h1>
+<div class="ce-admin-wrap">
 
-    <div style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:24px;">
-      {% for fd in masters %}
-        <a class="ce-admin-tile" href="/admin/applications/formdefinition/{{ fd.id }}/change/">
-          <div class="ce-admin-tile-title">{{ fd.slug }}</div>
-          <div class="ce-admin-tile-sub">{{ fd.name }}</div>
-        </a>
-      {% empty %}
-        <p>No master forms found yet.</p>
-      {% endfor %}
-    </div>
+  <h1>Master Applications</h1>
 
-    <hr style="margin:24px 0;"/>
-
-    <h2>Groups</h2>
-
-    <form method="post" action="{% url 'admin_create_group' %}">
-        {% csrf_token %}
-        {{ create_group_form.as_p }}
-        <button type="submit">Create group</button>
-      </form>
-      
-
-    {% for gnum, items in group_list %}
-      <h3>Group {{ gnum }}</h3>
-      <ul>
-        {% for fd in items %}
-          <li>
-            <a href="/admin/applications/formdefinition/{{ fd.id }}/change/">{{ fd.slug }}</a>
-            — {{ fd.name }}
-          </li>
-        {% endfor %}
-      </ul>
+  <div style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:24px;">
+    {% for fd in masters %}
+      <a class="ce-admin-tile" href="/admin/applications/formdefinition/{{ fd.id }}/change/">
+        <div class="ce-admin-tile-title">{{ fd.slug }}</div>
+        <div class="ce-admin-tile-sub">{{ fd.name }}</div>
+      </a>
     {% empty %}
-      <p>No groups yet.</p>
+      <p>No master forms found yet.</p>
     {% endfor %}
   </div>
+
+  <hr style="margin:24px 0;" />
+
+  <h2>Groups</h2>
+
+  <div style="margin-bottom: 18px;">
+    <form method="post" action="{% url 'admin_create_group' %}">
+      {% csrf_token %}
+
+      {% if create_group_form.non_field_errors %}
+        <div class="errornote">
+          {{ create_group_form.non_field_errors }}
+        </div>
+      {% endif %}
+
+      {{ create_group_form.as_p }}
+
+      <button type="submit" class="default">Create group</button>
+    </form>
+  </div>
+
+  {% for g, forms in group_list %}
+    {# g is either a FormGroup object OR an int (orphan group number) #}
+
+    <div style="border:1px solid #ddd; border-radius:10px; padding:14px; margin:14px 0; background:#fff;">
+
+      <div style="display:flex; align-items:baseline; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+        <div>
+          {% if g.number %}
+            <h3 style="margin:0;">
+              Group {{ g.number }}
+              <small style="color:#666; font-weight:normal;">
+                ({{ g.start_month }} – {{ g.end_month }} {{ g.year }})
+              </small>
+            </h3>
+          {% else %}
+            <h3 style="margin:0;">
+              Group {{ g }}
+              <small style="color:#b45309; font-weight:normal;">
+                (orphan group – missing FormGroup dates)
+              </small>
+            </h3>
+          {% endif %}
+        </div>
+
+        {# Delete group #}
+        <div>
+          <form
+            method="post"
+            action="{% url 'admin_delete_group' group_num=g.number|default:g %}"
+            style="display:inline;"
+            onsubmit="return confirm('Delete Group {{ g.number|default:g }} and ALL its forms? This cannot be undone.');"
+          >
+            {% csrf_token %}
+            <button type="submit" class="deletelink">Delete group</button>
+          </form>
+        </div>
+      </div>
+
+      {% if forms %}
+        <ul style="margin-top:10px;">
+          {% for fd in forms %}
+            <li style="margin:6px 0;">
+              <strong>{{ fd.slug }}</strong>
+              — {{ fd.name }}
+              &nbsp;|&nbsp;
+              <a href="/admin/applications/formdefinition/{{ fd.id }}/change/">Edit</a>
+
+              {# Public link for applicants (uses your apply_by_slug route) #}
+              &nbsp;|&nbsp;
+              <a href="/apply/{{ fd.slug }}/" target="_blank" rel="noopener">Open link</a>
+
+              <div style="color:#666; font-size:12px; margin-top:2px;">
+                Copy/paste: <code>{{ request.scheme }}://{{ request.get_host }}/apply/{{ fd.slug }}/</code>
+              </div>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p style="margin:10px 0 0;"><em>No forms in this group yet.</em></p>
+      {% endif %}
+    </div>
+
+  {% empty %}
+    <p>No groups yet.</p>
+  {% endfor %}
+
+</div>
 {% endblock %}

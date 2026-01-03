@@ -1,45 +1,48 @@
 {% extends "admin/base_site.html" %}
 {% block content %}
-  <h1>Database</h1>
 
-  <h2>Groups</h2>
-  {% for group, forms in group_blocks %}
-    <h3>
-      Group {{ group.number }}
-      <small style="color:#666; font-weight:normal;">
-        ({{ group.start_month }} – {{ group.end_month }} {{ group.year }})
-      </small>
-    </h3>
+<h1>Database</h1>
 
-    {% if forms %}
-      <ul>
-        {% for fd in forms %}
-          <li>
-            <strong>{{ fd.slug }}</strong> — {{ fd.name }}
-            — <a href="{% url 'admin_export_form_csv' form_slug=fd.slug %}">Download CSV</a>
-            — ({{ fd.applications.count }} submissions)
-          </li>
-        {% endfor %}
-      </ul>
-    {% else %}
-      <p><em>No forms in this group.</em></p>
-    {% endif %}
-  {% empty %}
-    <p>No groups yet.</p>
-  {% endfor %}
-
-  <hr>
-
-  <h2>Master Forms (optional)</h2>
-  <ul>
-    {% for fd in masters %}
-      <li>
-        <strong>{{ fd.slug }}</strong> — {{ fd.name }}
-        — <a href="{% url 'admin_export_form_csv' form_slug=fd.slug %}">Download CSV</a>
-        — ({{ fd.applications.count }} submissions)
+{% if master_forms %}
+  <h2 style="margin-top:18px;">Master Forms</h2>
+  <ul style="margin: 8px 0 18px 0;">
+    {% for fd in master_forms %}
+      <li style="margin:6px 0;">
+        <a href="{% url 'admin_database_form_detail' fd.slug %}">
+          {{ fd.slug }} — {{ fd.name }}
+        </a>
       </li>
-    {% empty %}
-      <li>No master forms found.</li>
     {% endfor %}
   </ul>
+{% endif %}
+
+<h2>Groups</h2>
+
+{% if group_blocks %}
+  {% for group, forms in group_blocks %}
+    <details style="margin: 10px 0; padding: 10px; border: 1px solid #ddd; border-radius: 10px;">
+      <summary style="cursor:pointer;">
+        <strong>Group {{ group.number }}</strong>
+        — {{ group.start_month }} to {{ group.end_month }} {{ group.year }}
+      </summary>
+
+      {% if forms %}
+        <ul style="margin-top:10px;">
+          {% for fd in forms %}
+            <li style="margin:6px 0;">
+              <a href="{% url 'admin_database_form_detail' fd.slug %}">
+                {{ fd.slug }} — {{ fd.name }}
+              </a>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p><em>No forms in this group yet.</em></p>
+      {% endif %}
+    </details>
+  {% endfor %}
+{% else %}
+  <p>No groups yet.</p>
+{% endif %}
+
 {% endblock %}

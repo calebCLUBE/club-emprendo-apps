@@ -1,0 +1,28 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+  <h1>{{ form_def.slug }} — {{ form_def.name }}</h1>
+
+  <p style="margin:10px 0;">
+    <a class="button" href="{% url 'admin_database_form_master_csv' form_def.slug %}">Download MASTER CSV</a>
+    &nbsp;
+    <a class="button" href="{% url 'admin_export_form_csv' form_def.slug %}">Download CSV</a>
+  </p>
+
+  <h2>CSV Preview</h2>
+  {{ preview_html|safe }}
+
+  <h2 style="margin-top:18px;">Submissions ({{ apps|length }})</h2>
+  {% if apps %}
+    <ul>
+      {% for a in apps %}
+        <li style="margin:6px 0;">
+          <a href="{% url 'admin_database_submission_detail' a.id %}">
+            #{{ a.id }} — {{ a.created_at }} — {{ a.name }} ({{ a.email }})
+          </a>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p><em>No submissions yet.</em></p>
+  {% endif %}
+{% endblock %}

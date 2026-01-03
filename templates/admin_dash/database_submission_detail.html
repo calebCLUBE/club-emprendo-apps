@@ -1,0 +1,19 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+  <h1>Submission #{{ app.id }} — {{ app.form.slug }}</h1>
+  <p><strong>Name:</strong> {{ app.name }}<br>
+     <strong>Email:</strong> {{ app.email }}<br>
+     <strong>Created:</strong> {{ app.created_at }}</p>
+
+  <p><a href="{% url 'admin_database_form_detail' app.form.slug %}">← Back to form</a></p>
+
+  <hr>
+
+  {% for q, val in ordered_answers %}
+    <div style="margin:10px 0;">
+      <div style="font-weight:600;">{{ q.text }}</div>
+      <div style="color:#666;font-size:12px;">slug: {{ q.slug }}</div>
+      <div style="margin-top:4px; white-space:pre-wrap;">{{ val }}</div>
+    </div>
+  {% endfor %}
+{% endblock %}

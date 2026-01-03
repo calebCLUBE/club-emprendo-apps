@@ -159,7 +159,7 @@ def _handle_application_form(request, form_slug: str, second_stage: bool = False
             if form_def.slug.endswith("M_A1"):
                 _mentor_a1_autograde_and_email(request, app)
 
-            # ✅ Emprendedora A1 autograde+email (master or group)
+            # ✅ Emprendedora A1 autograde+email (MASTER or GROUP)
             if form_def.slug.endswith("E_A1"):
                 answers_by_slug = {
                     a.question.slug: (a.value or "")
@@ -170,6 +170,7 @@ def _handle_application_form(request, form_slug: str, second_stage: bool = False
                     application=app,
                     answers_by_slug=answers_by_slug,
                 )
+
 
             return redirect("application_thanks")
     else:

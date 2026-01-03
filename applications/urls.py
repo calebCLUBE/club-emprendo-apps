@@ -21,6 +21,7 @@ urlpatterns = [
     path("apply/emprendedora/continue/preview/", apply_emprendedora_second_preview, name="preview_emprendedora_second"),
     path("apply/mentora/continue/preview/", apply_mentora_second_preview, name="preview_mentora_second"),
 
+
     # ---------- SECOND STAGE (REAL – TOKEN REQUIRED) ----------
     path("apply/emprendedora/continue/<uuid:token>/", apply_emprendedora_second, name="apply_emprendedora_second"),
     path("apply/mentora/continue/<uuid:token>/", apply_mentora_second, name="apply_mentora_second"),

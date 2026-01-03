@@ -8,6 +8,7 @@ from django.urls import reverse
 
 from .forms import build_application_form
 from .models import Application, Answer, FormDefinition
+from .emprendedora_a1_autograde import autograde_and_email_emprendedora_a1
 
 
 GROUP_SLUG_RE = re.compile(r"^G(?P<num>\d+)_")
@@ -157,6 +158,18 @@ def _handle_application_form(request, form_slug: str, second_stage: bool = False
             # ✅ Mentora A1 autograde+email
             if form_def.slug.endswith("M_A1"):
                 _mentor_a1_autograde_and_email(request, app)
+
+            # ✅ Emprendedora A1 autograde+email (master or group)
+            if form_def.slug.endswith("E_A1"):
+                answers_by_slug = {
+                    a.question.slug: (a.value or "")
+                    for a in app.answers.select_related("question").all()
+                }
+                autograde_and_email_emprendedora_a1(
+                    request=request,
+                    application=app,
+                    answers_by_slug=answers_by_slug,
+                )
 
             return redirect("application_thanks")
     else:

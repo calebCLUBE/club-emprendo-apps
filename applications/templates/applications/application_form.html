@@ -1,4 +1,5 @@
 {% extends "applications/base.html" %}
+{% load app_extras %}
 
 {% block title %}{{ form_def.name }} · Club Emprendo{% endblock %}
 
@@ -56,6 +57,7 @@
 
     {% for field in form %}
       <div class="form-row">
+
         <label
           for="{{ field.id_for_label }}"
           {% if field.field.required %}class="required"{% endif %}
@@ -67,7 +69,47 @@
           <span class="form-help">{{ field.help_text }}</span>
         {% endif %}
 
-        {{ field }}
+        {# ---------- GRID QUESTION (HORARIO) ---------- #}
+        {% if field.name == "q_session_availability" %}
+
+          {% with
+            days="Lunes,Martes,Miércoles,Jueves,Viernes,Sábado,Domingo"|split:","
+            times="Mañana,Tarde,Noche"|split:","
+          %}
+          <div class="ce-grid-wrap">
+            <table class="ce-grid">
+              <thead>
+                <tr>
+                  <th></th>
+                  {% for d in days %}
+                    <th>{{ d }}</th>
+                  {% endfor %}
+                </tr>
+              </thead>
+              <tbody>
+                {% for t in times %}
+                  <tr>
+                    <th>{{ t }}</th>
+                    {% for d in days %}
+                      <td>
+                        {% for sub in field %}
+                          {% if sub.choice_label == d|add:" - "|add:t %}
+                            {{ sub.tag }}
+                          {% endif %}
+                        {% endfor %}
+                      </td>
+                    {% endfor %}
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          {% endwith %}
+
+        {# ---------- NORMAL QUESTIONS ---------- #}
+        {% else %}
+          {{ field }}
+        {% endif %}
 
         {% if field.errors %}
           <span class="form-help" style="color:#d14b4b;">

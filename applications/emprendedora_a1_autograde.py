@@ -56,18 +56,21 @@ def autograde_and_email_emprendedora_a1(request, app: Application):
     Also writes app.invited_to_second_stage + invite_token for tracking
     (even though E2 is a Google Form link right now).
     """
-    answers = {
-        a.question.slug: (a.value or "")
-        for a in app.answers.select_related("question").all()
-    }
+    def _yesish(v: str) -> bool:
+        t = ((v or "") + "").strip().lower()
+        # tolerate accents and variants if you want, but keep it simple:
+        return ("si" in t) or ("sí" in t) or ("yes" in t) or (t == "true")
 
-    requisitos = answers.get("e1_meet_requirements", "")
-    disponibilidad = answers.get("e1_available_period", "")
-    emprendimiento = answers.get("e1_has_running_business", "")
+    answers = {a.question.slug: (a.value or "") for a in app.answers.select_related("question")}
 
-    passes_requisitos = yesish(requisitos)
-    passes_disponibilidad = yesish(disponibilidad)
-    has_emprendimiento = yesish(emprendimiento)
+    requisitos = answers.get("e1_meet_requirements") or answers.get("meets_requirements") or ""
+    disponibilidad = answers.get("e1_available_period") or answers.get("availability_ok") or ""
+    emprendimiento = answers.get("e1_has_running_business") or answers.get("business_active") or ""
+
+    passes_requisitos = _yesish(requisitos)
+    passes_disponibilidad = _yesish(disponibilidad)
+    has_emprendimiento = _yesish(emprendimiento)
+
 
     if passes_requisitos and passes_disponibilidad and has_emprendimiento:
         # ✅ Eligible

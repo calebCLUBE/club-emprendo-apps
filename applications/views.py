@@ -54,11 +54,27 @@ def _mentor_a1_autograde_and_email(request, app: Application):
         for a in app.answers.select_related("question").all()
     }
 
-    requisitos = (answers.get("meets_requirements") or "").strip().lower()
-    disponibilidad = (answers.get("availability_ok") or "").strip().lower()
+    def _yesish(v: str) -> bool:
+        t = (v or "").strip().lower()
+        # accept "yes", "sí/si", and also "true" just in case
+        return ("yes" in t) or ("si" in t) or (t == "true")
 
-    passes_requisitos = requisitos == "yes"
-    passes_disponibilidad = disponibilidad == "yes"
+    # NEW slugs (Render) + old slugs (fallback)
+    requisitos = (
+        answers.get("m1_meet_requirements")
+        or answers.get("meets_requirements")
+        or ""
+    )
+    disponibilidad = (
+        answers.get("m1_availability_ok")
+        or answers.get("availability_ok")
+        or answers.get("m1_available_period")   # if you used this wording on mentora too
+        or ""
+    )
+
+    passes_requisitos = _yesish(requisitos)
+    passes_disponibilidad = _yesish(disponibilidad)
+
 
     if passes_requisitos and passes_disponibilidad:
         app.generate_invite_token()

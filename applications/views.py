@@ -18,6 +18,10 @@ GROUP_SLUG_RE = re.compile(r"^G(?P<num>\d+)_")
 # Email helpers
 # -------------------------
 def _send_html_email(to_email: str, subject: str, html_body: str):
+    # Guard: never attempt to send to empty recipient
+    if not (to_email or "").strip():
+        return
+
     msg = EmailMultiAlternatives(
         subject=subject,
         body="",
@@ -119,8 +123,9 @@ def _handle_application_form(request, form_slug: str, second_stage: bool = False
     """
     Creates Application + Answers for any FormDefinition.slug (master or group clone).
 
-    IMPORTANT: We do NOT assume the form has top-level "name" and "email" fields.
-    We extract them from question slugs (q_full_name, q_email, etc).
+    IMPORTANT:
+    - We do NOT assume the form has top-level "name" and "email" fields.
+    - We extract them from this form's question slugs dynamically (works for e1_email, m1_email, etc).
     """
     form_def = get_object_or_404(FormDefinition, slug=form_slug)
     ApplicationForm = build_application_form(form_slug)
@@ -128,48 +133,33 @@ def _handle_application_form(request, form_slug: str, second_stage: bool = False
     if request.method == "POST":
         form = ApplicationForm(request.POST)
         if form.is_valid():
-            # Extract name/email from known question slugs
-# Extract name/email from known question slugs
-# IMPORTANT: actual stored slugs vary by form (e.g. e1_email -> field q_e1_email)
-            def _pick_first(*keys: str) -> str:
-                for k in keys:
-                    v = (form.cleaned_data.get(k) or "").strip()
-                    if v:
-                        return v
+            # ---- Robust name/email extraction based on THIS form's question slugs ----
+            def _pick_value_by_slug_contains(contains_any):
+                """
+                Looks through form_def questions and returns the first non-empty cleaned_data
+                value where the question.slug contains any of the substrings.
+                """
+                contains_any = [c.lower() for c in contains_any]
+                for q in form_def.questions.filter(active=True).order_by("position", "id"):
+                    s = (q.slug or "").lower()
+                    if any(c in s for c in contains_any):
+                        v = (form.cleaned_data.get(f"q_{q.slug}") or "").strip()
+                        if v:
+                            return v
                 return ""
 
-            # 1) explicit known keys (old + new)
-            full_name = _pick_first(
-                "q_full_name",
-                "q_name",
-                "q_nombre",
-                "q_e1_full_name",
-                "q_m1_full_name",
-            )
-            email = _pick_first(
-                "q_email",
-                "q_correo",
-                "q_correo_electronico",
-                "q_e1_email",
-                "q_m1_email",
-            )
+            full_name = _pick_value_by_slug_contains(["full_name", "nombre", "name"])
+            email = _pick_value_by_slug_contains(["email", "correo"])
 
-            # 2) last-resort: look for *any* field that looks like an email or a name
+            # fallback: scan any field that looks like an email
             if not email:
                 for k, v in form.cleaned_data.items():
-                    if not k.startswith("q_"):
+                    if not str(k).startswith("q_"):
                         continue
                     s = (v or "").strip()
                     if "@" in s and "." in s:
                         email = s
                         break
-
-            if not full_name:
-                for k, v in form.cleaned_data.items():
-                    if k in ("q_e1_full_name", "q_m1_full_name"):
-                        full_name = (v or "").strip()
-                        break
-
 
             app = Application.objects.create(
                 form=form_def,
@@ -193,11 +183,8 @@ def _handle_application_form(request, form_slug: str, second_stage: bool = False
                 _mentor_a1_autograde_and_email(request, app)
 
             # ✅ Emprendedora A1 autograde+email (MASTER or GROUP)
-# ✅ Emprendedora A1 autograde+email (E_A1 and G#_E_A1)
             if form_def.slug.endswith("E_A1"):
                 autograde_and_email_emprendedora_a1(request, app)
-
-
 
             return redirect("application_thanks")
     else:

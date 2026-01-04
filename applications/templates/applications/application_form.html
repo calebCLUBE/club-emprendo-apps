@@ -1,5 +1,5 @@
+{# applications/templates/applications/application_form.html #}
 {% extends "applications/base.html" %}
-{% load app_extras %}
 
 {% block title %}{{ form_def.name }} · Club Emprendo{% endblock %}
 
@@ -56,67 +56,154 @@
     {% csrf_token %}
 
     {% for field in form %}
-      <div class="form-row">
 
-        <label
-          for="{{ field.id_for_label }}"
-          {% if field.field.required %}class="required"{% endif %}
-        >
-          {{ field.label }}
-        </label>
+      {# ---------- SPECIAL GRID RENDER FOR q_preferred_schedule ---------- #}
+      {% if field.name == "q_preferred_schedule" %}
 
-        {% if field.help_text %}
-          <span class="form-help">{{ field.help_text }}</span>
-        {% endif %}
+        <div class="form-row">
+          <label for="{{ field.id_for_label }}" {% if field.field.required %}class="required"{% endif %}>
+            {{ field.label }}
+          </label>
 
-        {# ---------- GRID QUESTION (HORARIO) ---------- #}
-        {% if field.name == "q_session_availability" %}
+          {% if field.help_text %}
+            <span class="form-help">{{ field.help_text }}</span>
+          {% endif %}
 
-          {% with
-            days="Lunes,Martes,Miércoles,Jueves,Viernes,Sábado,Domingo"|split:","
-            times="Mañana,Tarde,Noche"|split:","
-          %}
-          <div class="ce-grid-wrap">
-            <table class="ce-grid">
+          <div style="overflow:auto; border:1px solid #e9e9e9; border-radius:12px; padding:10px;">
+            <table style="border-collapse:collapse; width:100%; min-width:760px; font-size:14px;">
               <thead>
                 <tr>
-                  <th></th>
-                  {% for d in days %}
-                    <th>{{ d }}</th>
-                  {% endfor %}
+                  <th style="text-align:left; padding:10px; border-bottom:1px solid #eee;"></th>
+                  <th style="text-align:center; padding:10px; border-bottom:1px solid #eee;">Lunes</th>
+                  <th style="text-align:center; padding:10px; border-bottom:1px solid #eee;">Martes</th>
+                  <th style="text-align:center; padding:10px; border-bottom:1px solid #eee;">Miércoles</th>
+                  <th style="text-align:center; padding:10px; border-bottom:1px solid #eee;">Jueves</th>
+                  <th style="text-align:center; padding:10px; border-bottom:1px solid #eee;">Viernes</th>
+                  <th style="text-align:center; padding:10px; border-bottom:1px solid #eee;">Sábado</th>
+                  <th style="text-align:center; padding:10px; border-bottom:1px solid #eee;">Domingo</th>
                 </tr>
               </thead>
+
               <tbody>
-                {% for t in times %}
-                  <tr>
-                    <th>{{ t }}</th>
-                    {% for d in days %}
-                      <td>
-                        {% for sub in field %}
-                          {% if sub.choice_label == d|add:" - "|add:t %}
-                            {{ sub.tag }}
-                          {% endif %}
-                        {% endfor %}
-                      </td>
-                    {% endfor %}
-                  </tr>
-                {% endfor %}
+                {# ===== ROW: MAÑANA ===== #}
+                <tr>
+                  <th style="text-align:left; padding:10px; border-bottom:1px solid #f0f0f0;">Mañana</th>
+
+                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">
+                    {% for w in field %}{% if w.data.value == "lunes_manana" %}{{ w.tag }}{% endif %}{% endfor %}
+                  </td>
+                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">
+                    {% for w in field %}{% if w.data.value == "martes_manana" %}{{ w.tag }}{% endif %}{% endfor %}
+                  </td>
+                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">
+                    {% for w in field %}{% if w.data.value == "miercoles_manana" %}{{ w.tag }}{% endif %}{% endfor %}
+                  </td>
+                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">
+                    {% for w in field %}{% if w.data.value == "jueves_manana" %}{{ w.tag }}{% endif %}{% endfor %}
+                  </td>
+                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">
+                    {% for w in field %}{% if w.data.value == "viernes_manana" %}{{ w.tag }}{% endif %}{% endfor %}
+                  </td>
+                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">
+                    {% for w in field %}{% if w.data.value == "sabado_manana" %}{{ w.tag }}{% endif %}{% endfor %}
+                  </td>
+                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">
+                    {% for w in field %}{% if w.data.value == "domingo_manana" %}{{ w.tag }}{% endif %}{% endfor %}
+                  </td>
+                </tr>
+
+                {# ===== ROW: TARDE ===== #}
+                <tr>
+                  <th style="text-align:left; padding:10px; border-bottom:1px solid #f0f0f0;">Tarde</th>
+
+                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">
+                    {% for w in field %}{% if w.data.value == "lunes_tarde" %}{{ w.tag }}{% endif %}{% endfor %}
+                  </td>
+                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">
+                    {% for w in field %}{% if w.data.value == "martes_tarde" %}{{ w.tag }}{% endif %}{% endfor %}
+                  </td>
+                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">
+                    {% for w in field %}{% if w.data.value == "miercoles_tarde" %}{{ w.tag }}{% endif %}{% endfor %}
+                  </td>
+                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">
+                    {% for w in field %}{% if w.data.value == "jueves_tarde" %}{{ w.tag }}{% endif %}{% endfor %}
+                  </td>
+                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">
+                    {% for w in field %}{% if w.data.value == "viernes_tarde" %}{{ w.tag }}{% endif %}{% endfor %}
+                  </td>
+                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">
+                    {% for w in field %}{% if w.data.value == "sabado_tarde" %}{{ w.tag }}{% endif %}{% endfor %}
+                  </td>
+                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">
+                    {% for w in field %}{% if w.data.value == "domingo_tarde" %}{{ w.tag }}{% endif %}{% endfor %}
+                  </td>
+                </tr>
+
+                {# ===== ROW: NOCHE ===== #}
+                <tr>
+                  <th style="text-align:left; padding:10px;">Noche</th>
+
+                  <td style="text-align:center; padding:10px;">
+                    {% for w in field %}{% if w.data.value == "lunes_noche" %}{{ w.tag }}{% endif %}{% endfor %}
+                  </td>
+                  <td style="text-align:center; padding:10px;">
+                    {% for w in field %}{% if w.data.value == "martes_noche" %}{{ w.tag }}{% endif %}{% endfor %}
+                  </td>
+                  <td style="text-align:center; padding:10px;">
+                    {% for w in field %}{% if w.data.value == "miercoles_noche" %}{{ w.tag }}{% endif %}{% endfor %}
+                  </td>
+                  <td style="text-align:center; padding:10px;">
+                    {% for w in field %}{% if w.data.value == "jueves_noche" %}{{ w.tag }}{% endif %}{% endfor %}
+                  </td>
+                  <td style="text-align:center; padding:10px;">
+                    {% for w in field %}{% if w.data.value == "viernes_noche" %}{{ w.tag }}{% endif %}{% endfor %}
+                  </td>
+                  <td style="text-align:center; padding:10px;">
+                    {% for w in field %}{% if w.data.value == "sabado_noche" %}{{ w.tag }}{% endif %}{% endfor %}
+                  </td>
+                  <td style="text-align:center; padding:10px;">
+                    {% for w in field %}{% if w.data.value == "domingo_noche" %}{{ w.tag }}{% endif %}{% endfor %}
+                  </td>
+                </tr>
               </tbody>
             </table>
+
+            <div style="margin-top:10px; font-size:12px; color:#666;">
+              Selecciona todas las casillas que apliquen.
+            </div>
           </div>
-          {% endwith %}
 
-        {# ---------- NORMAL QUESTIONS ---------- #}
-        {% else %}
+          {% if field.errors %}
+            <span class="form-help" style="color:#d14b4b;">
+              {{ field.errors|striptags }}
+            </span>
+          {% endif %}
+        </div>
+
+      {% else %}
+        {# ---------- NORMAL RENDER FOR ALL OTHER FIELDS ---------- #}
+        <div class="form-row">
+          <label
+            for="{{ field.id_for_label }}"
+            {% if field.field.required %}class="required"{% endif %}
+          >
+            {{ field.label }}
+          </label>
+
+          {% if field.help_text %}
+            <span class="form-help">{{ field.help_text }}</span>
+          {% endif %}
+
           {{ field }}
-        {% endif %}
 
-        {% if field.errors %}
-          <span class="form-help" style="color:#d14b4b;">
-            {{ field.errors|striptags }}
-          </span>
-        {% endif %}
-      </div>
+          {% if field.errors %}
+            <span class="form-help" style="color:#d14b4b;">
+              {{ field.errors|striptags }}
+            </span>
+          {% endif %}
+        </div>
+      {% endif %}
+
     {% endfor %}
 
     <div class="ce-actions">

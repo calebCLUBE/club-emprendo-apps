@@ -40,6 +40,9 @@ CSRF_TRUSTED_ORIGINS = [
 
 # If you are behind Render/Proxy, this helps build absolute URLs correctly
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+SECURE_SSL_REDIRECT = os.environ.get("DJANGO_SECURE_SSL_REDIRECT", "False").lower() == "true"
+SESSION_COOKIE_SECURE = not DEBUG
+CSRF_COOKIE_SECURE = not DEBUG
 
 
 # --- Apps ---
@@ -92,14 +95,14 @@ WSGI_APPLICATION = "club_emprendo.wsgi.application"
 # --- DB ---
 # ✅ Production (Render): use DATABASE_URL (Postgres)
 # ✅ Local: fall back to sqlite3
-DATABASE_URL = os.environ.get("DATABASE_URL")
+# --- DB ---
+DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
 
 if DATABASE_URL:
     DATABASES = {
         "default": dj_database_url.parse(
             DATABASE_URL,
             conn_max_age=600,
-            ssl_require=True,
         )
     }
 else:
@@ -109,6 +112,22 @@ else:
             "NAME": BASE_DIR / "db.sqlite3",
         }
     }
+
+
+# --- Static (WhiteNoise) ---
+STATIC_URL = "/static/"
+STATIC_ROOT = BASE_DIR / "staticfiles"
+
+STATICFILES_DIRS = []
+_local_static = BASE_DIR / "static"
+if _local_static.exists():
+    STATICFILES_DIRS.append(_local_static)
+
+STORAGES = {
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+    },
+}
 
 
 # --- Auth / Security ---
@@ -125,18 +144,6 @@ USE_I18N = True
 USE_TZ = True
 
 
-# --- Static (WhiteNoise) ---
-STATIC_URL = "/static/"
-STATIC_ROOT = BASE_DIR / "staticfiles"
-
-# keep if you have local static/ folder in your repo
-STATICFILES_DIRS = [BASE_DIR / "static"]
-
-STORAGES = {
-    "staticfiles": {
-        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
-    },
-}
 
 
 # ---------- Email (SMTP) ----------

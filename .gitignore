@@ -1,9 +1,6 @@
-# Python bytecode
+db.sqlite3
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
-
-# Local DB
-db.sqlite3
-
+.env

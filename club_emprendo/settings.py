@@ -12,18 +12,14 @@ https://docs.djangoproject.com/en/4.1/ref/settings/
 
 from pathlib import Path
 import os
+
+# ✅ Add this dependency (see notes below)
+import dj_database_url
+
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-
-# Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/4.1/howto/deployment/checklist/
-
-# SECURITY WARNING: keep the secret key used in production secret!
-import os
-from pathlib import Path
-
-BASE_DIR = Path(__file__).resolve().parent.parent
 
 # --- Core ---
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "dev-only-secret")
@@ -41,6 +37,10 @@ ALLOWED_HOSTS = [
 CSRF_TRUSTED_ORIGINS = [
     "https://apply.clubemprendo.org",
 ]
+
+# If you are behind Render/Proxy, this helps build absolute URLs correctly
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
 
 # --- Apps ---
 INSTALLED_APPS = [
@@ -88,13 +88,28 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "club_emprendo.wsgi.application"
 
+
 # --- DB ---
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",
+# ✅ Production (Render): use DATABASE_URL (Postgres)
+# ✅ Local: fall back to sqlite3
+DATABASE_URL = os.environ.get("DATABASE_URL")
+
+if DATABASE_URL:
+    DATABASES = {
+        "default": dj_database_url.parse(
+            DATABASE_URL,
+            conn_max_age=600,
+            ssl_require=True,
+        )
     }
-}
+else:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": BASE_DIR / "db.sqlite3",
+        }
+    }
+
 
 # --- Auth / Security ---
 AUTH_PASSWORD_VALIDATORS = [
@@ -109,6 +124,7 @@ TIME_ZONE = "UTC"
 USE_I18N = True
 USE_TZ = True
 
+
 # --- Static (WhiteNoise) ---
 STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
@@ -122,24 +138,15 @@ STORAGES = {
     },
 }
 
-# settings.py
-# settings.py (LOCAL ONLY)
-import os
 
-import os
-
-# Email (SMTP)
 # ---------- Email (SMTP) ----------
-# =========================
-# EMAIL (PRODUCTION SMTP)
-# =========================
-
-# Email
 DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "contacto@clubemprendo.org")
 
 EMAIL_BACKEND = os.environ.get(
     "EMAIL_BACKEND",
-    "django.core.mail.backends.console.EmailBackend" if DEBUG else "django.core.mail.backends.smtp.EmailBackend"
+    "django.core.mail.backends.console.EmailBackend"
+    if DEBUG
+    else "django.core.mail.backends.smtp.EmailBackend"
 )
 
 EMAIL_HOST = os.environ.get("EMAIL_HOST", "")
@@ -151,6 +158,7 @@ EMAIL_USE_SSL = os.environ.get("EMAIL_USE_SSL", "False").lower() == "true"
 
 # Some providers require this:
 EMAIL_TIMEOUT = int(os.environ.get("EMAIL_TIMEOUT", "10"))
+
 
 SITE_URL = os.environ.get("SITE_URL", "http://127.0.0.1:8000")
 

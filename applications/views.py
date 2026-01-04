@@ -160,16 +160,10 @@ def _handle_application_form(request, form_slug: str, second_stage: bool = False
                 _mentor_a1_autograde_and_email(request, app)
 
             # ✅ Emprendedora A1 autograde+email (MASTER or GROUP)
+# ✅ Emprendedora A1 autograde+email (E_A1 and G#_E_A1)
             if form_def.slug.endswith("E_A1"):
-                answers_by_slug = {
-                    a.question.slug: (a.value or "")
-                    for a in app.answers.select_related("question").all()
-                }
-                autograde_and_email_emprendedora_a1(
-                    request=request,
-                    application=app,
-                    answers_by_slug=answers_by_slug,
-                )
+                autograde_and_email_emprendedora_a1(request, app)
+
 
 
             return redirect("application_thanks")

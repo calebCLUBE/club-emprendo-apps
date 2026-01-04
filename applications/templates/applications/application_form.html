@@ -57,8 +57,9 @@
 
     {% for field in form %}
 
-      {# ---------- SPECIAL GRID RENDER FOR q_preferred_schedule ---------- #}
-      {% if field.name == "q_preferred_schedule" %}
+      {# ---------- SPECIAL GRID RENDER FOR preferred_schedule ---------- #}
+      {# Works for older slug (q_preferred_schedule) AND new E2/M2 slugs #}
+      {% if field.name == "q_preferred_schedule" or field.name == "q_e2_preferred_schedule" or field.name == "q_m2_preferred_schedule" %}
 
         <div class="form-row">
           <label for="{{ field.id_for_label }}" {% if field.field.required %}class="required"{% endif %}>
@@ -141,36 +142,32 @@
 
                 {# ===== ROW: NOCHE ===== #}
                 <tr>
-                  <th style="text-align:left; padding:10px;">Noche</th>
+                  <th style="text-align:left; padding:10px; border-bottom:1px solid #f0f0f0;">Noche</th>
 
-                  <td style="text-align:center; padding:10px;">
+                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">
                     {% for w in field %}{% if w.data.value == "mon_night" %}{{ w.tag }}{% endif %}{% endfor %}
                   </td>
-                  <td style="text-align:center; padding:10px;">
+                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">
                     {% for w in field %}{% if w.data.value == "tue_night" %}{{ w.tag }}{% endif %}{% endfor %}
                   </td>
-                  <td style="text-align:center; padding:10px;">
+                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">
                     {% for w in field %}{% if w.data.value == "wed_night" %}{{ w.tag }}{% endif %}{% endfor %}
                   </td>
-                  <td style="text-align:center; padding:10px;">
+                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">
                     {% for w in field %}{% if w.data.value == "thu_night" %}{{ w.tag }}{% endif %}{% endfor %}
                   </td>
-                  <td style="text-align:center; padding:10px;">
+                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">
                     {% for w in field %}{% if w.data.value == "fri_night" %}{{ w.tag }}{% endif %}{% endfor %}
                   </td>
-                  <td style="text-align:center; padding:10px;">
+                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">
                     {% for w in field %}{% if w.data.value == "sat_night" %}{{ w.tag }}{% endif %}{% endfor %}
                   </td>
-                  <td style="text-align:center; padding:10px;">
+                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">
                     {% for w in field %}{% if w.data.value == "sun_night" %}{{ w.tag }}{% endif %}{% endfor %}
                   </td>
                 </tr>
               </tbody>
             </table>
-
-            <div style="margin-top:10px; font-size:12px; color:#666;">
-              Selecciona todas las casillas que apliquen.
-            </div>
           </div>
 
           {% if field.errors %}
@@ -181,12 +178,9 @@
         </div>
 
       {% else %}
-        {# ---------- NORMAL RENDER FOR ALL OTHER FIELDS ---------- #}
+
         <div class="form-row">
-          <label
-            for="{{ field.id_for_label }}"
-            {% if field.field.required %}class="required"{% endif %}
-          >
+          <label for="{{ field.id_for_label }}" {% if field.field.required %}class="required"{% endif %}>
             {{ field.label }}
           </label>
 
@@ -202,6 +196,7 @@
             </span>
           {% endif %}
         </div>
+
       {% endif %}
 
     {% endfor %}

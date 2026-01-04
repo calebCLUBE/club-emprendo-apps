@@ -13,14 +13,21 @@
 {% endblock %}
 
 {% block content %}
+
+  {% if rendered_description %}
+    <div class="form-intro">
+      {{ rendered_description|linebreaks }}
+    </div>
+  {% endif %}
+
   <div class="ce-form-header">
     <span class="ce-form-pill">
-        {% if second_stage %}
-          Paso 2 · Aplicación detallada
-        {% else %}
-          Paso 1 · Aplicación inicial
-        {% endif %}
-      </span>
+      {% if second_stage %}
+        Paso 2 · Aplicación detallada
+      {% else %}
+        Paso 1 · Aplicación inicial
+      {% endif %}
+    </span>
 
     <h1 class="ce-form-title ce-heading">{{ form_def.name }}</h1>
 
@@ -44,15 +51,14 @@
     </div>
   {% endif %}
 
-  <form method="post">
+  <form method="post" novalidate>
     {% csrf_token %}
 
-    {# Render each field with our own markup instead of form.as_p #}
     {% for field in form %}
       <div class="form-row">
         <label
-          {% if field.field.required %}class="required"{% endif %}
           for="{{ field.id_for_label }}"
+          {% if field.field.required %}class="required"{% endif %}
         >
           {{ field.label }}
         </label>
@@ -72,10 +78,10 @@
     {% endfor %}
 
     <div class="ce-actions">
-      <button type="submit" class="ce-button-primary">Enviar aplicación</button>
+      <button type="submit" class="ce-button-primary">
+        Enviar aplicación
+      </button>
     </div>
   </form>
+
 {% endblock %}
-{% if rendered_description %}
-  <div class="form-intro">{{ rendered_description|linebreaks }}</div>
-{% endif %}

@@ -1,16 +1,13 @@
 # applications/emprendedora_a1_autograde.py
 from __future__ import annotations
 
-import re
+import unicodedata
 
-from django.core.mail import EmailMultiAlternatives
 from django.conf import settings
+from django.core.mail import EmailMultiAlternatives
 from django.urls import reverse
 
 from .models import Application
-
-
-FORM_2_LINK = "https://forms.gle/TM6PyWa2SSMLcQyJ7"
 
 
 def _send_html_email(to_email: str, subject: str, html_body: str):
@@ -26,18 +23,13 @@ def _send_html_email(to_email: str, subject: str, html_body: str):
 
 def yesish(v) -> bool:
     """
-    Treat 'sí' or 'si' as yes; handle null/undefined safely.
-    Mirrors your Apps Script logic.
+    Treat "sí" or "si" as yes; handle null/undefined safely.
+    Mirrors your Apps Script logic:
+      normalize -> strip accents -> lowercase -> trim -> includes("si")
     """
     t = ((v or "") + "")
-    # remove accents
-    t = (
-        t.encode("utf-8", "ignore").decode("utf-8", "ignore")
-    )
-    # Pythonic accent-strip
-    import unicodedata
     t = unicodedata.normalize("NFD", t)
-    t = "".join(ch for ch in t if unicodedata.category(ch) != "Mn")
+    t = "".join(ch for ch in t if unicodedata.category(ch) != "Mn")  # strip accents
     t = t.lower().strip()
     return "si" in t
 
@@ -45,38 +37,60 @@ def yesish(v) -> bool:
 def autograde_and_email_emprendedora_a1(request, app: Application):
     """
     Emprendedora A1 autograde + email.
-    Uses the *actual* question slugs stored in your DB on Render:
-      - e1_meet_requirements  (Column G in your sheet logic)
-      - e1_available_period   (Column H)
-      - e1_has_running_business (Column I)
 
-    If all three are yesish -> send next-step email (Form 2 link).
-    Else -> rejection email.
+    IMPORTANT: Uses the slugs you actually have in the DB on Render (from your shell output):
+      - e1_meet_requirements
+      - e1_available_period
+      - e1_has_running_business
 
-    Also writes app.invited_to_second_stage + invite_token for tracking
-    (even though E2 is a Google Form link right now).
+    Pass rule (matching your Apps Script):
+      - requisitos AND disponibilidad AND emprendimiento must be "sí/si" (yesish)
+
+    If eligible:
+      - generate invite_token
+      - set invited_to_second_stage=True
+      - email link to WEBSITE Application #2 (token route), not Google Forms
+
+    If not eligible:
+      - invited_to_second_stage=False
+      - send rejection email
     """
-    def _yesish(v: str) -> bool:
-        t = ((v or "") + "").strip().lower()
-        # tolerate accents and variants if you want, but keep it simple:
-        return ("si" in t) or ("sí" in t) or ("yes" in t) or (t == "true")
+    answers = {
+        a.question.slug: (a.value or "")
+        for a in app.answers.select_related("question").all()
+    }
 
-    answers = {a.question.slug: (a.value or "") for a in app.answers.select_related("question")}
+    # Prefer Render slugs; fall back to older slugs if you ever test locally with different ones.
+    requisitos = (
+        answers.get("e1_meet_requirements")
+        or answers.get("meets_requirements")
+        or ""
+    )
+    disponibilidad = (
+        answers.get("e1_available_period")
+        or answers.get("available_period")
+        or answers.get("availability_ok")
+        or ""
+    )
+    emprendimiento = (
+        answers.get("e1_has_running_business")
+        or answers.get("business_active")
+        or ""
+    )
 
-    requisitos = answers.get("e1_meet_requirements") or answers.get("meets_requirements") or ""
-    disponibilidad = answers.get("e1_available_period") or answers.get("availability_ok") or ""
-    emprendimiento = answers.get("e1_has_running_business") or answers.get("business_active") or ""
-
-    passes_requisitos = _yesish(requisitos)
-    passes_disponibilidad = _yesish(disponibilidad)
-    has_emprendimiento = _yesish(emprendimiento)
-
+    passes_requisitos = yesish(requisitos)
+    passes_disponibilidad = yesish(disponibilidad)
+    has_emprendimiento = yesish(emprendimiento)
 
     if passes_requisitos and passes_disponibilidad and has_emprendimiento:
-        # ✅ Eligible
+        # ✅ Eligible -> token + website link
         app.generate_invite_token()
         app.invited_to_second_stage = True
         app.save(update_fields=["invite_token", "invited_to_second_stage"])
+
+        form2_url = request.build_absolute_uri(
+            reverse("apply_emprendedora_second", kwargs={"token": app.invite_token})
+        )
 
         subject = "Próximo paso para recibir mentorías 💛"
         html_body = (
@@ -87,7 +101,7 @@ def autograde_and_email_emprendedora_a1(request, app: Application):
             "<p><strong>📌 Instrucciones para completar la Aplicación #2:</strong></p>"
             "<ul>"
             "<li>Haz clic en el siguiente enlace:</li>"
-            f'<li>👉 <a href="{FORM_2_LINK}">Haz clic aquí para completar la Aplicación #2</a></li>'
+            f'<li>👉 <a href="{form2_url}">Haz clic aquí para completar la Aplicación #2</a></li>'
             "<li>Se abrirá un formulario en una nueva página.</li>"
             "<li>Léelo con calma y responde todas las preguntas.</li>"
             "</ul>"

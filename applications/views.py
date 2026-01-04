@@ -129,14 +129,47 @@ def _handle_application_form(request, form_slug: str, second_stage: bool = False
         form = ApplicationForm(request.POST)
         if form.is_valid():
             # Extract name/email from known question slugs
-            full_name = (form.cleaned_data.get("q_full_name") or "").strip()
-            email = (form.cleaned_data.get("q_email") or "").strip()
+# Extract name/email from known question slugs
+# IMPORTANT: actual stored slugs vary by form (e.g. e1_email -> field q_e1_email)
+            def _pick_first(*keys: str) -> str:
+                for k in keys:
+                    v = (form.cleaned_data.get(k) or "").strip()
+                    if v:
+                        return v
+                return ""
 
-            # fallback slugs if you ever rename later
-            if not full_name:
-                full_name = (form.cleaned_data.get("q_name") or form.cleaned_data.get("q_nombre") or "").strip()
+            # 1) explicit known keys (old + new)
+            full_name = _pick_first(
+                "q_full_name",
+                "q_name",
+                "q_nombre",
+                "q_e1_full_name",
+                "q_m1_full_name",
+            )
+            email = _pick_first(
+                "q_email",
+                "q_correo",
+                "q_correo_electronico",
+                "q_e1_email",
+                "q_m1_email",
+            )
+
+            # 2) last-resort: look for *any* field that looks like an email or a name
             if not email:
-                email = (form.cleaned_data.get("q_correo") or form.cleaned_data.get("q_correo_electronico") or "").strip()
+                for k, v in form.cleaned_data.items():
+                    if not k.startswith("q_"):
+                        continue
+                    s = (v or "").strip()
+                    if "@" in s and "." in s:
+                        email = s
+                        break
+
+            if not full_name:
+                for k, v in form.cleaned_data.items():
+                    if k in ("q_e1_full_name", "q_m1_full_name"):
+                        full_name = (v or "").strip()
+                        break
+
 
             app = Application.objects.create(
                 form=form_def,

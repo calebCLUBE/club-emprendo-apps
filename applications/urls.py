@@ -1,5 +1,6 @@
 # applications/urls.py
 from django.urls import path
+from applications import admin_views
 
 from . import views
 from . import survey_views
@@ -26,4 +27,16 @@ urlpatterns = [
     # ---------- SURVEYS ----------
     path("surveys/", survey_views.surveys_index, name="surveys_index"),
     path("survey/<slug:form_slug>/", survey_views.survey_by_slug, name="survey_by_slug"),
+    path(
+    "admin/database/delete-answer-file/<int:answer_id>/",
+    admin_views.delete_answer_file_value,
+    name="admin_delete_answer_file_value",
+    ),
+    path(
+        "admin/database/delete-application-files/<int:app_id>/",
+        admin_views.delete_application_files,
+        name="admin_delete_application_files",
+    ),
+
+    
 ]

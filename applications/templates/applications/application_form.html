@@ -67,7 +67,7 @@
           </label>
 
           {% if field.help_text %}
-            <span class="form-help">{{ field.help_text }}</span>
+            <span class="form-help">{{ field.help_text|safe }}</span>
           {% endif %}
 
           <div style="overflow:auto; border:1px solid #e9e9e9; border-radius:12px; padding:10px;">
@@ -185,7 +185,7 @@
           </label>
 
           {% if field.help_text %}
-            <span class="form-help">{{ field.help_text }}</span>
+            <span class="form-help">{{ field.help_text|safe }}</span>
           {% endif %}
 
           {{ field }}

@@ -1,0 +1,29 @@
+{# applications/templates/applications/surveys_index.html #}
+{% extends "applications/base.html" %}
+
+{% block title %}Surveys · Club Emprendo{% endblock %}
+
+{% block content %}
+  <div class="ce-form-header">
+    <span class="ce-form-pill">Surveys</span>
+    <h1 class="ce-form-title ce-heading">Encuestas</h1>
+    <p class="ce-form-subtitle">
+      Selecciona la encuesta que deseas completar.
+    </p>
+  </div>
+
+  <div class="ce-admin-card">
+    <div class="ce-admin-grid">
+      {% for s in surveys %}
+        <a class="ce-admin-tile" href="{% url 'survey_by_slug' s.slug %}">
+          <div class="ce-admin-tile-title">{{ s.name }}</div>
+          <div class="ce-admin-tile-sub">{{ s.slug }}</div>
+        </a>
+      {% empty %}
+        <div style="padding:12px;">
+          No hay encuestas creadas todavía. Ejecuta <code>python manage.py seed_surveys</code>.
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+{% endblock %}

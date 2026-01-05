@@ -270,6 +270,28 @@ def apply_by_slug(request, form_slug):
     second_stage = str(form_slug).endswith("_A2")
     return _handle_application_form(request, form_slug, second_stage=second_stage)
 
+def survey_by_slug(request, form_slug):
+    # Surveys are not A2 / no token logic; just render/save like any other form
+    return _handle_application_form(request, form_slug, second_stage=False)
 
 def application_thanks(request):
     return render(request, "applications/thanks.html")
+# applications/views.py
+
+from django.shortcuts import render
+from django.contrib.admin.views.decorators import staff_member_required
+
+
+@staff_member_required
+def surveys_home(request):
+    """
+    Simple landing page listing all surveys (public links),
+    plus quick links to their submissions in the admin.
+    """
+    surveys = [
+        {"slug": "PRIMER_E", "title": "PRIMER · Emprendedoras"},
+        {"slug": "PRIMER_M", "title": "PRIMER · Mentoras"},
+        {"slug": "FINAL_E",  "title": "FINAL · Emprendedoras"},
+        {"slug": "FINAL_M",  "title": "FINAL · Mentoras"},
+    ]
+    return render(request, "applications/surveys_home.html", {"surveys": surveys})

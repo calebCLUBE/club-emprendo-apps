@@ -2,23 +2,43 @@
 
 {% block content %}
   <div class="ce-admin-wrap">
+
     <div class="ce-admin-card">
       <div class="ce-admin-grid">
+
+        <!-- ✅ FIXED: goes to your custom apps dashboard -->
         <a class="ce-admin-tile" href="/admin/apps/">
           <div class="ce-admin-tile-title">Applications</div>
-          <div class="ce-admin-tile-sub">Manage application waves, links, and exports</div>
+          <div class="ce-admin-tile-sub">
+            Manage application waves, forms, and questions
+          </div>
         </a>
 
         <a class="ce-admin-tile" href="/admin/accounts/user/">
           <div class="ce-admin-tile-title">Admin users</div>
-          <div class="ce-admin-tile-sub">Manage staff accounts</div>
+          <div class="ce-admin-tile-sub">
+            Manage staff accounts
+          </div>
         </a>
 
+        <!-- This should stay whichever “database page” you want -->
         <a class="ce-admin-tile" href="/admin/database/">
           <div class="ce-admin-tile-title">Database</div>
-          <div class="ce-admin-tile-sub">Exports and CSV files</div>
+          <div class="ce-admin-tile-sub">
+            View all submissions and exports
+          </div>
         </a>
+
+        <!-- Surveys list page -->
+        <a class="ce-admin-tile" href="/surveys/" target="_blank">
+          <div class="ce-admin-tile-title">Surveys</div>
+          <div class="ce-admin-tile-sub">
+            View all surveys and share links
+          </div>
+        </a>
+
       </div>
     </div>
+
   </div>
 {% endblock %}

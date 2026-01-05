@@ -1,34 +1,29 @@
 # applications/urls.py
 from django.urls import path
 
-from .views import (
-    apply_emprendedora_first,
-    apply_mentora_first,
-    apply_emprendedora_second_preview,
-    apply_mentora_second_preview,
-    apply_emprendedora_second,
-    apply_mentora_second,
-    application_thanks,
-    apply_by_slug,
-)
+from . import views
+from . import survey_views
 
 urlpatterns = [
-    # ---------- FIRST STAGE (PUBLIC) ----------
-    path("apply/emprendedora/", apply_emprendedora_first, name="apply_emprendedora_first"),
-    path("apply/mentora/", apply_mentora_first, name="apply_mentora_first"),
+    # ---------- PUBLIC FIRST-STAGE FORMS ----------
+    path("apply/emprendedora/", views.apply_emprendedora_first, name="apply_emprendedora_first"),
+    path("apply/mentora/", views.apply_mentora_first, name="apply_mentora_first"),
 
-    # ---------- SECOND STAGE (PREVIEW – NO TOKEN) ----------
-    path("apply/emprendedora/continue/preview/", apply_emprendedora_second_preview, name="preview_emprendedora_second"),
-    path("apply/mentora/continue/preview/", apply_mentora_second_preview, name="preview_mentora_second"),
+    # ---------- SECOND-STAGE (TOKEN REQUIRED) ----------
+    path("apply/emprendedora/continue/<str:token>/", views.apply_emprendedora_second, name="apply_emprendedora_second"),
+    path("apply/mentora/continue/<str:token>/", views.apply_mentora_second, name="apply_mentora_second"),
 
+    # ---------- PREVIEW (NO TOKEN) ----------
+    path("apply/emprendedora/preview/", views.apply_emprendedora_second_preview, name="preview_emprendedora_second"),
+    path("apply/mentora/preview/", views.apply_mentora_second_preview, name="preview_mentora_second"),
 
-    # ---------- SECOND STAGE (REAL – TOKEN REQUIRED) ----------
-    path("apply/emprendedora/continue/<uuid:token>/", apply_emprendedora_second, name="apply_emprendedora_second"),
-    path("apply/mentora/continue/<uuid:token>/", apply_mentora_second, name="apply_mentora_second"),
+    # ---------- GROUP/SLUG ROUTE ----------
+    path("apply/<slug:form_slug>/", views.apply_by_slug, name="apply_by_slug"),
 
-    # ---------- GENERIC APPLY BY SLUG (GROUP FORMS) ----------
-    path("apply/<slug:form_slug>/", apply_by_slug, name="apply_by_slug"),
+    # ---------- THANKS ----------
+    path("thanks/", views.application_thanks, name="application_thanks"),
 
-    # ---------- THANK YOU ----------
-    path("thanks/", application_thanks, name="application_thanks"),
+    # ---------- SURVEYS ----------
+    path("surveys/", survey_views.surveys_index, name="surveys_index"),
+    path("survey/<slug:form_slug>/", survey_views.survey_by_slug, name="survey_by_slug"),
 ]

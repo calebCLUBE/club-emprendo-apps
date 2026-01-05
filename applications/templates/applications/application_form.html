@@ -188,7 +188,61 @@
             <span class="form-help">{{ field.help_text|safe }}</span>
           {% endif %}
 
-          {{ field }}
+          {# --- SPECIAL RENDER: single checkbox -> show Sí + No checkboxes --- #}
+          {% if field.field.widget.input_type == "checkbox" %}
+            <div style="display:flex; gap:18px; align-items:center; margin-top:6px;">
+              <label style="display:flex;align-items:center;gap:10px;cursor:pointer;">
+                {{ field }}
+                <span>Sí</span>
+              </label>
+
+              {# "No" is a UI-only checkbox: when checked, it unchecks the real field #}
+              <label style="display:flex;align-items:center;gap:10px;cursor:pointer;">
+                <input
+                  type="checkbox"
+                  class="ce-no-toggle"
+                  data-target="{{ field.id_for_label }}"
+                  {% if not field.value %}checked{% endif %}
+                >
+                <span>No</span>
+              </label>
+            </div>
+
+            <script>
+              (function() {
+                // This script runs inline for each checkbox field; safe and small.
+                const yes = document.getElementById("{{ field.id_for_label }}");
+                if (!yes) return;
+
+                const no = document.querySelector('input.ce-no-toggle[data-target="{{ field.id_for_label }}"]');
+                if (!no) return;
+
+                // Initial sync: if "Sí" is checked -> "No" must be off; else "No" on
+                function sync() {
+                  if (yes.checked) {
+                    no.checked = false;
+                  } else {
+                    no.checked = true;
+                  }
+                }
+                sync();
+
+                yes.addEventListener("change", sync);
+
+                no.addEventListener("change", function() {
+                  if (no.checked) {
+                    yes.checked = false;
+                  } else {
+                    // If user unchecks "No", we interpret that as "Sí"
+                    yes.checked = true;
+                  }
+                  sync();
+                });
+              })();
+            </script>
+          {% else %}
+            {{ field }}
+          {% endif %}
 
           {% if field.errors %}
             <span class="form-help" style="color:#d14b4b;">

@@ -86,85 +86,37 @@
               </thead>
 
               <tbody>
-                {# ===== ROW: MAÑANA ===== #}
                 <tr>
                   <th style="text-align:left; padding:10px; border-bottom:1px solid #f0f0f0;">Mañana</th>
-
-                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">
-                    {% for w in field %}{% if w.data.value == "mon_morning" %}{{ w.tag }}{% endif %}{% endfor %}
-                  </td>
-                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">
-                    {% for w in field %}{% if w.data.value == "tue_morning" %}{{ w.tag }}{% endif %}{% endfor %}
-                  </td>
-                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">
-                    {% for w in field %}{% if w.data.value == "wed_morning" %}{{ w.tag }}{% endif %}{% endfor %}
-                  </td>
-                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">
-                    {% for w in field %}{% if w.data.value == "thu_morning" %}{{ w.tag }}{% endif %}{% endfor %}
-                  </td>
-                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">
-                    {% for w in field %}{% if w.data.value == "fri_morning" %}{{ w.tag }}{% endif %}{% endfor %}
-                  </td>
-                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">
-                    {% for w in field %}{% if w.data.value == "sat_morning" %}{{ w.tag }}{% endif %}{% endfor %}
-                  </td>
-                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">
-                    {% for w in field %}{% if w.data.value == "sun_morning" %}{{ w.tag }}{% endif %}{% endfor %}
-                  </td>
+                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">{% for w in field %}{% if w.data.value == "mon_morning" %}{{ w.tag }}{% endif %}{% endfor %}</td>
+                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">{% for w in field %}{% if w.data.value == "tue_morning" %}{{ w.tag }}{% endif %}{% endfor %}</td>
+                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">{% for w in field %}{% if w.data.value == "wed_morning" %}{{ w.tag }}{% endif %}{% endfor %}</td>
+                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">{% for w in field %}{% if w.data.value == "thu_morning" %}{{ w.tag }}{% endif %}{% endfor %}</td>
+                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">{% for w in field %}{% if w.data.value == "fri_morning" %}{{ w.tag }}{% endif %}{% endfor %}</td>
+                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">{% for w in field %}{% if w.data.value == "sat_morning" %}{{ w.tag }}{% endif %}{% endfor %}</td>
+                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">{% for w in field %}{% if w.data.value == "sun_morning" %}{{ w.tag }}{% endif %}{% endfor %}</td>
                 </tr>
 
-                {# ===== ROW: TARDE ===== #}
                 <tr>
                   <th style="text-align:left; padding:10px; border-bottom:1px solid #f0f0f0;">Tarde</th>
-
-                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">
-                    {% for w in field %}{% if w.data.value == "mon_afternoon" %}{{ w.tag }}{% endif %}{% endfor %}
-                  </td>
-                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">
-                    {% for w in field %}{% if w.data.value == "tue_afternoon" %}{{ w.tag }}{% endif %}{% endfor %}
-                  </td>
-                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">
-                    {% for w in field %}{% if w.data.value == "wed_afternoon" %}{{ w.tag }}{% endif %}{% endfor %}
-                  </td>
-                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">
-                    {% for w in field %}{% if w.data.value == "thu_afternoon" %}{{ w.tag }}{% endif %}{% endfor %}
-                  </td>
-                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">
-                    {% for w in field %}{% if w.data.value == "fri_afternoon" %}{{ w.tag }}{% endif %}{% endfor %}
-                  </td>
-                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">
-                    {% for w in field %}{% if w.data.value == "sat_afternoon" %}{{ w.tag }}{% endif %}{% endfor %}
-                  </td>
-                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">
-                    {% for w in field %}{% if w.data.value == "sun_afternoon" %}{{ w.tag }}{% endif %}{% endfor %}
-                  </td>
+                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">{% for w in field %}{% if w.data.value == "mon_afternoon" %}{{ w.tag }}{% endif %}{% endfor %}</td>
+                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">{% for w in field %}{% if w.data.value == "tue_afternoon" %}{{ w.tag }}{% endif %}{% endfor %}</td>
+                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">{% for w in field %}{% if w.data.value == "wed_afternoon" %}{{ w.tag }}{% endif %}{% endfor %}</td>
+                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">{% for w in field %}{% if w.data.value == "thu_afternoon" %}{{ w.tag }}{% endif %}{% endfor %}</td>
+                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">{% for w in field %}{% if w.data.value == "fri_afternoon" %}{{ w.tag }}{% endif %}{% endfor %}</td>
+                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">{% for w in field %}{% if w.data.value == "sat_afternoon" %}{{ w.tag }}{% endif %}{% endfor %}</td>
+                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">{% for w in field %}{% if w.data.value == "sun_afternoon" %}{{ w.tag }}{% endif %}{% endfor %}</td>
                 </tr>
 
-                {# ===== ROW: NOCHE ===== #}
                 <tr>
                   <th style="text-align:left; padding:10px; border-bottom:1px solid #f0f0f0;">Noche</th>
-
-                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">
-                    {% for w in field %}{% if w.data.value == "mon_night" %}{{ w.tag }}{% endif %}{% endfor %}
-                  </td>
-                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">
-                    {% for w in field %}{% if w.data.value == "tue_night" %}{{ w.tag }}{% endif %}{% endfor %}
-                  </td>
-                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">
-                    {% for w in field %}{% if w.data.value == "wed_night" %}{{ w.tag }}{% endif %}{% endfor %}
-                  </td>
-                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">
-                    {% for w in field %}{% if w.data.value == "thu_night" %}{{ w.tag }}{% endif %}{% endfor %}
-                  </td>
-                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">
-                    {% for w in field %}{% if w.data.value == "fri_night" %}{{ w.tag }}{% endif %}{% endfor %}
-                  </td>
-                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">
-                    {% for w in field %}{% if w.data.value == "sat_night" %}{{ w.tag }}{% endif %}{% endfor %}
-                  </td>
-                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">
-                    {% for w in field %}{% if w.data.value == "sun_night" %}{{ w.tag }}{% endif %}{% endfor %}
-                  </td>
+                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">{% for w in field %}{% if w.data.value == "mon_night" %}{{ w.tag }}{% endif %}{% endfor %}</td>
+                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">{% for w in field %}{% if w.data.value == "tue_night" %}{{ w.tag }}{% endif %}{% endfor %}</td>
+                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">{% for w in field %}{% if w.data.value == "wed_night" %}{{ w.tag }}{% endif %}{% endfor %}</td>
+                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">{% for w in field %}{% if w.data.value == "thu_night" %}{{ w.tag }}{% endif %}{% endfor %}</td>
+                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">{% for w in field %}{% if w.data.value == "fri_night" %}{{ w.tag }}{% endif %}{% endfor %}</td>
+                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">{% for w in field %}{% if w.data.value == "sat_night" %}{{ w.tag }}{% endif %}{% endfor %}</td>
+                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">{% for w in field %}{% if w.data.value == "sun_night" %}{{ w.tag }}{% endif %}{% endfor %}</td>
                 </tr>
               </tbody>
             </table>
@@ -188,61 +140,7 @@
             <span class="form-help">{{ field.help_text|safe }}</span>
           {% endif %}
 
-          {# --- SPECIAL RENDER: single checkbox -> show Sí + No checkboxes --- #}
-          {% if field.field.widget.input_type == "checkbox" %}
-            <div style="display:flex; gap:18px; align-items:center; margin-top:6px;">
-              <label style="display:flex;align-items:center;gap:10px;cursor:pointer;">
-                {{ field }}
-                <span>Sí</span>
-              </label>
-
-              {# "No" is a UI-only checkbox: when checked, it unchecks the real field #}
-              <label style="display:flex;align-items:center;gap:10px;cursor:pointer;">
-                <input
-                  type="checkbox"
-                  class="ce-no-toggle"
-                  data-target="{{ field.id_for_label }}"
-                  {% if not field.value %}checked{% endif %}
-                >
-                <span>No</span>
-              </label>
-            </div>
-
-            <script>
-              (function() {
-                // This script runs inline for each checkbox field; safe and small.
-                const yes = document.getElementById("{{ field.id_for_label }}");
-                if (!yes) return;
-
-                const no = document.querySelector('input.ce-no-toggle[data-target="{{ field.id_for_label }}"]');
-                if (!no) return;
-
-                // Initial sync: if "Sí" is checked -> "No" must be off; else "No" on
-                function sync() {
-                  if (yes.checked) {
-                    no.checked = false;
-                  } else {
-                    no.checked = true;
-                  }
-                }
-                sync();
-
-                yes.addEventListener("change", sync);
-
-                no.addEventListener("change", function() {
-                  if (no.checked) {
-                    yes.checked = false;
-                  } else {
-                    // If user unchecks "No", we interpret that as "Sí"
-                    yes.checked = true;
-                  }
-                  sync();
-                });
-              })();
-            </script>
-          {% else %}
-            {{ field }}
-          {% endif %}
+          {{ field }}
 
           {% if field.errors %}
             <span class="form-help" style="color:#d14b4b;">
@@ -252,7 +150,6 @@
         </div>
 
       {% endif %}
-
     {% endfor %}
 
     <div class="ce-actions">

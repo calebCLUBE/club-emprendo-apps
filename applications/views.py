@@ -18,10 +18,9 @@ GROUP_SLUG_RE = re.compile(r"^G(?P<num>\d+)_")
 # Email helpers
 # -------------------------
 def _send_html_email(to_email: str, subject: str, html_body: str):
-    # Guard: never attempt to send to empty recipient
-    if not (to_email or "").strip():
-        return
-
+    """
+    Send HTML email using Django EMAIL_* settings.
+    """
     msg = EmailMultiAlternatives(
         subject=subject,
         body="",
@@ -34,52 +33,51 @@ def _send_html_email(to_email: str, subject: str, html_body: str):
 
 def _mentor_a1_autograde_and_email(request, app: Application):
     """
-    Replicates your Google Apps Script logic for Mentora A1 (M_A1 and G#_M_A1):
+    Mentora A1 autograde + email.
 
-    - Check answers to:
-        meets_requirements (yes/no)
-        availability_ok (yes/no)
+    Supports BOTH older slugs and newer prefixed slugs.
 
-    - If both yes:
-        generate token
-        email token-link to /apply/mentora/continue/<token>/
-    - else:
-        rejection email
+    Expected logical checks:
+      - meets_requirements (yes/no)
+      - availability_ok (yes/no)
 
-    Also sets invited_to_second_stage flag.
+    If both yes -> generate invite token and email link to /apply/mentora/continue/<token>/
+    Else -> rejection email
+
+    Also writes invited_to_second_stage on Application.
     """
-
     answers = {
         a.question.slug: (a.value or "")
         for a in app.answers.select_related("question").all()
     }
 
-    def _yesish(v: str) -> bool:
+    def yesish(v: str) -> bool:
         t = (v or "").strip().lower()
-        # accept "yes", "sí/si", and also "true" just in case
-        return ("yes" in t) or ("si" in t) or (t == "true")
+        return ("si" in t) or ("sí" in t) or ("yes" in t) or (t == "true") or (t == "1")
 
-    # NEW slugs (Render) + old slugs (fallback)
+    # Support multiple naming schemes
     requisitos = (
-        answers.get("m1_meet_requirements")
-        or answers.get("meets_requirements")
+        answers.get("meets_requirements")
+        or answers.get("m1_meet_requirements")
+        or answers.get("m1_meets_requirements")
+        or answers.get("m1_requirements_ok")
         or ""
     )
     disponibilidad = (
-        answers.get("m1_availability_ok")
-        or answers.get("availability_ok")
-        or answers.get("m1_available_period")   # if you used this wording on mentora too
+        answers.get("availability_ok")
+        or answers.get("m1_availability_ok")
+        or answers.get("m1_available_period")
+        or answers.get("m1_available")
         or ""
     )
 
-    passes_requisitos = _yesish(requisitos)
-    passes_disponibilidad = _yesish(disponibilidad)
-
+    passes_requisitos = yesish(requisitos)
+    passes_disponibilidad = yesish(disponibilidad)
 
     if passes_requisitos and passes_disponibilidad:
         app.generate_invite_token()
         app.invited_to_second_stage = True
-        app.save()
+        app.save(update_fields=["invite_token", "invited_to_second_stage"])
 
         form2_url = request.build_absolute_uri(
             reverse("apply_mentora_second", kwargs={"token": app.invite_token})
@@ -107,7 +105,7 @@ def _mentor_a1_autograde_and_email(request, app: Application):
 
     # rejection
     app.invited_to_second_stage = False
-    app.save()
+    app.save(update_fields=["invited_to_second_stage"])
 
     subject = "Sobre tu aplicación como mentora voluntaria 🌟"
     html_body = (
@@ -125,7 +123,6 @@ def _mentor_a1_autograde_and_email(request, app: Application):
         "<li>Estar dispuesta a responder 3 encuestas de retroalimentación durante el proceso</li>"
         "</ul>"
         "<p>✨ Si por alguna razón marcaste alguna respuesta por error, o si tus circunstancias cambian en los próximos días, puedes volver a completar la aplicación antes de la fecha límite y con gusto la revisaremos nuevamente.</p>"
-        "<p>Sabemos que cada etapa de la vida es distinta y que a veces no es el momento adecuado. Agradecemos profundamente tu intención de sumarte, y si en el futuro decides postularte nuevamente, estaremos felices de recibirte.</p>"
         "<p>Con cariño,<br><strong>El equipo de Club Emprendo</strong></p>"
         "</div>"
     )
@@ -141,41 +138,70 @@ def _handle_application_form(request, form_slug: str, second_stage: bool = False
 
     IMPORTANT:
     - We do NOT assume the form has top-level "name" and "email" fields.
-    - We extract them from this form's question slugs dynamically (works for e1_email, m1_email, etc).
+    - We extract them from known possible question slugs / field names.
     """
     form_def = get_object_or_404(FormDefinition, slug=form_slug)
     ApplicationForm = build_application_form(form_slug)
 
+    # Try to find a description field on FormDefinition (supports multiple naming conventions)
+    rendered_description = ""
+    for attr in ("description", "intro", "intro_text", "public_description"):
+        if hasattr(form_def, attr):
+            v = getattr(form_def, attr) or ""
+            if str(v).strip():
+                rendered_description = str(v)
+                break
+
     if request.method == "POST":
         form = ApplicationForm(request.POST)
         if form.is_valid():
-            # ---- Robust name/email extraction based on THIS form's question slugs ----
-            def _pick_value_by_slug_contains(contains_any):
-                """
-                Looks through form_def questions and returns the first non-empty cleaned_data
-                value where the question.slug contains any of the substrings.
-                """
-                contains_any = [c.lower() for c in contains_any]
-                for q in form_def.questions.filter(active=True).order_by("position", "id"):
-                    s = (q.slug or "").lower()
-                    if any(c in s for c in contains_any):
-                        v = (form.cleaned_data.get(f"q_{q.slug}") or "").strip()
-                        if v:
-                            return v
+            def _pick_first(*keys: str) -> str:
+                for k in keys:
+                    v = (form.cleaned_data.get(k) or "").strip()
+                    if v:
+                        return v
                 return ""
 
-            full_name = _pick_value_by_slug_contains(["full_name", "nombre", "name"])
-            email = _pick_value_by_slug_contains(["email", "correo"])
+            # 1) explicit known keys (old + new patterns)
+            full_name = _pick_first(
+                # legacy
+                "q_full_name", "q_name", "q_nombre",
+                # emprendedora/mentora stage1 prefixed
+                "q_e1_full_name", "q_m1_full_name",
+                # stage2 prefixed (just in case)
+                "q_e2_full_name", "q_m2_full_name",
+            )
+            email = _pick_first(
+                # legacy
+                "q_email", "q_correo", "q_correo_electronico",
+                # stage1 prefixed
+                "q_e1_email", "q_m1_email",
+                # stage2 prefixed
+                "q_e2_email", "q_m2_email",
+            )
 
-            # fallback: scan any field that looks like an email
+            # 2) last-resort: find any q_* value that looks like an email
             if not email:
                 for k, v in form.cleaned_data.items():
-                    if not str(k).startswith("q_"):
+                    if not k.startswith("q_"):
                         continue
                     s = (v or "").strip()
                     if "@" in s and "." in s:
                         email = s
                         break
+
+            # 3) last-resort: find any q_* that looks like a name
+            if not full_name:
+                for k, v in form.cleaned_data.items():
+                    if not k.startswith("q_"):
+                        continue
+                    # Prefer keys containing "name" or "nombre"
+                    lk = k.lower()
+                    if ("name" in lk) or ("nombre" in lk):
+                        s = (v or "").strip()
+                        if s:
+                            full_name = s
+                            break
 
             app = Application.objects.create(
                 form=form_def,
@@ -183,22 +209,25 @@ def _handle_application_form(request, form_slug: str, second_stage: bool = False
                 email=email,
             )
 
+            # Save answers
             for q in form_def.questions.filter(active=True).order_by("position", "id"):
                 field_name = f"q_{q.slug}"
                 value = form.cleaned_data.get(field_name)
+
+                # MultiChoice returns a list
                 if isinstance(value, list):
                     value = ",".join(value)
+
                 Answer.objects.create(
                     application=app,
                     question=q,
                     value=str(value or ""),
                 )
 
-            # ✅ Mentora A1 autograde+email
+            # Trigger auto-grade + email
             if form_def.slug.endswith("M_A1"):
                 _mentor_a1_autograde_and_email(request, app)
 
-            # ✅ Emprendedora A1 autograde+email (MASTER or GROUP)
             if form_def.slug.endswith("E_A1"):
                 autograde_and_email_emprendedora_a1(request, app)
 
@@ -209,7 +238,12 @@ def _handle_application_form(request, form_slug: str, second_stage: bool = False
     return render(
         request,
         "applications/application_form.html",
-        {"form": form, "form_def": form_def, "second_stage": second_stage},
+        {
+            "form": form,
+            "form_def": form_def,
+            "second_stage": second_stage,
+            "rendered_description": rendered_description,
+        },
     )
 
 
@@ -226,8 +260,10 @@ def apply_mentora_first(request):
 def apply_emprendedora_second(request, token):
     first_app = get_object_or_404(Application, invite_token=token)
 
-    # If first stage was G#_E_A1, try to route to G#_E_A2
+    # Default to master E_A2
     form_slug = "E_A2"
+
+    # If first stage was group like G6_E_A1, try G6_E_A2
     m = GROUP_SLUG_RE.match(first_app.form.slug or "")
     if m:
         gnum = m.group("num")
@@ -266,32 +302,19 @@ def apply_mentora_second_preview(request):
 
 # ---------- GROUP/SLUG ROUTE ----------
 def apply_by_slug(request, form_slug):
-    # A2 (or *_A2) should be treated as second stage for grading/etc
+    # A2 (or *_A2) should be treated as second stage for UI text
     second_stage = str(form_slug).endswith("_A2")
     return _handle_application_form(request, form_slug, second_stage=second_stage)
 
-def survey_by_slug(request, form_slug):
-    # Surveys are not A2 / no token logic; just render/save like any other form
-    return _handle_application_form(request, form_slug, second_stage=False)
 
 def application_thanks(request):
     return render(request, "applications/thanks.html")
-# applications/views.py
-
-from django.shortcuts import render
-from django.contrib.admin.views.decorators import staff_member_required
 
 
-@staff_member_required
-def surveys_home(request):
+# ---------- SURVEYS ----------
+def survey_by_slug(request, form_slug):
     """
-    Simple landing page listing all surveys (public links),
-    plus quick links to their submissions in the admin.
+    Uses the same dynamic form engine + template for surveys.
+    Example slugs: PRIMER_E, PRIMER_M, FINAL_E, FINAL_M
     """
-    surveys = [
-        {"slug": "PRIMER_E", "title": "PRIMER · Emprendedoras"},
-        {"slug": "PRIMER_M", "title": "PRIMER · Mentoras"},
-        {"slug": "FINAL_E",  "title": "FINAL · Emprendedoras"},
-        {"slug": "FINAL_M",  "title": "FINAL · Mentoras"},
-    ]
-    return render(request, "applications/surveys_home.html", {"surveys": surveys})
+    return _handle_application_form(request, form_slug, second_stage=False)

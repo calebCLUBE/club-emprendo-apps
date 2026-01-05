@@ -1,80 +1,151 @@
-# accounts/admin.py
+# applications/admin.py
+
 from django.contrib import admin
-from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
-from django.contrib.auth.forms import PasswordResetForm
-from django.utils.html import format_html
 from django.urls import reverse
-from django import forms
+from django.utils.html import format_html
 
-from .models import User
-
-
-class UserCreationInviteForm(forms.ModelForm):
-    class Meta:
-        model = User
-        fields = ("email", "full_name")
-
-    def clean_email(self):
-        email = (self.cleaned_data.get("email") or "").strip().lower()
-        if not email:
-            raise forms.ValidationError("Email is required.")
-        if User.objects.filter(email__iexact=email).exists():
-            raise forms.ValidationError("A user with this email already exists.")
-        return email
+from .models import FormDefinition, Question, Choice, Application
 
 
-@admin.register(User)
-class UserAdmin(BaseUserAdmin):
-    model = User
+# =========================
+# Inlines
+# =========================
 
-    # ✅ remove filters (also requested)
-    list_filter = ()
+class ChoiceInline(admin.TabularInline):
+    """
+    Lets you edit Choices directly inside the Question edit page.
+    This is what you need to edit multiple-choice options.
+    """
+    model = Choice
+    extra = 2
+    fields = ("position", "label", "value")
+    ordering = ("position", "id")
 
-    ordering = ("email",)
-    search_fields = ("email", "full_name")
-    list_display = ("email", "full_name", "is_staff", "is_active", "invite_link")
 
-    # Use our minimal add form
-    add_form = UserCreationInviteForm
-    add_fieldsets = (
-        (None, {"classes": ("wide",), "fields": ("email", "full_name", "is_staff", "is_active")}),
+class FormQuestionInline(admin.TabularInline):
+    """
+    Lets you manage which Questions belong to a FormDefinition.
+    This assumes FormDefinition has a ManyToMany to Question:
+        FormDefinition.questions = models.ManyToManyField(Question, ...)
+    Django automatically creates a through table, so we can inline it.
+
+    If your model is instead a ForeignKey from Question -> FormDefinition,
+    tell me and I’ll adjust, but your code (fd.questions.get(...)) strongly
+    suggests ManyToMany.
+    """
+    model = FormDefinition.questions.through  # auto-created through model
+    extra = 1
+    autocomplete_fields = ("question",)
+
+    # show a nicer label
+    verbose_name = "Question in this form"
+    verbose_name_plural = "Questions in this form"
+
+
+# =========================
+# FormDefinition admin
+# =========================
+
+@admin.register(FormDefinition)
+class FormDefinitionAdmin(admin.ModelAdmin):
+    """
+    Admin for the form definitions (E_A1, E_A2, M_A1, M_A2, G6_... clones, etc.)
+    Includes:
+      - Preview button
+      - Inline list of questions that belong to the form
+    """
+    list_display = ("__str__", "slug", "preview_link")
+    search_fields = ("slug", "name")
+    readonly_fields = ("preview_link",)
+    inlines = (FormQuestionInline,)
+
+    def preview_link(self, obj):
+        slug = getattr(obj, "slug", None)
+        if not slug:
+            return "-"
+
+        # Your existing preview routing:
+        if slug == "E_A1":
+            url_name = "apply_emprendedora_first"
+        elif slug == "E_A2":
+            url_name = "preview_emprendedora_second"
+        elif slug == "M_A1":
+            url_name = "apply_mentora_first"
+        elif slug == "M_A2":
+            url_name = "preview_mentora_second"
+        else:
+            # For group forms (G6_E_A1, etc), use apply_by_slug
+            # if you want preview for all:
+            try:
+                url = reverse("apply_by_slug", kwargs={"form_slug": slug})
+                return format_html(
+                    '<a href="{}" target="_blank" class="button">Preview</a>',
+                    url,
+                )
+            except Exception:
+                return "-"
+
+        try:
+            url = reverse(url_name)
+        except Exception:
+            return "-"
+
+        return format_html(
+            '<a href="{}" target="_blank" class="button">Preview</a>',
+            url,
+        )
+
+    preview_link.short_description = "Preview"
+
+
+# =========================
+# Question admin
+# =========================
+
+@admin.register(Question)
+class QuestionAdmin(admin.ModelAdmin):
+    """
+    This is the main upgrade:
+    - Edit question text/type/etc
+    - AND edit choices inline on the same page (ChoiceInline)
+    """
+    list_display = ("id", "slug", "field_type", "required", "active", "position")
+    list_filter = ("active", "field_type", "required")
+    search_fields = ("id", "slug", "text")
+    ordering = ("position", "id")
+
+    fields = (
+        "slug",
+        "text",
+        "help_text",
+        "field_type",
+        "required",
+        "active",
+        "position",
     )
 
-    fieldsets = (
-        (None, {"fields": ("email", "password")}),
-        ("Profile", {"fields": ("full_name",)}),
-        ("Permissions", {"fields": ("is_active", "is_staff", "is_superuser", "groups", "user_permissions")}),
-        ("Important dates", {"fields": ("last_login", "date_joined")}),
-    )
+    inlines = (ChoiceInline,)
 
-    def save_model(self, request, obj, form, change):
-        is_new = obj.pk is None
-        super().save_model(request, obj, form, change)
 
-        # If created in admin, force password setup via email
-        if is_new:
-            obj.set_unusable_password()
-            obj.save(update_fields=["password"])
-            self._send_password_setup_email(request, obj)
+# =========================
+# Choice admin (optional to keep)
+# =========================
 
-    def _send_password_setup_email(self, request, user):
-        if not user.email:
-            return
+@admin.register(Choice)
+class ChoiceAdmin(admin.ModelAdmin):
+    list_display = ("id", "question", "label", "value", "position")
+    search_fields = ("id", "label", "value", "question__slug")
+    list_filter = ("question",)
+    ordering = ("question", "position", "id")
 
-        # Uses Django’s password reset email (tokenized link)
-        prf = PasswordResetForm({"email": user.email})
-        if prf.is_valid():
-            prf.save(
-                request=request,
-                use_https=request.is_secure(),
-                from_email=None,  # uses DEFAULT_FROM_EMAIL
-                email_template_name="registration/password_reset_email.html",
-                subject_template_name="registration/password_reset_subject.txt",
-            )
 
-    def invite_link(self, obj):
-        # optional manual resend button
-        url = reverse("admin:accounts_user_change", args=[obj.pk])
-        return format_html('<a class="button" href="{}">Edit</a>', url)
+# =========================
+# Application admin
+# =========================
 
-    invite_link.short_description = "Actions"
+@admin.register(Application)
+class ApplicationAdmin(admin.ModelAdmin):
+    list_display = ("id", "form", "name", "email", "created_at")
+    list_filter = ("form",)
+    search_fields = ("id", "name", "email")
+    ordering = ("-created_at",)

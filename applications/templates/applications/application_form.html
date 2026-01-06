@@ -1,57 +1,191 @@
+{# applications/templates/applications/application_form.html #}
 {% extends "applications/base.html" %}
 
-{% block title %}{{ form_def.name }}{% endblock %}
+{% block title %}{{ form_def.name }} · Club Emprendo{% endblock %}
+
+{% block role_chips %}
+  {% if form_def.slug|slice:":1" == "E" %}
+    <span class="ce-chip">Emprendedoras</span>
+  {% elif form_def.slug|slice:":1" == "M" %}
+    <span class="ce-chip">Mentoras</span>
+  {% else %}
+    {{ block.super }}
+  {% endif %}
+{% endblock %}
 
 {% block content %}
-  <div class="ce-card">
-    <div class="ce-form-header">
 
-      {# ✅ Removed the "Emprendedoras / Mentoras" pills from the respondent form header #}
-
-      <h1 class="ce-form-title">{{ form_def.name }}</h1>
-
-      {% if rendered_description %}
-        <p class="ce-form-subtitle">{{ rendered_description|safe }}</p>
-      {% endif %}
+  {% if rendered_description %}
+    <div class="form-intro">
+      {{ rendered_description|linebreaks }}
     </div>
+  {% endif %}
 
-    {% if messages %}
-      {% for message in messages %}
-        <div class="ce-alert">{{ message }}</div>
-      {% endfor %}
-    {% endif %}
+  <div class="ce-form-header">
+    <span class="ce-form-pill">
+      {% if second_stage %}
+        Paso 2 · Aplicación detallada
+      {% else %}
+        Paso 1 · Aplicación inicial
+      {% endif %}
+    </span>
 
-    <form method="post" novalidate>
-      {% csrf_token %}
+    <h1 class="ce-form-title ce-heading">{{ form_def.name }}</h1>
 
-      {% for field in form %}
-        <div class="form-row">
-          <label
-            for="{{ field.id_for_label }}"
-            class="{% if field.field.required %}required{% endif %}"
-          >
+    <p class="ce-form-subtitle">
+      {% if second_stage %}
+        Esta es la segunda parte del proceso de selección. Tómate tu tiempo para
+        responder con calma; tus respuestas nos ayudan a conectar mejor mentoras
+        y emprendedoras.
+      {% else %}
+        Cuéntanos un poco sobre ti y confirma si cumples con los requisitos del
+        programa.
+      {% endif %}
+    </p>
+  </div>
+
+  {% if second_stage %}
+    <div class="ce-alert">
+      Tus datos básicos (nombre y correo) ya están registrados de la primera
+      aplicación. Aquí nos enfocamos en conocer mejor tu experiencia,
+      motivación y disponibilidad.
+    </div>
+  {% endif %}
+
+  <form method="post" novalidate>
+    {% csrf_token %}
+
+    {% for field in form %}
+
+      {# ---------- SPECIAL GRID RENDER FOR preferred_schedule ---------- #}
+      {% if field.name == "q_preferred_schedule" or field.name == "q_e2_preferred_schedule" or field.name == "q_m2_preferred_schedule" %}
+
+        <div class="form-row" data-field="{{ field.name }}">
+          <label for="{{ field.id_for_label }}" {% if field.field.required %}class="required"{% endif %}>
             {{ field.label }}
           </label>
 
           {% if field.help_text %}
-            <span class="form-help">{{ field.help_text }}</span>
+            <span class="form-help">{{ field.help_text|safe }}</span>
+          {% endif %}
+
+          <div style="overflow:auto; border:1px solid #e9e9e9; border-radius:12px; padding:10px;">
+            <table style="border-collapse:collapse; width:100%; min-width:760px; font-size:14px;">
+              <thead>
+                <tr>
+                  <th style="text-align:left; padding:10px; border-bottom:1px solid #eee;"></th>
+                  <th style="text-align:center; padding:10px; border-bottom:1px solid #eee;">Lunes</th>
+                  <th style="text-align:center; padding:10px; border-bottom:1px solid #eee;">Martes</th>
+                  <th style="text-align:center; padding:10px; border-bottom:1px solid #eee;">Miércoles</th>
+                  <th style="text-align:center; padding:10px; border-bottom:1px solid #eee;">Jueves</th>
+                  <th style="text-align:center; padding:10px; border-bottom:1px solid #eee;">Viernes</th>
+                  <th style="text-align:center; padding:10px; border-bottom:1px solid #eee;">Sábado</th>
+                  <th style="text-align:center; padding:10px; border-bottom:1px solid #eee;">Domingo</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                <tr>
+                  <th style="text-align:left; padding:10px; border-bottom:1px solid #f0f0f0;">Mañana</th>
+                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">{% for w in field %}{% if w.data.value == "mon_morning" %}{{ w.tag }}{% endif %}{% endfor %}</td>
+                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">{% for w in field %}{% if w.data.value == "tue_morning" %}{{ w.tag }}{% endif %}{% endfor %}</td>
+                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">{% for w in field %}{% if w.data.value == "wed_morning" %}{{ w.tag }}{% endif %}{% endfor %}</td>
+                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">{% for w in field %}{% if w.data.value == "thu_morning" %}{{ w.tag }}{% endif %}{% endfor %}</td>
+                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">{% for w in field %}{% if w.data.value == "fri_morning" %}{{ w.tag }}{% endif %}{% endfor %}</td>
+                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">{% for w in field %}{% if w.data.value == "sat_morning" %}{{ w.tag }}{% endif %}{% endfor %}</td>
+                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">{% for w in field %}{% if w.data.value == "sun_morning" %}{{ w.tag }}{% endif %}{% endfor %}</td>
+                </tr>
+
+                <tr>
+                  <th style="text-align:left; padding:10px; border-bottom:1px solid #f0f0f0;">Tarde</th>
+                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">{% for w in field %}{% if w.data.value == "mon_afternoon" %}{{ w.tag }}{% endif %}{% endfor %}</td>
+                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">{% for w in field %}{% if w.data.value == "tue_afternoon" %}{{ w.tag }}{% endif %}{% endfor %}</td>
+                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">{% for w in field %}{% if w.data.value == "wed_afternoon" %}{{ w.tag }}{% endif %}{% endfor %}</td>
+                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">{% for w in field %}{% if w.data.value == "thu_afternoon" %}{{ w.tag }}{% endif %}{% endfor %}</td>
+                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">{% for w in field %}{% if w.data.value == "fri_afternoon" %}{{ w.tag }}{% endif %}{% endfor %}</td>
+                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">{% for w in field %}{% if w.data.value == "sat_afternoon" %}{{ w.tag }}{% endif %}{% endfor %}</td>
+                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">{% for w in field %}{% if w.data.value == "sun_afternoon" %}{{ w.tag }}{% endif %}{% endfor %}</td>
+                </tr>
+
+                <tr>
+                  <th style="text-align:left; padding:10px; border-bottom:1px solid #f0f0f0;">Noche</th>
+                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">{% for w in field %}{% if w.data.value == "mon_night" %}{{ w.tag }}{% endif %}{% endfor %}</td>
+                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">{% for w in field %}{% if w.data.value == "tue_night" %}{{ w.tag }}{% endif %}{% endfor %}</td>
+                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">{% for w in field %}{% if w.data.value == "wed_night" %}{{ w.tag }}{% endif %}{% endfor %}</td>
+                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">{% for w in field %}{% if w.data.value == "thu_night" %}{{ w.tag }}{% endif %}{% endfor %}</td>
+                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">{% for w in field %}{% if w.data.value == "fri_night" %}{{ w.tag }}{% endif %}{% endfor %}</td>
+                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">{% for w in field %}{% if w.data.value == "sat_night" %}{{ w.tag }}{% endif %}{% endfor %}</td>
+                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">{% for w in field %}{% if w.data.value == "sun_night" %}{{ w.tag }}{% endif %}{% endfor %}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          {% if field.errors %}
+            <span class="form-help" style="color:#d14b4b;">
+              {{ field.errors|striptags }}
+            </span>
+          {% endif %}
+        </div>
+
+      {% else %}
+
+        <div class="form-row" data-field="{{ field.name }}">
+          <label for="{{ field.id_for_label }}" {% if field.field.required %}class="required"{% endif %}>
+            {{ field.label }}
+          </label>
+
+          {% if field.help_text %}
+            <span class="form-help">{{ field.help_text|safe }}</span>
           {% endif %}
 
           {{ field }}
 
           {% if field.errors %}
-            <div class="form-help" style="color:#b00020;">
+            <span class="form-help" style="color:#d14b4b;">
               {{ field.errors|striptags }}
-            </div>
+            </span>
           {% endif %}
         </div>
-      {% endfor %}
 
-      <div class="ce-actions">
-        <button class="ce-button-primary" type="submit">
-          Enviar
-        </button>
-      </div>
-    </form>
-  </div>
+      {% endif %}
+    {% endfor %}
+
+    <div class="ce-actions">
+      <button type="submit" class="ce-button-primary">
+        Enviar aplicación
+      </button>
+    </div>
+  </form>
+
+  <script>
+    (function() {
+      // Hide "q_comments" unless "q_meets_requirements" == "no"
+      function getSelectedValue(name) {
+        const checked = document.querySelector('input[name="' + name + '"]:checked');
+        return checked ? checked.value : "";
+      }
+
+      function setVisible(fieldName, show) {
+        const row = document.querySelector('.form-row[data-field="' + fieldName + '"]');
+        if (!row) return;
+        row.style.display = show ? "" : "none";
+      }
+
+      function update() {
+        const v = getSelectedValue("q_meets_requirements");
+        // Only show comments when they explicitly answered "no"
+        setVisible("q_comments", v === "no");
+      }
+
+      // Initial state
+      update();
+
+      // Re-run when they click the requirements radios
+      document.querySelectorAll('input[name="q_meets_requirements"]').forEach(function(el) {
+        el.addEventListener("change", update);
+      });
+    })();
+  </script>
+
 {% endblock %}

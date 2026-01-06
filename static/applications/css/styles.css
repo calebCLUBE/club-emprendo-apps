@@ -323,3 +323,41 @@ label.required::after {
   color: #999;
   text-align: center;
 }
+/* Schedule grid (weekday x time) */
+.ce-schedule-grid-wrap {
+  overflow-x: auto;
+  margin-top: 0.5rem;
+  border: 1px solid rgba(0,0,0,0.08);
+  border-radius: 12px;
+  background: #fff;
+}
+
+.ce-schedule-grid {
+  border-collapse: collapse;
+  width: 100%;
+  min-width: 760px;
+}
+
+.ce-schedule-grid th,
+.ce-schedule-grid td {
+  border-bottom: 1px solid rgba(0,0,0,0.06);
+  border-right: 1px solid rgba(0,0,0,0.06);
+  padding: 10px;
+  text-align: center;
+  font-size: 0.85rem;
+}
+
+.ce-schedule-grid th:first-child {
+  text-align: left;
+  white-space: nowrap;
+}
+
+.ce-schedule-grid th {
+  background: rgba(0,0,0,0.02);
+  font-weight: 700;
+  color: var(--ce-deep-green);
+}
+
+.ce-grid-check input {
+  transform: scale(1.15);
+}

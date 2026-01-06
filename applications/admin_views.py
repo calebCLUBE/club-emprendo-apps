@@ -17,7 +17,7 @@ from django.views.decorators.http import require_POST
 
 from applications.models import (
     Application,
-    Answer,  # ✅ needed (you use it later)
+    Answer,
     Choice,
     FormDefinition,
     FormGroup,
@@ -194,13 +194,68 @@ def _csv_preview_html(headers: List[str], rows: List[List[str]], max_rows: int =
 def _soft_archive_group(group: FormGroup) -> None:
     """
     Hide forms for a group without deleting anything (safe if submissions exist).
-    - Always sets FormDefinition.is_public=False (field exists).
-    - If FormGroup has is_active, set it False too.
     """
     FormDefinition.objects.filter(group=group).update(is_public=False)
-
     if _model_has_field(FormGroup, "is_active"):
         FormGroup.objects.filter(id=group.id).update(is_active=False)
+
+
+def _extract_storage_path_from_value(value: str) -> str | None:
+    """
+    Convert Answer.value into a storage-relative path if possible.
+    Handles:
+      - "uploads/file.pdf"
+      - "/media/uploads/file.pdf"
+      - "http://.../media/uploads/file.pdf"
+    Returns a path suitable for default_storage.delete(), or None if we can't safely map it.
+    """
+    if not value:
+        return None
+
+    v = value.strip()
+
+    # If it's a URL, extract the path portion
+    if v.startswith("http://") or v.startswith("https://"):
+        parsed = urlparse(v)
+        v = parsed.path  # e.g. "/media/uploads/x.pdf"
+
+    # Normalize "/media/..." -> "uploads/..."
+    if v.startswith("/media/"):
+        v = v[len("/media/"):]  # strip leading media prefix
+
+    # Remove leading slash (storage paths are usually relative)
+    v = v.lstrip("/")
+
+    return v or None
+
+
+def _looks_like_file_value(value: str) -> bool:
+    """
+    Heuristic: decide whether Answer.value is probably a file reference.
+    Prevents wiping normal answers like "2", "test", "gestion-financiera-contabilidad".
+    """
+    if not value:
+        return False
+
+    s = value.strip().lower()
+    if not s:
+        return False
+
+    # obvious URLs / media paths / uploads folder
+    if s.startswith("http://") or s.startswith("https://"):
+        return True
+    if s.startswith("/media/") or s.startswith("media/"):
+        return True
+    if "uploads/" in s:
+        return True
+
+    # common file extensions
+    exts = (
+        ".pdf", ".png", ".jpg", ".jpeg", ".webp",
+        ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
+        ".txt", ".csv",
+    )
+    return s.endswith(exts)
 
 
 # ----------------------------
@@ -276,26 +331,19 @@ def create_group(request):
 @require_POST
 def delete_group(request, group_num: int):
     """
-    Behavior:
     - If group has submissions:
-        - default: archive (hide) and refuse hard delete
-        - if POST includes force=1: permanently delete submissions + answers + forms + group
-    - If group has no submissions: hard delete forms + group
+        - default: archive/hide
+        - force=1: permanently delete apps + answers + forms + group
+    - If no submissions: hard delete forms + group
     """
     group = get_object_or_404(FormGroup, number=group_num)
 
     qs_apps = Application.objects.filter(form__group=group)
     has_apps = qs_apps.exists()
-
     force = request.POST.get("force") == "1"
 
     if has_apps and not force:
-        FormDefinition.objects.filter(group=group).update(is_public=False)
-
-        if hasattr(group, "is_active"):
-            group.is_active = False
-            group.save(update_fields=["is_active"])
-
+        _soft_archive_group(group)
         messages.warning(
             request,
             "Este grupo tiene postulaciones guardadas, así que no se puede eliminar. "
@@ -325,17 +373,15 @@ def delete_group(request, group_num: int):
 # ----------------------------
 @staff_member_required
 def database_home(request):
-    # Master forms (A1/A2)
     masters = list(FormDefinition.objects.filter(slug__in=MASTER_SLUGS).order_by("slug"))
 
-    # Group forms
     groups = list(FormGroup.objects.order_by("number"))
     group_blocks = []
     for g in groups:
         forms_for_group = list(FormDefinition.objects.filter(group=g).order_by("slug"))
         group_blocks.append((g, forms_for_group))
 
-    # ✅ Surveys (global, not tied to group in your current DB)
+    # Surveys (global, not tied to group in your current DB)
     SURVEY_SLUGS = ["PRIMER_E", "FINAL_E", "PRIMER_M", "FINAL_M"]
     surveys = list(FormDefinition.objects.filter(slug__in=SURVEY_SLUGS).order_by("slug"))
     surveys_e = [s for s in surveys if s.slug.endswith("_E")]
@@ -345,13 +391,9 @@ def database_home(request):
         request,
         "admin_dash/database_home.html",
         {
-            # keep compatibility with your template naming
             "masters": masters,
-            "master_forms": masters,
-
+            "master_forms": masters,  # keep compatibility with older templates
             "group_blocks": group_blocks,
-
-            # ✅ new
             "surveys": surveys,
             "surveys_e": surveys_e,
             "surveys_m": surveys_m,
@@ -415,60 +457,53 @@ def export_form_csv(request, form_slug: str):
     return _csv_http_response(f"{form_slug}.csv", headers, rows)
 
 
-def _extract_storage_path_from_value(value: str) -> str | None:
-    """
-    Convert Answer.value into a storage-relative path if possible.
-    Handles:
-      - "uploads/file.pdf"
-      - "/media/uploads/file.pdf"
-      - "http://.../media/uploads/file.pdf"
-    Returns a path suitable for default_storage.delete(), or None if we can't safely map it.
-    """
-    if not value:
-        return None
-
-    v = value.strip()
-
-    if v.startswith("http://") or v.startswith("https://"):
-        parsed = urlparse(v)
-        v = parsed.path  # e.g. "/media/uploads/x.pdf"
-
-    if v.startswith("/media/"):
-        v = v[len("/media/"):]
-
-    v = v.lstrip("/")
-
-    if not v:
-        return None
-
-    return v
-
-
+# ----------------------------
+# Delete file(s) actions (admin database)
+# ----------------------------
 @staff_member_required
 @require_POST
 def delete_answer_file_value(request, answer_id: int):
     """
-    Deletes the file pointed to by Answer.value (if possible), then clears Answer.value.
+    Deletes a *file-like* Answer.value from storage if possible, then clears Answer.value.
+    If value doesn't look like a file reference, does nothing (prevents wiping normal answers).
     """
-    ans = get_object_or_404(Answer.objects.select_related("application", "question"), id=answer_id)
+    ans = get_object_or_404(
+        Answer.objects.select_related("application", "question"),
+        id=answer_id,
+    )
 
-    ft = (ans.question.field_type or "").lower()
-    if ft not in {"file", "upload", "attachment", "document"}:
-        messages.warning(request, "Esta respuesta no parece ser un archivo (según field_type).")
+    if not _looks_like_file_value(ans.value or ""):
+        messages.info(request, "Esta respuesta no parece ser un archivo. No se hizo ningún cambio.")
         return redirect("admin_database_submission_detail", app_id=ans.application_id)
 
-    storage_path = _extract_storage_path_from_value(ans.value)
+    storage_path = _extract_storage_path_from_value(ans.value or "")
 
-    if storage_path and default_storage.exists(storage_path):
+    deleted_from_storage = False
+    storage_error = None
+
+    if storage_path:
         try:
-            default_storage.delete(storage_path)
-        except Exception:
-            pass
+            if default_storage.exists(storage_path):
+                default_storage.delete(storage_path)
+                deleted_from_storage = True
+        except Exception as e:
+            storage_error = str(e)
 
     ans.value = ""
     ans.save(update_fields=["value"])
 
-    messages.success(request, "Archivo eliminado (y referencia borrada).")
+    if deleted_from_storage:
+        messages.success(request, "Archivo eliminado del storage y referencia borrada.")
+    else:
+        msg = "Referencia borrada."
+        if storage_path:
+            msg += f" No se pudo borrar del storage (path: {storage_path})."
+        else:
+            msg += " No se pudo mapear el valor a un archivo del storage."
+        if storage_error:
+            msg += f" Error: {storage_error}"
+        messages.warning(request, msg)
+
     return redirect("admin_database_submission_detail", app_id=ans.application_id)
 
 
@@ -476,30 +511,54 @@ def delete_answer_file_value(request, answer_id: int):
 @require_POST
 def delete_application_files(request, app_id: int):
     """
-    Deletes all file-type Answer.value entries for an application (and storage files if possible).
+    For a submission (Application), clear only answers whose values look like file references.
+    Attempts to delete from storage when possible.
     """
     app = get_object_or_404(Application, id=app_id)
 
-    answers = Answer.objects.select_related("question").filter(application=app)
-    deleted_count = 0
+    answers = Answer.objects.filter(application=app)
+
+    cleared_count = 0
+    deleted_storage_count = 0
+    skipped_count = 0
 
     for ans in answers:
-        ft = (ans.question.field_type or "").lower()
-        if ft not in {"file", "upload", "attachment", "document"}:
-            continue
-        if not ans.value:
+        v = (ans.value or "").strip()
+        if not v:
             continue
 
-        storage_path = _extract_storage_path_from_value(ans.value)
-        if storage_path and default_storage.exists(storage_path):
+        if not _looks_like_file_value(v):
+            skipped_count += 1
+            continue
+
+        storage_path = _extract_storage_path_from_value(v)
+        deleted_from_storage = False
+
+        if storage_path:
             try:
-                default_storage.delete(storage_path)
+                if default_storage.exists(storage_path):
+                    default_storage.delete(storage_path)
+                    deleted_from_storage = True
             except Exception:
-                pass
+                deleted_from_storage = False
 
         ans.value = ""
         ans.save(update_fields=["value"])
-        deleted_count += 1
+        cleared_count += 1
+        if deleted_from_storage:
+            deleted_storage_count += 1
 
-    messages.success(request, f"Archivos eliminados: {deleted_count}")
+    if cleared_count == 0:
+        messages.info(
+            request,
+            f"No se encontraron archivos para borrar. (Se omitieron {skipped_count} respuestas que no eran archivos.)"
+        )
+    else:
+        messages.success(
+            request,
+            f"Referencias de archivo borradas: {cleared_count} "
+            f"(archivos eliminados del storage: {deleted_storage_count}). "
+            f"Omitidas (no-archivo): {skipped_count}."
+        )
+
     return redirect("admin_database_submission_detail", app_id=app.id)

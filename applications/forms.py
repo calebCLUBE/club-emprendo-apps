@@ -8,7 +8,6 @@ def build_application_form(form_slug: str):
         def __init__(self, *args, **kwargs):
             super().__init__(*args, **kwargs)
 
-            # Pull form + questions
             form_def = FormDefinition.objects.get(slug=form_slug)
             questions = (
                 form_def.questions.filter(active=True)
@@ -35,7 +34,6 @@ def build_application_form(form_slug: str):
                     field = forms.IntegerField(**common)
 
                 elif q.field_type == Question.BOOLEAN:
-                    # Sí/No radios (explicit)
                     field = forms.ChoiceField(
                         choices=[("yes", "Sí"), ("no", "No")],
                         widget=forms.RadioSelect,
@@ -44,8 +42,6 @@ def build_application_form(form_slug: str):
 
                 elif q.field_type == Question.CHOICE:
                     choices = [(c.value, c.label) for c in q.choices.all().order_by("position", "id")]
-
-                    # Add a placeholder so required dropdowns don't auto-pick first option
                     if common["required"]:
                         choices = [("", "— Selecciona —")] + choices
 
@@ -56,15 +52,15 @@ def build_application_form(form_slug: str):
                     )
 
                 elif q.field_type == Question.MULTI_CHOICE:
+                    # ✅ back to checkboxes (required for grid-style UI)
                     choices = [(c.value, c.label) for c in q.choices.all().order_by("position", "id")]
                     field = forms.MultipleChoiceField(
                         choices=choices,
-                        widget=forms.SelectMultiple,
+                        widget=forms.CheckboxSelectMultiple,
                         **common,
                     )
 
                 else:
-                    # Unknown type -> skip silently (matches your existing behavior)
                     continue
 
                 self.fields[field_name] = field

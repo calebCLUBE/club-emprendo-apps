@@ -3,16 +3,6 @@
 
 {% block title %}{{ form_def.name }} · Club Emprendo{% endblock %}
 
-{% block role_chips %}
-  {% if form_def.slug|slice:":1" == "E" %}
-    <span class="ce-chip">Emprendedoras</span>
-  {% elif form_def.slug|slice:":1" == "M" %}
-    <span class="ce-chip">Mentoras</span>
-  {% else %}
-    {{ block.super }}
-  {% endif %}
-{% endblock %}
-
 {% block content %}
 
   {% if rendered_description %}
@@ -24,31 +14,21 @@
   <div class="ce-form-header">
     <span class="ce-form-pill">
       {% if second_stage %}
-        Paso 2 · Aplicación detallada
+        Paso 2
       {% else %}
-        Paso 1 · Aplicación inicial
+        Paso 1
       {% endif %}
     </span>
 
     <h1 class="ce-form-title ce-heading">{{ form_def.name }}</h1>
-
-    <p class="ce-form-subtitle">
-      {% if second_stage %}
-        Esta es la segunda parte del proceso de selección. Tómate tu tiempo para
-        responder con calma; tus respuestas nos ayudan a conectar mejor mentoras
-        y emprendedoras.
-      {% else %}
-        Cuéntanos un poco sobre ti y confirma si cumples con los requisitos del
-        programa.
-      {% endif %}
-    </p>
+    {% if form_def.description %}
+      <p class="ce-form-subtitle">{{ form_def.description }}</p>
+    {% endif %}
   </div>
 
   {% if second_stage %}
     <div class="ce-alert">
-      Tus datos básicos (nombre y correo) ya están registrados de la primera
-      aplicación. Aquí nos enfocamos en conocer mejor tu experiencia,
-      motivación y disponibilidad.
+      ✅ Recuerda hacer clic en “Enviar / Submit” al final para registrar tu respuesta.
     </div>
   {% endif %}
 
@@ -61,7 +41,7 @@
       {% if field.name == "q_preferred_schedule" or field.name == "q_e2_preferred_schedule" or field.name == "q_m2_preferred_schedule" %}
 
         <div class="form-row" data-field="{{ field.name }}">
-          <label for="{{ field.id_for_label }}" {% if field.field.required %}class="required"{% endif %}>
+          <label {% if field.field.required %}class="required"{% endif %}>
             {{ field.label }}
           </label>
 
@@ -152,39 +132,127 @@
     {% endfor %}
 
     <div class="ce-actions">
-      <button type="submit" class="ce-button-primary">
-        Enviar aplicación
-      </button>
+      <button type="submit" class="ce-button-primary">Enviar</button>
     </div>
   </form>
 
   <script>
-    (function() {
-      // Hide "q_comments" unless "q_meets_requirements" == "no"
-      function getSelectedValue(name) {
-        const checked = document.querySelector('input[name="' + name + '"]:checked');
-        return checked ? checked.value : "";
+    (function () {
+      // Follow-up row (the textarea)
+      const FOLLOW_TEXT_FRAGMENT = "por favor indícanos qué requisito";
+
+      // Requirements question: try to find by slug candidates first (works even if label differs)
+      const REQUIREMENTS_SLUG_CANDIDATES = [
+        "meets_requirements",
+        "m1_meet_requirements",
+        "m1_meets_requirements",
+        "m1_requirements_ok",
+        "requirements_ok",
+        "requisitos",
+        "requisitos_ok",
+      ];
+
+      function norm(s) {
+        return (s || "")
+          .toLowerCase()
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "") // remove accents
+          .replace(/\s+/g, " ")
+          .trim();
       }
 
-      function setVisible(fieldName, show) {
-        const row = document.querySelector('.form-row[data-field="' + fieldName + '"]');
+      function findRowByLabelContains(fragment) {
+        const frag = norm(fragment);
+        const rows = document.querySelectorAll(".form-row");
+        for (const row of rows) {
+          const label = row.querySelector("label");
+          const txt = norm(label ? label.textContent : "");
+          if (txt.includes(frag)) return row;
+        }
+        return null;
+      }
+
+      function findRowByQuestionSlugCandidates(slugs) {
+        // Your template renders: <div class="form-row" data-field="{{ field.name }}">
+        // Field names are q_<slug>
+        for (const slug of slugs) {
+          const fieldName = "q_" + slug;
+
+          // Primary: data-field match
+          const byDataField = document.querySelector('.form-row[data-field="' + fieldName + '"]');
+          if (byDataField) return byDataField;
+
+          // Fallback: input/select name match
+          const byName = document.querySelector('.form-row [name="' + fieldName + '"]');
+          if (byName) return byName.closest(".form-row");
+        }
+        return null;
+      }
+
+      function setRowVisible(row, show) {
         if (!row) return;
         row.style.display = show ? "" : "none";
       }
 
-      function update() {
-        const v = getSelectedValue("q_meets_requirements");
-        // Only show comments when they explicitly answered "no"
-        setVisible("q_comments", v === "no");
+      // Get selected choice text whether rendered as radios OR a select dropdown
+      function getSelectedChoiceText(row) {
+        if (!row) return "";
+
+        // Case 1: <select>
+        const sel = row.querySelector("select");
+        if (sel) {
+          const opt = sel.options[sel.selectedIndex];
+          return opt ? (opt.textContent || "").trim() : "";
+        }
+
+        // Case 2: radios
+        const checked = row.querySelector('input[type="radio"]:checked');
+        if (checked) {
+          const choiceLabel = checked.closest("label");
+          if (choiceLabel) {
+            const clone = choiceLabel.cloneNode(true);
+            clone.querySelectorAll("input").forEach(el => el.remove());
+            return (clone.textContent || "").trim();
+          }
+        }
+
+        return "";
       }
 
-      // Initial state
+      // Find follow-up row
+      const followRow = findRowByLabelContains(FOLLOW_TEXT_FRAGMENT);
+      if (!followRow) return; // don't hide random things if we can't find it
+
+      // Find requirements row: slug-based first, label fallback
+      let reqRow = findRowByQuestionSlugCandidates(REQUIREMENTS_SLUG_CANDIDATES);
+      if (!reqRow) {
+        reqRow = findRowByLabelContains("cumples todos estos requisitos");
+      }
+
+      function update() {
+        let showFollow = false;
+
+        // Default: hidden unless explicitly "No"
+        if (reqRow) {
+          const picked = norm(getSelectedChoiceText(reqRow));
+          showFollow = picked.startsWith("no");
+        }
+
+        setRowVisible(followRow, showFollow);
+      }
+
+      // Initial
       update();
 
-      // Re-run when they click the requirements radios
-      document.querySelectorAll('input[name="q_meets_requirements"]').forEach(function(el) {
-        el.addEventListener("change", update);
-      });
+      // Listen for changes (radios OR select)
+      if (reqRow) {
+        reqRow.querySelectorAll('input[type="radio"]').forEach((el) => {
+          el.addEventListener("change", update);
+        });
+
+        const sel = reqRow.querySelector("select");
+        if (sel) sel.addEventListener("change", update);
+      }
     })();
   </script>
 

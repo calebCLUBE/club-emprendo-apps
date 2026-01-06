@@ -18,6 +18,10 @@ GROUP_SLUG_RE = re.compile(r"^G(?P<num>\d+)_")
 # Utilities
 # -------------------------
 def _latest_group_form_slug(suffix: str) -> str | None:
+    """
+    Find the highest-numbered group form for a given suffix.
+    Example suffix: "E_A1" -> returns "G6_E_A1" if it exists.
+    """
     pattern = re.compile(rf"^G(?P<num>\d+)_{re.escape(suffix)}$")
     best = None
     best_num = -1
@@ -58,6 +62,7 @@ def _mentor_a1_autograde_and_email(request, app: Application):
         t = (v or "").strip().lower()
         return ("si" in t) or ("sí" in t) or ("yes" in t) or (t == "true") or (t == "1") or (t == "yes")
 
+    # Support multiple naming schemes (old + new)
     requisitos = (
         answers.get("meets_requirements")
         or answers.get("m1_meet_requirements")
@@ -65,18 +70,17 @@ def _mentor_a1_autograde_and_email(request, app: Application):
         or answers.get("m1_requirements_ok")
         or ""
     )
-
     disponibilidad = (
-        answers.get("available_period")          # ✅ FIX: this is your real slug
-        or answers.get("availability_ok")
+        answers.get("available_period")          # ✅ current real slug
+        or answers.get("availability_ok")        # legacy
         or answers.get("m1_availability_ok")
         or answers.get("m1_available_period")
         or answers.get("m1_available")
         or ""
     )
 
-    passes_requisitos = yesish(requisitos) or ((requisitos or "").strip().lower() == "yes")
-    passes_disponibilidad = yesish(disponibilidad) or ((disponibilidad or "").strip().lower() == "yes")
+    passes_requisitos = yesish(requisitos)
+    passes_disponibilidad = yesish(disponibilidad)
 
     if passes_requisitos and passes_disponibilidad:
         app.generate_invite_token()
@@ -128,6 +132,7 @@ def _handle_application_form(request, form_slug: str, second_stage: bool = False
     form_def = get_object_or_404(FormDefinition, slug=form_slug)
     ApplicationForm = build_application_form(form_slug)
 
+    # Pull a description field if your model has one (supports multiple naming conventions)
     rendered_description = ""
     for attr in ("description", "intro", "intro_text", "public_description"):
         if hasattr(form_def, attr):
@@ -195,11 +200,23 @@ def _handle_application_form(request, form_slug: str, second_stage: bool = False
                     value=str(value or ""),
                 )
 
+            # Run autogrades (these set invited_to_second_stage)
             if form_def.slug.endswith("M_A1"):
                 _mentor_a1_autograde_and_email(request, app)
 
             if form_def.slug.endswith("E_A1"):
                 autograde_and_email_emprendedora_a1(request, app)
+
+            # ✅ THANK-YOU SCREEN PAYLOAD (approved vs rejected)
+            group_num = ""
+            m = GROUP_SLUG_RE.match(form_def.slug or "")
+            if m:
+                group_num = m.group("num")
+
+            request.session["ce_thanks_payload"] = {
+                "approved": bool(app.invited_to_second_stage),
+                "group_num": group_num,
+            }
 
             return redirect("application_thanks")
     else:
@@ -219,6 +236,7 @@ def _handle_application_form(request, form_slug: str, second_stage: bool = False
 
 # ---------- PUBLIC FIRST-STAGE FORMS ----------
 def apply_emprendedora_first(request):
+    # ✅ route to latest group if it exists, otherwise fall back to master
     latest = _latest_group_form_slug("E_A1")
     return _handle_application_form(request, latest or "E_A1", second_stage=False)
 
@@ -275,7 +293,9 @@ def apply_by_slug(request, form_slug):
 
 
 def application_thanks(request):
-    return render(request, "applications/thanks.html")
+    # ✅ pulls the approved/rejected payload set at submit time
+    payload = request.session.pop("ce_thanks_payload", None) or {}
+    return render(request, "applications/thanks.html", payload)
 
 
 # ---------- SURVEYS ----------

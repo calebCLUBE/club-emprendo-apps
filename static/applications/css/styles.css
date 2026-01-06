@@ -34,7 +34,7 @@ body {
   line-height: 1.5;
 }
 
-/* You’ll get the full Aileron look once you add the font file yourself */
+/* Headings */
 h1,
 h2,
 h3,
@@ -55,27 +55,28 @@ h4,
   flex: 1;
 }
 
-/* Top bar */
+/* ===============================
+   Header
+   =============================== */
 .ce-header {
-    padding: 1.25rem 2rem 1rem;
-    display: flex;
-    justify-content: flex-start;
-    align-items: flex-start;
-    background: var(--ce-white);
-    border-bottom: 1px solid rgba(0,0,0,0.05);
-  }
-  
-  
-  .ce-header-inner {
-    width: 100%;
-    max-width: 1120px;              /* a bit wider for a more open feel */
-    margin: 0 auto;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-  }
+  padding: 1.25rem 2rem 1rem;
+  display: flex;
+  justify-content: flex-start;
+  align-items: flex-start;
+  background: var(--ce-white);
+  border-bottom: 1px solid rgba(0,0,0,0.05);
+}
 
-/* Branding block */
+.ce-header-inner {
+  width: 100%;
+  max-width: 1120px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* Branding */
 .ce-brand {
   display: flex;
   align-items: center;
@@ -83,23 +84,15 @@ h4,
 }
 
 .ce-logo {
-    display: flex;
-    align-items: center;
-  }
-  
-  .ce-logo img {
-    width: 140px;     /* adjust size here */
-    height: auto;
-    display: block;
-  }
-  
-.ce-brand-name {
-    font-size: 1.2rem;     /* was 1.1rem */
-    font-weight: 800;
-    color: var(--ce-deep-green);
-    letter-spacing: 0.03em;
-  }
-  
+  display: flex;
+  align-items: center;
+}
+
+.ce-logo img {
+  width: 140px;
+  height: auto;
+  display: block;
+}
 
 .ce-brand-text {
   display: flex;
@@ -118,31 +111,25 @@ h4,
   color: var(--ce-muted-green);
 }
 
-/* Role chips (top-right) */
-.ce-role-chips {
-  display: flex;
-  gap: 0.5rem;
-}
+/* ===============================
+   ❌ REMOVE ROLE CHIPS (FIX)
+   =============================== */
 
+/* These were the pink “Mentoras / Emprendedoras” pills */
+.ce-role-chips,
 .ce-chip {
-  border-radius: 999px;
-  padding: 0.25rem 0.9rem;
-  font-size: 0.75rem;
-  border: 1px solid rgba(0, 0, 0, 0.05);
-  background: var(--ce-soft-pink);
-  color: var(--ce-deep-green);
-  font-weight: 600;
+  display: none !important;
 }
 
-/* Main content area */
+/* ===============================
+   Main content
+   =============================== */
 .ce-container {
-    width: 100%;
-    max-width: 960px;
-    margin: 2.25rem auto 2.75rem;  /* more space under header */
-    padding: 0 1.25rem;
-  }
-  
-  
+  width: 100%;
+  max-width: 960px;
+  margin: 2.25rem auto 2.75rem;
+  padding: 0 1.25rem;
+}
 
 /* Card */
 .ce-card {
@@ -159,7 +146,7 @@ h4,
   }
 }
 
-/* Form header inside card */
+/* Form header */
 .ce-form-header {
   display: flex;
   flex-direction: column;
@@ -167,6 +154,7 @@ h4,
   margin-bottom: 1.75rem;
 }
 
+/* (Keeping this pill unless you explicitly want it gone) */
 .ce-form-pill {
   display: inline-flex;
   align-items: center;
@@ -192,7 +180,9 @@ h4,
   margin: 0;
 }
 
-/* Form fields */
+/* ===============================
+   Form fields
+   =============================== */
 form {
   margin: 0;
 }
@@ -216,7 +206,6 @@ form {
   margin-bottom: 0.4rem;
 }
 
-/* Django default widgets: inputs, textareas, selects, radios, checkboxes */
 input[type="text"],
 input[type="email"],
 input[type="number"],
@@ -247,7 +236,7 @@ select:focus {
   box-shadow: 0 0 0 2px rgba(22, 49, 8, 0.12);
 }
 
-/* Radio & checkbox groups */
+/* Radios & checkboxes */
 .form-row ul {
   list-style: none;
   margin: 0.15rem 0 0;
@@ -263,13 +252,15 @@ select:focus {
   margin-right: 0.4rem;
 }
 
-/* Required indicator */
+/* Required */
 label.required::after {
   content: " *";
   color: #d14b4b;
 }
 
-/* Buttons */
+/* ===============================
+   Buttons
+   =============================== */
 .ce-actions {
   margin-top: 1.5rem;
   display: flex;
@@ -300,7 +291,7 @@ label.required::after {
   box-shadow: 0 6px 14px rgba(22, 49, 8, 0.22);
 }
 
-/* Alert / info box */
+/* Alert */
 .ce-alert {
   border-radius: var(--ce-radius-md);
   background: var(--ce-soft-pink);

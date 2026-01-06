@@ -45,4 +45,54 @@
   <p>No groups yet.</p>
 {% endif %}
 
+<hr style="margin: 24px 0;">
+
+<h2>Surveys</h2>
+
+<div style="display:flex; gap:40px; flex-wrap:wrap;">
+  <div style="min-width:260px;">
+    <h3>Emprendedoras</h3>
+
+    {% if surveys_e %}
+      <ul style="margin: 8px 0 18px 0;">
+        {% for s in surveys_e %}
+          <li style="margin:6px 0;">
+            <a href="{% url 'admin_database_form_detail' s.slug %}">
+              {{ s.name }} ({{ s.slug }})
+            </a>
+            &nbsp; — &nbsp;
+            <a href="{% url 'admin_export_form_csv' s.slug %}">CSV</a>
+            &nbsp;|&nbsp;
+            <a href="{% url 'admin_database_form_master_csv' s.slug %}">MASTER CSV</a>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p><em>No Emprendedora surveys found.</em></p>
+    {% endif %}
+  </div>
+
+  <div style="min-width:260px;">
+    <h3>Mentoras</h3>
+
+    {% if surveys_m %}
+      <ul style="margin: 8px 0 18px 0;">
+        {% for s in surveys_m %}
+          <li style="margin:6px 0;">
+            <a href="{% url 'admin_database_form_detail' s.slug %}">
+              {{ s.name }} ({{ s.slug }})
+            </a>
+            &nbsp; — &nbsp;
+            <a href="{% url 'admin_export_form_csv' s.slug %}">CSV</a>
+            &nbsp;|&nbsp;
+            <a href="{% url 'admin_database_form_master_csv' s.slug %}">MASTER CSV</a>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p><em>No Mentora surveys found.</em></p>
+    {% endif %}
+  </div>
+</div>
+
 {% endblock %}

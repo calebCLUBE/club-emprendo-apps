@@ -1,57 +1,45 @@
 {% load static %}
-
-<!DOCTYPE html>
+<!doctype html>
 <html lang="es">
-  <head>
-    <meta charset="utf-8" />
-    <title>{% block title %}Club Emprendo{% endblock %}</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <link
-      rel="stylesheet"
-      href="{% static 'applications/css/styles.css' %}"
-    />
-  </head>
-  <body>
-    <div class="ce-page">
-      <header class="ce-header">
-        <div class="ce-header-inner">
-          <div class="ce-brand">
-            <div class="ce-logo">
-              <img
-                src="{% static 'applications/img/logo.png' %}"
-                alt="Club Emprendo"
-              />
-            </div>
-            <div class="ce-brand-text">
-              <span class="ce-brand-name">Club Emprendo</span>
-              <span class="ce-brand-tagline"
-                >Mentorías para emprendedoras latinoamericanas</span
-              >
-            </div>
-          </div>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{% block title %}Club Emprendo{% endblock %}</title>
 
-          <div class="ce-role-chips">
-            {% block role_chips %}
-            <!-- Default chips, can be overridden -->
-            <span class="ce-chip">Emprendedoras</span>
-            <span class="ce-chip">Mentoras</span>
-            {% endblock %}
+  {# Your main stylesheet #}
+  <link rel="stylesheet" href="{% static 'applications/css/styles.css' %}">
+  {% block extra_head %}{% endblock %}
+</head>
+
+<body>
+  <div class="ce-page">
+    <header class="ce-header">
+      <div class="ce-header-inner">
+        <div class="ce-brand">
+          <div class="ce-logo">
+            <img src="{% static 'applications/img/logo.png' %}" alt="Club Emprendo" />
+          </div>
+          <div class="ce-brand-text">
+            <div class="ce-brand-name">CLUB EMPRENDO</div>
+            <div class="ce-brand-tagline">{% block tagline %}{% endblock %}</div>
           </div>
         </div>
-      </header>
 
-      <main class="ce-main">
-        <div class="ce-container">
-          <div class="ce-card">
-            {% block content %}{% endblock %}
-          </div>
-        </div>
-      </main>
+        {# ✅ Removed role chips ("Emprendedoras" / "Mentoras") #}
+      </div>
+    </header>
 
-      <footer class="ce-footer">
-        © {{ now|date:"Y" }} Club Emprendo · Construyendo redes de apoyo para
-        emprendedoras.
-      </footer>
-    </div>
-  </body>
+    <main class="ce-main">
+      <div class="ce-container">
+        {% block content %}{% endblock %}
+      </div>
+    </main>
+
+    <footer class="ce-footer">
+      © {% now "Y" %} Club Emprendo
+    </footer>
+  </div>
+
+  {% block extra_js %}{% endblock %}
+</body>
 </html>

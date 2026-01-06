@@ -105,7 +105,7 @@ def autograde_and_email_emprendedora_a1(request, app: Application):
             "<p>A continuación, te compartimos la <strong>Aplicación #2</strong>, que es el último paso del proceso de postulación.</p>"
             "<p><strong>📌 Instrucciones para completar la Aplicación #2:</strong></p>"
             "<ul>"
-            f'<li>👉 <a href="{form2_url}">Haz clic aquí para completar la Aplicación #2</a></li>'
+            f'<li>👉 <a href="{form2_url}">Haz clic aquí para completar la Aplicación #2</a> - Fecha Limite: 11/01/2026 - </li>'
             "</ul>"
             "<p>Con cariño,<br><strong>El equipo de Club Emprendo</strong></p>"
             "</div>"

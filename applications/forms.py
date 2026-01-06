@@ -8,8 +8,13 @@ def build_application_form(form_slug: str):
         def __init__(self, *args, **kwargs):
             super().__init__(*args, **kwargs)
 
+            # Pull form + questions
             form_def = FormDefinition.objects.get(slug=form_slug)
-            questions = form_def.questions.filter(active=True).order_by("position", "id")
+            questions = (
+                form_def.questions.filter(active=True)
+                .prefetch_related("choices")
+                .order_by("position", "id")
+            )
 
             for q in questions:
                 field_name = f"q_{q.slug}"
@@ -24,14 +29,13 @@ def build_application_form(form_slug: str):
                     field = forms.CharField(**common)
 
                 elif q.field_type == Question.LONG_TEXT:
-                    field = forms.CharField(widget=forms.Textarea, **common)
+                    field = forms.CharField(widget=forms.Textarea(attrs={"rows": 4}), **common)
 
                 elif q.field_type == Question.INTEGER:
                     field = forms.IntegerField(**common)
 
                 elif q.field_type == Question.BOOLEAN:
-                    # ✅ Better UX than a single checkbox:
-                    # show explicit Sí/No radios
+                    # Sí/No radios (explicit)
                     field = forms.ChoiceField(
                         choices=[("yes", "Sí"), ("no", "No")],
                         widget=forms.RadioSelect,
@@ -40,9 +44,14 @@ def build_application_form(form_slug: str):
 
                 elif q.field_type == Question.CHOICE:
                     choices = [(c.value, c.label) for c in q.choices.all().order_by("position", "id")]
+
+                    # Add a placeholder so required dropdowns don't auto-pick first option
+                    if common["required"]:
+                        choices = [("", "— Selecciona —")] + choices
+
                     field = forms.ChoiceField(
                         choices=choices,
-                        widget=forms.RadioSelect,
+                        widget=forms.Select,
                         **common,
                     )
 
@@ -50,11 +59,12 @@ def build_application_form(form_slug: str):
                     choices = [(c.value, c.label) for c in q.choices.all().order_by("position", "id")]
                     field = forms.MultipleChoiceField(
                         choices=choices,
-                        widget=forms.CheckboxSelectMultiple,
+                        widget=forms.SelectMultiple,
                         **common,
                     )
 
                 else:
+                    # Unknown type -> skip silently (matches your existing behavior)
                     continue
 
                 self.fields[field_name] = field

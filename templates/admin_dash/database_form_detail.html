@@ -19,6 +19,19 @@
           <a href="{% url 'admin_database_submission_detail' a.id %}">
             #{{ a.id }} — {{ a.created_at }} — {{ a.name }} ({{ a.email }})
           </a>
+
+          {# Delete ALL file values for this submission (no layout change: inline) #}
+          <form method="post"
+                action="{% url 'admin_delete_application_files' a.id %}"
+                style="display:inline; margin:0; padding:0;">
+            {% csrf_token %}
+            <input type="hidden" name="next" value="{{ request.get_full_path }}">
+            <button type="submit"
+                    title="Eliminar archivos de esta postulación"
+                    style="border:0; background:transparent; cursor:pointer; padding:0 0 0 8px; line-height:1;">
+              🗑️
+            </button>
+          </form>
         </li>
       {% endfor %}
     </ul>
@@ -26,3 +39,4 @@
     <p><em>No submissions yet.</em></p>
   {% endif %}
 {% endblock %}
+

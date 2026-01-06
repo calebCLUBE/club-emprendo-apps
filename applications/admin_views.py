@@ -3,12 +3,12 @@
 import csv
 import re
 from typing import List, Tuple
-from django.core.files.storage import default_storage
 from urllib.parse import urlparse
 
 from django import forms
 from django.contrib import messages
 from django.contrib.admin.views.decorators import staff_member_required
+from django.core.files.storage import default_storage
 from django.db import transaction
 from django.db.models import Model
 from django.http import HttpResponse
@@ -16,6 +16,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
 from applications.models import (
+    Answer,
     Application,
     Choice,
     FormDefinition,
@@ -162,6 +163,7 @@ def _csv_preview_html(headers: List[str], rows: List[List[str]], max_rows: int =
     """
     Tiny HTML table preview (no external deps).
     """
+
     def esc(s: str) -> str:
         return (s or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
@@ -196,12 +198,55 @@ def _soft_archive_group(group: FormGroup) -> None:
     - Always sets FormDefinition.is_public=False (field exists).
     - If FormGroup has is_active, set it False too.
     """
-    # Hide forms (safe: FormDefinition has is_public in your codebase)
     FormDefinition.objects.filter(group=group).update(is_public=False)
 
-    # If group model has is_active, set it too.
     if _model_has_field(FormGroup, "is_active"):
         FormGroup.objects.filter(id=group.id).update(is_active=False)
+
+
+def _safe_next_url(request) -> str | None:
+    """
+    Allows delete buttons from *any* page without hardcoding redirect targets.
+    Pass a hidden input named 'next' with request.get_full_path.
+
+    Only allows internal paths (starting with '/').
+    """
+    nxt = (request.POST.get("next") or "").strip()
+    if nxt.startswith("/"):
+        return nxt
+    return None
+
+
+def _extract_storage_path_from_value(value: str) -> str | None:
+    """
+    Convert Answer.value into a storage-relative path if possible.
+    Handles:
+      - "uploads/file.pdf"
+      - "/media/uploads/file.pdf"
+      - "http(s)://.../media/uploads/file.pdf"
+    Returns a path suitable for default_storage.delete(), or None if we can't safely map it.
+    """
+    if not value:
+        return None
+
+    v = value.strip()
+
+    # If it's a URL, extract path
+    if v.startswith("http://") or v.startswith("https://"):
+        parsed = urlparse(v)
+        v = parsed.path  # e.g. "/media/uploads/x.pdf"
+
+    # Normalize "/media/..." -> "uploads/..." (relative)
+    if v.startswith("/media/"):
+        v = v[len("/media/") :]
+
+    # Remove leading slash (storage paths are usually relative)
+    v = v.lstrip("/")
+
+    if not v:
+        return None
+
+    return v
 
 
 # ----------------------------
@@ -260,7 +305,6 @@ def create_group(request):
             number=group_num,
             defaults={"start_month": start_month, "end_month": end_month, "year": year},
         )
-        # Keep predictable behavior: update even if it already existed
         group.start_month = start_month
         group.end_month = end_month
         group.year = year
@@ -276,7 +320,7 @@ def create_group(request):
 
 @staff_member_required
 @require_POST
-def delete_group(request, group_num: int):    
+def delete_group(request, group_num: int):
     """
     Behavior:
     - If group has submissions:
@@ -286,21 +330,13 @@ def delete_group(request, group_num: int):
     """
     group = get_object_or_404(FormGroup, number=group_num)
 
-    # Does this group have any submissions?
     qs_apps = Application.objects.filter(form__group=group)
     has_apps = qs_apps.exists()
 
-    # Force delete flag (dangerous)
     force = request.POST.get("force") == "1"
 
     if has_apps and not force:
-        # ARCHIVE: hide forms for this group (safe)
-        FormDefinition.objects.filter(group=group).update(is_public=False)
-
-        # If FormGroup has an is_active field, set it false
-        if hasattr(group, "is_active"):
-            group.is_active = False
-            group.save(update_fields=["is_active"])
+        _soft_archive_group(group)
 
         messages.warning(
             request,
@@ -312,11 +348,9 @@ def delete_group(request, group_num: int):
 
     with transaction.atomic():
         if has_apps and force:
-            # Delete answers first (in case FK constraints exist)
             Answer.objects.filter(application__in=qs_apps).delete()
             qs_apps.delete()
 
-        # Now safe to delete forms and group
         FormDefinition.objects.filter(group=group).delete()
         group.delete()
 
@@ -403,65 +437,48 @@ def export_form_csv(request, form_slug: str):
     form_def = get_object_or_404(FormDefinition, slug=form_slug)
     headers, rows = _build_csv_for_form(form_def)
     return _csv_http_response(f"{form_slug}.csv", headers, rows)
-def _extract_storage_path_from_value(value: str) -> str | None:
-    """
-    Convert Answer.value into a storage-relative path if possible.
-    Handles:
-      - "uploads/file.pdf"
-      - "/media/uploads/file.pdf"
-      - "http://.../media/uploads/file.pdf"
-    Returns a path suitable for default_storage.delete(), or None if we can't safely map it.
-    """
-    if not value:
-        return None
 
-    v = value.strip()
 
-    # If it's a URL, extract path
-    if v.startswith("http://") or v.startswith("https://"):
-        parsed = urlparse(v)
-        v = parsed.path  # e.g. "/media/uploads/x.pdf"
-
-    # Normalize "/media/..." -> "uploads/..."
-    if v.startswith("/media/"):
-        v = v[len("/media/"):]  # strip leading media prefix
-
-    # Remove leading slash (storage paths are usually relative)
-    v = v.lstrip("/")
-
-    # If it still looks empty or suspicious, bail
-    if not v:
-        return None
-
-    return v
 @staff_member_required
 @require_POST
 def delete_answer_file_value(request, answer_id: int):
     """
     Deletes the file pointed to by Answer.value (if possible), then clears Answer.value.
-    """
-    ans = get_object_or_404(Answer.objects.select_related("application", "question"), id=answer_id)
 
-    # Optional safety: only allow this for FILE-ish questions
-    ft = (ans.question.field_type or "").lower()
-    if ft not in {"file", "upload", "attachment", "document"}:
-        messages.warning(request, "Esta respuesta no parece ser un archivo (según field_type).")
-        return redirect("admin_database_submission_detail", app_id=ans.application_id)
+    IMPORTANT CHANGE:
+    - We no longer block based on question.field_type (your Question choices don't include "file").
+    - We attempt deletion based on whether we can map Answer.value -> storage path.
+    - We ALWAYS clear the DB reference so it disappears from the database admin pages.
+
+    Redirect behavior:
+    - If POST includes 'next' (internal path), redirect there (lets you delete from database_home without layout changes).
+    - Otherwise fall back to the submission detail page.
+    """
+    ans = get_object_or_404(
+        Answer.objects.select_related("application", "question"),
+        id=answer_id,
+    )
 
     storage_path = _extract_storage_path_from_value(ans.value)
 
     # Try deleting from storage if we can map a path
-    if storage_path and default_storage.exists(storage_path):
+    if storage_path:
         try:
-            default_storage.delete(storage_path)
+            if default_storage.exists(storage_path):
+                default_storage.delete(storage_path)
         except Exception:
-            # Storage might be read-only/remote misconfigured; still clear DB pointer
+            # Storage might be remote/misconfigured; still clear DB pointer
             pass
 
     ans.value = ""
     ans.save(update_fields=["value"])
 
     messages.success(request, "Archivo eliminado (y referencia borrada).")
+
+    nxt = _safe_next_url(request)
+    if nxt:
+        return redirect(nxt)
+
     return redirect("admin_database_submission_detail", app_id=ans.application_id)
 
 
@@ -469,7 +486,12 @@ def delete_answer_file_value(request, answer_id: int):
 @require_POST
 def delete_application_files(request, app_id: int):
     """
-    Deletes all file-type Answer.value entries for an application (and storage files if possible).
+    Deletes all Answer.value entries that look like files for an application
+    (and deletes storage objects if possible).
+
+    Same redirect behavior as delete_answer_file_value:
+    - honors POST 'next' (internal)
+    - else goes back to submission detail
     """
     app = get_object_or_404(Application, id=app_id)
 
@@ -477,22 +499,29 @@ def delete_application_files(request, app_id: int):
     deleted_count = 0
 
     for ans in answers:
-        ft = (ans.question.field_type or "").lower()
-        if ft not in {"file", "upload", "attachment", "document"}:
-            continue
         if not ans.value:
             continue
 
         storage_path = _extract_storage_path_from_value(ans.value)
-        if storage_path and default_storage.exists(storage_path):
-            try:
+
+        # Only treat as "file" if it maps to a plausible path
+        if not storage_path:
+            continue
+
+        try:
+            if default_storage.exists(storage_path):
                 default_storage.delete(storage_path)
-            except Exception:
-                pass
+        except Exception:
+            pass
 
         ans.value = ""
         ans.save(update_fields=["value"])
         deleted_count += 1
 
     messages.success(request, f"Archivos eliminados: {deleted_count}")
+
+    nxt = _safe_next_url(request)
+    if nxt:
+        return redirect(nxt)
+
     return redirect("admin_database_submission_detail", app_id=app.id)

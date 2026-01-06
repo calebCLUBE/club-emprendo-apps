@@ -124,6 +124,19 @@ def _mentor_a1_autograde_and_email(request, app: Application):
     _send_html_email(app.email, subject, html_body)
 
 
+def _group_number_from_form_slug(slug: str) -> int | None:
+    """
+    Extract group number from slugs like "G6_E_A1". Returns int or None.
+    """
+    m = GROUP_SLUG_RE.match(slug or "")
+    if not m:
+        return None
+    try:
+        return int(m.group("num"))
+    except Exception:
+        return None
+
+
 # -------------------------
 # Core handler
 # -------------------------
@@ -131,7 +144,6 @@ def _handle_application_form(request, form_slug: str, second_stage: bool = False
     form_def = get_object_or_404(FormDefinition, slug=form_slug)
     ApplicationForm = build_application_form(form_slug)
 
-    # Pull a description field if your model has one (supports multiple naming conventions)
     rendered_description = ""
     for attr in ("description", "intro", "intro_text", "public_description"):
         if hasattr(form_def, attr):
@@ -188,24 +200,95 @@ def _handle_application_form(request, form_slug: str, second_stage: bool = False
                 email=email,
             )
 
+            # Save answers (your conditional-clearing logic is already in here from previous step)
+            def _pick_first_raw(*keys: str) -> str:
+                for k in keys:
+                    v = form.cleaned_data.get(k)
+                    if v is None:
+                        continue
+                    s = str(v).strip()
+                    if s:
+                        return s
+                return ""
+
+            def _noish(v: str) -> bool:
+                t = (v or "").strip().lower()
+                if not t:
+                    return False
+                if ("si" in t) or ("sí" in t) or ("yes" in t):
+                    return False
+                return t == "no" or t.startswith("no") or " no " in f" {t} "
+
+            meets_req_raw = _pick_first_raw(
+                "q_meets_requirements",
+                "q_m1_meet_requirements",
+                "q_m1_meets_requirements",
+                "q_m1_requirements_ok",
+                "q_e1_meet_requirements",
+                "q_e1_meets_requirements",
+                "q_e1_requirements_ok",
+            )
+            said_no_to_requirements = _noish(meets_req_raw)
+
+            DEPENDENT_EXPLANATION_SLUGS = {
+                "requirements_not_met",
+                "requirements_not_met_comment",
+                "requirements_not_met_comments",
+                "not_meet_requirements_which",
+                "which_requirements_not_met",
+                "requirements_explanation",
+                "comments",
+                "comments_if_not_eligible",
+            }
+
             for q in form_def.questions.filter(active=True).order_by("position", "id"):
                 field_name = f"q_{q.slug}"
                 value = form.cleaned_data.get(field_name)
+
+                if (q.slug in DEPENDENT_EXPLANATION_SLUGS) and (not said_no_to_requirements):
+                    value = ""
+
                 if isinstance(value, list):
                     value = ",".join(value)
+
                 Answer.objects.create(
                     application=app,
                     question=q,
                     value=str(value or ""),
                 )
 
+            # Autograde + email (sets app.invited_to_second_stage)
             if form_def.slug.endswith("M_A1"):
                 _mentor_a1_autograde_and_email(request, app)
 
             if form_def.slug.endswith("E_A1"):
                 autograde_and_email_emprendedora_a1(request, app)
 
+            # -------------------------
+            # Custom thanks screen logic (FIRST applications only)
+            # -------------------------
+            if form_def.slug.endswith("M_A1") or form_def.slug.endswith("E_A1"):
+                group_num = None
+                # Prefer form_def.group.number if available; fallback to slug parsing
+                if hasattr(form_def, "group") and form_def.group_id:
+                    try:
+                        group_num = int(getattr(form_def.group, "number", None) or 0) or None
+                    except Exception:
+                        group_num = None
+                if group_num is None:
+                    group_num = _group_number_from_form_slug(form_def.slug)
+
+                request.session["thanks_ctx"] = {
+                    "kind": "first_stage",
+                    "invited": bool(getattr(app, "invited_to_second_stage", False)),
+                    "group_num": group_num,
+                }
+            else:
+                # For A2 / surveys / other forms, show generic thanks
+                request.session["thanks_ctx"] = {"kind": "generic"}
+
             return redirect("application_thanks")
+
     else:
         form = ApplicationForm()
 
@@ -223,7 +306,6 @@ def _handle_application_form(request, form_slug: str, second_stage: bool = False
 
 # ---------- PUBLIC FIRST-STAGE FORMS ----------
 def apply_emprendedora_first(request):
-    # ✅ IMPORTANT: route to latest group if it exists, otherwise fall back to master
     latest = _latest_group_form_slug("E_A1")
     return _handle_application_form(request, latest or "E_A1", second_stage=False)
 
@@ -264,7 +346,6 @@ def apply_mentora_second(request, token):
 
 # ---------- PREVIEW (NO TOKEN) ----------
 def apply_emprendedora_second_preview(request):
-    # If you want preview to always show latest group A2, do it here too:
     latest = _latest_group_form_slug("E_A2")
     return _handle_application_form(request, latest or "E_A2", second_stage=True)
 
@@ -281,7 +362,9 @@ def apply_by_slug(request, form_slug):
 
 
 def application_thanks(request):
-    return render(request, "applications/thanks.html")
+    # Pop so refresh doesn't keep showing the same state forever
+    thanks_ctx = request.session.pop("thanks_ctx", None) or {"kind": "generic"}
+    return render(request, "applications/thanks.html", {"thanks_ctx": thanks_ctx})
 
 
 # ---------- SURVEYS ----------

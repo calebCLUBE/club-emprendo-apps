@@ -4,16 +4,64 @@
 
 {% block content %}
   <div class="ce-thanks">
-    <div class="ce-form-pill">Aplicación recibida</div>
-    <h1 class="ce-heading">¡Gracias por tu tiempo!</h1>
-    <p>
-      Hemos recibido tu aplicación para el programa de mentoría de Club
-      Emprendo. Revisaremos tu información y te escribiremos por correo con los
-      siguientes pasos.
-    </p>
-    <p style="margin-top:1rem;">
-      Si no ves nuestro mensaje en los próximos días, revisa tu carpeta de spam
-      o promociones.
-    </p>
+
+    {% if thanks_ctx.kind == "first_stage" and thanks_ctx.invited %}
+      <div class="ce-form-pill">📩 ¡Atención!</div>
+      <h1 class="ce-heading">Has terminado la primera aplicación ✅</h1>
+
+      <p>
+        👉 Ahora recibirás en tu correo electrónico la segunda y última aplicación,
+        que debes completar para continuar en el proceso de postulación.
+      </p>
+
+      <p style="margin-top:1rem;">
+        <strong>⚠️ Muy importante:</strong><br>
+        Revisa que escribiste tu correo correctamente.<br>
+        El correo puede llegar a tu bandeja de entrada o a la carpeta de
+        <strong>spam / correo no deseado / promociones</strong>.<br>
+        Si no lo ves en los próximos minutos, busca en esas carpetas.
+      </p>
+
+      <p style="margin-top:1rem;">
+        Si aún así no recibes la segunda aplicación, escríbenos por Instagram y con gusto te ayudamos.
+      </p>
+
+      <p style="margin-top:1rem;">
+        <strong>💡 Consejo:</strong>
+        Guarda nuestra dirección de correo como “segura” para que no se pierdan los mensajes.
+      </p>
+
+
+    {% elif thanks_ctx.kind == "first_stage" and not thanks_ctx.invited %}
+      <div class="ce-form-pill">Aplicación recibida</div>
+      <h1 class="ce-heading">Gracias por tu honestidad 💛</h1>
+
+      <p>
+        Gracias por tu honestidad y por tomarte el tiempo de responder.
+        Lamentamos que no puedas ser parte del Grupo
+        {% if thanks_ctx.group_num %}{{ thanks_ctx.group_num }}{% else %}de esta cohorte{% endif %}
+        en esta ocasión, pero seguiremos abriendo más grupos en el futuro.
+      </p>
+
+      <p style="margin-top:1rem;">
+        ¡Nos encantaría que puedas aplicar más adelante! Seguimos en contacto y te mandamos un abrazo grande.
+      </p>
+
+
+    {% else %}
+      {# Generic thanks for A2 / surveys / anything else #}
+      <div class="ce-form-pill">Aplicación recibida</div>
+      <h1 class="ce-heading">¡Gracias por tu tiempo!</h1>
+      <p>
+        Hemos recibido tu aplicación para el programa de mentoría de Club
+        Emprendo. Revisaremos tu información y te escribiremos por correo con los
+        siguientes pasos.
+      </p>
+      <p style="margin-top:1rem;">
+        Si no ves nuestro mensaje en los próximos días, revisa tu carpeta de spam
+        o promociones.
+      </p>
+    {% endif %}
+
   </div>
 {% endblock %}

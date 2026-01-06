@@ -58,7 +58,6 @@
     {% for field in form %}
 
       {# ---------- SPECIAL GRID RENDER FOR preferred_schedule ---------- #}
-      {# Works for older slug (q_preferred_schedule) AND new E2/M2 slugs #}
       {% if field.name == "q_preferred_schedule" or field.name == "q_e2_preferred_schedule" or field.name == "q_m2_preferred_schedule" %}
 
         <div class="form-row">
@@ -131,23 +130,50 @@
 
       {% else %}
 
-        <div class="form-row">
-          <label for="{{ field.id_for_label }}" {% if field.field.required %}class="required"{% endif %}>
-            {{ field.label }}
-          </label>
+        {# ---------- CONDITIONAL: only show comments when meets_requirements == "no" ---------- #}
+        {% if field.name == "q_comments" or field.name == "q_comments_if_not_eligible" %}
+          <div class="form-row"
+               data-conditional="1"
+               data-show-when="q_meets_requirements"
+               data-show-value="no"
+               style="display:none;">
+            <label for="{{ field.id_for_label }}" {% if field.field.required %}class="required"{% endif %}>
+              {{ field.label }}
+            </label>
 
-          {% if field.help_text %}
-            <span class="form-help">{{ field.help_text|safe }}</span>
-          {% endif %}
+            {% if field.help_text %}
+              <span class="form-help">{{ field.help_text|safe }}</span>
+            {% endif %}
 
-          {{ field }}
+            {{ field }}
 
-          {% if field.errors %}
-            <span class="form-help" style="color:#d14b4b;">
-              {{ field.errors|striptags }}
-            </span>
-          {% endif %}
-        </div>
+            {% if field.errors %}
+              <span class="form-help" style="color:#d14b4b;">
+                {{ field.errors|striptags }}
+              </span>
+            {% endif %}
+          </div>
+        {% else %}
+
+          <div class="form-row">
+            <label for="{{ field.id_for_label }}" {% if field.field.required %}class="required"{% endif %}>
+              {{ field.label }}
+            </label>
+
+            {% if field.help_text %}
+              <span class="form-help">{{ field.help_text|safe }}</span>
+            {% endif %}
+
+            {{ field }}
+
+            {% if field.errors %}
+              <span class="form-help" style="color:#d14b4b;">
+                {{ field.errors|striptags }}
+              </span>
+            {% endif %}
+          </div>
+
+        {% endif %}
 
       {% endif %}
     {% endfor %}
@@ -158,5 +184,60 @@
       </button>
     </div>
   </form>
+
+  <script>
+    (function () {
+      function getControllerValue(fieldName) {
+        // handles radios (your ChoiceField uses RadioSelect)
+        var checked = document.querySelector('input[name="' + fieldName + '"]:checked');
+        if (checked) return checked.value;
+
+        // fallback: selects/text inputs
+        var el = document.querySelector('[name="' + fieldName + '"]');
+        if (!el) return null;
+        return el.value;
+      }
+
+      function setEnabled(container, enabled) {
+        var inputs = container.querySelectorAll('input, textarea, select');
+        inputs.forEach(function (el) {
+          el.disabled = !enabled;
+          if (!enabled) {
+            if (el.type === "checkbox" || el.type === "radio") {
+              el.checked = false;
+            } else {
+              el.value = "";
+            }
+          }
+        });
+      }
+
+      function applyConditionals() {
+        var blocks = document.querySelectorAll('[data-conditional="1"]');
+        blocks.forEach(function (block) {
+          var controller = block.getAttribute('data-show-when');
+          var desired = block.getAttribute('data-show-value');
+
+          var current = getControllerValue(controller);
+          var shouldShow = (current === desired);
+
+          block.style.display = shouldShow ? "" : "none";
+          setEnabled(block, shouldShow);
+        });
+      }
+
+      document.addEventListener("change", function (e) {
+        // Any change might affect conditions, but controller changes are the main ones
+        applyConditionals();
+      });
+
+      document.addEventListener("DOMContentLoaded", function () {
+        applyConditionals();
+      });
+
+      // If this script loads after DOMContentLoaded (common), still run once:
+      applyConditionals();
+    })();
+  </script>
 
 {% endblock %}

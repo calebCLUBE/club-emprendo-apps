@@ -282,6 +282,101 @@
 
   <script>
     (function () {
+      // 🔒 Run ONLY for Mentora A2
+      if (!window.location.pathname.includes("_M_A2")) return;
+    
+      const DRIVER_TEXT = "has dirigido tu propio negocio";
+      const TARGET_TEXTS = [
+      "industria de tu emprendimiento",
+      "nombre de tu emprendimiento",
+      "donde operas tu negocio",
+      "cuanto tiempo has estado operando",
+      "tienes empleados",
+      "Descripción del negocio"
+    ];
+    
+    
+      function norm(s) {
+        return (s || "")
+          .toLowerCase()
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .replace(/\s+/g, " ")
+          .trim();
+      }
+    
+      function findRowByLabelContains(fragment) {
+        const frag = norm(fragment);
+        const rows = document.querySelectorAll(".form-row");
+        for (const row of rows) {
+          const label = row.querySelector("label");
+          const txt = norm(label ? label.textContent : "");
+          if (txt.includes(frag)) return row;
+        }
+        return null;
+      }
+    
+      function findRowsByLabelFragments(fragments) {
+        const rows = [];
+        const all = document.querySelectorAll(".form-row");
+        for (const row of all) {
+          const label = row.querySelector("label");
+          const txt = norm(label ? label.textContent : "");
+          for (const f of fragments) {
+            if (txt.includes(norm(f))) {
+              rows.push(row);
+            }
+          }
+        }
+        return rows;
+      }
+    
+      function getSelectedChoiceText(row) {
+        if (!row) return "";
+    
+        const sel = row.querySelector("select");
+        if (sel) {
+          const opt = sel.options[sel.selectedIndex];
+          return opt ? opt.textContent.trim() : "";
+        }
+    
+        const checked = row.querySelector('input[type="radio"]:checked');
+        if (checked) {
+          const label = checked.closest("label");
+          if (label) {
+            const clone = label.cloneNode(true);
+            clone.querySelectorAll("input").forEach(el => el.remove());
+            return clone.textContent.trim();
+          }
+        }
+        return "";
+      }
+    
+      const driverRow = findRowByLabelContains(DRIVER_TEXT);
+      const targetRows = findRowsByLabelFragments(TARGET_TEXTS);
+    
+      if (!driverRow || !targetRows.length) return;
+    
+      function update() {
+        const picked = norm(getSelectedChoiceText(driverRow));
+        const show = picked.startsWith("si");
+        targetRows.forEach(row => {
+          row.style.display = show ? "" : "none";
+        });
+      }
+    
+      // Initial state
+      update();
+    
+      // React to changes
+      driverRow.querySelectorAll('input[type="radio"]').forEach(el => {
+        el.addEventListener("change", update);
+      });
+    
+      const sel = driverRow.querySelector("select");
+      if (sel) sel.addEventListener("change", update);
+    })();
+    (function () {
       const FOLLOW_TEXT_FRAGMENT = "por favor indícanos qué requisito";
       const REQUIREMENTS_SLUG_CANDIDATES = [
         "meets_requirements",

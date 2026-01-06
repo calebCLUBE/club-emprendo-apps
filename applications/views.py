@@ -140,6 +140,12 @@ def _handle_application_form(request, form_slug: str, second_stage: bool = False
             if str(v).strip():
                 rendered_description = str(v)
                 break
+            # ✅ Prevent duplicated intro text (top intro + subtitle)
+    if rendered_description.strip() and (
+        rendered_description.strip() == (form_def.description or "").strip()
+    ):
+        rendered_description = ""
+
 
     if request.method == "POST":
         form = ApplicationForm(request.POST)

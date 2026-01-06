@@ -22,7 +22,7 @@ def build_approved_html(form_2_link: str) -> str:
         '<p>A continuación, te compartimos la <strong>Aplicación #2</strong>, que es el segundo y último paso para postularte como mentora voluntaria.</p>'
         '<p><strong>📌 Instrucciones para acceder a la Aplicación #2:</strong></p>'
         '<ol>'
-        f'<li>Haz clic aquí: 👉 <a href="{form_2_link}">Aplicación 2</a></li>'
+        f'<li>Haz clic aquí: 👉 <a href="{form_2_link}">Aplicación 2</a> fecha límite - 13/01/2026 </li>'
         '<li>Lee con atención y responde cada pregunta.</li>'
         '</ol>'
         '<p>📅 <strong>Fecha límite para completarlo:</strong> Domingo 7 de Septiembre.</p>'

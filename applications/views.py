@@ -100,7 +100,7 @@ def _mentor_a1_autograde_and_email(request, app: Application):
             "<p>A continuación, te compartimos la <strong>Aplicación #2</strong>, que es el segundo y último paso para postularte como mentora voluntaria.</p>"
             "<p><strong>📌 Instrucciones para acceder a la Aplicación #2:</strong></p>"
             "<ol>"
-            f'<li>Haz clic aquí: 👉 <a href="{form2_url}">Aplicación 2</a> fecha límite - 13/01/2026 </li>'
+            f'<li>Haz clic aquí: 👉 <a href="{form2_url}">Aplicación 2</a> fecha límite - 11/01/2026 </li>'
             "<li>Lee con atención y responde cada pregunta.</li>"
             "</ol>"
             "<p>Gracias nuevamente por tu interés y compromiso con otras mujeres emprendedoras 💛</p>"
@@ -125,6 +125,155 @@ def _mentor_a1_autograde_and_email(request, app: Application):
     _send_html_email(app.email, subject, html_body)
 
 
+def _m2_sections(form_def: FormDefinition):
+    """
+    Build on-page sections for Mentora A2 (M_A2 and group variants).
+    We match by question text so it survives slug tweaks.
+    """
+    def find_all_fragments(fragments):
+        out = []
+        for q in form_def.questions.filter(active=True).order_by("position", "id"):
+            t = (q.text or "").lower()
+            if all(f.lower() in t for f in fragments):
+                out.append(f"q_{q.slug}")
+        return out
+
+    def find_any_keywords(keywords):
+        out = []
+        for q in form_def.questions.filter(active=True).order_by("position", "id"):
+            t = (q.text or "").lower()
+            if any(k.lower() in t for k in keywords):
+                out.append(f"q_{q.slug}")
+        return out
+
+    owned_business_fields = find_all_fragments(["has dirigido tu propio negocio"])
+    owned_business_field = owned_business_fields[0] if owned_business_fields else None
+
+    sections = [
+        {
+            "key": "s1",
+            "title": "Información personal",
+            "intro": (
+                "Solicitamos tu número de cédula únicamente para identificar de forma única tu postulación y evitar aplicaciones duplicadas.\n\n"
+                "Tu información será utilizada exclusivamente para fines administrativos del programa de mentoría y tratada con estricta confidencialidad, conforme a la legislación de protección de datos personales vigente en tu país.\n\n"
+                "🛡 Aviso de privacidad:\n"
+                "Club Emprendo recopila datos personales limitados, como tu nombre y número de cédula, con fines administrativos relacionados con el proceso de postulación.\n"
+                "Nos comprometemos a tratar esta información de forma confidencial, segura y conforme a las leyes de protección de datos aplicables en América Latina.\n"
+                "Puedes ejercer tus derechos de acceso, corrección o eliminación de datos escribiéndonos a: contacto@clubemprendo.org"
+            ),
+            "field_names": find_any_keywords([
+                "cédula", "cedula", "documento de identidad",
+                "nombre completo",
+                "nombre de preferencia",
+                "certificado",
+                "correo electrónico", "correo electronico",
+                "whatsapp",
+                "ciudad de residencia",
+                "país de residencia", "pais de residencia",
+                "país de nacimiento", "pais de nacimiento",
+                "edad",
+                "participado anteriormente",
+                "aviso de privacidad",
+            ]),
+            "show_if_field": None,
+        },
+        {
+            "key": "s2",
+            "title": "Requisitos del programa",
+            "intro": "",
+            "field_names": find_any_keywords([
+                "requisitos básicos", "requisitos basicos",
+                "requisitos de disponibilidad",
+                "marca la casilla",
+                "confirmar tu entendimiento",
+                "si no cumples",
+                "especifica cuál", "especifica cual",
+                "revisaste el pdf",
+            ]),
+            "show_if_field": None,
+        },
+        {
+            "key": "s3",
+            "title": "Experiencia previa",
+            "intro": "",
+            "field_names": owned_business_fields,
+            "show_if_field": None,
+        },
+        {
+            "key": "s4",
+            "title": "Experiencia como emprendedora",
+            "intro": (
+                "En esta sección, te solicitamos que compartas tu experiencia previa como emprendedor(a). "
+                "Responde a las preguntas sobre los negocios que has dirigido, centrándote en tu negocio favorito o "
+                "más notable si has gestionado más de uno. Tu experiencia será valiosa para ayudar a nuestras "
+                "microemprendedoras a crecer y superar desafíos"
+            ),
+            "field_names": find_any_keywords([
+                "nombre de tu emprendimiento",
+                "industria de tu emprendimiento",
+                "descripción del negocio", "descripcion del negocio",
+                "dónde operas tu negocio", "donde operas tu negocio",
+                "cuánto tiempo has estado operando", "cuanto tiempo has estado operando",
+                "tienes empleados",
+            ]),
+            # Hide/show based on the gate question in section 3:
+            "show_if_field": owned_business_field,
+        },
+        {
+            "key": "s5",
+            "title": "Motivación y experiencia con la mentoría",
+            "intro": (
+                "💡 Tip importante:\n"
+                "En las preguntas abiertas, te recomendamos que seas lo más amplia posible al compartir tu experiencia, "
+                "motivaciones y visión. 📝✨ Evita responder solo con una o dos frases — ¡queremos conocerte mejor para "
+                "valorar todo lo que puedes aportar como mentora!"
+            ),
+            "field_names": find_any_keywords([
+                "área de experiencia profesional", "area de experiencia profesional",
+                "qué te motiva", "que te motiva",
+                "buena mentora",
+                "experiencia previa con mentoría", "experiencia previa con mentoria",
+                "describe brevemente tu experiencia",
+            ]),
+            "show_if_field": None,
+        },
+        {
+            "key": "s6",
+            "title": "Disponibilidad",
+            "intro": "",
+            "field_names": find_any_keywords([
+                "cuánto tiempo puedes dedicar", "cuanto tiempo puedes dedicar",
+                "en qué horario te resulta más conveniente", "en que horario te resulta mas conveniente",
+            ]),
+            "show_if_field": None,
+        },
+        {
+            "key": "s8",
+            "title": "Comentarios adicionales",
+            "intro": "Este espacio es tuyo: comentarios, dudas, sugerencias o algo que no hayamos preguntado.",
+            "field_names": find_any_keywords([
+                "hay algo más que te gustaría compartir",
+                "hay algo mas que te gustaria compartir",
+            ]),
+            "show_if_field": None,
+        },
+    ]
+
+    # Deduplicate field names while preserving order, and drop empties
+    for s in sections:
+        seen = set()
+        deduped = []
+        for n in s["field_names"]:
+            if n and n not in seen:
+                seen.add(n)
+                deduped.append(n)
+        s["field_names"] = deduped
+
+    sections = [s for s in sections if s["field_names"]]
+
+    return sections, owned_business_field
+
+
 # -------------------------
 # Core handler
 # -------------------------
@@ -140,93 +289,118 @@ def _handle_application_form(request, form_slug: str, second_stage: bool = False
             if str(v).strip():
                 rendered_description = str(v)
                 break
-            # ✅ Prevent duplicated intro text (top intro + subtitle)
+
+    # ✅ Prevent duplicated intro text (top intro + subtitle)
     if rendered_description.strip() and (
         rendered_description.strip() == (form_def.description or "").strip()
     ):
         rendered_description = ""
 
-
+    # Build form
     if request.method == "POST":
         form = ApplicationForm(request.POST)
-        if form.is_valid():
-
-            def _pick_first(*keys: str) -> str:
-                for k in keys:
-                    v = (form.cleaned_data.get(k) or "").strip()
-                    if v:
-                        return v
-                return ""
-
-            full_name = _pick_first(
-                "q_full_name", "q_name", "q_nombre",
-                "q_e1_full_name", "q_m1_full_name",
-                "q_e2_full_name", "q_m2_full_name",
-            )
-            email = _pick_first(
-                "q_email", "q_correo", "q_correo_electronico",
-                "q_e1_email", "q_m1_email",
-                "q_e2_email", "q_m2_email",
-            )
-
-            if not email:
-                for k, v in form.cleaned_data.items():
-                    if not k.startswith("q_"):
-                        continue
-                    s = (v or "").strip()
-                    if "@" in s and "." in s:
-                        email = s
-                        break
-
-            if not full_name:
-                for k, v in form.cleaned_data.items():
-                    if not k.startswith("q_"):
-                        continue
-                    lk = k.lower()
-                    if ("name" in lk) or ("nombre" in lk):
-                        s = (v or "").strip()
-                        if s:
-                            full_name = s
-                            break
-
-            app = Application.objects.create(
-                form=form_def,
-                name=full_name,
-                email=email,
-            )
-
-            for q in form_def.questions.filter(active=True).order_by("position", "id"):
-                field_name = f"q_{q.slug}"
-                value = form.cleaned_data.get(field_name)
-                if isinstance(value, list):
-                    value = ",".join(value)
-                Answer.objects.create(
-                    application=app,
-                    question=q,
-                    value=str(value or ""),
-                )
-
-            # Run autogrades (these set invited_to_second_stage)
-            if form_def.slug.endswith("M_A1"):
-                _mentor_a1_autograde_and_email(request, app)
-
-            if form_def.slug.endswith("E_A1"):
-                autograde_and_email_emprendedora_a1(request, app)
-
-            # ✅ THANK-YOU SCREEN PAYLOAD (approved vs rejected)
-            group_num = ""
-            m = GROUP_SLUG_RE.match(form_def.slug or "")
-            if m:
-                group_num = m.group("num")
-
-            request.session["ce_thanks_payload"] = {
-                "approved": bool(app.invited_to_second_stage),
-                "group_num": group_num,
-            }
-
-            return redirect("application_thanks")
     else:
         form = ApplicationForm()
+
+    # Build sections only for Mentora A2 (master or group)
+    sections = None
+    m2_gate_field = None
+    if (form_def.slug or "").endswith("M_A2"):
+        raw_sections, gate = _m2_sections(form_def)
+        m2_gate_field = gate
+
+        # Convert field names to BoundFields safely (no template indexing magic)
+        sections = []
+        for s in raw_sections:
+            bound = []
+            for fname in s["field_names"]:
+                if fname in form.fields:
+                    bound.append(form[fname])
+            if bound:
+                sections.append({
+                    "key": s["key"],
+                    "title": s["title"],
+                    "intro": s["intro"],
+                    "show_if_field": s["show_if_field"],  # still the field name string
+                    "fields": bound,  # list[BoundField]
+                })
+
+    if request.method == "POST" and form.is_valid():
+
+        def _pick_first(*keys: str) -> str:
+            for k in keys:
+                v = (form.cleaned_data.get(k) or "").strip()
+                if v:
+                    return v
+            return ""
+
+        full_name = _pick_first(
+            "q_full_name", "q_name", "q_nombre",
+            "q_e1_full_name", "q_m1_full_name",
+            "q_e2_full_name", "q_m2_full_name",
+        )
+        email = _pick_first(
+            "q_email", "q_correo", "q_correo_electronico",
+            "q_e1_email", "q_m1_email",
+            "q_e2_email", "q_m2_email",
+        )
+
+        if not email:
+            for k, v in form.cleaned_data.items():
+                if not k.startswith("q_"):
+                    continue
+                s = (v or "").strip()
+                if "@" in s and "." in s:
+                    email = s
+                    break
+
+        if not full_name:
+            for k, v in form.cleaned_data.items():
+                if not k.startswith("q_"):
+                    continue
+                lk = k.lower()
+                if ("name" in lk) or ("nombre" in lk):
+                    s = (v or "").strip()
+                    if s:
+                        full_name = s
+                        break
+
+        app = Application.objects.create(
+            form=form_def,
+            name=full_name,
+            email=email,
+        )
+
+        for q in form_def.questions.filter(active=True).order_by("position", "id"):
+            field_name = f"q_{q.slug}"
+            value = form.cleaned_data.get(field_name)
+            if isinstance(value, list):
+                value = ",".join(value)
+            Answer.objects.create(
+                application=app,
+                question=q,
+                value=str(value or ""),
+            )
+
+        # Run autogrades (these set invited_to_second_stage)
+        if form_def.slug.endswith("M_A1"):
+            _mentor_a1_autograde_and_email(request, app)
+
+        if form_def.slug.endswith("E_A1"):
+            autograde_and_email_emprendedora_a1(request, app)
+
+        # ✅ THANK-YOU SCREEN PAYLOAD (approved vs rejected)
+        group_num = ""
+        m = GROUP_SLUG_RE.match(form_def.slug or "")
+        if m:
+            group_num = m.group("num")
+
+        request.session["ce_thanks_payload"] = {
+            "approved": bool(app.invited_to_second_stage),
+            "group_num": group_num,
+        }
+
+        return redirect("application_thanks")
 
     return render(
         request,
@@ -236,13 +410,14 @@ def _handle_application_form(request, form_slug: str, second_stage: bool = False
             "form_def": form_def,
             "second_stage": second_stage,
             "rendered_description": rendered_description,
+            "sections": sections,              # for M_A2 only (else None)
+            "m2_gate_field": m2_gate_field,    # field name string like "q_has_..."
         },
     )
 
 
 # ---------- PUBLIC FIRST-STAGE FORMS ----------
 def apply_emprendedora_first(request):
-    # ✅ route to latest group if it exists, otherwise fall back to master
     latest = _latest_group_form_slug("E_A1")
     return _handle_application_form(request, latest or "E_A1", second_stage=False)
 
@@ -299,7 +474,6 @@ def apply_by_slug(request, form_slug):
 
 
 def application_thanks(request):
-    # ✅ pulls the approved/rejected payload set at submit time
     payload = request.session.pop("ce_thanks_payload", None) or {}
     return render(request, "applications/thanks.html", payload)
 

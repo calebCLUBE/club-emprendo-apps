@@ -100,7 +100,7 @@ def _mentor_a1_autograde_and_email(request, app: Application):
             "<p>A continuación, te compartimos la <strong>Aplicación #2</strong>, que es el segundo y último paso para postularte como mentora voluntaria.</p>"
             "<p><strong>📌 Instrucciones para acceder a la Aplicación #2:</strong></p>"
             "<ol>"
-            f'<li>Haz clic aquí: 👉 <a href="{form2_url}">Aplicación 2</a> fecha límite - 11/01/2026 </li>'
+            f'<li>Haz clic aquí: 👉 <a href="https://apply.clubemprendo.org/apply/G6_M_A2/">Aplicación 2</a> fecha límite - 11/01/2026 </li>'
             "<li>Lee con atención y responde cada pregunta.</li>"
             "</ol>"
             "<p>Gracias nuevamente por tu interés y compromiso con otras mujeres emprendedoras 💛</p>"

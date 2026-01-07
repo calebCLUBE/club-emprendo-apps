@@ -62,7 +62,6 @@ def _mentor_a1_autograde_and_email(request, app: Application):
         t = (v or "").strip().lower()
         return ("si" in t) or ("sí" in t) or ("yes" in t) or (t == "true") or (t == "1") or (t == "yes")
 
-    # Support multiple naming schemes (old + new)
     requisitos = (
         answers.get("meets_requirements")
         or answers.get("m1_meet_requirements")
@@ -126,10 +125,6 @@ def _mentor_a1_autograde_and_email(request, app: Application):
 
 
 def _m2_sections(form_def: FormDefinition):
-    """
-    Build on-page sections for Mentora A2 (M_A2 and group variants).
-    We match by question text so it survives slug tweaks.
-    """
     def find_all_fragments(fragments):
         out = []
         for q in form_def.questions.filter(active=True).order_by("position", "id"):
@@ -258,7 +253,6 @@ def _m2_sections(form_def: FormDefinition):
         },
     ]
 
-    # Deduplicate field names while preserving order, and drop empties
     for s in sections:
         seen = set()
         deduped = []
@@ -273,9 +267,6 @@ def _m2_sections(form_def: FormDefinition):
     return sections, owned_business_field
 
 
-# -------------------------
-# Core handler
-# -------------------------
 def _handle_application_form(request, form_slug: str, second_stage: bool = False):
     form_def = get_object_or_404(FormDefinition, slug=form_slug)
     ApplicationForm = build_application_form(form_slug)
@@ -376,31 +367,38 @@ def _handle_application_form(request, form_slug: str, second_stage: bool = False
                 value=str(value or ""),
             )
 
-        # Run autogrades (A1 only)
+        # A1 autogrades
         if form_def.slug.endswith("M_A1"):
             _mentor_a1_autograde_and_email(request, app)
 
         if form_def.slug.endswith("E_A1"):
             autograde_and_email_emprendedora_a1(request, app)
 
-        # ✅ THANK-YOU SCREEN PAYLOAD
+        # group number (from slug like G5_M_A1)
         group_num = ""
         m = GROUP_SLUG_RE.match(form_def.slug or "")
         if m:
             group_num = m.group("num")
 
-        # Final stage Mentora A2: fixed message regardless of submission
+        # Track for rejection message
+        track = ""
+        if form_def.slug.endswith("M_A1"):
+            track = "mentoras"
+        elif form_def.slug.endswith("E_A1"):
+            track = "emprendedoras"
+
+        # ✅ Thank-you routing
         if form_def.slug.endswith("M_A2"):
             request.session["ce_thanks_payload"] = {
                 "kind": "mentor_final",
                 "group_num": group_num,
             }
         else:
-            # Existing behavior for A1 flows (approved vs not)
             request.session["ce_thanks_payload"] = {
-                "kind": "default",
+                "kind": "a1",
                 "approved": bool(app.invited_to_second_stage),
                 "group_num": group_num,
+                "track": track,
             }
 
         return redirect("application_thanks")
@@ -419,7 +417,6 @@ def _handle_application_form(request, form_slug: str, second_stage: bool = False
     )
 
 
-# ---------- PUBLIC FIRST-STAGE FORMS ----------
 def apply_emprendedora_first(request):
     latest = _latest_group_form_slug("E_A1")
     return _handle_application_form(request, latest or "E_A1", second_stage=False)
@@ -430,7 +427,6 @@ def apply_mentora_first(request):
     return _handle_application_form(request, latest or "M_A1", second_stage=False)
 
 
-# ---------- SECOND-STAGE (TOKEN REQUIRED) ----------
 def apply_emprendedora_second(request, token):
     first_app = get_object_or_404(Application, invite_token=token)
 
@@ -459,7 +455,6 @@ def apply_mentora_second(request, token):
     return _handle_application_form(request, form_slug, second_stage=True)
 
 
-# ---------- PREVIEW (NO TOKEN) ----------
 def apply_emprendedora_second_preview(request):
     latest = _latest_group_form_slug("E_A2")
     return _handle_application_form(request, latest or "E_A2", second_stage=True)
@@ -470,7 +465,6 @@ def apply_mentora_second_preview(request):
     return _handle_application_form(request, latest or "M_A2", second_stage=True)
 
 
-# ---------- GROUP/SLUG ROUTE ----------
 def apply_by_slug(request, form_slug):
     second_stage = str(form_slug).endswith("_A2")
     return _handle_application_form(request, form_slug, second_stage=second_stage)
@@ -481,6 +475,5 @@ def application_thanks(request):
     return render(request, "applications/thanks.html", payload)
 
 
-# ---------- SURVEYS ----------
 def survey_by_slug(request, form_slug):
     return _handle_application_form(request, form_slug, second_stage=False)

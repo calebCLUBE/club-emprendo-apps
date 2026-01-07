@@ -7,7 +7,7 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse
 
 from .forms import build_application_form
-from .models import Application, Answer, FormDefinition, Question  # ✅ ADDED Question import
+from .models import Application, Answer, FormDefinition
 from .emprendedora_a1_autograde import autograde_and_email_emprendedora_a1
 
 
@@ -100,7 +100,7 @@ def _mentor_a1_autograde_and_email(request, app: Application):
             "<p>A continuación, te compartimos la <strong>Aplicación #2</strong>, que es el segundo y último paso para postularte como mentora voluntaria.</p>"
             "<p><strong>📌 Instrucciones para acceder a la Aplicación #2:</strong></p>"
             "<ol>"
-            f'<li>Haz clic aquí: 👉 <a href="https://apply.clubemprendo.org/apply/G6_M_A2/">Aplicación 2</a> fecha límite - 11/01/2026 </li>'
+            f'<li>Haz clic aquí: 👉 <a href="{form2_url}">Aplicación 2</a> fecha límite - 11/01/2026 </li>'
             "<li>Lee con atención y responde cada pregunta.</li>"
             "</ol>"
             "<p>Gracias nuevamente por tu interés y compromiso con otras mujeres emprendedoras 💛</p>"
@@ -258,6 +258,7 @@ def _m2_sections(form_def: FormDefinition):
         },
     ]
 
+    # Deduplicate field names while preserving order, and drop empties
     for s in sections:
         seen = set()
         deduped = []
@@ -296,12 +297,6 @@ def _handle_application_form(request, form_slug: str, second_stage: bool = False
         form = ApplicationForm(request.POST)
     else:
         form = ApplicationForm()
-
-    # ✅ ADDED: optional map of field-name -> Question (handy for template/debug)
-    questions_by_field = {
-        f"q_{q.slug}": q
-        for q in form_def.questions.filter(active=True).order_by("position", "id")
-    }
 
     sections = None
     m2_gate_field = None
@@ -381,21 +376,32 @@ def _handle_application_form(request, form_slug: str, second_stage: bool = False
                 value=str(value or ""),
             )
 
+        # Run autogrades (A1 only)
         if form_def.slug.endswith("M_A1"):
             _mentor_a1_autograde_and_email(request, app)
 
         if form_def.slug.endswith("E_A1"):
             autograde_and_email_emprendedora_a1(request, app)
 
+        # ✅ THANK-YOU SCREEN PAYLOAD
         group_num = ""
         m = GROUP_SLUG_RE.match(form_def.slug or "")
         if m:
             group_num = m.group("num")
 
-        request.session["ce_thanks_payload"] = {
-            "approved": bool(app.invited_to_second_stage),
-            "group_num": group_num,
-        }
+        # Final stage Mentora A2: fixed message regardless of submission
+        if form_def.slug.endswith("M_A2"):
+            request.session["ce_thanks_payload"] = {
+                "kind": "mentor_final",
+                "group_num": group_num,
+            }
+        else:
+            # Existing behavior for A1 flows (approved vs not)
+            request.session["ce_thanks_payload"] = {
+                "kind": "default",
+                "approved": bool(app.invited_to_second_stage),
+                "group_num": group_num,
+            }
 
         return redirect("application_thanks")
 
@@ -409,11 +415,11 @@ def _handle_application_form(request, form_slug: str, second_stage: bool = False
             "rendered_description": rendered_description,
             "sections": sections,
             "m2_gate_field": m2_gate_field,
-            "questions_by_field": questions_by_field,  # ✅ ADDED (does not break anything)
         },
     )
 
 
+# ---------- PUBLIC FIRST-STAGE FORMS ----------
 def apply_emprendedora_first(request):
     latest = _latest_group_form_slug("E_A1")
     return _handle_application_form(request, latest or "E_A1", second_stage=False)
@@ -424,6 +430,7 @@ def apply_mentora_first(request):
     return _handle_application_form(request, latest or "M_A1", second_stage=False)
 
 
+# ---------- SECOND-STAGE (TOKEN REQUIRED) ----------
 def apply_emprendedora_second(request, token):
     first_app = get_object_or_404(Application, invite_token=token)
 
@@ -452,6 +459,7 @@ def apply_mentora_second(request, token):
     return _handle_application_form(request, form_slug, second_stage=True)
 
 
+# ---------- PREVIEW (NO TOKEN) ----------
 def apply_emprendedora_second_preview(request):
     latest = _latest_group_form_slug("E_A2")
     return _handle_application_form(request, latest or "E_A2", second_stage=True)
@@ -462,6 +470,7 @@ def apply_mentora_second_preview(request):
     return _handle_application_form(request, latest or "M_A2", second_stage=True)
 
 
+# ---------- GROUP/SLUG ROUTE ----------
 def apply_by_slug(request, form_slug):
     second_stage = str(form_slug).endswith("_A2")
     return _handle_application_form(request, form_slug, second_stage=second_stage)
@@ -472,5 +481,6 @@ def application_thanks(request):
     return render(request, "applications/thanks.html", payload)
 
 
+# ---------- SURVEYS ----------
 def survey_by_slug(request, form_slug):
     return _handle_application_form(request, form_slug, second_stage=False)

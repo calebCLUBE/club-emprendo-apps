@@ -23,6 +23,22 @@
     <label><input type="checkbox" name="required" {% if q.required %}checked{% endif %}/> Requerida</label>
     <label><input type="checkbox" name="active" {% if q.active %}checked{% endif %}/> Activa</label>
   </div>
+  <hr style="margin:18px 0; border:none; border-top:1px solid #eee;">
+
+  <h3 style="margin:0 0 8px 0; font-size:14px;">Contenido encima de esta pregunta</h3>
+
+  <label style="display:flex; gap:8px; align-items:center; margin:8px 0 10px 0;">
+    <input type="checkbox" name="pre_hr" {% if pre_hr %}checked{% endif %} />
+    Mostrar línea horizontal (HR) encima del texto
+  </label>
+
+  <label class="ce-label">Texto encima (opcional)</label>
+  <textarea class="ce-input" name="pre_text" rows="4" style="min-height:90px;">{{ pre_text }}</textarea>
+
+  <hr style="margin:18px 0; border:none; border-top:1px solid #eee;">
+
+  <label class="ce-label">Help text (debajo de la pregunta)</label>
+  <textarea class="ce-input" name="help_text" rows="4" style="min-height:90px;">{{ help_text_clean }}</textarea>
 
   <div style="display:flex; gap:10px; margin-top:16px;">
     <button class="ce-btn" type="submit">Guardar</button>

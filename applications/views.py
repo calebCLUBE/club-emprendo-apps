@@ -7,7 +7,7 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse
 
 from .forms import build_application_form
-from .models import Application, Answer, FormDefinition
+from .models import Application, Answer, FormDefinition, Question  # ✅ ADDED Question import
 from .emprendedora_a1_autograde import autograde_and_email_emprendedora_a1
 
 
@@ -216,7 +216,6 @@ def _m2_sections(form_def: FormDefinition):
                 "cuánto tiempo has estado operando", "cuanto tiempo has estado operando",
                 "tienes empleados",
             ]),
-            # Hide/show based on the gate question in section 3:
             "show_if_field": owned_business_field,
         },
         {
@@ -259,7 +258,6 @@ def _m2_sections(form_def: FormDefinition):
         },
     ]
 
-    # Deduplicate field names while preserving order, and drop empties
     for s in sections:
         seen = set()
         deduped = []
@@ -281,7 +279,6 @@ def _handle_application_form(request, form_slug: str, second_stage: bool = False
     form_def = get_object_or_404(FormDefinition, slug=form_slug)
     ApplicationForm = build_application_form(form_slug)
 
-    # Pull a description field if your model has one (supports multiple naming conventions)
     rendered_description = ""
     for attr in ("description", "intro", "intro_text", "public_description"):
         if hasattr(form_def, attr):
@@ -290,26 +287,28 @@ def _handle_application_form(request, form_slug: str, second_stage: bool = False
                 rendered_description = str(v)
                 break
 
-    # ✅ Prevent duplicated intro text (top intro + subtitle)
     if rendered_description.strip() and (
         rendered_description.strip() == (form_def.description or "").strip()
     ):
         rendered_description = ""
 
-    # Build form
     if request.method == "POST":
         form = ApplicationForm(request.POST)
     else:
         form = ApplicationForm()
 
-    # Build sections only for Mentora A2 (master or group)
+    # ✅ ADDED: optional map of field-name -> Question (handy for template/debug)
+    questions_by_field = {
+        f"q_{q.slug}": q
+        for q in form_def.questions.filter(active=True).order_by("position", "id")
+    }
+
     sections = None
     m2_gate_field = None
     if (form_def.slug or "").endswith("M_A2"):
         raw_sections, gate = _m2_sections(form_def)
         m2_gate_field = gate
 
-        # Convert field names to BoundFields safely (no template indexing magic)
         sections = []
         for s in raw_sections:
             bound = []
@@ -321,8 +320,8 @@ def _handle_application_form(request, form_slug: str, second_stage: bool = False
                     "key": s["key"],
                     "title": s["title"],
                     "intro": s["intro"],
-                    "show_if_field": s["show_if_field"],  # still the field name string
-                    "fields": bound,  # list[BoundField]
+                    "show_if_field": s["show_if_field"],
+                    "fields": bound,
                 })
 
     if request.method == "POST" and form.is_valid():
@@ -382,14 +381,12 @@ def _handle_application_form(request, form_slug: str, second_stage: bool = False
                 value=str(value or ""),
             )
 
-        # Run autogrades (these set invited_to_second_stage)
         if form_def.slug.endswith("M_A1"):
             _mentor_a1_autograde_and_email(request, app)
 
         if form_def.slug.endswith("E_A1"):
             autograde_and_email_emprendedora_a1(request, app)
 
-        # ✅ THANK-YOU SCREEN PAYLOAD (approved vs rejected)
         group_num = ""
         m = GROUP_SLUG_RE.match(form_def.slug or "")
         if m:
@@ -410,13 +407,13 @@ def _handle_application_form(request, form_slug: str, second_stage: bool = False
             "form_def": form_def,
             "second_stage": second_stage,
             "rendered_description": rendered_description,
-            "sections": sections,              # for M_A2 only (else None)
-            "m2_gate_field": m2_gate_field,    # field name string like "q_has_..."
+            "sections": sections,
+            "m2_gate_field": m2_gate_field,
+            "questions_by_field": questions_by_field,  # ✅ ADDED (does not break anything)
         },
     )
 
 
-# ---------- PUBLIC FIRST-STAGE FORMS ----------
 def apply_emprendedora_first(request):
     latest = _latest_group_form_slug("E_A1")
     return _handle_application_form(request, latest or "E_A1", second_stage=False)
@@ -427,7 +424,6 @@ def apply_mentora_first(request):
     return _handle_application_form(request, latest or "M_A1", second_stage=False)
 
 
-# ---------- SECOND-STAGE (TOKEN REQUIRED) ----------
 def apply_emprendedora_second(request, token):
     first_app = get_object_or_404(Application, invite_token=token)
 
@@ -456,7 +452,6 @@ def apply_mentora_second(request, token):
     return _handle_application_form(request, form_slug, second_stage=True)
 
 
-# ---------- PREVIEW (NO TOKEN) ----------
 def apply_emprendedora_second_preview(request):
     latest = _latest_group_form_slug("E_A2")
     return _handle_application_form(request, latest or "E_A2", second_stage=True)
@@ -467,7 +462,6 @@ def apply_mentora_second_preview(request):
     return _handle_application_form(request, latest or "M_A2", second_stage=True)
 
 
-# ---------- GROUP/SLUG ROUTE ----------
 def apply_by_slug(request, form_slug):
     second_stage = str(form_slug).endswith("_A2")
     return _handle_application_form(request, form_slug, second_stage=second_stage)
@@ -478,6 +472,5 @@ def application_thanks(request):
     return render(request, "applications/thanks.html", payload)
 
 
-# ---------- SURVEYS ----------
 def survey_by_slug(request, form_slug):
     return _handle_application_form(request, form_slug, second_stage=False)

@@ -33,6 +33,17 @@
 
     {% for field in form %}
 
+      {# ---------- PRE-TEXT / HR ABOVE ANY QUESTION ---------- #}
+      {% if field.field.widget.attrs.pre_hr %}
+        <hr style="margin:18px 0 10px 0; border:none; border-top:1px solid rgba(0,0,0,.10);">
+      {% endif %}
+
+      {% if field.field.widget.attrs.pre_text %}
+        <div style="margin:0 0 10px 0; color:#555; line-height:1.45;">
+          {{ field.field.widget.attrs.pre_text|linebreaks }}
+        </div>
+      {% endif %}
+
       {# ---------- SPECIAL GRID RENDER FOR schedule question ---------- #}
       {% if field.name == "q_preferred_schedule" or field.name == "q_e2_preferred_schedule" or field.name == "q_m2_preferred_schedule" or "¿En qué horario te resulta más conveniente participar en sesiones virtuales" in field.label|default_if_none:"" %}
 
@@ -284,18 +295,17 @@
     (function () {
       // 🔒 Run ONLY for Mentora A2
       if (!window.location.pathname.includes("_M_A2")) return;
-    
+
       const DRIVER_TEXT = "has dirigido tu propio negocio";
       const TARGET_TEXTS = [
-      "industria de tu emprendimiento",
-      "nombre de tu emprendimiento",
-      "donde operas tu negocio",
-      "cuanto tiempo has estado operando",
-      "tienes empleados",
-      "Descripción del negocio"
-    ];
-    
-    
+        "industria de tu emprendimiento",
+        "nombre de tu emprendimiento",
+        "donde operas tu negocio",
+        "cuanto tiempo has estado operando",
+        "tienes empleados",
+        "Descripción del negocio"
+      ];
+
       function norm(s) {
         return (s || "")
           .toLowerCase()
@@ -304,7 +314,7 @@
           .replace(/\s+/g, " ")
           .trim();
       }
-    
+
       function findRowByLabelContains(fragment) {
         const frag = norm(fragment);
         const rows = document.querySelectorAll(".form-row");
@@ -315,7 +325,7 @@
         }
         return null;
       }
-    
+
       function findRowsByLabelFragments(fragments) {
         const rows = [];
         const all = document.querySelectorAll(".form-row");
@@ -330,16 +340,16 @@
         }
         return rows;
       }
-    
+
       function getSelectedChoiceText(row) {
         if (!row) return "";
-    
+
         const sel = row.querySelector("select");
         if (sel) {
           const opt = sel.options[sel.selectedIndex];
           return opt ? opt.textContent.trim() : "";
         }
-    
+
         const checked = row.querySelector('input[type="radio"]:checked');
         if (checked) {
           const label = checked.closest("label");
@@ -351,12 +361,12 @@
         }
         return "";
       }
-    
+
       const driverRow = findRowByLabelContains(DRIVER_TEXT);
       const targetRows = findRowsByLabelFragments(TARGET_TEXTS);
-    
+
       if (!driverRow || !targetRows.length) return;
-    
+
       function update() {
         const picked = norm(getSelectedChoiceText(driverRow));
         const show = picked.startsWith("si");
@@ -364,18 +374,17 @@
           row.style.display = show ? "" : "none";
         });
       }
-    
-      // Initial state
+
       update();
-    
-      // React to changes
+
       driverRow.querySelectorAll('input[type="radio"]').forEach(el => {
         el.addEventListener("change", update);
       });
-    
+
       const sel = driverRow.querySelector("select");
       if (sel) sel.addEventListener("change", update);
     })();
+
     (function () {
       const FOLLOW_TEXT_FRAGMENT = "por favor indícanos qué requisito";
       const REQUIREMENTS_SLUG_CANDIDATES = [

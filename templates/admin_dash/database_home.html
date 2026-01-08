@@ -9,8 +9,18 @@
     {% for fd in master_forms %}
       <li style="margin:6px 0;">
         <a href="{% url 'admin_database_form_detail' fd.slug %}">
-        {{ fd.slug }} — {{ fd.name }} ({{ fd.submission_count|default:0 }})
+          {{ fd.slug }} — {{ fd.name }} ({{ fd.submission_count|default:0 }})
         </a>
+
+        &nbsp; — &nbsp;
+        <a href="{% url 'admin_export_form_csv' fd.slug %}">CSV</a>
+        &nbsp;|&nbsp;
+        <a href="{% url 'admin_database_form_master_csv' fd.slug %}">MASTER CSV</a>
+
+        {% if fd.admin_edit_url %}
+          &nbsp;|&nbsp;
+          <a class="button" href="{{ fd.admin_edit_url }}" target="_blank">Edit</a>
+        {% endif %}
       </li>
     {% endfor %}
   </ul>
@@ -32,7 +42,17 @@
             <li style="margin:6px 0;">
               <a href="{% url 'admin_database_form_detail' fd.slug %}">
                 {{ fd.slug }} — {{ fd.name }} ({{ fd.submission_count|default:0 }})
-            </a>
+              </a>
+
+              &nbsp; — &nbsp;
+              <a href="{% url 'admin_export_form_csv' fd.slug %}">CSV</a>
+              &nbsp;|&nbsp;
+              <a href="{% url 'admin_database_form_master_csv' fd.slug %}">MASTER CSV</a>
+
+              {% if fd.admin_edit_url %}
+                &nbsp;|&nbsp;
+                <a class="button" href="{{ fd.admin_edit_url }}" target="_blank">Edit</a>
+              {% endif %}
             </li>
           {% endfor %}
         </ul>
@@ -58,12 +78,18 @@
         {% for s in surveys_e %}
           <li style="margin:6px 0;">
             <a href="{% url 'admin_database_form_detail' s.slug %}">
-            {{ s.name }} ({{ s.slug }}) — {{ s.submission_count|default:0 }}
+              {{ s.name }} ({{ s.slug }}) — {{ s.submission_count|default:0 }}
             </a>
+
             &nbsp; — &nbsp;
             <a href="{% url 'admin_export_form_csv' s.slug %}">CSV</a>
             &nbsp;|&nbsp;
             <a href="{% url 'admin_database_form_master_csv' s.slug %}">MASTER CSV</a>
+
+            {% if s.admin_edit_url %}
+              &nbsp;|&nbsp;
+              <a class="button" href="{{ s.admin_edit_url }}" target="_blank">Edit survey</a>
+            {% endif %}
           </li>
         {% endfor %}
       </ul>
@@ -80,12 +106,18 @@
         {% for s in surveys_m %}
           <li style="margin:6px 0;">
             <a href="{% url 'admin_database_form_detail' s.slug %}">
-            {{ s.name }} ({{ s.slug }}) — {{ s.submission_count|default:0 }}
+              {{ s.name }} ({{ s.slug }}) — {{ s.submission_count|default:0 }}
             </a>
+
             &nbsp; — &nbsp;
             <a href="{% url 'admin_export_form_csv' s.slug %}">CSV</a>
             &nbsp;|&nbsp;
             <a href="{% url 'admin_database_form_master_csv' s.slug %}">MASTER CSV</a>
+
+            {% if s.admin_edit_url %}
+              &nbsp;|&nbsp;
+              <a class="button" href="{{ s.admin_edit_url }}" target="_blank">Edit survey</a>
+            {% endif %}
           </li>
         {% endfor %}
       </ul>

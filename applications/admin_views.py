@@ -13,6 +13,7 @@ from django.db import transaction
 from django.db.models import Model, Count
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse   # ✅ added
 from django.views.decorators.http import require_POST
 
 from applications.models import (
@@ -349,15 +350,19 @@ def database_home(request):
         for row in Application.objects.values("form__slug").annotate(c=Count("id"))
     }
 
+    # ✅ Attach counts + admin edit links (surveys + forms)
     for fd in masters:
         fd.submission_count = counts.get(fd.slug, 0)
+        fd.admin_edit_url = reverse("admin:applications_formdefinition_change", args=[fd.id])
 
     for _g, forms_for_group in group_blocks:
         for fd in forms_for_group:
             fd.submission_count = counts.get(fd.slug, 0)
+            fd.admin_edit_url = reverse("admin:applications_formdefinition_change", args=[fd.id])
 
     for s in surveys:
         s.submission_count = counts.get(s.slug, 0)
+        s.admin_edit_url = reverse("admin:applications_formdefinition_change", args=[s.id])
 
     return render(
         request,
@@ -435,12 +440,6 @@ def export_form_csv(request, form_slug: str):
 @staff_member_required
 @require_POST
 def delete_submission(request, app_id: int):
-    """
-    Hard-delete one submission:
-      - deletes Application row
-      - deletes Answers via cascade
-      - best-effort deletes any file-like answer values from storage
-    """
     app = get_object_or_404(Application.objects.select_related("form"), id=app_id)
     form_slug = app.form.slug
 
@@ -461,7 +460,6 @@ def delete_submission(request, app_id: int):
                     default_storage.delete(storage_path)
                     deleted_storage += 1
             except Exception:
-                # never block DB deletion if storage deletion fails
                 pass
 
     app.delete()

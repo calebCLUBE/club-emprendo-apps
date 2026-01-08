@@ -18,10 +18,6 @@ GROUP_SLUG_RE = re.compile(r"^G(?P<num>\d+)_")
 # Utilities
 # -------------------------
 def _latest_group_form_slug(suffix: str) -> str | None:
-    """
-    Find the highest-numbered group form for a given suffix.
-    Example suffix: "E_A1" -> returns "G6_E_A1" if it exists.
-    """
     pattern = re.compile(rf"^G(?P<num>\d+)_{re.escape(suffix)}$")
     best = None
     best_num = -1
@@ -50,9 +46,6 @@ def _send_html_email(to_email: str, subject: str, html_body: str):
 
 
 def _mentor_a1_autograde_and_email(request, app: Application):
-    """
-    Mentora A1 autograde + email.
-    """
     answers = {
         a.question.slug: (a.value or "")
         for a in app.answers.select_related("question").all()
@@ -70,8 +63,8 @@ def _mentor_a1_autograde_and_email(request, app: Application):
         or ""
     )
     disponibilidad = (
-        answers.get("available_period")          # ✅ current real slug
-        or answers.get("availability_ok")        # legacy
+        answers.get("available_period")
+        or answers.get("availability_ok")
         or answers.get("m1_availability_ok")
         or answers.get("m1_available_period")
         or answers.get("m1_available")
@@ -99,7 +92,7 @@ def _mentor_a1_autograde_and_email(request, app: Application):
             "<p>A continuación, te compartimos la <strong>Aplicación #2</strong>, que es el segundo y último paso para postularte como mentora voluntaria.</p>"
             "<p><strong>📌 Instrucciones para acceder a la Aplicación #2:</strong></p>"
             "<ol>"
-            f'<li>Haz clic aquí: 👉 <a href="https://apply.clubemprendo.org/apply/G6_M_A2/">Aplicación 2</a> fecha límite - 11/01/2026 </li>'
+            f'<li>Haz clic aquí: 👉 <a href="{form2_url}">Aplicación 2</a> fecha límite - 11/01/2026 </li>'
             "<li>Lee con atención y responde cada pregunta.</li>"
             "</ol>"
             "<p>Gracias nuevamente por tu interés y compromiso con otras mujeres emprendedoras 💛</p>"
@@ -263,7 +256,6 @@ def _m2_sections(form_def: FormDefinition):
         s["field_names"] = deduped
 
     sections = [s for s in sections if s["field_names"]]
-
     return sections, owned_business_field
 
 
@@ -391,6 +383,11 @@ def _handle_application_form(request, form_slug: str, second_stage: bool = False
         if form_def.slug.endswith("M_A2"):
             request.session["ce_thanks_payload"] = {
                 "kind": "mentor_final",
+                "group_num": group_num,
+            }
+        elif form_def.slug.endswith("E_A2"):
+            request.session["ce_thanks_payload"] = {
+                "kind": "emprendedora_final",
                 "group_num": group_num,
             }
         else:

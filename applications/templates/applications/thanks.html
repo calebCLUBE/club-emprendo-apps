@@ -5,7 +5,9 @@
 
 {% block content %}
 
-
+  {# ============================
+     Mentora A2 FINAL (always)
+     ============================ #}
   {% if kind == "mentor_final" %}
 
     <div class="ce-form-header">
@@ -33,9 +35,37 @@
     </div>
 
     <div class="ce-alert" style="margin-top:18px;">
+      ✅ No olvides hacer clic en el botón “Enviar” (o “Submit”) que está al final del formulario para que tu aplicación quede registrada correctamente.
     </div>
 
+  {# ============================
+     Emprendedora A2 FINAL (always)
+     ============================ #}
+  {% elif kind == "emprendedora_final" %}
 
+    <div class="ce-form-header">
+      <h1 class="ce-form-title ce-heading">¡Gracias! 💛</h1>
+    </div>
+
+    <div class="form-intro" style="margin-top:12px;">
+      <p>¡Gracias por completar esta última encuesta y brindarnos toda esta información tan valiosa!</p>
+
+      <p>
+        🗓 En unas semanas te estaremos enviando un correo del estatus de tu aplicación junto con más detalles
+        sobre los siguientes pasos para formar parte del
+        {% if group_num %}Grupo {{ group_num }}{% else %}Grupo{% endif %}
+        de mentorías.
+      </p>
+
+      <p>
+        Agradecemos mucho tu tiempo, tu disposición y tu entusiasmo por ser parte de esta comunidad.
+        ¡Estamos muy emocionadas de tenerte cerca!
+      </p>
+    </div>
+
+  {# ============================
+     A1 (conditional)
+     ============================ #}
   {% else %}
 
     {% if approved %}
@@ -54,6 +84,7 @@
         <br><br>
         💡 Consejo: Guarda nuestra dirección de correo como “segura” para que no se pierdan los mensajes.
         <br><br>
+        ✅ Al llenar la segunda aplicación, recuerda dar clic en el botón “Enviar” (o “Submit”) al final del formulario. Solo así tu aplicación quedará registrada.
       </div>
 
     {% else %}
@@ -72,6 +103,7 @@
       </div>
 
       <div class="ce-alert" style="margin-top:18px;">
+        ✅ No olvides hacer clic en el botón “Enviar” (o “Submit”) que está al final del formulario para que tu aplicación quede registrada correctamente.
       </div>
 
     {% endif %}

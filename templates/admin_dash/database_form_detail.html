@@ -32,6 +32,18 @@
               🗑️
             </button>
           </form>
+          <form method="post"
+                action="{% url 'admin_delete_submission' a.id %}"
+                style="display:inline; margin:0; padding:0;"
+                onsubmit="return confirm('¿Eliminar esta submission por completo? Esto borrará las respuestas y no se puede deshacer.');">
+            {% csrf_token %}
+            <button type="submit"
+                    title="Eliminar submission (borrar de la base de datos)"
+                    style="border:0; background:transparent; cursor:pointer; padding:0 0 0 8px; line-height:1;">
+                ❌
+            </button>
+            </form>
+
         </li>
       {% endfor %}
     </ul>

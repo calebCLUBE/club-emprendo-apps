@@ -135,10 +135,13 @@ class FormDefinitionAdmin(admin.ModelAdmin):
       - Survey data button: Admin Application changelist filtered by this form
       - Inline edit of questions
     """
-    list_display = ("__str__", "slug", "preview_link", "survey_public_link", "survey_data_link")
+    list_display = ("__str__", "slug", "submission_count", "preview_link", "survey_public_link", "survey_data_link")
     search_fields = ("slug", "name")
     readonly_fields = ("preview_link", "survey_public_link", "survey_data_link")
     inlines = [QuestionInline]
+    def submission_count(self, obj):
+        return obj.applications.count()
+    submission_count.short_description = "Submissions"
 
     def preview_link(self, obj):
         slug = getattr(obj, "slug", None)

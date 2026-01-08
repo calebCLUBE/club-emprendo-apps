@@ -10,7 +10,7 @@ from django.contrib import messages
 from django.contrib.admin.views.decorators import staff_member_required
 from django.core.files.storage import default_storage
 from django.db import transaction
-from django.db.models import Model
+from django.db.models import Model, Count
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
@@ -44,16 +44,11 @@ class CreateGroupForm(forms.Form):
 def _fill_placeholders(
     text: str | None, group_num: int, start_month: str, end_month: str, year: int
 ) -> str | None:
-    """
-    Replace placeholders like:
-      #(group number), #(month) (twice), #(year)
-    """
     if not text:
         return text
 
     out = text.replace("#(group number)", str(group_num))
 
-    # Replace first #(month) with start_month, second with end_month (if present)
     if "#(month)" in out:
         out = out.replace("#(month)", start_month, 1)
     if "#(month)" in out:
@@ -72,13 +67,6 @@ def _model_has_field(model: type[Model], field_name: str) -> bool:
 
 
 def _clone_form(master_fd: FormDefinition, group: FormGroup) -> FormDefinition:
-    """
-    Clone a master FormDefinition into a specific group:
-      M_A1 -> G6_M_A1, etc.
-
-    - Preserves Question.slug from master (so grading relies on stable slugs).
-    - Sets clone.group = group, clone.is_master = False
-    """
     group_num = group.number
     start_month = group.start_month
     end_month = group.end_month
@@ -94,13 +82,15 @@ def _clone_form(master_fd: FormDefinition, group: FormGroup) -> FormDefinition:
     clone = FormDefinition.objects.create(
         slug=new_slug,
         name=new_name,
-        description=_fill_placeholders(master_fd.description, group_num, start_month, end_month, year) or "",
+        description=_fill_placeholders(
+            master_fd.description, group_num, start_month, end_month, year
+        )
+        or "",
         is_master=False,
         group=group,
         is_public=master_fd.is_public,
     )
 
-    # Clone questions + choices
     for q in master_fd.questions.all().order_by("position", "id"):
         q_clone = Question.objects.create(
             form=clone,
@@ -124,9 +114,6 @@ def _clone_form(master_fd: FormDefinition, group: FormGroup) -> FormDefinition:
 
 
 def _build_csv_for_form(form_def: FormDefinition) -> Tuple[List[str], List[List[str]]]:
-    """
-    Returns (headers, rows) for all applications under this form_def.
-    """
     apps = (
         Application.objects.filter(form=form_def)
         .prefetch_related("answers__question")
@@ -160,9 +147,6 @@ def _csv_http_response(filename: str, headers: List[str], rows: List[List[str]])
 
 
 def _csv_preview_html(headers: List[str], rows: List[List[str]], max_rows: int = 25) -> str:
-    """
-    Tiny HTML table preview (no external deps).
-    """
     def esc(s: str) -> str:
         return (s or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
@@ -192,48 +176,29 @@ def _csv_preview_html(headers: List[str], rows: List[List[str]], max_rows: int =
 
 
 def _soft_archive_group(group: FormGroup) -> None:
-    """
-    Hide forms for a group without deleting anything (safe if submissions exist).
-    """
     FormDefinition.objects.filter(group=group).update(is_public=False)
     if _model_has_field(FormGroup, "is_active"):
         FormGroup.objects.filter(id=group.id).update(is_active=False)
 
 
 def _extract_storage_path_from_value(value: str) -> str | None:
-    """
-    Convert Answer.value into a storage-relative path if possible.
-    Handles:
-      - "uploads/file.pdf"
-      - "/media/uploads/file.pdf"
-      - "http://.../media/uploads/file.pdf"
-    Returns a path suitable for default_storage.delete(), or None if we can't safely map it.
-    """
     if not value:
         return None
 
     v = value.strip()
 
-    # If it's a URL, extract the path portion
     if v.startswith("http://") or v.startswith("https://"):
         parsed = urlparse(v)
-        v = parsed.path  # e.g. "/media/uploads/x.pdf"
+        v = parsed.path
 
-    # Normalize "/media/..." -> "uploads/..."
     if v.startswith("/media/"):
-        v = v[len("/media/"):]  # strip leading media prefix
+        v = v[len("/media/"):]
 
-    # Remove leading slash (storage paths are usually relative)
     v = v.lstrip("/")
-
     return v or None
 
 
 def _looks_like_file_value(value: str) -> bool:
-    """
-    Heuristic: decide whether Answer.value is probably a file reference.
-    Prevents wiping normal answers like "2", "test", "gestion-financiera-contabilidad".
-    """
     if not value:
         return False
 
@@ -241,7 +206,6 @@ def _looks_like_file_value(value: str) -> bool:
     if not s:
         return False
 
-    # obvious URLs / media paths / uploads folder
     if s.startswith("http://") or s.startswith("https://"):
         return True
     if s.startswith("/media/") or s.startswith("media/"):
@@ -249,7 +213,6 @@ def _looks_like_file_value(value: str) -> bool:
     if "uploads/" in s:
         return True
 
-    # common file extensions
     exts = (
         ".pdf", ".png", ".jpg", ".jpeg", ".webp",
         ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
@@ -330,12 +293,6 @@ def create_group(request):
 @staff_member_required
 @require_POST
 def delete_group(request, group_num: int):
-    """
-    - If group has submissions:
-        - default: archive/hide
-        - force=1: permanently delete apps + answers + forms + group
-    - If no submissions: hard delete forms + group
-    """
     group = get_object_or_404(FormGroup, number=group_num)
 
     qs_apps = Application.objects.filter(form__group=group)
@@ -381,18 +338,33 @@ def database_home(request):
         forms_for_group = list(FormDefinition.objects.filter(group=g).order_by("slug"))
         group_blocks.append((g, forms_for_group))
 
-    # Surveys (global, not tied to group in your current DB)
     SURVEY_SLUGS = ["PRIMER_E", "FINAL_E", "PRIMER_M", "FINAL_M"]
     surveys = list(FormDefinition.objects.filter(slug__in=SURVEY_SLUGS).order_by("slug"))
     surveys_e = [s for s in surveys if s.slug.endswith("_E")]
     surveys_m = [s for s in surveys if s.slug.endswith("_M")]
+
+    # ✅ Submission counts
+    counts = {
+        row["form__slug"]: row["c"]
+        for row in Application.objects.values("form__slug").annotate(c=Count("id"))
+    }
+
+    for fd in masters:
+        fd.submission_count = counts.get(fd.slug, 0)
+
+    for _g, forms_for_group in group_blocks:
+        for fd in forms_for_group:
+            fd.submission_count = counts.get(fd.slug, 0)
+
+    for s in surveys:
+        s.submission_count = counts.get(s.slug, 0)
 
     return render(
         request,
         "admin_dash/database_home.html",
         {
             "masters": masters,
-            "master_forms": masters,  # keep compatibility with older templates
+            "master_forms": masters,  # template compatibility
             "group_blocks": group_blocks,
             "surveys": surveys,
             "surveys_e": surveys_e,
@@ -458,15 +430,56 @@ def export_form_csv(request, form_slug: str):
 
 
 # ----------------------------
+# Delete submission (REAL delete)
+# ----------------------------
+@staff_member_required
+@require_POST
+def delete_submission(request, app_id: int):
+    """
+    Hard-delete one submission:
+      - deletes Application row
+      - deletes Answers via cascade
+      - best-effort deletes any file-like answer values from storage
+    """
+    app = get_object_or_404(Application.objects.select_related("form"), id=app_id)
+    form_slug = app.form.slug
+
+    answers = Answer.objects.filter(application=app)
+    deleted_storage = 0
+
+    for ans in answers:
+        v = (ans.value or "").strip()
+        if not v:
+            continue
+        if not _looks_like_file_value(v):
+            continue
+
+        storage_path = _extract_storage_path_from_value(v)
+        if storage_path:
+            try:
+                if default_storage.exists(storage_path):
+                    default_storage.delete(storage_path)
+                    deleted_storage += 1
+            except Exception:
+                # never block DB deletion if storage deletion fails
+                pass
+
+    app.delete()
+
+    msg = "Submission eliminada de la base de datos."
+    if deleted_storage:
+        msg += f" Archivos eliminados del storage: {deleted_storage}."
+    messages.success(request, msg)
+
+    return redirect("admin_database_form_detail", form_slug=form_slug)
+
+
+# ----------------------------
 # Delete file(s) actions (admin database)
 # ----------------------------
 @staff_member_required
 @require_POST
 def delete_answer_file_value(request, answer_id: int):
-    """
-    Deletes a *file-like* Answer.value from storage if possible, then clears Answer.value.
-    If value doesn't look like a file reference, does nothing (prevents wiping normal answers).
-    """
     ans = get_object_or_404(
         Answer.objects.select_related("application", "question"),
         id=answer_id,
@@ -510,10 +523,6 @@ def delete_answer_file_value(request, answer_id: int):
 @staff_member_required
 @require_POST
 def delete_application_files(request, app_id: int):
-    """
-    For a submission (Application), clear only answers whose values look like file references.
-    Attempts to delete from storage when possible.
-    """
     app = get_object_or_404(Application, id=app_id)
 
     answers = Answer.objects.filter(application=app)

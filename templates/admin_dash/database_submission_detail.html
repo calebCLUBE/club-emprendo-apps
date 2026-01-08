@@ -6,6 +6,15 @@
      <strong>Created:</strong> {{ app.created_at }}</p>
 
   <p><a href="{% url 'admin_database_form_detail' app.form.slug %}">← Back to form</a></p>
+  <form method="post"
+        action="{% url 'admin_delete_submission' app.id %}"
+        style="margin: 10px 0;"
+        onsubmit="return confirm('¿Eliminar esta submission por completo? Esto borrará las respuestas y no se puede deshacer.');">
+        {% csrf_token %}
+        <button type="submit" class="button" style="background:#ba2121;color:white;border-color:#ba2121;">
+            Delete submission
+        </button>
+    </form>
 
   <hr>
 

@@ -9,7 +9,7 @@
     {% for fd in master_forms %}
       <li style="margin:6px 0;">
         <a href="{% url 'admin_database_form_detail' fd.slug %}">
-          {{ fd.slug }} — {{ fd.name }}
+        {{ fd.slug }} — {{ fd.name }} ({{ fd.submission_count|default:0 }})
         </a>
       </li>
     {% endfor %}
@@ -31,8 +31,8 @@
           {% for fd in forms %}
             <li style="margin:6px 0;">
               <a href="{% url 'admin_database_form_detail' fd.slug %}">
-                {{ fd.slug }} — {{ fd.name }}
-              </a>
+                {{ fd.slug }} — {{ fd.name }} ({{ fd.submission_count|default:0 }})
+            </a>
             </li>
           {% endfor %}
         </ul>
@@ -58,7 +58,7 @@
         {% for s in surveys_e %}
           <li style="margin:6px 0;">
             <a href="{% url 'admin_database_form_detail' s.slug %}">
-              {{ s.name }} ({{ s.slug }})
+            {{ s.name }} ({{ s.slug }}) — {{ s.submission_count|default:0 }}
             </a>
             &nbsp; — &nbsp;
             <a href="{% url 'admin_export_form_csv' s.slug %}">CSV</a>
@@ -80,7 +80,7 @@
         {% for s in surveys_m %}
           <li style="margin:6px 0;">
             <a href="{% url 'admin_database_form_detail' s.slug %}">
-              {{ s.name }} ({{ s.slug }})
+            {{ s.name }} ({{ s.slug }}) — {{ s.submission_count|default:0 }}
             </a>
             &nbsp; — &nbsp;
             <a href="{% url 'admin_export_form_csv' s.slug %}">CSV</a>

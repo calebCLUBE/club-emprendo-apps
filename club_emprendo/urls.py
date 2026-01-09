@@ -54,7 +54,12 @@ urlpatterns = [
     admin_views.delete_submission,
     name="admin_delete_submission",
 ),
-
+    path("admin/grading/", admin_views.grading_home, name="admin_grading_home"),
+    path(
+        "admin/grading/grade/<int:app_id>/",
+        admin_views.grade_application,
+        name="admin_grade_application",
+    ),
 
     # 🚨 Django admin (greedy catch-all — MUST stay last)
     path("admin/", admin.site.urls),

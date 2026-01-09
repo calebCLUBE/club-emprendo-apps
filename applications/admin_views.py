@@ -4,6 +4,7 @@ import csv
 import re
 from typing import List, Tuple
 from urllib.parse import urlparse
+from applications.grading import grade_from_answers
 
 from django import forms
 from django.contrib import messages
@@ -567,5 +568,89 @@ def delete_application_files(request, app_id: int):
             f"(archivos eliminados del storage: {deleted_storage_count}). "
             f"Omitidas (no-archivo): {skipped_count}."
         )
+# ----------------------------
+# Grading (Admin)
+# ----------------------------
+@staff_member_required
+def grading_home(request):
+    """
+    Admin grading dashboard:
+    - Optional ?group=5 filter
+    - Lists applications with a Grade button per row
+    """
+    group = (request.GET.get("group") or "").strip()
+
+    qs = (
+        Application.objects.filter(
+            form__slug__regex=r"^(G\d+_)?(E_A2|M_A2)$"
+        )
+        .select_related("form")
+        .order_by("-created_at", "-id")
+    )
+
+
+    # Filter by group if provided
+    if group:
+        # If Application has a group_num field, prefer that
+        if _model_has_field(Application, "group_num"):
+            qs = qs.filter(group_num=group)
+        else:
+            # Fallback: filter by form slug like "G5_..."
+            qs = qs.filter(form__slug__startswith=f"G{group}_")
+
+    # Pending = blank/NULL recommendation
+    pending_qs = qs.filter(recommendation__isnull=True) | qs.filter(recommendation="")
+
+    return render(
+        request,
+        "admin_dash/grading_home.html",
+        {
+            "group": group,
+            "applications": qs[:300],  # safety cap in case you have tons
+            "pending_count": pending_qs.count(),
+        },
+    )
+
+
+@staff_member_required
+@require_POST
+def grade_application(request, app_id: int):
+    """
+    Grade one application and save the result to the Application fields.
+    """
+    app = get_object_or_404(
+        Application.objects.select_related("form").prefetch_related("answers__question"),
+        id=app_id,
+    )
+
+    scores = grade_from_answers(app)
+
+    # Save back onto the Application model
+    app.tablestakes_score = scores["tablestakes_score"]
+    app.commitment_score = scores["commitment_score"]
+    app.nice_to_have_score = scores["nice_to_have_score"]
+    app.overall_score = scores["overall_score"]
+    app.recommendation = scores["recommendation"]
+
+    app.save(
+        update_fields=[
+            "tablestakes_score",
+            "commitment_score",
+            "nice_to_have_score",
+            "overall_score",
+            "recommendation",
+        ]
+    )
+    if not re.match(r"^(G\d+_)?(E_A2|M_A2)$", app.form.slug):
+        messages.error(request, "This application is not eligible for grading.")
+        return redirect(reverse("admin_grading_home"))
+
+
+    # Preserve group filter on redirect (so you stay on Group 5 while grading)
+    group = (request.GET.get("group") or "").strip()
+    url = reverse("admin_grading_home")
+    if group:
+        url = f"{url}?group={group}"
+    return redirect(url)
 
     return redirect("admin_database_submission_detail", app_id=app.id)

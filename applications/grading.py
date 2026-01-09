@@ -1,6 +1,12 @@
 # applications/grading.py
 from __future__ import annotations
+import re
 from .models import Application
+
+
+# Group copies look like "G5_E_A2"; we want to grade them using the same
+# logic as the master slug ("E_A2").
+GROUP_SLUG_RE = re.compile(r"^G(?P<num>\d+)_(?P<master>E_A1|E_A2|M_A1|M_A2)$")
 
 
 def _safe_int(value: str, default: int = 0) -> int:
@@ -21,14 +27,17 @@ def grade_from_answers(application: Application) -> dict:
     Feel free to change weights/thresholds as you learn from real data.
     """
     answers = {a.question.slug: a.value for a in application.answers.all()}
+
     form_slug = application.form.slug
+    m = GROUP_SLUG_RE.match(form_slug)
+    master_slug = m.group("master") if m else form_slug
 
     tablestakes = 0.0
     commitment = 0.0
     nice_to_have = 0.0
 
     # ------------- EMPRENDEDORA – Application 2 (E_A2) -----------------
-    if form_slug == "E_A2":
+    if master_slug == "E_A2":
         # Business age: more established -> higher tablestakes
         age = answers.get("e2_business_age", "")
         age_map = {
@@ -86,7 +95,7 @@ def grade_from_answers(application: Application) -> dict:
             commitment += 1
 
     # ------------- MENTORA – Application 2 (M_A2) -----------------
-    elif form_slug == "M_A2":
+    elif master_slug == "M_A2":
         # Basic requirement flags from the big checklist could be added later.
         # For now we read key slugs.
 

@@ -5,6 +5,9 @@ import re
 from typing import List, Tuple
 from urllib.parse import urlparse
 from applications.grading import grade_from_answers
+from django.conf import settings
+from django.core.mail import EmailMultiAlternatives
+from django.utils import timezone
 
 from django import forms
 from django.contrib import messages
@@ -16,6 +19,7 @@ from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse   # ✅ added
 from django.views.decorators.http import require_POST
+from django.db.models.functions import Lower
 
 from applications.models import (
     Application,
@@ -654,3 +658,196 @@ def grade_application(request, app_id: int):
     return redirect(url)
 
     return redirect("admin_database_submission_detail", app_id=app.id)
+
+
+def _send_html_email(to_email: str, subject: str, html_body: str):
+    msg = EmailMultiAlternatives(
+        subject=subject,
+        body="",
+        from_email=getattr(settings, "DEFAULT_FROM_EMAIL", None),
+        to=[to_email],
+    )
+    msg.attach_alternative(html_body, "text/html")
+    msg.send(fail_silently=False)
+
+
+def _a1_slug_for_a2(form_slug: str) -> str | None:
+    """
+    Map:
+      M_A2 -> M_A1
+      E_A2 -> E_A1
+      G5_M_A2 -> G5_M_A1
+      G5_E_A2 -> G5_E_A1
+    Returns None if not an A2 slug.
+    """
+    if not form_slug:
+        return None
+
+    if form_slug.endswith("M_A2"):
+        if form_slug.startswith("G") and "_M_A2" in form_slug:
+            return form_slug.replace("_M_A2", "_M_A1")
+        return "M_A1"
+
+    if form_slug.endswith("E_A2"):
+        if form_slug.startswith("G") and "_E_A2" in form_slug:
+            return form_slug.replace("_E_A2", "_E_A1")
+        return "E_A1"
+
+    return None
+
+
+GROUP_SLUG_RE = re.compile(r"^G(?P<num>\d+)_(?P<master>E_A1|E_A2|M_A1|M_A2)$")
+
+
+@staff_member_required
+def send_second_stage_reminders(request, form_slug: str):
+    """
+    Sends A2 reminder emails for a given *A2* form slug (e.g., G6_E_A2, G6_M_A2).
+
+    Rules:
+    - Only email people who completed A1 AND were invited_to_second_stage=True AND have invite_token.
+    - Only email those who have NOT submitted A2 yet.
+    - Deduplicate by email (send once per email).
+    - TEST MODE: if POST includes test_only=1, only send to test_email.
+    """
+    if request.method != "POST":
+        return redirect("admin_apps_list")
+
+    a2_form = get_object_or_404(FormDefinition, slug=form_slug)
+
+    if not form_slug.endswith("_A2"):
+        messages.error(request, "This button is only for A2 forms.")
+        return redirect("admin_apps_list")
+
+    # Determine cohort group number and whether it's mentora or emprendedora
+    # Expected slugs: G6_E_A2 or G6_M_A2 (but also allow master E_A2/M_A2 if needed)
+    is_mentora = "M_A2" in form_slug
+    role_word = "mentora" if is_mentora else "emprendedora"
+
+    # Link requested by you (group-based direct link)
+    a2_link = f"https://apply.clubemprendo.org/apply/{form_slug}/"
+
+    # Find matching A1 slug for this A2 slug
+    # G6_M_A2 -> G6_M_A1 ; G6_E_A2 -> G6_E_A1 ; M_A2 -> M_A1 ; E_A2 -> E_A1
+    a1_slug = form_slug.replace("_A2", "_A1")
+    a1_form = FormDefinition.objects.filter(slug=a1_slug).first()
+    if not a1_form:
+        messages.error(request, f"Could not find A1 form for {form_slug} (expected {a1_slug}).")
+        return redirect("admin_apps_list")
+
+    # TEST MODE
+    test_only = request.POST.get("test_only") == "1"
+    test_email = (request.POST.get("test_email") or "").strip().lower()
+
+    if test_only and not test_email:
+        messages.error(request, "Test mode requires a test_email.")
+        return redirect("admin_apps_list")
+
+    # Eligible A1 applicants: invited + token + email exists
+    a1_apps = (
+        Application.objects
+        .filter(form=a1_form, invited_to_second_stage=True)
+        .exclude(invite_token__isnull=True)
+        .exclude(email__isnull=True)
+        .exclude(email__exact="")
+        .order_by("-created_at", "-id")
+    )
+
+    # People who already submitted A2 (dedupe by email)
+    a2_emails = set(
+        Application.objects
+        .filter(form=a2_form)
+        .exclude(email__isnull=True)
+        .exclude(email__exact="")
+        .values_list("email", flat=True)
+    )
+    a2_emails = {e.strip().lower() for e in a2_emails if e}
+
+    # Build recipient list: A1 invited, not in A2, dedupe by email
+    recipients = {}
+    for app in a1_apps:
+        email = (app.email or "").strip().lower()
+        if not email:
+            continue
+        if email in a2_emails:
+            continue
+        # Keep one app per email (most recent wins due to ordering)
+        if email not in recipients:
+            recipients[email] = app
+
+    # Apply TEST override
+    if test_only:
+        # Only send if this email is eligible; if not eligible, still allow sending a test copy (use latest app if any)
+        if test_email in recipients:
+            recipients = {test_email: recipients[test_email]}
+        else:
+            # fallback: send test email anyway using any one eligible app to construct link/token logic
+            sample = next(iter(recipients.values()), None)
+            if not sample:
+                messages.warning(request, "No eligible recipients found to use for a test. (No invited A1s pending A2.)")
+                return redirect("admin_apps_list")
+            recipients = {test_email: sample}
+
+        messages.warning(request, f"TEST MODE: sending reminder ONLY to {test_email}")
+
+    if not recipients:
+        messages.info(request, "No eligible people found to remind (everyone already completed A2 or no invited A1s).")
+        return redirect("admin_apps_list")
+
+    subject = "Últimos días para completar la segunda aplicacion"
+
+    # HTML body (your copy)
+    def build_html(_role_word: str, _a2_link: str):
+        return f"""
+<div style="font-family:Arial,Helvetica,sans-serif;line-height:1.6;max-width:700px;margin:0 auto;">
+  <p>Hola,</p>
+  <p>Esperamos que te encuentres muy bien.</p>
+  <p>
+    Queremos recordarte que, según la primera aplicación que completaste, cumples con el perfil para ser
+    <strong>{_role_word}</strong>, y nos encantaría que continúes con el proceso.
+  </p>
+  <p>
+    Te recordamos que es necesario completar la segunda aplicación, ya que la fecha límite es el
+    <strong>11 de enero de 2026</strong>. Estamos en los últimos días para aplicar.
+  </p>
+  <p>A continuación, te dejamos nuevamente el enlace y las instrucciones:</p>
+  <ol>
+    <li>Haz clic en el enlace: 👉 <a href="{_a2_link}">{_a2_link}</a></li>
+    <li>Responde las preguntas (no toma más de 10 minutos).</li>
+    <li>Haz clic en <strong>Enviar</strong> para completar tu aplicación.</li>
+  </ol>
+  <p>
+    Tu participación es muy valiosa para nosotras, y esperamos contar contigo en esta nueva etapa del programa.
+    Si tienes alguna pregunta o inconveniente, no dudes en escribirnos.
+  </p>
+  <p>Con cariño,<br><strong>Melanie Guzmán</strong></p>
+</div>
+""".strip()
+
+    from_email = getattr(settings, "DEFAULT_FROM_EMAIL", "contacto@clubemprendo.org")
+
+    sent = 0
+    failed = 0
+
+    for email, _app in recipients.items():
+        try:
+            html_body = build_html(role_word, a2_link)
+
+            msg = EmailMultiAlternatives(
+                subject=subject,
+                body="",
+                from_email=from_email,
+                to=[email],
+            )
+            msg.attach_alternative(html_body, "text/html")
+            msg.send(fail_silently=False)
+            sent += 1
+        except Exception:
+            failed += 1
+
+    if test_only:
+        messages.success(request, f"TEST reminder sent to {test_email}.")
+    else:
+        messages.success(request, f"Reminders sent: {sent}. Failed: {failed}. Unique emails: {len(recipients)}.")
+
+    return redirect("admin_apps_list")

@@ -8,10 +8,36 @@
 
   <div style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:24px;">
     {% for fd in masters %}
-      <a class="ce-admin-tile" href="/admin/applications/formdefinition/{{ fd.id }}/change/">
-        <div class="ce-admin-tile-title">{{ fd.slug }}</div>
-        <div class="ce-admin-tile-sub">{{ fd.name }}</div>
-      </a>
+      <div style="display:flex; flex-direction:column; gap:8px;">
+        <a class="ce-admin-tile" href="/admin/applications/formdefinition/{{ fd.id }}/change/">
+          <div class="ce-admin-tile-title">{{ fd.slug }}</div>
+          <div class="ce-admin-tile-sub">{{ fd.name }}</div>
+        </a>
+
+        {% if fd.slug and "_A2" in fd.slug %}
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            {# REAL SEND #}
+            <form method="post" action="{% url 'admin_send_second_stage_reminders' fd.slug %}" style="display:inline;">
+              {% csrf_token %}
+              <button type="submit" class="button"
+                onclick="return confirm('Send reminders for {{ fd.slug }} to ALL eligible people?');">
+                Send A2 reminders
+              </button>
+            </form>
+
+            {# TEST ONLY (you type your email) #}
+            <form method="post" action="{% url 'admin_send_second_stage_reminders' fd.slug %}" style="display:inline;">
+              {% csrf_token %}
+              <input type="hidden" name="test_only" value="1">
+              <input type="email" name="test_email" placeholder="your@email.com"
+                     style="padding:6px 8px; border:1px solid #ccc; border-radius:6px;" required>
+              <button type="submit" class="button">
+                Send TEST (only this email)
+              </button>
+            </form>
+          </div>
+        {% endif %}
+      </div>
     {% empty %}
       <p>No master forms found yet.</p>
     {% endfor %}
@@ -38,7 +64,6 @@
   </div>
 
   {% for g, forms in group_list %}
-    {# g is either a FormGroup object OR an int (orphan group number) #}
 
     <div style="border:1px solid #ddd; border-radius:10px; padding:14px; margin:14px 0; background:#fff;">
 
@@ -61,7 +86,6 @@
           {% endif %}
         </div>
 
-        {# Delete group #}
         <div>
           <form
             method="post"
@@ -84,9 +108,32 @@
               &nbsp;|&nbsp;
               <a href="/admin/applications/formdefinition/{{ fd.id }}/change/">Edit</a>
 
-              {# Public link for applicants (uses your apply_by_slug route) #}
               &nbsp;|&nbsp;
               <a href="/apply/{{ fd.slug }}/" target="_blank" rel="noopener">Open link</a>
+
+              {% if fd.slug and "_A2" in fd.slug %}
+                &nbsp;|&nbsp;
+
+                {# REAL SEND #}
+                <form method="post" action="{% url 'admin_send_second_stage_reminders' fd.slug %}" style="display:inline;">
+                  {% csrf_token %}
+                  <button type="submit" class="button"
+                    onclick="return confirm('Send reminders for {{ fd.slug }} to ALL eligible people?');">
+                    Send A2 reminders
+                  </button>
+                </form>
+
+                {# TEST SEND #}
+                <form method="post" action="{% url 'admin_send_second_stage_reminders' fd.slug %}" style="display:inline;">
+                  {% csrf_token %}
+                  <input type="hidden" name="test_only" value="1">
+                  <input type="email" name="test_email" placeholder="your@email.com"
+                         style="padding:4px 6px; border:1px solid #ccc; border-radius:6px;" required>
+                  <button type="submit" class="button">
+                    TEST
+                  </button>
+                </form>
+              {% endif %}
 
               <div style="color:#666; font-size:12px; margin-top:2px;">
                 Copy/paste: <code>{{ request.scheme }}://{{ request.get_host }}/apply/{{ fd.slug }}/</code>

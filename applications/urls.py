@@ -18,6 +18,13 @@ urlpatterns = [
     path("apply/emprendedora/preview/", views.apply_emprendedora_second_preview, name="preview_emprendedora_second"),
     path("apply/mentora/preview/", views.apply_mentora_second_preview, name="preview_mentora_second"),
 
+    # ✅ ADMIN: SEND A2 REMINDERS
+    path(
+        "admin/apps/send-a2-reminders/<slug:form_slug>/",
+        admin_views.send_second_stage_reminders,
+        name="admin_send_second_stage_reminders",
+    ),
+
     # ---------- GROUP/SLUG ROUTE ----------
     path("apply/<slug:form_slug>/", views.apply_by_slug, name="apply_by_slug"),
 
@@ -27,16 +34,16 @@ urlpatterns = [
     # ---------- SURVEYS ----------
     path("surveys/", survey_views.surveys_index, name="surveys_index"),
     path("survey/<slug:form_slug>/", survey_views.survey_by_slug, name="survey_by_slug"),
+
+    # ---------- ADMIN DATABASE ACTIONS ----------
     path(
-    "admin/database/delete-answer-file/<int:answer_id>/",
-    admin_views.delete_answer_file_value,
-    name="admin_delete_answer_file_value",
+        "admin/database/delete-answer-file/<int:answer_id>/",
+        admin_views.delete_answer_file_value,
+        name="admin_delete_answer_file_value",
     ),
     path(
         "admin/database/delete-application-files/<int:app_id>/",
         admin_views.delete_application_files,
         name="admin_delete_application_files",
     ),
-
-    
 ]

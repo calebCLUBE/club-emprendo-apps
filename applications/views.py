@@ -261,6 +261,27 @@ def _m2_sections(form_def: FormDefinition):
 
 def _handle_application_form(request, form_slug: str, second_stage: bool = False):
     form_def = get_object_or_404(FormDefinition, slug=form_slug)
+        # Block new submissions when closed (we use is_public as "open" flag)
+    if not form_def.is_public:
+        return render(
+            request,
+            "applications/closed.html",
+            {"form_def": form_def},
+            status=403,
+        )
+
+
+    if request.method == "POST" and not getattr(form_def, "accepting_responses", True):
+        return render(
+            request,
+            "applications/form_closed.html",
+            {
+                "form_def": form_def,
+                "second_stage": second_stage,
+            },
+            status=403,
+        )
+
     ApplicationForm = build_application_form(form_slug)
 
     rendered_description = ""

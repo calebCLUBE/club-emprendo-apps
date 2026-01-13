@@ -8,36 +8,10 @@
 
   <div style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:24px;">
     {% for fd in masters %}
-      <div style="display:flex; flex-direction:column; gap:8px;">
-        <a class="ce-admin-tile" href="/admin/applications/formdefinition/{{ fd.id }}/change/">
-          <div class="ce-admin-tile-title">{{ fd.slug }}</div>
-          <div class="ce-admin-tile-sub">{{ fd.name }}</div>
-        </a>
-
-        {% if fd.slug and "_A2" in fd.slug %}
-          <div style="display:flex; gap:8px; flex-wrap:wrap;">
-            {# REAL SEND #}
-            <form method="post" action="{% url 'admin_send_second_stage_reminders' fd.slug %}" style="display:inline;">
-              {% csrf_token %}
-              <button type="submit" class="button"
-                onclick="return confirm('Send reminders for {{ fd.slug }} to ALL eligible people?');">
-                Send A2 reminders
-              </button>
-            </form>
-
-            {# TEST ONLY (you type your email) #}
-            <form method="post" action="{% url 'admin_send_second_stage_reminders' fd.slug %}" style="display:inline;">
-              {% csrf_token %}
-              <input type="hidden" name="test_only" value="1">
-              <input type="email" name="test_email" placeholder="your@email.com"
-                     style="padding:6px 8px; border:1px solid #ccc; border-radius:6px;" required>
-              <button type="submit" class="button">
-                Send TEST (only this email)
-              </button>
-            </form>
-          </div>
-        {% endif %}
-      </div>
+      <a class="ce-admin-tile" href="/admin/applications/formdefinition/{{ fd.id }}/change/">
+        <div class="ce-admin-tile-title">{{ fd.slug }}</div>
+        <div class="ce-admin-tile-sub">{{ fd.name }}</div>
+      </a>
     {% empty %}
       <p>No master forms found yet.</p>
     {% endfor %}
@@ -64,7 +38,6 @@
   </div>
 
   {% for g, forms in group_list %}
-
     <div style="border:1px solid #ddd; border-radius:10px; padding:14px; margin:14px 0; background:#fff;">
 
       <div style="display:flex; align-items:baseline; justify-content:space-between; gap:12px; flex-wrap:wrap;">
@@ -102,42 +75,48 @@
       {% if forms %}
         <ul style="margin-top:10px;">
           {% for fd in forms %}
-            <li style="margin:6px 0;">
-              <strong>{{ fd.slug }}</strong>
-              — {{ fd.name }}
-              &nbsp;|&nbsp;
-              <a href="/admin/applications/formdefinition/{{ fd.id }}/change/">Edit</a>
+            <li style="margin:10px 0;">
+              <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+                <div>
+                  <strong>{{ fd.slug }}</strong>
+                  — {{ fd.name }}
+                  &nbsp;|&nbsp;
+                  <a href="/admin/applications/formdefinition/{{ fd.id }}/change/">Edit</a>
+                  &nbsp;|&nbsp;
+                  <a href="/apply/{{ fd.slug }}/" target="_blank" rel="noopener">Open link</a>
+                </div>
 
-              &nbsp;|&nbsp;
-              <a href="/apply/{{ fd.slug }}/" target="_blank" rel="noopener">Open link</a>
+                <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+                  {# Send reminders button (ONLY for A2) #}
+                  {% if fd.slug and "_A2" in fd.slug %}
+                    <form method="post" action="{% url 'admin_send_second_stage_reminders' fd.slug %}" style="display:inline;">
+                      {% csrf_token %}
+                      <button type="submit" class="button"
+                        onclick="return confirm('Send reminders for {{ fd.slug }}?');">
+                        Send reminders
+                      </button>
+                    </form>
+                  {% endif %}
 
-              {% if fd.slug and "_A2" in fd.slug %}
-                &nbsp;|&nbsp;
-
-                {# REAL SEND #}
-                <form method="post" action="{% url 'admin_send_second_stage_reminders' fd.slug %}" style="display:inline;">
-                  {% csrf_token %}
-                  <button type="submit" class="button"
-                    onclick="return confirm('Send reminders for {{ fd.slug }} to ALL eligible people?');">
-                    Send A2 reminders
-                  </button>
-                </form>
-
-                {# TEST SEND #}
-                <form method="post" action="{% url 'admin_send_second_stage_reminders' fd.slug %}" style="display:inline;">
-                  {% csrf_token %}
-                  <input type="hidden" name="test_only" value="1">
-                  <input type="email" name="test_email" placeholder="your@email.com"
-                         style="padding:4px 6px; border:1px solid #ccc; border-radius:6px;" required>
-                  <button type="submit" class="button">
-                    TEST
-                  </button>
-                </form>
-              {% endif %}
-
-              <div style="color:#666; font-size:12px; margin-top:2px;">
-                Copy/paste: <code>{{ request.scheme }}://{{ request.get_host }}/apply/{{ fd.slug }}/</code>
+                  {# Close/Open applications (uses is_public as open flag) #}
+                  <form method="post" action="{% url 'admin_toggle_form_open' fd.slug %}" style="display:inline;">
+                    {% csrf_token %}
+                    {% if fd.is_public %}
+                      <button type="submit" class="button"
+                        onclick="return confirm('Close {{ fd.slug }} so it stops accepting submissions?');">
+                        Close
+                      </button>
+                    {% else %}
+                      <button type="submit" class="button default"
+                        onclick="return confirm('Open {{ fd.slug }} so it accepts submissions again?');">
+                        Open
+                      </button>
+                    {% endif %}
+                  </form>
+                </div>
               </div>
+
+              {# ✅ Copy/paste line removed #}
             </li>
           {% endfor %}
         </ul>
@@ -145,7 +124,6 @@
         <p style="margin:10px 0 0;"><em>No forms in this group yet.</em></p>
       {% endif %}
     </div>
-
   {% empty %}
     <p>No groups yet.</p>
   {% endfor %}

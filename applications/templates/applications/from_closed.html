@@ -1,0 +1,16 @@
+{% extends "applications/base.html" %}
+
+{% block title %}Formulario cerrado · Club Emprendo{% endblock %}
+
+{% block content %}
+  <div class="ce-form-header">
+    <h1 class="ce-form-title ce-heading">Formulario cerrado</h1>
+    <p class="ce-form-subtitle">
+      Este formulario ({{ form_def.name }}) ya no está aceptando nuevas respuestas.
+    </p>
+  </div>
+
+  <div class="ce-alert">
+    Si crees que esto es un error, por favor contáctanos.
+  </div>
+{% endblock %}

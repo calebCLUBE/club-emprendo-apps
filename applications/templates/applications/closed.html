@@ -1,0 +1,8 @@
+# Block new submissions when closed (we use is_public as "open" flag)
+if not form_def.is_public:
+    return render(
+        request,
+        "applications/closed.html",
+        {"form_def": form_def},
+        status=403,
+    )

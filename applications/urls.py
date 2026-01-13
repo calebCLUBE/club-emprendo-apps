@@ -46,4 +46,15 @@ urlpatterns = [
         admin_views.delete_application_files,
         name="admin_delete_application_files",
     ),
+    path(
+    "admin/apps/toggle-accepting/<slug:form_slug>/",
+    admin_views.toggle_form_accepting,
+    name="admin_toggle_form_accepting",
+),
+    path(
+        "admin/apps/toggle-form/<slug:form_slug>/",
+        admin_views.toggle_form_open,
+        name="admin_toggle_form_open",
+    ),
+
 ]

@@ -47,6 +47,9 @@ class FormDefinition(models.Model):
             "A2 forms are private and used via invite link."
         ),
     )
+    accepting_responses = models.BooleanField(default=True)
+
+
 
     def __str__(self) -> str:
         return self.name

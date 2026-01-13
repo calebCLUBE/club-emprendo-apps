@@ -33,7 +33,17 @@ from applications.models import (
 MASTER_SLUGS = ["E_A1", "E_A2", "M_A1", "M_A2"]
 GROUP_SLUG_RE = re.compile(r"^G(?P<num>\d+)_(?P<master>E_A1|E_A2|M_A1|M_A2)$")
 
+def toggle_form_accepting(request, form_slug: str):
+    """
+    Toggle whether a form accepts new submissions.
+    """
+    fd = get_object_or_404(FormDefinition, slug=form_slug)
+    fd.accepting_responses = not fd.accepting_responses
+    fd.save(update_fields=["accepting_responses"])
 
+    state = "OPEN" if fd.accepting_responses else "CLOSED"
+    messages.success(request, f"{fd.slug} is now {state} for new submissions.")
+    return redirect("admin_apps_list")
 # ----------------------------
 # Forms
 # ----------------------------
@@ -179,6 +189,36 @@ def _csv_preview_html(headers: List[str], rows: List[List[str]], max_rows: int =
         "</table></div>"
         f"<p style='margin-top:8px;color:#666;font-size:12px;'>Showing up to {max_rows} rows.</p>"
     )
+# applications/admin_views.py
+
+from django.views.decorators.http import require_POST
+from django.contrib.admin.views.decorators import staff_member_required
+from django.contrib import messages
+from django.shortcuts import get_object_or_404, redirect
+
+from applications.models import FormDefinition
+
+@staff_member_required
+@require_POST
+def toggle_form_open(request, form_slug: str):
+    """
+    Toggle whether a form accepts new submissions.
+    Uses FormDefinition.is_public as the "open" flag.
+    - True  => open
+    - False => closed (no new applications)
+    """
+    fd = get_object_or_404(FormDefinition, slug=form_slug)
+
+    # If you prefer a dedicated field like is_open, swap this to fd.is_open
+    fd.is_public = not bool(fd.is_public)
+    fd.save(update_fields=["is_public"])
+
+    if fd.is_public:
+        messages.success(request, f"{fd.slug} is now OPEN (accepting new submissions).")
+    else:
+        messages.warning(request, f"{fd.slug} is now CLOSED (no new submissions will be accepted).")
+
+    return redirect("admin_apps_list")
 
 
 def _soft_archive_group(group: FormGroup) -> None:

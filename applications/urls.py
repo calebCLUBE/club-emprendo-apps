@@ -60,6 +60,12 @@ urlpatterns = [
         admin_views.delete_application_files,
         name="admin_delete_application_files",
     ),
+    path(
+    "admin/database/delete-submission/<int:app_id>/",
+    admin_views.delete_submission,
+    name="admin_delete_submission",
+),
+
 
     # ============================
     # ADMIN: GRADING (BATCH)

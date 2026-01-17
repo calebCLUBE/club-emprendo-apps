@@ -5,6 +5,7 @@ import io
 import re
 from typing import List, Tuple
 from urllib.parse import urlparse
+from django.core.mail import get_connection
 
 from applications.grading import grade_from_answers
 

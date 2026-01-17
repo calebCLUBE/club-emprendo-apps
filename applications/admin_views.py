@@ -14,7 +14,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.admin.views.decorators import staff_member_required
 from django.core.files.storage import default_storage
-from django.core.mail import EmailMultiAlternatives
+from django.core.mail import EmailMultiAlternatives, get_connection
 from django.db import transaction
 from django.db.models import Model, Count, Q
 from django.http import HttpResponse
@@ -1121,18 +1121,6 @@ def _a1_slug_for_a2(form_slug: str) -> str | None:
         return "E_A1"
 
     return None
-
-
-@staff_member_required
-from django.conf import settings
-from django.contrib import messages
-from django.core.mail import EmailMultiAlternatives, get_connection
-from django.shortcuts import get_object_or_404, redirect
-from django.views.decorators.http import require_POST
-
-# make sure these exist in your file already:
-# from applications.models import Application, FormDefinition
-# GROUP_SLUG_RE = re.compile(...)
 
 
 @require_POST

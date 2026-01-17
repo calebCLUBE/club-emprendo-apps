@@ -1125,122 +1125,117 @@ def _a1_slug_for_a2(form_slug: str) -> str | None:
 @staff_member_required
 def send_second_stage_reminders(request, form_slug: str):
     """
-    Sends A2 reminder emails for a given *A2* form slug (e.g., G6_E_A2, G6_M_A2).
+    Sends reminder emails to A1-approved users who have NOT completed A2 yet.
+    Works for:
+      - G6_E_A2 / G6_M_A2
+      - E_A2 / M_A2
+
+    IMPORTANT:
+    - Uses batching so the request doesn't time out on Render/Gunicorn.
+    - Dedupes by email (only 1 per address).
     """
-    if request.method != "POST":
-        return redirect("admin_apps_list")
+
+    # ✅ You can tune this
+    MAX_EMAILS_PER_CLICK = 20
 
     a2_form = get_object_or_404(FormDefinition, slug=form_slug)
 
-    if not form_slug.endswith("_A2"):
-        messages.error(request, "This button is only for A2 forms.")
+    if not (form_slug.endswith("E_A2") or form_slug.endswith("M_A2")):
+        messages.error(request, "This button only works for A2 forms (E_A2 or M_A2).")
         return redirect("admin_apps_list")
 
-    is_mentora = "M_A2" in form_slug
-    role_word = "mentora" if is_mentora else "emprendedora"
+    is_emprendedora = form_slug.endswith("E_A2")
+    track_word = "emprendedora" if is_emprendedora else "mentora"
 
-    a2_link = f"https://apply.clubemprendo.org/apply/{form_slug}/"
+    # -------- derive matching A1 slug --------
+    m = GROUP_SLUG_RE.match(form_slug)
+    if m:
+        gnum = m.group("num")
+        a1_slug = f"G{gnum}_{'E_A1' if is_emprendedora else 'M_A1'}"
+    else:
+        a1_slug = "E_A1" if is_emprendedora else "M_A1"
 
-    a1_slug = form_slug.replace("_A2", "_A1")
-    a1_form = FormDefinition.objects.filter(slug=a1_slug).first()
-    if not a1_form:
-        messages.error(request, f"Could not find A1 form for {form_slug} (expected {a1_slug}).")
-        return redirect("admin_apps_list")
+    # ✅ Find approved A1 submissions only
+    a1_apps_qs = Application.objects.filter(
+        form__slug=a1_slug,
+        invited_to_second_stage=True,   # only people who got the A2 link
+    ).exclude(email__isnull=True).exclude(email__exact="")
 
-    test_only = request.POST.get("test_only") == "1"
-    test_email = (request.POST.get("test_email") or "").strip().lower()
-
-    if test_only and not test_email:
-        messages.error(request, "Test mode requires a test_email.")
-        return redirect("admin_apps_list")
-
-    a1_apps = (
-        Application.objects
-        .filter(form=a1_form, invited_to_second_stage=True)
-        .exclude(invite_token__isnull=True)
-        .exclude(email__isnull=True)
-        .exclude(email__exact="")
-        .order_by("-created_at", "-id")
-    )
-
-    a2_emails = set(
-        Application.objects
-        .filter(form=a2_form)
+    # ✅ Find who already completed this A2
+    completed_emails = set(
+        Application.objects.filter(form__slug=form_slug)
         .exclude(email__isnull=True)
         .exclude(email__exact="")
         .values_list("email", flat=True)
     )
-    a2_emails = {e.strip().lower() for e in a2_emails if e}
 
-    recipients = {}
-    for app in a1_apps:
+    # ✅ Build unique target email list
+    targets = []
+    seen = set()
+
+    for app in a1_apps_qs.order_by("-created_at", "-id"):
         email = (app.email or "").strip().lower()
         if not email:
             continue
-        if email in a2_emails:
+        if email in seen:
             continue
-        if email not in recipients:
-            recipients[email] = app
+        if email in completed_emails:
+            continue
+        seen.add(email)
+        targets.append(email)
 
-    if test_only:
-        if test_email in recipients:
-            recipients = {test_email: recipients[test_email]}
-        else:
-            sample = next(iter(recipients.values()), None)
-            if not sample:
-                messages.warning(request, "No eligible recipients found to use for a test. (No invited A1s pending A2.)")
-                return redirect("admin_apps_list")
-            recipients = {test_email: sample}
-
-        messages.warning(request, f"TEST MODE: sending reminder ONLY to {test_email}")
-
-    if not recipients:
-        messages.info(request, "No eligible people found to remind (everyone already completed A2 or no invited A1s).")
+    if not targets:
+        messages.info(request, f"No hay personas pendientes para {form_slug}.")
         return redirect("admin_apps_list")
+
+    # ✅ Hard cap to prevent worker timeout
+    targets = targets[:MAX_EMAILS_PER_CLICK]
+
+    # ✅ Link for this group’s A2 form (public slug link)
+    a2_link = f"https://apply.clubemprendo.org/apply/{form_slug}/"
 
     subject = "Últimos días para completar la segunda aplicacion"
 
-    def build_html(_role_word: str, _a2_link: str):
-        return f"""
-<div style="font-family:Arial,Helvetica,sans-serif;line-height:1.6;max-width:700px;margin:0 auto;">
-  <p>Hola,</p>
-  <p>Esperamos que te encuentres muy bien.</p>
-  <p>
-    Queremos recordarte que, según la primera aplicación que completaste, cumples con el perfil para ser
-    <strong>{_role_word}</strong>, y nos encantaría que continúes con el proceso.
-  </p>
-  <p>
-    Te recordamos que es necesario completar la segunda aplicación, ya que la fecha límite es el
-    <strong>18 de enero de 2026</strong>. Estamos en los últimos días para aplicar.
-  </p>
-  <p>A continuación, te dejamos nuevamente el enlace y las instrucciones:</p>
-  <ol>
-    <li>Haz clic en el enlace: 👉 <a href="{_a2_link}">{_a2_link}</a></li>
-    <li>Responde las preguntas (no toma más de 10 minutos).</li>
-    <li>Haz clic en <strong>Enviar</strong> para completar tu aplicación.</li>
-  </ol>
-  <p>
-    Tu participación es muy valiosa para nosotras, y esperamos contar contigo en esta nueva etapa del programa.
-    Si tienes alguna pregunta o inconveniente, no dudes en escribirnos.
-  </p>
-  <p>Con cariño,<br><strong>Melanie Guzmán</strong></p>
-</div>
-""".strip()
+    html_body = f"""
+    <div style="font-family:Arial,Helvetica,sans-serif;line-height:1.6;max-width:700px;margin:0 auto;">
+      <p>Hola,</p>
+      <p>Esperamos que te encuentres muy bien.</p>
+      <p>
+        Queremos recordarte que, según la primera aplicación que completaste, cumples con el perfil para ser
+        <strong>{track_word}</strong>, y nos encantaría que continúes con el proceso.
+      </p>
+      <p>
+        Te recordamos que es necesario completar la segunda aplicación, ya que la fecha límite es el
+        <strong>18 de enero de 2026</strong>. Estamos en los últimos días para aplicar.
+      </p>
+      <p>A continuación, te dejamos nuevamente el enlace y las instrucciones:</p>
+      <ol>
+        <li>Haz clic en el enlace: 👉 <a href="{a2_link}">{a2_link}</a></li>
+        <li>Responde las preguntas (no toma más de 10 minutos).</li>
+        <li>Haz clic en <strong>Enviar</strong> para completar tu aplicación.</li>
+      </ol>
+      <p>
+        Tu participación es muy valiosa para nosotras, y esperamos contar contigo en esta nueva etapa del programa.
+        Si tienes alguna pregunta o inconveniente, no dudes en escribirnos.
+      </p>
+      <p>Con cariño,<br><strong>Melanie Guzmán</strong></p>
+    </div>
+    """
 
-    from_email = getattr(settings, "DEFAULT_FROM_EMAIL", "contacto@clubemprendo.org")
+    # ✅ SMTP connection with timeout (important on Render)
+    connection = get_connection(timeout=15)
 
     sent = 0
     failed = 0
 
-    for email, _app in recipients.items():
+    for email in targets:
         try:
-            html_body = build_html(role_word, a2_link)
-
             msg = EmailMultiAlternatives(
                 subject=subject,
                 body="",
-                from_email=from_email,
+                from_email=getattr(settings, "DEFAULT_FROM_EMAIL", None),
                 to=[email],
+                connection=connection,
             )
             msg.attach_alternative(html_body, "text/html")
             msg.send(fail_silently=False)
@@ -1248,9 +1243,9 @@ def send_second_stage_reminders(request, form_slug: str):
         except Exception:
             failed += 1
 
-    if test_only:
-        messages.success(request, f"TEST reminder sent to {test_email}.")
-    else:
-        messages.success(request, f"Reminders sent: {sent}. Failed: {failed}. Unique emails: {len(recipients)}.")
-
+    messages.success(
+        request,
+        f"Reminders enviados para {form_slug}: {sent} enviados, {failed} fallidos. "
+        f"(Máximo por click: {MAX_EMAILS_PER_CLICK})"
+    )
     return redirect("admin_apps_list")

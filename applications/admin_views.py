@@ -1124,6 +1124,18 @@ def _a1_slug_for_a2(form_slug: str) -> str | None:
 
 
 @staff_member_required
+from django.conf import settings
+from django.contrib import messages
+from django.core.mail import EmailMultiAlternatives, get_connection
+from django.shortcuts import get_object_or_404, redirect
+from django.views.decorators.http import require_POST
+
+# make sure these exist in your file already:
+# from applications.models import Application, FormDefinition
+# GROUP_SLUG_RE = re.compile(...)
+
+
+@require_POST
 def send_second_stage_reminders(request, form_slug: str):
     """
     Sends reminder emails to A1-approved users who have NOT completed A2 yet.
@@ -1131,19 +1143,21 @@ def send_second_stage_reminders(request, form_slug: str):
       - G6_E_A2 / G6_M_A2
       - E_A2 / M_A2
 
-    IMPORTANT:
-    - Uses batching so the request doesn't time out on Render/Gunicorn.
-    - Dedupes by email (only 1 per address).
+    Rules:
+    - Only sends to users who were invited_to_second_stage=True
+    - Only sends 1 email per unique email address
+    - Skips anyone who already submitted this A2 form
+    - No max cap
+    - Uses one SMTP connection to avoid timeouts
     """
 
-    # ✅ You can tune this
-    MAX_EMAILS_PER_CLICK = 20
-
-    a2_form = get_object_or_404(FormDefinition, slug=form_slug)
-
+    # Validate form_slug is A2
     if not (form_slug.endswith("E_A2") or form_slug.endswith("M_A2")):
-        messages.error(request, "This button only works for A2 forms (E_A2 or M_A2).")
+        messages.error(request, "Este botón solo funciona para formularios A2 (E_A2 o M_A2).")
         return redirect("admin_apps_list")
+
+    # Ensure A2 form exists
+    _a2_form = get_object_or_404(FormDefinition, slug=form_slug)
 
     is_emprendedora = form_slug.endswith("E_A2")
     track_word = "emprendedora" if is_emprendedora else "mentora"
@@ -1156,13 +1170,19 @@ def send_second_stage_reminders(request, form_slug: str):
     else:
         a1_slug = "E_A1" if is_emprendedora else "M_A1"
 
-    # ✅ Find approved A1 submissions only
-    a1_apps_qs = Application.objects.filter(
-        form__slug=a1_slug,
-        invited_to_second_stage=True,   # only people who got the A2 link
-    ).exclude(email__isnull=True).exclude(email__exact="")
+    # ✅ Find approved A1 submissions only (they MUST have been invited)
+    a1_apps_qs = (
+        Application.objects.filter(
+            form__slug=a1_slug,
+            invited_to_second_stage=True,
+        )
+        .exclude(email__isnull=True)
+        .exclude(email__exact="")
+        .only("id", "email", "created_at")
+        .order_by("-created_at", "-id")
+    )
 
-    # ✅ Find who already completed this A2
+    # ✅ Find who already completed THIS A2
     completed_emails = set(
         Application.objects.filter(form__slug=form_slug)
         .exclude(email__isnull=True)
@@ -1170,11 +1190,11 @@ def send_second_stage_reminders(request, form_slug: str):
         .values_list("email", flat=True)
     )
 
-    # ✅ Build unique target email list
+    # ✅ Build unique target list
     targets = []
     seen = set()
 
-    for app in a1_apps_qs.order_by("-created_at", "-id"):
+    for app in a1_apps_qs:
         email = (app.email or "").strip().lower()
         if not email:
             continue
@@ -1189,13 +1209,10 @@ def send_second_stage_reminders(request, form_slug: str):
         messages.info(request, f"No hay personas pendientes para {form_slug}.")
         return redirect("admin_apps_list")
 
-    # ✅ Hard cap to prevent worker timeout
-    targets = targets[:MAX_EMAILS_PER_CLICK]
-
     # ✅ Link for this group’s A2 form (public slug link)
     a2_link = f"https://apply.clubemprendo.org/apply/{form_slug}/"
 
-    subject = "Últimos días para completar la segunda aplicacion"
+    subject = "Últimos días para completar la segunda aplicación"
 
     html_body = f"""
     <div style="font-family:Arial,Helvetica,sans-serif;line-height:1.6;max-width:700px;margin:0 auto;">
@@ -1223,30 +1240,44 @@ def send_second_stage_reminders(request, form_slug: str):
     </div>
     """
 
-    # ✅ SMTP connection with timeout (important on Render)
-    connection = get_connection(timeout=15)
-
     sent = 0
     failed = 0
 
-    for email in targets:
-        try:
-            msg = EmailMultiAlternatives(
-                subject=subject,
-                body="",
-                from_email=getattr(settings, "DEFAULT_FROM_EMAIL", None),
-                to=[email],
-                connection=connection,
-            )
-            msg.attach_alternative(html_body, "text/html")
-            msg.send(fail_silently=False)
-            sent += 1
-        except Exception:
-            failed += 1
+    # ✅ One shared SMTP connection (much faster + safer on Render)
+    connection = get_connection(fail_silently=False)
+    try:
+        connection.open()
 
-    messages.success(
-        request,
-        f"Reminders enviados para {form_slug}: {sent} enviados, {failed} fallidos. "
-        f"(Máximo por click: {MAX_EMAILS_PER_CLICK})"
-    )
+        for email in targets:
+            try:
+                msg = EmailMultiAlternatives(
+                    subject=subject,
+                    body="",
+                    from_email=getattr(settings, "DEFAULT_FROM_EMAIL", None),
+                    to=[email],
+                    connection=connection,
+                )
+                msg.attach_alternative(html_body, "text/html")
+                msg.send()
+                sent += 1
+            except Exception:
+                failed += 1
+
+    finally:
+        try:
+            connection.close()
+        except Exception:
+            pass
+
+    if failed > 0:
+        messages.warning(
+            request,
+            f"Reminders enviados para {form_slug}: {sent} enviados, {failed} fallidos."
+        )
+    else:
+        messages.success(
+            request,
+            f"Reminders enviados para {form_slug}: {sent} enviados."
+        )
+
     return redirect("admin_apps_list")

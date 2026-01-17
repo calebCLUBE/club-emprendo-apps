@@ -1,25 +1,25 @@
 # applications/admin_views.py
 
 import csv
+import io
 import re
 from typing import List, Tuple
 from urllib.parse import urlparse
+
 from applications.grading import grade_from_answers
-from django.conf import settings
-from django.core.mail import EmailMultiAlternatives
-from django.utils import timezone
 
 from django import forms
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.admin.views.decorators import staff_member_required
 from django.core.files.storage import default_storage
+from django.core.mail import EmailMultiAlternatives
 from django.db import transaction
-from django.db.models import Model, Count
+from django.db.models import Model, Count, Q
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
-from django.urls import reverse   # ✅ added
+from django.urls import reverse
 from django.views.decorators.http import require_POST
-from django.db.models.functions import Lower
 
 from applications.models import (
     Application,
@@ -32,7 +32,87 @@ from applications.models import (
 
 MASTER_SLUGS = ["E_A1", "E_A2", "M_A1", "M_A2"]
 GROUP_SLUG_RE = re.compile(r"^G(?P<num>\d+)_(?P<master>E_A1|E_A2|M_A1|M_A2)$")
+TEST_E_A2_SLUG = "TEST_E_A2"
+TEST_M_A2_SLUG = "TEST_M_A2"
+A2_FORM_RE = re.compile(r"^(G\d+_)?(E_A2|M_A2)$")
+TEST_A2_FORM_RE = re.compile(r"^TEST_(E_A2|M_A2)$")
 
+@staff_member_required
+@require_POST
+def grading_upload_test_csv(request):
+    """
+    Upload CSV into sandbox A2 forms only:
+      - role=E -> TEST_E_A2
+      - role=M -> TEST_M_A2
+
+    This is independent from real group applications.
+    """
+    role = (request.POST.get("role") or "E").strip().upper()
+    sandbox_slug = "TEST_E_A2" if role == "E" else "TEST_M_A2"
+
+    fd = FormDefinition.objects.filter(slug=sandbox_slug).first()
+    if not fd:
+        messages.error(
+            request,
+            f"Sandbox form {sandbox_slug} does not exist. Create it (or clone it) first."
+        )
+        return _redirect_back_to_grading(request)
+
+    f = request.FILES.get("csv_file")
+    if not f:
+        messages.error(request, "No CSV file uploaded.")
+        return _redirect_back_to_grading(request)
+
+    try:
+        raw = f.read().decode("utf-8-sig")
+    except Exception:
+        raw = f.read().decode("latin-1")
+
+    reader = csv.DictReader(io.StringIO(raw))
+    if not reader.fieldnames:
+        messages.error(request, "CSV appears to have no header row.")
+        return _redirect_back_to_grading(request)
+
+    qmap = {q.slug: q for q in fd.questions.all()}
+    created = 0
+
+    with transaction.atomic():
+        for row in reader:
+            name = (row.get("name") or row.get("full_name") or "").strip()
+            email = (row.get("email") or "").strip()
+
+            app = Application.objects.create(
+                form=fd,
+                name=name,
+                email=email,
+            )
+
+            for col, val in row.items():
+                if col not in qmap:
+                    continue
+                v = (val or "").strip()
+                Answer.objects.create(
+                    application=app,
+                    question=qmap[col],
+                    value=v,
+                )
+            created += 1
+
+    messages.success(request, f"Imported {created} submissions into sandbox form {sandbox_slug}.")
+    return _redirect_back_to_grading(request)
+
+
+def _redirect_back_to_grading(request):
+    group = (request.GET.get("group") or "").strip()
+    url = reverse("admin_grading_home")
+    if group:
+        url = f"{url}?group={group}"
+    return redirect(url)
+# ----------------------------
+# Toggle (accepting submissions)
+# ----------------------------
+@staff_member_required
+@require_POST
 def toggle_form_accepting(request, form_slug: str):
     """
     Toggle whether a form accepts new submissions.
@@ -44,6 +124,8 @@ def toggle_form_accepting(request, form_slug: str):
     state = "OPEN" if fd.accepting_responses else "CLOSED"
     messages.success(request, f"{fd.slug} is now {state} for new submissions.")
     return redirect("admin_apps_list")
+
+
 # ----------------------------
 # Forms
 # ----------------------------
@@ -81,6 +163,55 @@ def _model_has_field(model: type[Model], field_name: str) -> bool:
     except Exception:
         return False
 
+def _ensure_test_a2_form(role: str) -> FormDefinition:
+    """
+    role: "E" or "M"
+    Creates TEST_E_A2 or TEST_M_A2 if missing by cloning from the master E_A2 / M_A2.
+    """
+    if role not in ("E", "M"):
+        raise ValueError("role must be 'E' or 'M'")
+
+    test_slug = TEST_E_A2_SLUG if role == "E" else TEST_M_A2_SLUG
+    master_slug = "E_A2" if role == "E" else "M_A2"
+
+    existing = FormDefinition.objects.filter(slug=test_slug).first()
+    if existing:
+        return existing
+
+    master_fd = get_object_or_404(FormDefinition, slug=master_slug)
+
+    # Create new FormDefinition
+    clone = FormDefinition.objects.create(
+        slug=test_slug,
+        name=f"TEST — {master_fd.name}",
+        description=(master_fd.description or "") + "\n\n(Imported test CSV submissions.)",
+        is_master=False,
+        group=None,
+        is_public=False,             # keep it out of public view
+        accepting_responses=False,   # prevent real submissions
+    )
+
+    # Clone questions + choices
+    for q in master_fd.questions.all().order_by("position", "id"):
+        q_clone = Question.objects.create(
+            form=clone,
+            text=q.text,
+            help_text=q.help_text,
+            field_type=q.field_type,
+            required=q.required,
+            position=q.position,
+            slug=q.slug,
+            active=q.active,
+        )
+        for c in q.choices.all().order_by("position", "id"):
+            Choice.objects.create(
+                question=q_clone,
+                label=c.label,
+                value=c.value,
+                position=c.position,
+            )
+
+    return clone
 
 def _clone_form(master_fd: FormDefinition, group: FormGroup) -> FormDefinition:
     group_num = group.number
@@ -189,15 +320,11 @@ def _csv_preview_html(headers: List[str], rows: List[List[str]], max_rows: int =
         "</table></div>"
         f"<p style='margin-top:8px;color:#666;font-size:12px;'>Showing up to {max_rows} rows.</p>"
     )
-# applications/admin_views.py
 
-from django.views.decorators.http import require_POST
-from django.contrib.admin.views.decorators import staff_member_required
-from django.contrib import messages
-from django.shortcuts import get_object_or_404, redirect
 
-from applications.models import FormDefinition
-
+# ----------------------------
+# Toggle (open/closed) for display — your "toggle-form" URL
+# ----------------------------
 @staff_member_required
 @require_POST
 def toggle_form_open(request, form_slug: str):
@@ -209,7 +336,6 @@ def toggle_form_open(request, form_slug: str):
     """
     fd = get_object_or_404(FormDefinition, slug=form_slug)
 
-    # If you prefer a dedicated field like is_open, swap this to fd.is_open
     fd.is_public = not bool(fd.is_public)
     fd.save(update_fields=["is_public"])
 
@@ -389,13 +515,11 @@ def database_home(request):
     surveys_e = [s for s in surveys if s.slug.endswith("_E")]
     surveys_m = [s for s in surveys if s.slug.endswith("_M")]
 
-    # ✅ Submission counts
     counts = {
         row["form__slug"]: row["c"]
         for row in Application.objects.values("form__slug").annotate(c=Count("id"))
     }
 
-    # ✅ Attach counts + admin edit links (surveys + forms)
     for fd in masters:
         fd.submission_count = counts.get(fd.slug, 0)
         fd.admin_edit_url = reverse("admin:applications_formdefinition_change", args=[fd.id])
@@ -612,46 +736,71 @@ def delete_application_files(request, app_id: int):
             f"(archivos eliminados del storage: {deleted_storage_count}). "
             f"Omitidas (no-archivo): {skipped_count}."
         )
-# ----------------------------
-# Grading (Admin)
-# ----------------------------
+
+    return redirect("admin_database_submission_detail", app_id=app.id)
+
+
+# ============================================================
+# Grading (Admin) — BATCH PER FORM + CSV UPLOAD + MASTER CSV
+# ============================================================
+
+A2_FORM_RE = re.compile(r"^(G\d+_)?(E_A2|M_A2)$")
+
+
+def _redirect_back_to_grading(request):
+    group = (request.GET.get("group") or "").strip()
+    url = reverse("admin_grading_home")
+    if group:
+        url = f"{url}?group={group}"
+    return redirect(url)
+
+
 @staff_member_required
 def grading_home(request):
     """
-    Admin grading dashboard:
-    - Optional ?group=5 filter
-    - Lists applications with a Grade button per row
+    Shows A2 forms available for grading (one row per form slug).
+    Optional filter: ?group=6
     """
     group = (request.GET.get("group") or "").strip()
 
-    qs = (
-        Application.objects.filter(
-            form__slug__regex=r"^(G\d+_)?(E_A2|M_A2)$"
-        )
-        .select_related("form")
-        .order_by("-created_at", "-id")
-    )
-
-
-    # Filter by group if provided
+    fds = FormDefinition.objects.filter(slug__regex=r"^(G\d+_)?(E_A2|M_A2)$").order_by("slug")
     if group:
-        # If Application has a group_num field, prefer that
-        if _model_has_field(Application, "group_num"):
-            qs = qs.filter(group_num=group)
-        else:
-            # Fallback: filter by form slug like "G5_..."
-            qs = qs.filter(form__slug__startswith=f"G{group}_")
+        fds = fds.filter(slug__startswith=f"G{group}_")
 
-    # Pending = blank/NULL recommendation
-    pending_qs = qs.filter(recommendation__isnull=True) | qs.filter(recommendation="")
+    # totals
+    totals = {
+        row["form__slug"]: row["c"]
+        for row in Application.objects.filter(form__in=fds)
+        .values("form__slug")
+        .annotate(c=Count("id"))
+    }
+
+    # pending = recommendation NULL or ""
+    pending = {
+        row["form__slug"]: row["c"]
+        for row in (
+            Application.objects.filter(form__in=fds)
+            .filter(Q(recommendation__isnull=True) | Q(recommendation=""))
+            .values("form__slug")
+            .annotate(c=Count("id"))
+        )
+    }
+
+    rows = []
+    for fd in fds:
+        rows.append({
+            "slug": fd.slug,
+            "name": fd.name,
+            "total": totals.get(fd.slug, 0),
+            "pending": pending.get(fd.slug, 0),
+        })
 
     return render(
         request,
         "admin_dash/grading_home.html",
         {
             "group": group,
-            "applications": qs[:300],  # safety cap in case you have tons
-            "pending_count": pending_qs.count(),
+            "forms": rows,
         },
     )
 
@@ -660,46 +809,283 @@ def grading_home(request):
 @require_POST
 def grade_application(request, app_id: int):
     """
-    Grade one application and save the result to the Application fields.
+    Compatibility endpoint: grade one submission.
     """
     app = get_object_or_404(
         Application.objects.select_related("form").prefetch_related("answers__question"),
         id=app_id,
     )
 
-    scores = grade_from_answers(app)
-
-    # Save back onto the Application model
-    app.tablestakes_score = scores["tablestakes_score"]
-    app.commitment_score = scores["commitment_score"]
-    app.nice_to_have_score = scores["nice_to_have_score"]
-    app.overall_score = scores["overall_score"]
-    app.recommendation = scores["recommendation"]
-
-    app.save(
-        update_fields=[
-            "tablestakes_score",
-            "commitment_score",
-            "nice_to_have_score",
-            "overall_score",
-            "recommendation",
-        ]
-    )
-    if not re.match(r"^(G\d+_)?(E_A2|M_A2)$", app.form.slug):
+    if not A2_FORM_RE.match(app.form.slug):
         messages.error(request, "This application is not eligible for grading.")
-        return redirect(reverse("admin_grading_home"))
+        return _redirect_back_to_grading(request)
+
+    try:
+        scores = grade_from_answers(app)
+        app.tablestakes_score = scores.get("tablestakes_score")
+        app.commitment_score = scores.get("commitment_score")
+        app.nice_to_have_score = scores.get("nice_to_have_score")
+        app.overall_score = scores.get("overall_score")
+        app.recommendation = scores.get("recommendation")
+        app.save(
+            update_fields=[
+                "tablestakes_score",
+                "commitment_score",
+                "nice_to_have_score",
+                "overall_score",
+                "recommendation",
+            ]
+        )
+        messages.success(request, f"Graded submission #{app.id} ({app.form.slug}).")
+    except Exception as e:
+        messages.error(request, f"Grading failed for #{app.id}: {e}")
+
+    return _redirect_back_to_grading(request)
 
 
-    # Preserve group filter on redirect (so you stay on Group 5 while grading)
-    group = (request.GET.get("group") or "").strip()
-    url = reverse("admin_grading_home")
-    if group:
-        url = f"{url}?group={group}"
-    return redirect(url)
+@staff_member_required
+@require_POST
+def grade_form_batch(request, form_slug: str):
+    """
+    Batch grades ALL pending submissions for a given A2 form slug.
+    """
+    if not A2_FORM_RE.match(form_slug):
+        messages.error(request, f"{form_slug} is not an A2 form slug.")
+        return _redirect_back_to_grading(request)
 
-    return redirect("admin_database_submission_detail", app_id=app.id)
+    fd = get_object_or_404(FormDefinition, slug=form_slug)
+
+    qs = (
+        Application.objects.filter(form=fd)
+        .select_related("form")
+        .prefetch_related("answers__question")
+        .order_by("created_at", "id")
+    )
+
+    qs_pending = qs.filter(Q(recommendation__isnull=True) | Q(recommendation=""))
+
+    total = qs.count()
+    pending = qs_pending.count()
+
+    if pending == 0:
+        messages.info(request, f"{form_slug}: No pending submissions to grade. Total submissions: {total}.")
+        return _redirect_back_to_grading(request)
+
+    updated = 0
+    failed = 0
+
+    with transaction.atomic():
+        for app in qs_pending:
+            try:
+                scores = grade_from_answers(app)
+
+                app.tablestakes_score = scores.get("tablestakes_score")
+                app.commitment_score = scores.get("commitment_score")
+                app.nice_to_have_score = scores.get("nice_to_have_score")
+                app.overall_score = scores.get("overall_score")
+                app.recommendation = scores.get("recommendation")
+
+                app.save(update_fields=[
+                    "tablestakes_score",
+                    "commitment_score",
+                    "nice_to_have_score",
+                    "overall_score",
+                    "recommendation",
+                ])
+                updated += 1
+            except Exception:
+                failed += 1
+
+    if failed:
+        messages.warning(request, f"{form_slug}: Graded {updated} (failed {failed}). Total submissions: {total}.")
+    else:
+        messages.success(request, f"{form_slug}: Graded {updated}. Total submissions: {total}.")
+
+    return _redirect_back_to_grading(request)
+
+@staff_member_required
+@require_POST
+def grading_upload_test_csv(request):
+    """
+    Upload CSV for testing only.
+    Creates/imports into TEST_E_A2 or TEST_M_A2 based on POST 'role' = 'E' or 'M'.
+    """
+    role = (request.POST.get("role") or "").strip().upper()
+    if role not in ("E", "M"):
+        messages.error(request, "Select role (E or M) for the test upload.")
+        return _redirect_back_to_grading(request)
+
+    fd = _ensure_test_a2_form(role)
+
+    f = request.FILES.get("csv_file")
+    if not f:
+        messages.error(request, "No CSV file uploaded.")
+        return _redirect_back_to_grading(request)
+
+    try:
+        raw = f.read().decode("utf-8-sig")
+    except Exception:
+        raw = f.read().decode("latin-1")
+
+    reader = csv.DictReader(io.StringIO(raw))
+    if not reader.fieldnames:
+        messages.error(request, "CSV appears to have no header row.")
+        return _redirect_back_to_grading(request)
+
+    qmap = {q.slug: q for q in fd.questions.all()}
+
+    created = 0
+    with transaction.atomic():
+        for row in reader:
+            name = (row.get("name") or row.get("full_name") or row.get("Nombre") or "").strip()
+            email = (row.get("email") or row.get("Correo") or "").strip()
+
+            app = Application.objects.create(
+                form=fd,
+                name=name,
+                email=email,
+            )
+
+            for col, val in row.items():
+                if col not in qmap:
+                    continue
+                v = (val or "").strip()
+                Answer.objects.create(application=app, question=qmap[col], value=v)
+
+            created += 1
+
+    messages.success(request, f"Imported {created} submissions into {fd.slug} (sandbox).")
+    return _redirect_back_to_grading(request)
+
+@staff_member_required
+def grading_master_csv(request, form_slug: str):
+    """
+    Download MASTER CSV for a form slug, ALWAYS including grade columns.
+    """
+    fd = get_object_or_404(FormDefinition, slug=form_slug)
+
+    questions = list(fd.questions.filter(active=True).order_by("position", "id"))
+
+    headers = [
+        "created_at",
+        "application_id",
+        "name",
+        "email",
+        "tablestakes_score",
+        "commitment_score",
+        "nice_to_have_score",
+        "overall_score",
+        "recommendation",
+    ] + [q.slug for q in questions]
+
+    apps = (
+        Application.objects.filter(form=fd)
+        .prefetch_related("answers__question")
+        .order_by("created_at", "id")
+    )
+
+    rows = []
+    for app in apps:
+        amap = {a.question.slug: (a.value or "") for a in app.answers.all()}
+
+        rows.append([
+            app.created_at.isoformat(),
+            str(app.id),
+            app.name or "",
+            app.email or "",
+            app.tablestakes_score or "",
+            app.commitment_score or "",
+            app.nice_to_have_score or "",
+            app.overall_score or "",
+            app.recommendation or "",
+        ] + [amap.get(q.slug, "") for q in questions])
+
+    return _csv_http_response(f"{form_slug}_MASTER.csv", headers, rows)
 
 
+def _norm(s: str) -> str:
+    return (s or "").strip().lower()
+
+
+@staff_member_required
+@require_POST
+def grading_upload_csv(request, form_slug: str):
+    """
+    Upload a CSV and import rows as Applications + Answers for this form_slug.
+
+    Robust mapping:
+    - If a CSV column matches Question.slug -> use it
+    - Else if it matches Question.text (case-insensitive) -> use it
+    - name/email columns recognized in common Spanish/English variants
+    Unknown columns are ignored.
+    """
+    fd = get_object_or_404(FormDefinition, slug=form_slug)
+
+    f = request.FILES.get("csv_file")
+    if not f:
+        messages.error(request, "No CSV file uploaded.")
+        return _redirect_back_to_grading(request)
+
+    # decode
+    try:
+        raw = f.read().decode("utf-8-sig")
+    except Exception:
+        raw = f.read().decode("latin-1")
+
+    reader = csv.DictReader(io.StringIO(raw))
+    if not reader.fieldnames:
+        messages.error(request, "CSV appears to have no header row.")
+        return _redirect_back_to_grading(request)
+
+    questions = list(fd.questions.all())
+    q_by_slug = {_norm(q.slug): q for q in questions}
+    q_by_text = {_norm(q.text): q for q in questions}
+
+    # common header variants
+    NAME_KEYS = {"name", "nombre", "full_name", "nombre completo", "nombre_completo"}
+    EMAIL_KEYS = {"email", "correo", "correo electrónico", "correo electronico", "dirección de correo electrónico", "direccion de correo electronico"}
+
+    created = 0
+    with transaction.atomic():
+        for row in reader:
+            # pull name/email if present
+            name = ""
+            email = ""
+
+            for k, v in row.items():
+                nk = _norm(k)
+                if nk in NAME_KEYS and not name:
+                    name = (v or "").strip()
+                if nk in EMAIL_KEYS and not email:
+                    email = (v or "").strip()
+
+            app = Application.objects.create(
+                form=fd,
+                name=name.strip(),
+                email=email.strip(),
+            )
+
+            # create answers
+            for col, val in row.items():
+                col_norm = _norm(col)
+                q = q_by_slug.get(col_norm) or q_by_text.get(col_norm)
+                if not q:
+                    continue
+                Answer.objects.create(
+                    application=app,
+                    question=q,
+                    value=(val or "").strip(),
+                )
+
+            created += 1
+
+    messages.success(request, f"Imported {created} submissions into {form_slug}.")
+    return _redirect_back_to_grading(request)
+
+
+# ----------------------------
+# Email helpers + reminders
+# ----------------------------
 def _send_html_email(to_email: str, subject: str, html_body: str):
     msg = EmailMultiAlternatives(
         subject=subject,
@@ -736,19 +1122,10 @@ def _a1_slug_for_a2(form_slug: str) -> str | None:
     return None
 
 
-GROUP_SLUG_RE = re.compile(r"^G(?P<num>\d+)_(?P<master>E_A1|E_A2|M_A1|M_A2)$")
-
-
 @staff_member_required
 def send_second_stage_reminders(request, form_slug: str):
     """
     Sends A2 reminder emails for a given *A2* form slug (e.g., G6_E_A2, G6_M_A2).
-
-    Rules:
-    - Only email people who completed A1 AND were invited_to_second_stage=True AND have invite_token.
-    - Only email those who have NOT submitted A2 yet.
-    - Deduplicate by email (send once per email).
-    - TEST MODE: if POST includes test_only=1, only send to test_email.
     """
     if request.method != "POST":
         return redirect("admin_apps_list")
@@ -759,23 +1136,17 @@ def send_second_stage_reminders(request, form_slug: str):
         messages.error(request, "This button is only for A2 forms.")
         return redirect("admin_apps_list")
 
-    # Determine cohort group number and whether it's mentora or emprendedora
-    # Expected slugs: G6_E_A2 or G6_M_A2 (but also allow master E_A2/M_A2 if needed)
     is_mentora = "M_A2" in form_slug
     role_word = "mentora" if is_mentora else "emprendedora"
 
-    # Link requested by you (group-based direct link)
     a2_link = f"https://apply.clubemprendo.org/apply/{form_slug}/"
 
-    # Find matching A1 slug for this A2 slug
-    # G6_M_A2 -> G6_M_A1 ; G6_E_A2 -> G6_E_A1 ; M_A2 -> M_A1 ; E_A2 -> E_A1
     a1_slug = form_slug.replace("_A2", "_A1")
     a1_form = FormDefinition.objects.filter(slug=a1_slug).first()
     if not a1_form:
         messages.error(request, f"Could not find A1 form for {form_slug} (expected {a1_slug}).")
         return redirect("admin_apps_list")
 
-    # TEST MODE
     test_only = request.POST.get("test_only") == "1"
     test_email = (request.POST.get("test_email") or "").strip().lower()
 
@@ -783,7 +1154,6 @@ def send_second_stage_reminders(request, form_slug: str):
         messages.error(request, "Test mode requires a test_email.")
         return redirect("admin_apps_list")
 
-    # Eligible A1 applicants: invited + token + email exists
     a1_apps = (
         Application.objects
         .filter(form=a1_form, invited_to_second_stage=True)
@@ -793,7 +1163,6 @@ def send_second_stage_reminders(request, form_slug: str):
         .order_by("-created_at", "-id")
     )
 
-    # People who already submitted A2 (dedupe by email)
     a2_emails = set(
         Application.objects
         .filter(form=a2_form)
@@ -803,7 +1172,6 @@ def send_second_stage_reminders(request, form_slug: str):
     )
     a2_emails = {e.strip().lower() for e in a2_emails if e}
 
-    # Build recipient list: A1 invited, not in A2, dedupe by email
     recipients = {}
     for app in a1_apps:
         email = (app.email or "").strip().lower()
@@ -811,17 +1179,13 @@ def send_second_stage_reminders(request, form_slug: str):
             continue
         if email in a2_emails:
             continue
-        # Keep one app per email (most recent wins due to ordering)
         if email not in recipients:
             recipients[email] = app
 
-    # Apply TEST override
     if test_only:
-        # Only send if this email is eligible; if not eligible, still allow sending a test copy (use latest app if any)
         if test_email in recipients:
             recipients = {test_email: recipients[test_email]}
         else:
-            # fallback: send test email anyway using any one eligible app to construct link/token logic
             sample = next(iter(recipients.values()), None)
             if not sample:
                 messages.warning(request, "No eligible recipients found to use for a test. (No invited A1s pending A2.)")
@@ -836,7 +1200,6 @@ def send_second_stage_reminders(request, form_slug: str):
 
     subject = "Últimos días para completar la segunda aplicacion"
 
-    # HTML body (your copy)
     def build_html(_role_word: str, _a2_link: str):
         return f"""
 <div style="font-family:Arial,Helvetica,sans-serif;line-height:1.6;max-width:700px;margin:0 auto;">
@@ -848,7 +1211,7 @@ def send_second_stage_reminders(request, form_slug: str):
   </p>
   <p>
     Te recordamos que es necesario completar la segunda aplicación, ya que la fecha límite es el
-    <strong>11 de enero de 2026</strong>. Estamos en los últimos días para aplicar.
+    <strong>18 de enero de 2026</strong>. Estamos en los últimos días para aplicar.
   </p>
   <p>A continuación, te dejamos nuevamente el enlace y las instrucciones:</p>
   <ol>

@@ -1123,8 +1123,10 @@ def _a1_slug_for_a2(form_slug: str) -> str | None:
     return None
 
 
+@staff_member_required
 @require_POST
 def send_second_stage_reminders(request, form_slug: str):
+
     """
     Sends reminder emails to A1-approved users who have NOT completed A2 yet.
     Works for:

@@ -104,3 +104,5 @@ dj-database-url>=2.2
 whitenoise>=6.6
 gunicorn>=21
 openai>=1.0.0
+pandas>=2.0
+numpy>=1.24

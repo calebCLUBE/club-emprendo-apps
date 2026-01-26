@@ -6,9 +6,13 @@ import re
 from typing import List, Tuple
 from urllib.parse import urlparse
 from django.core.mail import get_connection
-
+import time
 from applications.grading import grade_from_answers
-
+from openai import OpenAI
+from applications.grader_e import grade_single_row
+from django.core.files.base import ContentFile
+import threading
+import traceback
 from django import forms
 from django.conf import settings
 from django.contrib import messages
@@ -21,7 +25,7 @@ from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_POST
-
+import os
 from applications.models import (
     Application,
     Answer,
@@ -29,6 +33,8 @@ from applications.models import (
     FormDefinition,
     FormGroup,
     Question,
+    GradedFile,
+    GradingJob
 )
 
 MASTER_SLUGS = ["E_A1", "E_A2", "M_A1", "M_A2"]
@@ -109,6 +115,98 @@ def _redirect_back_to_grading(request):
     if group:
         url = f"{url}?group={group}"
     return redirect(url)
+
+def _job_log(job: GradingJob, line: str):
+    job.log_text = (job.log_text or "") + line + "\n"
+    job.save(update_fields=["log_text", "updated_at"])
+@staff_member_required
+def grading_job_status(request, job_id: int):
+    job = get_object_or_404(GradingJob, id=job_id)
+
+    # super simple auto-refresh every 2 seconds
+    return render(request, "admin_dash/grading_job_status.html", {"job": job})
+def _run_grade_job(job_id: int):
+    job = GradingJob.objects.get(id=job_id)
+    job.status = GradingJob.STATUS_RUNNING
+    job.save(update_fields=["status", "updated_at"])
+
+    try:
+        _job_log(job, "✅ Starting grading job...")
+
+        # Only grade Emprendedora A2 forms for now
+        if not job.form_slug.endswith("E_A2"):
+            raise RuntimeError("This grading job only supports E_A2 forms.")
+
+        fd = FormDefinition.objects.get(slug=job.form_slug)
+
+        apps = (
+            Application.objects.filter(form=fd)
+            .prefetch_related("answers__question")
+            .order_by("created_at", "id")
+        )
+
+        total = apps.count()
+        if total == 0:
+            _job_log(job, "⚠️ No applications found.")
+            job.status = GradingJob.STATUS_DONE
+            job.save(update_fields=["status", "updated_at"])
+            return
+
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise RuntimeError("OPENAI_API_KEY is not set on the server.")
+
+        client = OpenAI(api_key=api_key)
+
+        for idx, app in enumerate(apps, start=1):
+            _job_log(job, f"→ Grading application {idx}/{total} (app_id={app.id})")
+
+            # build row dict exactly like your CSV
+            row = {a.question.slug: (a.value or "") for a in app.answers.all()}
+            row["full_name"] = app.name or ""
+            row["email"] = app.email or ""
+
+            graded_df = grade_single_row(row, client)
+
+            # save CSV to GradedFile
+            buf = io.StringIO()
+            graded_df.to_csv(buf, index=False)
+
+            filename = f"{job.form_slug}_app_{app.id}_graded.csv"
+
+            gf = GradedFile.objects.create(
+                form_slug=job.form_slug,
+                application=app,
+            )
+            gf.file.save(filename, ContentFile(buf.getvalue().encode("utf-8")), save=True)
+
+            _job_log(job, f"✓ Finished app {app.id}")
+
+        _job_log(job, "✅ Finished grading job.")
+        job.status = GradingJob.STATUS_DONE
+        job.save(update_fields=["status", "updated_at"])
+
+    except Exception:
+        _job_log(job, "❌ Grading failed.")
+        _job_log(job, traceback.format_exc())
+        job.status = GradingJob.STATUS_FAILED
+        job.save(update_fields=["status", "updated_at"])
+
+
+@staff_member_required
+@require_POST
+def start_grading_job(request, form_slug: str):
+    job = GradingJob.objects.create(
+        form_slug=form_slug,
+        status=GradingJob.STATUS_PENDING,
+        log_text="Queued...\n",
+    )
+
+    t = threading.Thread(target=_run_grade_job, args=(job.id,), daemon=True)
+    t.start()
+
+    return redirect("admin_grading_job_status", job_id=job.id)
+
 # ----------------------------
 # Toggle (accepting submissions)
 # ----------------------------
@@ -756,19 +854,13 @@ def _redirect_back_to_grading(request):
     return redirect(url)
 
 
-@staff_member_required
 def grading_home(request):
-    """
-    Shows A2 forms available for grading (one row per form slug).
-    Optional filter: ?group=6
-    """
     group = (request.GET.get("group") or "").strip()
 
     fds = FormDefinition.objects.filter(slug__regex=r"^(G\d+_)?(E_A2|M_A2)$").order_by("slug")
     if group:
         fds = fds.filter(slug__startswith=f"G{group}_")
 
-    # totals
     totals = {
         row["form__slug"]: row["c"]
         for row in Application.objects.filter(form__in=fds)
@@ -776,7 +868,6 @@ def grading_home(request):
         .annotate(c=Count("id"))
     }
 
-    # pending = recommendation NULL or ""
     pending = {
         row["form__slug"]: row["c"]
         for row in (
@@ -796,12 +887,17 @@ def grading_home(request):
             "pending": pending.get(fd.slug, 0),
         })
 
+    # ✅ ADD THIS
+    graded_files = GradedFile.objects.order_by("-created_at")[:50]
+
     return render(
         request,
         "admin_dash/grading_home.html",
         {
             "group": group,
             "forms": rows,
+            # ✅ ADD THIS
+            "graded_files": graded_files,
         },
     )
 
@@ -1271,3 +1367,52 @@ def send_second_stage_reminders(request, form_slug: str):
         )
 
     return redirect("admin_apps_list")
+@staff_member_required
+@require_POST
+def grade_one_emprendedora(request, app_id: int):
+    app = get_object_or_404(
+        Application.objects.select_related("form").prefetch_related("answers__question"),
+        id=app_id,
+    )
+
+    # only allow E_A2 forms
+    if not app.form.slug.endswith("E_A2"):
+        messages.error(request, "This grading button is only for Emprendedoras (E_A2).")
+        return redirect("admin_grading_home")
+
+    # convert answers -> dict matching your CSV column names
+    row = {a.question.slug: (a.value or "") for a in app.answers.all()}
+
+    # attach identity fields your CSV expects
+    row["full_name"] = app.name or ""
+    row["email"] = app.email or ""
+
+    api_key = getattr(settings, "OPENAI_API_KEY", None) or os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        messages.error(request, "OPENAI_API_KEY is not configured on the server.")
+        return redirect("admin_grading_home")
+
+    client = OpenAI(api_key=api_key)
+
+    try:
+        graded_df = grade_single_row(row, client)
+
+        # write CSV in-memory
+        buf = io.StringIO()
+        graded_df.to_csv(buf, index=False)
+        csv_bytes = buf.getvalue().encode("utf-8")
+
+        filename = f"{app.form.slug}_app_{app.id}_graded.csv"
+
+        gf = GradedFile.objects.create(
+            form_slug=app.form.slug,
+            application=app,
+        )
+        gf.file.save(filename, ContentFile(csv_bytes), save=True)
+
+        messages.success(request, f"✅ Graded app #{app.id}. File saved: {filename}")
+
+    except Exception as e:
+        messages.error(request, f"Grading failed: {e}")
+
+    return redirect("admin_grading_home")

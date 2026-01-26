@@ -53,6 +53,10 @@ urlpatterns = [
     path("admin/grading/upload/<slug:form_slug>/", admin_views.grading_upload_csv, name="admin_grading_upload_csv"),
     path("admin/grading/grade/<slug:form_slug>/", admin_views.grade_form_batch, name="admin_grade_form_batch"),
     path("admin/grading/master/<slug:form_slug>/", admin_views.grading_master_csv, name="admin_grading_master_csv"),
+    path("admin/grading/grade-one/e/<int:app_id>/", admin_views.grade_one_emprendedora, name="admin_grade_one_emprendedora"),
+    path("admin/grading/job/<int:job_id>/", admin_views.grading_job_status, name="admin_grading_job_status"),
+    path("admin/grading/start-job/<slug:form_slug>/", admin_views.start_grading_job, name="admin_start_grading_job"),
+
 
     # ============================
     # PUBLIC ROUTES

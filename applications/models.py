@@ -19,6 +19,23 @@ class FormGroup(models.Model):
     def __str__(self):
         return f"Group {self.number} ({self.start_month}–{self.end_month} {self.year})"
 
+class GradingJob(models.Model):
+    STATUS_CHOICES = [
+        ("pending", "Pending"),
+        ("running", "Running"),
+        ("done", "Done"),
+        ("failed", "Failed"),
+    ]
+
+    form_slug = models.CharField(max_length=50)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending")
+    log = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    def append_log(self, text: str):
+        self.log += text + "\n"
+        self.save(update_fields=["log"])
 
 class FormDefinition(models.Model):
     """
@@ -161,3 +178,37 @@ class Answer(models.Model):
 
     def __str__(self) -> str:
         return f"{self.application.id} – {self.question.slug} = {self.value}"
+
+
+class GradedFile(models.Model):
+    form_slug = models.CharField(max_length=50)
+    application = models.ForeignKey("Application", on_delete=models.CASCADE)
+    file = models.FileField(upload_to="graded/")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.form_slug} - app {self.application_id}"
+
+from django.db import models
+
+class GradingJob(models.Model):
+    STATUS_PENDING = "pending"
+    STATUS_RUNNING = "running"
+    STATUS_DONE = "done"
+    STATUS_FAILED = "failed"
+
+    STATUS_CHOICES = [
+        (STATUS_PENDING, "Pending"),
+        (STATUS_RUNNING, "Running"),
+        (STATUS_DONE, "Done"),
+        (STATUS_FAILED, "Failed"),
+    ]
+
+    form_slug = models.CharField(max_length=100, blank=True, default="")
+    app_id = models.IntegerField(null=True, blank=True)
+
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING)
+    log_text = models.TextField(blank=True, default="")
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)

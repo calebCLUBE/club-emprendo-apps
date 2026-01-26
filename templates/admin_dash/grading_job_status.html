@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Grading Job</title>
+  {% if job.status == "running" or job.status == "pending" %}
+    <meta http-equiv="refresh" content="2">
+  {% endif %}
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; }
+    pre { background: #111; color: #0f0; padding: 12px; border-radius: 8px; white-space: pre-wrap; }
+    .status { font-weight: bold; margin-bottom: 12px; }
+  </style>
+</head>
+<body>
+
+  <div class="status">
+    Status: {{ job.status }}
+  </div>
+
+  <pre>{{ job.log_text }}</pre>
+
+  <p>
+    <a href="{% url 'admin_grading_home' %}">← Back to grading</a>
+  </p>
+
+</body>
+</html>

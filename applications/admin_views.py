@@ -195,7 +195,13 @@ def _run_grade_job(job_id: int):
                 form_slug=job.form_slug,
                 application=app,
             )
-            gf.file.save(filename, ContentFile(buf.getvalue().encode("utf-8")), save=True)
+            csv_text = buf.getvalue()
+
+            gf = GradedFile.objects.create(
+                form_slug=app.form.slug,
+                application=app,
+                csv_text=csv_text,
+            )
 
             _job_log(job, f"✓ Finished app {app.id}")
 

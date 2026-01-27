@@ -9,7 +9,6 @@ from django.core.mail import get_connection
 import time
 from applications.grading import grade_from_answers
 from openai import OpenAI
-from applications.grader_e import grade_single_row
 from django.core.files.base import ContentFile
 import threading
 import traceback
@@ -26,6 +25,8 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_POST
 import os
+from applications.grader_e import grade_single_row, grade_from_dataframe
+
 from applications.models import (
     Application,
     Answer,
@@ -150,9 +151,8 @@ def _run_grade_job(job_id: int):
     try:
         _job_log(job, "✅ Starting grading job...")
 
-        # Only grade Emprendedora A2 forms for now
         if not job.form_slug.endswith("E_A2"):
-            raise RuntimeError("This grading job only supports E_A2 forms.")
+            raise RuntimeError("Only E_A2 grading supported.")
 
         fd = FormDefinition.objects.get(slug=job.form_slug)
 
@@ -162,64 +162,74 @@ def _run_grade_job(job_id: int):
             .order_by("created_at", "id")
         )
 
-        total = apps.count()
-        if total == 0:
-            _job_log(job, "⚠️ No applications found.")
-            job.status = GradingJob.STATUS_DONE
-            job.save(update_fields=["status", "updated_at"])
-            return
+        if not apps.exists():
+            raise RuntimeError("No applications to grade.")
 
-        api_key = os.getenv("OPENAI_API_KEY")
-        if not api_key:
-            raise RuntimeError("OPENAI_API_KEY is not set on the server.")
+        _job_log(job, f"📦 Building master dataset ({apps.count()} applications)")
 
-        client = OpenAI(api_key=api_key)
-
-        for idx, app in enumerate(apps, start=1):
-            _job_log(job, f"→ Grading application {idx}/{total} (app_id={app.id})")
-
-            # 1️⃣ Build row dict exactly like grader_e.py expects
+        # ----------------------------------
+        # Build master rows (like CSV input)
+        # ----------------------------------
+        rows = []
+        for app in apps:
             row = {a.question.slug: (a.value or "") for a in app.answers.all()}
             row["full_name"] = app.name or ""
             row["email"] = app.email or ""
+            rows.append(row)
 
-            # 2️⃣ Call grader
-            graded_df = grade_single_row(row, client)
+        import pandas as pd
+        master_df = pd.DataFrame(rows)
 
-            if graded_df is None or graded_df.empty:
-                raise RuntimeError(f"grader_e returned empty output for app {app.id}")
+        _job_log(job, "🤖 Running grader_e on full dataset")
 
-            # 3️⃣ Convert to CSV
-            buf = io.StringIO()
-            graded_df.to_csv(buf, index=False)
-            csv_text = buf.getvalue()
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise RuntimeError("OPENAI_API_KEY not set")
 
-            if not csv_text.strip():
-                raise RuntimeError(f"CSV output is empty for app {app.id}")
+        client = OpenAI(api_key=api_key)
 
-            # 4️⃣ Ensure idempotency (replace old file if re-run)
-            GradedFile.objects.filter(application=app).delete()
+        # ⬇️ THIS is the key difference
+        graded_df = grade_from_dataframe(master_df, client)
 
-            # 5️⃣ Create EXACTLY ONE graded file
-            GradedFile.objects.create(
-                form_slug=job.form_slug,
-                application=app,
-                csv_text=csv_text,
-            )
+        if graded_df is None or graded_df.empty:
+            raise RuntimeError("Grader returned empty output")
 
-            _job_log(job, f"✓ Finished app {app.id}")
+        # ----------------------------------
+        # Store ONE graded file
+        # ----------------------------------
+        csv_text = graded_df.to_csv(index=False)
 
-        _job_log(job, "✅ Finished grading job.")
+        # Replace previous output
+        GradedFile.objects.filter(form_slug=job.form_slug).delete()
+
+        GradedFile.objects.create(
+            form_slug=job.form_slug,
+            csv_text=csv_text,
+        )
+
+        _job_log(job, "✅ Grading completed successfully")
+
         job.status = GradingJob.STATUS_DONE
         job.save(update_fields=["status", "updated_at"])
 
     except Exception:
-        _job_log(job, "❌ Grading failed.")
+        _job_log(job, "❌ Grading failed")
         _job_log(job, traceback.format_exc())
         job.status = GradingJob.STATUS_FAILED
         job.save(update_fields=["status", "updated_at"])
 
+@staff_member_required
+def download_graded_csv(request, graded_file_id: int):
+    gf = get_object_or_404(GradedFile, id=graded_file_id)
 
+    response = HttpResponse(
+        gf.csv_text,
+        content_type="text/csv; charset=utf-8"
+    )
+    response["Content-Disposition"] = (
+        f'attachment; filename="{gf.form_slug}_graded.csv"'
+    )
+    return response
 
 @staff_member_required
 @require_POST

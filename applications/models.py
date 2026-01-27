@@ -183,7 +183,10 @@ class Answer(models.Model):
 class GradedFile(models.Model):
     form_slug = models.CharField(max_length=50)
     application = models.ForeignKey("Application", on_delete=models.CASCADE)
-    file = models.FileField(upload_to="graded/")
+
+    # Store CSV directly
+    csv_text = models.TextField()
+
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
@@ -192,6 +195,15 @@ class GradedFile(models.Model):
 from django.db import models
 
 class GradingJob(models.Model):
+    """
+    Represents a background grading job (batch or single-application).
+    Logs are stored directly in the database so progress can be viewed live
+    from the admin UI.
+    """
+
+    # --------------------
+    # Status machine
+    # --------------------
     STATUS_PENDING = "pending"
     STATUS_RUNNING = "running"
     STATUS_DONE = "done"
@@ -204,11 +216,55 @@ class GradingJob(models.Model):
         (STATUS_FAILED, "Failed"),
     ]
 
-    form_slug = models.CharField(max_length=100, blank=True, default="")
-    app_id = models.IntegerField(null=True, blank=True)
+    # --------------------
+    # What is being graded
+    # --------------------
+    form_slug = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+        help_text="Form slug being graded (e.g. G6_E_A2). Empty if single-app job.",
+        db_index=True,
+    )
 
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING)
-    log_text = models.TextField(blank=True, default="")
+    app_id = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text="Application ID if this job grades a single application.",
+    )
 
-    created_at = models.DateTimeField(auto_now_add=True)
+    # --------------------
+    # Job state + logs
+    # --------------------
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default=STATUS_PENDING,
+        db_index=True,
+    )
+
+    log_text = models.TextField(
+        blank=True,
+        default="",
+        help_text="Append-only job log (progress, errors, tracebacks).",
+    )
+
+    # --------------------
+    # Timestamps
+    # --------------------
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    # --------------------
+    # Helpers
+    # --------------------
+    def append_log(self, line: str) -> None:
+        """
+        Safely append a line to the job log.
+        """
+        self.log_text = (self.log_text or "") + line.rstrip() + "\n"
+        self.save(update_fields=["log_text", "updated_at"])
+
+    def __str__(self) -> str:
+        target = self.form_slug or f"app {self.app_id}"
+        return f"GradingJob #{self.id} [{self.status}] → {target}"

@@ -93,7 +93,7 @@
 
             <td style="padding:10px; border-bottom:1px solid #f0f0f0; white-space:nowrap;">
 
-              <!-- Download CSV -->
+              <!-- Download Master CSV -->
               <a
                 class="button"
                 style="text-decoration:none;"
@@ -154,7 +154,9 @@
         {{ f.created_at }} —
         {{ f.form_slug }} —
         app {{ f.application_id }} —
-        <a href="{{ f.file.url }}" target="_blank">Download</a>
+        <a href="{% url 'admin_grading_download_csv' f.id %}">
+          Download CSV
+        </a>
       </li>
     {% empty %}
       <li>No graded files yet.</li>

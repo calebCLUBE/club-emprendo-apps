@@ -56,6 +56,11 @@ urlpatterns = [
     path("admin/grading/grade-one/e/<int:app_id>/", admin_views.grade_one_emprendedora, name="admin_grade_one_emprendedora"),
     path("admin/grading/job/<int:job_id>/", admin_views.grading_job_status, name="admin_grading_job_status"),
     path("admin/grading/start-job/<slug:form_slug>/", admin_views.start_grading_job, name="admin_start_grading_job"),
+    path(
+        "admin/grading/download/<int:graded_file_id>/",
+        admin_views.download_graded_csv,
+        name="admin_grading_download_csv",
+    ),
 
 
     # ============================

@@ -45,6 +45,23 @@ A2_FORM_RE = re.compile(r"^(G\d+_)?(E_A2|M_A2)$")
 TEST_A2_FORM_RE = re.compile(r"^TEST_(E_A2|M_A2)$")
 
 @staff_member_required
+def download_graded_csv(request, graded_file_id: int):
+    """
+    Download a graded CSV stored in the database.
+    """
+    gf = get_object_or_404(GradedFile, id=graded_file_id)
+
+    response = HttpResponse(
+        gf.csv_text,
+        content_type="text/csv; charset=utf-8",
+    )
+    response["Content-Disposition"] = (
+        f'attachment; filename="{gf.form_slug}_app_{gf.application_id}_graded.csv"'
+    )
+
+    return response
+
+@staff_member_required
 @require_POST
 def grading_upload_test_csv(request):
     """

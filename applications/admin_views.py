@@ -157,7 +157,8 @@ def _run_grade_job(job_id: int):
         fd = FormDefinition.objects.get(slug=job.form_slug)
 
         apps = (
-            Application.objects.filter(form=fd)
+            Application.objects
+            .filter(form=fd)
             .prefetch_related("answers__question")
             .order_by("created_at", "id")
         )
@@ -167,18 +168,39 @@ def _run_grade_job(job_id: int):
 
         _job_log(job, f"📦 Building master dataset ({apps.count()} applications)")
 
-        # ----------------------------------
-        # Build master rows (like CSV input)
-        # ----------------------------------
+        # --------------------------------------------------
+        # BUILD MASTER DATAFRAME (IDENTICAL TO MASTER CSV)
+        # --------------------------------------------------
+        questions = list(
+            fd.questions
+            .filter(active=True)
+            .order_by("position", "id")
+        )
+
+        headers = [
+            "created_at",
+            "application_id",
+            "full_name",
+            "email",
+        ] + [q.slug for q in questions]
+
         rows = []
+
         for app in apps:
-            row = {a.question.slug: (a.value or "") for a in app.answers.all()}
-            row["full_name"] = app.name or ""
-            row["email"] = app.email or ""
-            rows.append(row)
+            answer_map = {
+                a.question.slug: (a.value or "")
+                for a in app.answers.all()
+            }
+
+            rows.append([
+                app.created_at.isoformat(),
+                app.id,
+                app.name or "",
+                app.email or "",
+            ] + [answer_map.get(q.slug, "") for q in questions])
 
         import pandas as pd
-        master_df = pd.DataFrame(rows)
+        master_df = pd.DataFrame(rows, columns=headers)
 
         _job_log(job, "🤖 Running grader_e on full dataset")
 
@@ -188,7 +210,8 @@ def _run_grade_job(job_id: int):
 
         client = OpenAI(api_key=api_key)
 
-        # ⬇️ THIS is the key difference
+        from applications.grader_e import grade_from_dataframe
+
         graded_df = grade_from_dataframe(
             master_df,
             client,
@@ -198,12 +221,11 @@ def _run_grade_job(job_id: int):
         if graded_df is None or graded_df.empty:
             raise RuntimeError("Grader returned empty output")
 
-        # ----------------------------------
-        # Store ONE graded file
-        # ----------------------------------
+        # --------------------------------------------------
+        # STORE ONE GRADED FILE (POSTGRES)
+        # --------------------------------------------------
         csv_text = graded_df.to_csv(index=False)
 
-        # Replace previous output
         GradedFile.objects.filter(form_slug=job.form_slug).delete()
 
         GradedFile.objects.create(

@@ -1,6 +1,10 @@
 import pandas as pd
 from openai import OpenAI
 
+# ==================================================
+# Config
+# ==================================================
+
 MODEL = "gpt-5.2"
 TIMEOUT = 60
 
@@ -14,11 +18,17 @@ W = {
     "biggest_challenge": 4,
 }
 
+# ==================================================
+# Helpers (structured)
+# ==================================================
+
 def yes(v):
     return str(v).strip().lower() == "yes"
 
+
 def prior_mentoring_pts(v):
     return 2 if yes(v) else 0
+
 
 def business_age_pts(v):
     mapping = {
@@ -31,6 +41,7 @@ def business_age_pts(v):
     }
     return mapping.get(str(v), 0)
 
+
 def participated_before_pts(v):
     if not isinstance(v, str):
         return 0
@@ -40,8 +51,14 @@ def participated_before_pts(v):
         return 4
     return 0
 
+
 def has_employees_pts(v):
     return 2 if yes(v) else 0
+
+
+# ==================================================
+# Red flag detection
+# ==================================================
 
 def detect_red_flags(*texts):
     flags = []
@@ -51,6 +68,11 @@ def detect_red_flags(*texts):
         if k in combined:
             flags.append(k)
     return ", ".join(sorted(set(flags)))
+
+
+# ==================================================
+# OpenAI grading (unstructured)
+# ==================================================
 
 def grade_unstructured(client: OpenAI, text, criterion):
     if not isinstance(text, str) or not text.strip():
@@ -91,6 +113,10 @@ Explanation: <2–3 sentences justifying the score>
 
     return score, explanation
 
+
+# ==================================================
+# Output layout (EXACT)
+# ==================================================
 
 CATEGORY_ROW = [
     "TOTAL",
@@ -135,7 +161,11 @@ COLUMNS = [
     "grading_rubric",
 ]
 
-def grade_single_row(row: dict, client: OpenAI) -> pd.DataFrame:
+# ==================================================
+# Grade ONE row (NO category row here)
+# ==================================================
+
+def grade_single_row(row: dict, client: OpenAI) -> list | None:
     qualifies = (
         row.get("internet_access") == "yes_ok"
         and row.get("hours_per_week") != "lt_2"
@@ -143,7 +173,7 @@ def grade_single_row(row: dict, client: OpenAI) -> pd.DataFrame:
     )
 
     if not qualifies:
-        return pd.DataFrame([["FAILED_TABLESTAKES"] + [""] * (len(COLUMNS) - 1)], columns=COLUMNS)
+        return None  # EXACT behavior of original script (skip row)
 
     prior_pt = prior_mentoring_pts(row.get("prior_mentoring"))
     business_age_pt = business_age_pts(row.get("business_age"))
@@ -180,7 +210,7 @@ def grade_single_row(row: dict, client: OpenAI) -> pd.DataFrame:
         row.get("biggest_challenge"),
     )
 
-    out_row = [
+    return [
         total_score,
         row.get("full_name"),
         row.get("whatsapp"),
@@ -198,22 +228,30 @@ def grade_single_row(row: dict, client: OpenAI) -> pd.DataFrame:
         row.get("biggest_challenge"), bc_pt,
         row.get("additional_comments"),
         "\n".join(score_exp_lines),
-        "Applicants must meet all tablestakes; structured fields are deterministic; unstructured responses scored 1–5 and weighted."
+        "Applicants must meet all tablestakes; structured fields are deterministic; unstructured responses scored 1–5 and weighted.",
     ]
 
-    df = pd.DataFrame([CATEGORY_ROW, out_row], columns=COLUMNS)
-    return df
-def grade_from_dataframe(df: "pd.DataFrame", client, log_fn=None) -> "pd.DataFrame":
-    graded_rows = []
 
+# ==================================================
+# Grade FULL dataframe (MASTER CSV)
+# ==================================================
+
+def grade_from_dataframe(df: pd.DataFrame, client: OpenAI, log_fn=None) -> pd.DataFrame:
+    rows = []
     total = len(df)
 
-    for i, (_, row) in enumerate(df.iterrows(), start=1):
+    for i, (_, r) in enumerate(df.iterrows(), start=1):
         if log_fn:
             log_fn(f"→ Grading row {i}/{total}")
 
-        row_dict = row.to_dict()
-        one_df = grade_single_row(row_dict, client)
-        graded_rows.append(one_df.iloc[0].to_dict())
+        out = grade_single_row(r.to_dict(), client)
+        if out is not None:
+            rows.append(out)
 
-    return pd.DataFrame(graded_rows)
+    out_df = pd.DataFrame(rows, columns=COLUMNS)
+
+    # CATEGORY ROW GOES ONCE, AT TOP
+    return pd.concat(
+        [pd.DataFrame([CATEGORY_ROW], columns=COLUMNS), out_df],
+        ignore_index=True,
+    )

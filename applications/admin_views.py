@@ -178,27 +178,31 @@ def _run_grade_job(job_id: int):
         for idx, app in enumerate(apps, start=1):
             _job_log(job, f"→ Grading application {idx}/{total} (app_id={app.id})")
 
-            # build row dict exactly like your CSV
+            # 1️⃣ Build row dict exactly like grader_e.py expects
             row = {a.question.slug: (a.value or "") for a in app.answers.all()}
             row["full_name"] = app.name or ""
             row["email"] = app.email or ""
 
+            # 2️⃣ Call grader
             graded_df = grade_single_row(row, client)
 
-            # save CSV to GradedFile
+            if graded_df is None or graded_df.empty:
+                raise RuntimeError(f"grader_e returned empty output for app {app.id}")
+
+            # 3️⃣ Convert to CSV
             buf = io.StringIO()
             graded_df.to_csv(buf, index=False)
-
-            filename = f"{job.form_slug}_app_{app.id}_graded.csv"
-
-            gf = GradedFile.objects.create(
-                form_slug=job.form_slug,
-                application=app,
-            )
             csv_text = buf.getvalue()
 
-            gf = GradedFile.objects.create(
-                form_slug=app.form.slug,
+            if not csv_text.strip():
+                raise RuntimeError(f"CSV output is empty for app {app.id}")
+
+            # 4️⃣ Ensure idempotency (replace old file if re-run)
+            GradedFile.objects.filter(application=app).delete()
+
+            # 5️⃣ Create EXACTLY ONE graded file
+            GradedFile.objects.create(
+                form_slug=job.form_slug,
                 application=app,
                 csv_text=csv_text,
             )
@@ -214,6 +218,7 @@ def _run_grade_job(job_id: int):
         _job_log(job, traceback.format_exc())
         job.status = GradingJob.STATUS_FAILED
         job.save(update_fields=["status", "updated_at"])
+
 
 
 @staff_member_required

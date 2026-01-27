@@ -26,6 +26,7 @@ from django.urls import reverse
 from django.views.decorators.http import require_POST
 import os
 from applications.grader_e import grade_single_row, grade_from_dataframe
+from django.db import connection
 
 from applications.models import (
     Application,
@@ -144,6 +145,11 @@ def grading_job_status(request, job_id: int):
     # super simple auto-refresh every 2 seconds
     return render(request, "admin_dash/grading_job_status.html", {"job": job})
 def _run_grade_job(job_id: int):
+    connection.close()
+
+    job = GradingJob.objects.get(id=job_id)
+    job.status = GradingJob.STATUS_RUNNING
+    job.save(update_fields=["status", "updated_at"])
     job = GradingJob.objects.get(id=job_id)
     job.status = GradingJob.STATUS_RUNNING
     job.save(update_fields=["status", "updated_at"])
@@ -228,11 +234,12 @@ def _run_grade_job(job_id: int):
 
         GradedFile.objects.filter(form_slug=job.form_slug).delete()
 
-        GradedFile.objects.create(
+        gf = GradedFile.objects.create(
             form_slug=job.form_slug,
             csv_text=csv_text,
         )
 
+        _job_log(job, f"📄 Saved graded file (id={gf.id}, bytes={len(csv_text)})")
         _job_log(job, "✅ Grading completed successfully")
 
         job.status = GradingJob.STATUS_DONE

@@ -104,6 +104,10 @@ urlpatterns = [
     admin_views.grading_upload_test_csv,
     name="admin_grading_upload_test_csv",
     ),
-
+    path(
+        "admin/grading/download/<int:graded_file_id>/",
+        admin_views.download_graded_csv,
+        name="admin_grading_download_csv",
+    ),
 
 ]

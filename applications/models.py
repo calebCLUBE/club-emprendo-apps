@@ -183,19 +183,19 @@ class Answer(models.Model):
 class GradedFile(models.Model):
     form_slug = models.CharField(max_length=50)
 
-    # 🔽 make optional
+    # nullable because this file represents a FULL FORM run
     application = models.ForeignKey(
-        "Application",
+        Application,
+        on_delete=models.CASCADE,
         null=True,
         blank=True,
-        on_delete=models.CASCADE,
     )
 
     csv_text = models.TextField()
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        return f"{self.form_slug} — graded file"
+        return f"{self.form_slug} — graded ({self.created_at:%Y-%m-%d %H:%M})"
 
 
 

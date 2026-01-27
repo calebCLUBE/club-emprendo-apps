@@ -182,17 +182,22 @@ class Answer(models.Model):
 
 class GradedFile(models.Model):
     form_slug = models.CharField(max_length=50)
-    application = models.ForeignKey("Application", on_delete=models.CASCADE)
 
-    # Store CSV directly
+    # 🔽 make optional
+    application = models.ForeignKey(
+        "Application",
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+    )
+
     csv_text = models.TextField()
-
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        return f"{self.form_slug} - app {self.application_id}"
+        return f"{self.form_slug} — graded file"
 
-from django.db import models
+
 
 class GradingJob(models.Model):
     """

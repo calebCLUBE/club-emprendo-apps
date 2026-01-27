@@ -189,7 +189,11 @@ def _run_grade_job(job_id: int):
         client = OpenAI(api_key=api_key)
 
         # ⬇️ THIS is the key difference
-        graded_df = grade_from_dataframe(master_df, client)
+        graded_df = grade_from_dataframe(
+            master_df,
+            client,
+            log_fn=lambda msg: _job_log(job, msg)
+        )
 
         if graded_df is None or graded_df.empty:
             raise RuntimeError("Grader returned empty output")

@@ -203,17 +203,17 @@ def grade_single_row(row: dict, client: OpenAI) -> pd.DataFrame:
 
     df = pd.DataFrame([CATEGORY_ROW, out_row], columns=COLUMNS)
     return df
-def grade_from_dataframe(df: "pd.DataFrame", client) -> "pd.DataFrame":
-    """
-    Grade an entire master dataframe by reusing grade_single_row.
-    Returns ONE dataframe with one graded row per input row.
-    """
+def grade_from_dataframe(df: "pd.DataFrame", client, log_fn=None) -> "pd.DataFrame":
     graded_rows = []
 
-    for _, row in df.iterrows():
+    total = len(df)
+
+    for i, (_, row) in enumerate(df.iterrows(), start=1):
+        if log_fn:
+            log_fn(f"→ Grading row {i}/{total}")
+
         row_dict = row.to_dict()
-        one_df = grade_single_row(row_dict, client)  # <- your existing function
-        # grade_single_row returns a 1-row df; collect that row
+        one_df = grade_single_row(row_dict, client)
         graded_rows.append(one_df.iloc[0].to_dict())
 
     return pd.DataFrame(graded_rows)

@@ -27,6 +27,8 @@ from django.views.decorators.http import require_POST
 import os
 from applications.grader_e import grade_single_row, grade_from_dataframe
 from django.db import connection
+from applications.grader_e import grade_from_dataframe as grade_e_df
+from applications.grader_m import grade_from_dataframe as grade_m_df
 
 from applications.models import (
     Application,
@@ -218,11 +220,27 @@ def _run_grade_job(job_id: int):
 
         from applications.grader_e import grade_from_dataframe
 
-        graded_df = grade_from_dataframe(
-            master_df,
-            client,
-            log_fn=lambda msg: _job_log(job, msg)
-        )
+# ----------------------------------
+# Run correct grader based on form
+# ----------------------------------
+
+        if job.form_slug.endswith("E_A2"):
+            graded_df = grade_e_df(
+                master_df,
+                client,
+                log_fn=lambda msg: _job_log(job, msg)
+            )
+
+        elif job.form_slug.endswith("M_A2"):
+            graded_df = grade_m_df(
+                master_df,
+                client,
+                log_fn=lambda msg: _job_log(job, msg)
+            )
+
+        else:
+            raise RuntimeError(f"Unsupported form type: {job.form_slug}")
+
 
         if graded_df is None or graded_df.empty:
             raise RuntimeError("Grader returned empty output")

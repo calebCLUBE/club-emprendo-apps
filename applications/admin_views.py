@@ -147,11 +147,6 @@ def grading_job_status(request, job_id: int):
     # super simple auto-refresh every 2 seconds
     return render(request, "admin_dash/grading_job_status.html", {"job": job})
 def _run_grade_job(job_id: int):
-    connection.close()
-
-    job = GradingJob.objects.get(id=job_id)
-    job.status = GradingJob.STATUS_RUNNING
-    job.save(update_fields=["status", "updated_at"])
     job = GradingJob.objects.get(id=job_id)
     job.status = GradingJob.STATUS_RUNNING
     job.save(update_fields=["status", "updated_at"])
@@ -159,8 +154,11 @@ def _run_grade_job(job_id: int):
     try:
         _job_log(job, "✅ Starting grading job...")
 
-        if not job.form_slug.endswith("E_A2"):
-            raise RuntimeError("Only E_A2 grading supported.")
+        # ----------------------------------
+        # Validate form type
+        # ----------------------------------
+        if not (job.form_slug.endswith("E_A2") or job.form_slug.endswith("M_A2")):
+            raise RuntimeError(f"Unsupported form type: {job.form_slug}")
 
         fd = FormDefinition.objects.get(slug=job.form_slug)
 
@@ -176,9 +174,9 @@ def _run_grade_job(job_id: int):
 
         _job_log(job, f"📦 Building master dataset ({apps.count()} applications)")
 
-        # --------------------------------------------------
-        # BUILD MASTER DATAFRAME (IDENTICAL TO MASTER CSV)
-        # --------------------------------------------------
+        # ----------------------------------
+        # BUILD MASTER DATAFRAME (MATCHES MASTER CSV)
+        # ----------------------------------
         questions = list(
             fd.questions
             .filter(active=True)
@@ -193,7 +191,6 @@ def _run_grade_job(job_id: int):
         ] + [q.slug for q in questions]
 
         rows = []
-
         for app in apps:
             answer_map = {
                 a.question.slug: (a.value or "")
@@ -210,7 +207,7 @@ def _run_grade_job(job_id: int):
         import pandas as pd
         master_df = pd.DataFrame(rows, columns=headers)
 
-        _job_log(job, "🤖 Running grader_e on full dataset")
+        _job_log(job, "🤖 Running grader on full dataset")
 
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
@@ -218,36 +215,31 @@ def _run_grade_job(job_id: int):
 
         client = OpenAI(api_key=api_key)
 
-        from applications.grader_e import grade_from_dataframe
-
-# ----------------------------------
-# Run correct grader based on form
-# ----------------------------------
-
+        # ----------------------------------
+        # Run correct grader
+        # ----------------------------------
         if job.form_slug.endswith("E_A2"):
-            graded_df = grade_e_df(
+            from applications.grader_e import grade_from_dataframe
+            graded_df = grade_from_dataframe(
                 master_df,
                 client,
                 log_fn=lambda msg: _job_log(job, msg)
             )
 
-        elif job.form_slug.endswith("M_A2"):
-            graded_df = grade_m_df(
+        else:  # M_A2
+            from applications.grader_m import grade_from_dataframe
+            graded_df = grade_from_dataframe(
                 master_df,
                 client,
                 log_fn=lambda msg: _job_log(job, msg)
             )
-
-        else:
-            raise RuntimeError(f"Unsupported form type: {job.form_slug}")
-
 
         if graded_df is None or graded_df.empty:
             raise RuntimeError("Grader returned empty output")
 
-        # --------------------------------------------------
-        # STORE ONE GRADED FILE (POSTGRES)
-        # --------------------------------------------------
+        # ----------------------------------
+        # STORE ONE GRADED FILE
+        # ----------------------------------
         csv_text = graded_df.to_csv(index=False)
 
         GradedFile.objects.filter(form_slug=job.form_slug).delete()
@@ -268,6 +260,7 @@ def _run_grade_job(job_id: int):
         _job_log(job, traceback.format_exc())
         job.status = GradingJob.STATUS_FAILED
         job.save(update_fields=["status", "updated_at"])
+
 
 @staff_member_required
 def download_graded_csv(request, graded_file_id: int):

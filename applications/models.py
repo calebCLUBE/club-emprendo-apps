@@ -1,6 +1,7 @@
 # applications/models.py
 from django.db import models
 import uuid
+from .application import Application  # <-- adjust import if needed
 
 
 class FormGroup(models.Model):
@@ -181,22 +182,30 @@ class Answer(models.Model):
 
 
 class GradedFile(models.Model):
-    form_slug = models.CharField(max_length=50)
+    form_slug = models.CharField(
+        max_length=50,
+        db_index=True,
+    )
 
-    # nullable because this file represents a FULL FORM run
+    # Nullable because this represents a FULL-FORM grading run
+    # (not a single application)
     application = models.ForeignKey(
         Application,
         on_delete=models.CASCADE,
         null=True,
         blank=True,
+        related_name="graded_files",
     )
 
     csv_text = models.TextField()
+
     created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]  # 🔑 fixes latest(), admin lists, UI display
 
     def __str__(self):
         return f"{self.form_slug} — graded ({self.created_at:%Y-%m-%d %H:%M})"
-
 
 
 class GradingJob(models.Model):

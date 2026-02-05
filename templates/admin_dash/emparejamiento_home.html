@@ -1,0 +1,61 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+<div class="ce-admin-wrap">
+  <h1 style="margin:0 0 14px 0;">Emparejamiento</h1>
+
+  <div style="margin: 0 0 14px 0; padding:12px; border:1px solid #ddd; border-radius:10px; background:#fff;">
+    <div style="font-weight:700; margin-bottom:8px;">Selecciona un grupo</div>
+
+    <div style="display:flex; gap:10px; flex-wrap:wrap;">
+      {% for g in groups %}
+        <a class="button" href="{% url 'admin_emparejamiento_home' %}?group={{ g.number }}" style="text-decoration:none;">
+          Pair Group {{ g.number }}
+        </a>
+      {% empty %}
+        <div style="color:#666;">No groups yet.</div>
+      {% endfor %}
+    </div>
+  </div>
+
+  {% if selected_group %}
+  <div style="padding:12px; border:1px solid #ddd; border-radius:10px; background:#fff;">
+    <div style="font-weight:700; margin-bottom:10px;">Group {{ selected_group.number }} — inputs</div>
+
+    <form method="post" action="{% url 'admin_emparejamiento_run' selected_group.number %}" style="display:grid; gap:12px;">
+      {% csrf_token %}
+
+      <div>
+        <label style="font-weight:600;">Mentoras emails (comma-separated)</label>
+        <textarea name="mentoras_emails" rows="4" style="width:100%; padding:10px; border:1px solid #ccc; border-radius:8px;"
+          placeholder="mentora1@email.com, mentora2@email.com, ...">{{ mentoras_emails|default:"" }}</textarea>
+      </div>
+
+      <div>
+        <label style="font-weight:600;">Emprendedoras emails (comma-separated)</label>
+        <textarea name="emprendedoras_emails" rows="4" style="width:100%; padding:10px; border:1px solid #ccc; border-radius:8px;"
+          placeholder="emp1@email.com, emp2@email.com, ...">{{ emprendedoras_emails|default:"" }}</textarea>
+      </div>
+
+
+      <button class="button" type="submit" style="background:#2563eb;color:white;">
+        Run pairing for Group {{ selected_group.number }}
+      </button>
+    </form>
+  </div>
+  {% endif %}
+
+  <h3 style="margin-top:20px;">Recent pairing outputs</h3>
+  <ul>
+    {% for f in pairing_files %}
+      <li>
+        {{ f.created_at }} — {{ f.form_slug }} —
+        <a href="{% url 'admin_grading_download_csv' f.id %}">Download CSV</a>
+      </li>
+    {% empty %}
+      <li>No pairing outputs yet.</li>
+    {% endfor %}
+  </ul>
+</div>
+{% endblock %}
+

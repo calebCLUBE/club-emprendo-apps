@@ -293,22 +293,6 @@ def start_grading_job(request, form_slug: str):
 # Emparejamiento (Pairing)
 # ============================
 
-import os
-from typing import Optional, Callable
-
-import pandas as pd
-from openai import OpenAI
-
-from django.conf import settings
-from django.contrib import messages
-from django.contrib.admin.views.decorators import staff_member_required
-from django.shortcuts import get_object_or_404, redirect, render
-from django.urls import reverse
-from django.views.decorators.http import require_POST
-
-from applications.models import Application, Answer, FormDefinition, FormGroup, GradedFile
-
-
 PAIR_HEADERS = [
     "emprendedora_name",
     "mentora_name",
@@ -328,7 +312,6 @@ DAY_MAP_ES_TO_EN = {
     "martes": "tue",
     "miercoles": "wed",
     "miércoles": "wed",
-    "miercoloes": "wed",  # common typo seen in data
     "jueves": "thu",
     "viernes": "fri",
     "sabado": "sat",
@@ -342,9 +325,6 @@ TIME_MAP_ES_TO_EN = {
     "noche": "night",
 }
 
-LLM_MODEL = "gpt-5.2"
-LLM_TIMEOUT = 60
-
 
 def _norm_email_list(s: str) -> list[str]:
     if not s:
@@ -353,15 +333,15 @@ def _norm_email_list(s: str) -> list[str]:
     return [p for p in parts if p]
 
 
-def _parse_emp_availability(cell) -> set[str]:
-    # emprendedora: "mon_morning, tue_afternoon"
+def _parse_emp_availability(cell: str) -> set[str]:
+    # expected: "mon_morning, tue_afternoon"
     if not cell:
         return set()
     return {x.strip().lower() for x in str(cell).split(",") if x.strip()}
 
 
-def _parse_mentor_availability(cell) -> set[str]:
-    # mentora: "martes_manana, viernes_noche"
+def _parse_mentor_availability(cell: str) -> set[str]:
+    # expected: "martes_manana, viernes_noche"
     if not cell:
         return set()
     out = set()
@@ -378,10 +358,6 @@ def _parse_mentor_availability(cell) -> set[str]:
         if day_en and time_en:
             out.add(f"{day_en}_{time_en}")
     return out
-
-
-def _safe_lower(x) -> str:
-    return (x or "").strip().lower()
 
 
 def _business_age_bucket_to_min_years(emp_val: str) -> int:
@@ -407,24 +383,13 @@ def _mentor_years_to_max_years(mentor_val: str) -> int:
     }.get(v, 0)
 
 
-def _get_openai_client() -> OpenAI:
-    api_key = (
-        os.getenv("OPENAI_API_KEY")
-        or getattr(settings, "OPENAI_API_KEY", None)
-    )
-    if not api_key:
-        raise RuntimeError("OPENAI_API_KEY not set (required for pairing).")
-    return OpenAI(api_key=api_key)
+def _safe_lower(x):
+    return (x or "").strip().lower()
 
 
-def _llm_fit_score(
-    client: OpenAI,
-    mentor_text: str,
-    emp_text: str,
-    label: str,
-) -> tuple[int, str]:
+def _llm_fit_score(client: OpenAI, mentor_text: str, emp_text: str, label: str) -> tuple[int, str]:
     """
-    Returns (score 0-5, reasoning). Reasoning must be 2-3 sentences.
+    Returns (score 0-5, reasoning).
     """
     mentor_text = mentor_text or ""
     emp_text = emp_text or ""
@@ -446,13 +411,12 @@ Entrepreneur text:
 Output EXACTLY:
 Score: <0-5>
 Reasoning: <2-3 sentences, concise, in English>
-""".strip()
-
+"""
     r = client.chat.completions.create(
-        model=LLM_MODEL,
+        model="gpt-5.2",
         messages=[{"role": "user", "content": prompt}],
         temperature=0,
-        timeout=LLM_TIMEOUT,
+        timeout=60,
     )
 
     content = (r.choices[0].message.content or "").strip()
@@ -460,7 +424,6 @@ Reasoning: <2-3 sentences, concise, in English>
     reasoning = "none"
 
     for line in content.splitlines():
-        line = line.strip()
         if line.startswith("Score:"):
             try:
                 score = int(line.split(":", 1)[1].strip())
@@ -470,15 +433,40 @@ Reasoning: <2-3 sentences, concise, in English>
             reasoning = line.split(":", 1)[1].strip() or "none"
 
     score = max(0, min(5, score))
-    if not reasoning:
-        reasoning = "none"
     return score, reasoning
 
 
-def _build_master_df_for_form(fd: FormDefinition) -> pd.DataFrame:
+def _df_col(df, colname: str):
     """
-    Builds a DataFrame structurally similar to your "Master CSV" download:
+    Safe column accessor that tolerates duplicate column labels.
+    If df[colname] returns a DataFrame (duplicate labels), take the FIRST column.
+    Returns a Series-like object.
+    """
+    obj = df[colname]
+    # If duplicate labels exist, pandas returns a DataFrame here.
+    if hasattr(obj, "columns"):
+        return obj.iloc[:, 0]
+    return obj
+
+
+def _row_get(row, colname: str, default=""):
+    """
+    Safe row accessor for dict-like pandas row.
+    """
+    try:
+        v = row.get(colname, default)
+    except Exception:
+        v = default
+    return v
+
+
+def _build_master_df_for_form(fd: FormDefinition):
+    """
+    Builds a DataFrame structurally similar to your 'Master CSV' download:
     created_at, application_id, name, email, + question slugs.
+
+    IMPORTANT: This can produce duplicate column labels if a question slug == "email" or "name".
+    That's OK—pairing code uses _df_col() to safely read identity columns.
     """
     apps = (
         Application.objects.filter(form=fd)
@@ -487,18 +475,23 @@ def _build_master_df_for_form(fd: FormDefinition) -> pd.DataFrame:
     )
 
     questions = list(fd.questions.filter(active=True).order_by("position", "id"))
-    headers = ["created_at", "application_id", "name", "email"] + [q.slug for q in questions]
 
+    headers = ["created_at", "application_id", "name", "email"] + [q.slug for q in questions]
     rows = []
+
     for app in apps:
         amap = {a.question.slug: (a.value or "") for a in app.answers.all()}
-        rows.append([
-            app.created_at.isoformat(),
-            app.id,
-            app.name or "",
-            (app.email or "").strip().lower(),
-        ] + [amap.get(q.slug, "") for q in questions])
+        rows.append(
+            [
+                app.created_at.isoformat(),
+                app.id,
+                app.name or "",
+                (app.email or "").strip().lower(),
+            ]
+            + [amap.get(q.slug, "") for q in questions]
+        )
 
+    import pandas as pd
     return pd.DataFrame(rows, columns=headers)
 
 
@@ -506,12 +499,12 @@ def _pair_one_group(
     group_num: int,
     emp_emails: list[str],
     mentor_emails: list[str],
-    log_fn: Optional[Callable[[str], None]] = None,
-) -> pd.DataFrame:
+    log_fn=None,
+):
     """
-    Returns DataFrame with PAIR_HEADERS.
-    Hard constraint: at least one availability overlap.
-    Always uses OpenAI for unstructured matches.
+    Returns a DataFrame with PAIR_HEADERS.
+    ALWAYS uses OpenAI for unstructured matching.
+    Availability overlap is REQUIRED.
     """
 
     emp_slug = f"G{group_num}_E_A2"
@@ -526,71 +519,88 @@ def _pair_one_group(
     emp_df = _build_master_df_for_form(emp_fd)
     mentor_df = _build_master_df_for_form(mentor_fd)
 
-    # Filter to selected
-    emp_df = emp_df[emp_df["email"].isin(emp_emails)].copy()
-    mentor_df = mentor_df[mentor_df["email"].isin(mentor_emails)].copy()
+    # Identity columns (safe even if duplicate column labels exist)
+    emp_email_col = _df_col(emp_df, "email").astype(str).str.strip().str.lower()
+    mentor_email_col = _df_col(mentor_df, "email").astype(str).str.strip().str.lower()
+
+    # filter by selected email lists
+    emp_df = emp_df[emp_email_col.isin(emp_emails)].copy()
+    mentor_df = mentor_df[mentor_email_col.isin(mentor_emails)].copy()
+
+    # recompute identity cols after filtering
+    emp_email_col = _df_col(emp_df, "email").astype(str).str.strip().str.lower()
+    mentor_email_col = _df_col(mentor_df, "email").astype(str).str.strip().str.lower()
 
     if emp_df.empty:
         raise RuntimeError("No emprendedoras found for the given emails in this group.")
     if mentor_df.empty:
         raise RuntimeError("No mentoras found for the given emails in this group.")
 
-    # Check missing emails (strict)
-    emp_found = set(emp_df["email"].tolist())
-    mentor_found = set(mentor_df["email"].tolist())
+    # validate all emails found
+    found_emp = set(emp_email_col.tolist())
+    found_mentor = set(mentor_email_col.tolist())
 
-    missing_emp = sorted(set(emp_emails) - emp_found)
-    missing_mentor = sorted(set(mentor_emails) - mentor_found)
-
+    missing_emp = sorted(set(emp_emails) - found_emp)
     if missing_emp:
-        raise RuntimeError(f"Some emprendedora emails were not found in {emp_slug}: {missing_emp[:20]}")
+        raise RuntimeError(f"Some emprendedora emails were not found in {emp_slug}: {missing_emp[:10]}")
+
+    missing_mentor = sorted(set(mentor_emails) - found_mentor)
     if missing_mentor:
-        raise RuntimeError(f"Some mentora emails were not found in {mentor_slug}: {missing_mentor[:20]}")
+        raise RuntimeError(f"Some mentora emails were not found in {mentor_slug}: {missing_mentor[:10]}")
 
     if len(emp_emails) != len(mentor_emails):
         raise RuntimeError(
             f"Counts must match (1-to-1). Emprendedoras={len(emp_emails)} Mentoras={len(mentor_emails)}"
         )
 
-    # Always OpenAI
-    client = _get_openai_client()
+    # ALWAYS use OpenAI
+    api_key = os.getenv("OPENAI_API_KEY") or getattr(settings, "OPENAI_API_KEY", None)
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY not set (required for pairing).")
+    client = OpenAI(api_key=api_key)
 
-    # Precompute availability sets
-    emp_av = {r["email"]: _parse_emp_availability(r.get("preferred_schedule", "")) for _, r in emp_df.iterrows()}
-    mentor_av = {r["email"]: _parse_mentor_availability(r.get("availability_grid", "")) for _, r in mentor_df.iterrows()}
+    # Precompute availability
+    emp_av = {}
+    for _, r in emp_df.iterrows():
+        email = str(_row_get(r, "email", "")).strip().lower()
+        emp_av[email] = _parse_emp_availability(_row_get(r, "preferred_schedule", ""))
 
-    # Speed: index mentors by email
-    mentors_by_email = {r["email"]: r for _, r in mentor_df.iterrows()}
+    mentor_av = {}
+    for _, r in mentor_df.iterrows():
+        email = str(_row_get(r, "email", "")).strip().lower()
+        # your slug should be availability_grid (underscore)
+        mentor_av[email] = _parse_mentor_availability(_row_get(r, "availability_grid", ""))
 
-    def score_pair(emp_row: pd.Series, mentor_row: pd.Series) -> tuple[int, dict]:
-        emp_email = emp_row["email"]
-        mentor_email = mentor_row["email"]
+    # scoring function
+    def score_pair(emp_row, mentor_row):
+        emp_email = str(_row_get(emp_row, "email", "")).strip().lower()
+        mentor_email = str(_row_get(mentor_row, "email", "")).strip().lower()
 
         overlap = sorted(emp_av.get(emp_email, set()).intersection(mentor_av.get(mentor_email, set())))
         if not overlap:
-            return -10_000, {"availability": []}  # required constraint
+            return -10_000, {}  # REQUIRED constraint
 
         score = 0
-        matches: dict = {}
+        matches = {}
 
-        # Availability dominates
+        # availability required: reward more overlaps
         score += 100 + 10 * len(overlap)
         matches["availability"] = overlap
 
-        # Industry
-        emp_ind = _safe_lower(emp_row.get("industry"))
-        mentor_ind = _safe_lower(mentor_row.get("business_industry"))
+        # industry
+        emp_ind = _safe_lower(_row_get(emp_row, "industry", ""))
+        mentor_ind = _safe_lower(_row_get(mentor_row, "business_industry", ""))
         if emp_ind and mentor_ind and emp_ind == mentor_ind:
             score += 30
             matches["industry"] = emp_ind
         else:
             matches["industry"] = "none"
 
-        # Same country only if emprendedora says yes
-        same_country = _safe_lower(emp_row.get("same_country"))
+        # same country only if emp says yes
+        same_country = _safe_lower(_row_get(emp_row, "same_country", ""))
         if same_country == "yes":
-            emp_country = _safe_lower(emp_row.get("country_residence"))
-            mentor_country = _safe_lower(mentor_row.get("country_residence"))
+            emp_country = _safe_lower(_row_get(emp_row, "country_residence", ""))
+            mentor_country = _safe_lower(_row_get(mentor_row, "country_residence", ""))
             if emp_country and mentor_country and emp_country == mentor_country:
                 score += 20
                 matches["country"] = emp_country
@@ -599,26 +609,26 @@ def _pair_one_group(
         else:
             matches["country"] = "none"
 
-        # Business years: mentor >= emprendedora minimum
-        emp_min = _business_age_bucket_to_min_years(emp_row.get("business_age", ""))
-        mentor_max = _mentor_years_to_max_years(mentor_row.get("business_years", ""))
+        # business years: mentor >= emp (rough bucket compare)
+        emp_min = _business_age_bucket_to_min_years(_row_get(emp_row, "business_age", ""))
+        mentor_max = _mentor_years_to_max_years(_row_get(mentor_row, "business_years", ""))
         if mentor_max >= emp_min:
             score += 10
             matches["biz_age"] = f"mentor_max={mentor_max} >= emp_min={emp_min}"
         else:
             matches["biz_age"] = "none"
 
-        # LLM matching (always)
+        # LLM fits (always)
         s1, expl1 = _llm_fit_score(
             client,
-            mentor_text=mentor_row.get("professional_expertise", ""),
-            emp_text=emp_row.get("growth_how", ""),
+            mentor_text=_row_get(mentor_row, "professional_expertise", ""),
+            emp_text=_row_get(emp_row, "growth_how", ""),
             label="expertise vs growth plan",
         )
         s2, expl2 = _llm_fit_score(
             client,
-            mentor_text=mentor_row.get("motivation", ""),
-            emp_text=emp_row.get("biggest_challenge", ""),
+            mentor_text=_row_get(mentor_row, "motivation", ""),
+            emp_text=_row_get(emp_row, "biggest_challenge", ""),
             label="motivation vs challenge",
         )
 
@@ -628,20 +638,30 @@ def _pair_one_group(
 
         return score, matches
 
-    # Greedy assignment (availability constraint makes it behave well)
-    unassigned_mentors = set(mentor_df["email"].tolist())
-    pairs_out = []
+    # Greedy assignment
+    # Build a mentor lookup by email (safe even if duplicates exist)
+    mentor_rows_by_email = {}
+    for _, mr in mentor_df.iterrows():
+        m_email = str(_row_get(mr, "email", "")).strip().lower()
+        # keep first occurrence
+        if m_email and m_email not in mentor_rows_by_email:
+            mentor_rows_by_email[m_email] = mr
 
+    unassigned_mentors = set(mentor_rows_by_email.keys())
+    pairs = []
+
+    # iterate emprendedoras, choose best available mentor
     for i, (_, e) in enumerate(emp_df.iterrows(), start=1):
+        e_email = str(_row_get(e, "email", "")).strip().lower()
         if log_fn:
-            log_fn(f"🔗 Pairing {i}/{len(emp_df)}: {e['email']}")
+            log_fn(f"🔗 Pairing {i}/{len(emp_df)}: {e_email}")
 
         best_email = None
         best_score = -10_000
         best_matches = None
 
         for m_email in list(unassigned_mentors):
-            m = mentors_by_email[m_email]
+            m = mentor_rows_by_email[m_email]
             s, matches = score_pair(e, m)
             if s > best_score:
                 best_score = s
@@ -649,36 +669,43 @@ def _pair_one_group(
                 best_matches = matches
 
         if best_email is None or best_score < 0:
-            raise RuntimeError(f"No valid mentor found with matching availability for emprendedora {e['email']}")
+            raise RuntimeError(f"No valid mentor found with matching availability for emprendedora {e_email}")
 
         unassigned_mentors.remove(best_email)
-        best_m = mentors_by_email[best_email]
+        best = mentor_rows_by_email[best_email]
 
         overlap = best_matches.get("availability", [])
-        pairs_out.append([
-            e.get("name", "") or "",
-            best_m.get("name", "") or "",
-            e.get("email", "") or "",
-            best_m.get("email", "") or "",
-            ", ".join(overlap) if overlap else "none",
-            best_matches.get("industry", "none") or "none",
-            best_matches.get("country", "none") or "none",
-            best_matches.get("biz_age", "none") or "none",
-            best_matches.get("llm1", "none") or "none",
-            best_matches.get("llm2", "none") or "none",
-        ])
+        pairs.append(
+            [
+                _row_get(e, "name", "") or "",
+                _row_get(best, "name", "") or "",
+                e_email,
+                best_email,
+                ", ".join(overlap) if overlap else "none",
+                best_matches.get("industry", "none") or "none",
+                best_matches.get("country", "none") or "none",
+                best_matches.get("biz_age", "none") or "none",
+                best_matches.get("llm1", "none") or "none",
+                best_matches.get("llm2", "none") or "none",
+            ]
+        )
 
-    return pd.DataFrame(pairs_out, columns=PAIR_HEADERS)
+    import pandas as pd
+    return pd.DataFrame(pairs, columns=PAIR_HEADERS)
 
 
 @staff_member_required
 def emparejamiento_home(request):
     group_raw = (request.GET.get("group") or "").strip()
-    selected_group = None
 
     groups = list(FormGroup.objects.order_by("number"))
-    if group_raw.isdigit():
-        selected_group = FormGroup.objects.filter(number=int(group_raw)).first()
+
+    selected_group = None
+    if group_raw:
+        try:
+            selected_group = FormGroup.objects.get(number=int(group_raw))
+        except Exception:
+            selected_group = None
 
     pairing_files = GradedFile.objects.filter(form_slug__startswith="PAIR_G").order_by("-created_at")[:50]
 

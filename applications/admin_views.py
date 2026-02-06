@@ -741,12 +741,16 @@ def run_emparejamiento(request, group_num: int):
         return redirect(f"{reverse('admin_emparejamiento_home')}?group={group_num}")
 
     try:
+        # run pairing
         df = _pair_one_group(
             group_num=group_num,
             emp_emails=emp_list,
             mentor_emails=mentor_list,
             log_fn=None,
         )
+
+        if df is None or df.empty:
+            raise RuntimeError("Pairing produced an empty output.")
 
         csv_text = df.to_csv(index=False)
 
@@ -758,6 +762,10 @@ def run_emparejamiento(request, group_num: int):
         return redirect(f"{reverse('admin_emparejamiento_home')}?group={group_num}")
 
     except Exception as e:
+        # IMPORTANT: log the full traceback to console so you can see it in runserver output
+        import traceback
+        traceback.print_exc()
+
         messages.error(request, f"Pairing failed: {e}")
         return redirect(f"{reverse('admin_emparejamiento_home')}?group={group_num}")
 

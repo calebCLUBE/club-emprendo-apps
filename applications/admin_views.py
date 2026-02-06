@@ -39,7 +39,8 @@ from applications.models import (
     FormGroup,
     Question,
     GradedFile,
-    GradingJob
+    GradingJob,
+    PairingJob
 )
 import logging
 

@@ -791,26 +791,23 @@ def _pair_one_group(
 
 
 
+from django.contrib.admin.views.decorators import staff_member_required
+from django.shortcuts import render
+from applications.models import FormGroup, GradedFile
+
 @staff_member_required
 def emparejamiento_home(request):
-    group_raw = (request.GET.get("group") or "").strip()
-
     groups = list(FormGroup.objects.order_by("number"))
 
+    group_raw = (request.GET.get("group") or "").strip()
     selected_group = None
-    job = None
-    job_id = request.GET.get("job")
 
-    if job_id and job_id.isdigit():
-        job = PairingJob.objects.filter(id=int(job_id)).first()
+    if group_raw.isdigit():
+        selected_group = FormGroup.objects.filter(number=int(group_raw)).first()
 
-    if group_raw:
-        try:
-            selected_group = FormGroup.objects.get(number=int(group_raw))
-        except Exception:
-            selected_group = None
-
-    pairing_files = GradedFile.objects.filter(form_slug__startswith="PAIR_G").order_by("-created_at")[:50]
+    pairing_files = GradedFile.objects.filter(
+        form_slug__startswith="PAIR_G"
+    ).order_by("-created_at")[:50]
 
     return render(
         request,
@@ -819,9 +816,9 @@ def emparejamiento_home(request):
             "groups": groups,
             "selected_group": selected_group,
             "pairing_files": pairing_files,
-            "job": job,   # ✅ THIS IS THE KEY
         },
     )
+
 
 
     

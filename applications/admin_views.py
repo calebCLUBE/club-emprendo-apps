@@ -801,9 +801,14 @@ def emparejamiento_home(request):
 
     group_raw = (request.GET.get("group") or "").strip()
     selected_group = None
+    job = None
 
     if group_raw.isdigit():
         selected_group = FormGroup.objects.filter(number=int(group_raw)).first()
+
+    job_id = (request.GET.get("job") or "").strip()
+    if job_id.isdigit():
+        job = PairingJob.objects.filter(id=int(job_id)).first()
 
     pairing_files = GradedFile.objects.filter(
         form_slug__startswith="PAIR_G"
@@ -816,6 +821,7 @@ def emparejamiento_home(request):
             "groups": groups,
             "selected_group": selected_group,
             "pairing_files": pairing_files,
+            "job": job,
         },
     )
 

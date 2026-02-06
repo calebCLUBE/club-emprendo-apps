@@ -41,7 +41,9 @@ from applications.models import (
     GradedFile,
     GradingJob
 )
+import logging
 
+logger = logging.getLogger(__name__)
 MASTER_SLUGS = ["E_A1", "E_A2", "M_A1", "M_A2"]
 GROUP_SLUG_RE = re.compile(r"^G(?P<num>\d+)_(?P<master>E_A1|E_A2|M_A1|M_A2)$")
 TEST_E_A2_SLUG = "TEST_E_A2"
@@ -388,11 +390,9 @@ def _safe_lower(x):
 
 
 def _llm_fit_score(client: OpenAI, mentor_text: str, emp_text: str, label: str) -> tuple[int, str]:
-    """
-    Returns (score 0-5, reasoning).
-    """
     mentor_text = mentor_text or ""
     emp_text = emp_text or ""
+
     if not mentor_text.strip() or not emp_text.strip():
         return 0, "none"
 
@@ -412,28 +412,46 @@ Output EXACTLY:
 Score: <0-5>
 Reasoning: <2-3 sentences, concise, in English>
 """
-    r = client.chat.completions.create(
-        model="gpt-5.2",
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0,
-        timeout=60,
-    )
 
-    content = (r.choices[0].message.content or "").strip()
-    score = 0
-    reasoning = "none"
+    # Keep this under your gunicorn timeout pressure
+    REQUEST_TIMEOUT = 20
+    MAX_TRIES = 2
 
-    for line in content.splitlines():
-        if line.startswith("Score:"):
-            try:
-                score = int(line.split(":", 1)[1].strip())
-            except Exception:
-                score = 0
-        elif line.startswith("Reasoning:"):
-            reasoning = line.split(":", 1)[1].strip() or "none"
+    last_err = None
+    for attempt in range(1, MAX_TRIES + 1):
+        try:
+            r = client.chat.completions.create(
+                model="gpt-5.2",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0,
+                timeout=REQUEST_TIMEOUT,
+            )
+            content = (r.choices[0].message.content or "").strip()
 
-    score = max(0, min(5, score))
-    return score, reasoning
+            score = 0
+            reasoning = "none"
+            for line in content.splitlines():
+                if line.startswith("Score:"):
+                    try:
+                        score = int(line.split(":", 1)[1].strip())
+                    except Exception:
+                        score = 0
+                elif line.startswith("Reasoning:"):
+                    reasoning = line.split(":", 1)[1].strip() or "none"
+
+            score = max(0, min(5, score))
+            if score == 0:
+                reasoning = "none"
+            return score, reasoning
+
+        except Exception as e:
+            last_err = e
+            # small backoff
+            time.sleep(0.5 * attempt)
+
+    logger.exception("LLM fit scoring failed (label=%s). Last error: %s", label, last_err)
+    return 0, "none"
+
 
 
 def _df_col(df, colname: str):
@@ -651,22 +669,292 @@ def _pair_one_group(
     pairs = []
 
     # iterate emprendedoras, choose best available mentor
-    for i, (_, e) in enumerate(emp_df.iterrows(), start=1):
-        e_email = str(_row_get(e, "email", "")).strip().lower()
-        if log_fn:
-            log_fn(f"🔗 Pairing {i}/{len(emp_df)}: {e_email}")
+    # Cache LLM results so we never re-call for the same pair
+    llm_cache = {}  # key: (mentor_email, emp_email, label) -> (score, reasoning)
 
-        best_email = None
+    TOP_K_FOR_LLM = 3  # only run LLM on top K candidates per emprendedora
+
+    def score_pair_base(emp_row, mentor_row):
+        """
+        Fast scoring without OpenAI. Also enforces required availability overlap.
+        Returns (score, matches_dict) where score < 0 means invalid.
+        """
+        emp_email = emp_row["email"]
+        mentor_email = mentor_row["email"]
+
+        overlap = sorted(emp_av[emp_email].intersection(mentor_av[mentor_email]))
+        if not overlap:
+            return -10_000, {"availability": []}
+
+        score = 0
+        matches = {}
+
+        # availability required: reward more overlaps
+        score += 100 + 10 * len(overlap)
+        matches["availability"] = overlap
+
+        # industry
+        emp_ind = _safe_lower(emp_row.get("industry"))
+        mentor_ind = _safe_lower(mentor_row.get("business_industry"))
+        if emp_ind and mentor_ind and emp_ind == mentor_ind:
+            score += 30
+            matches["industry"] = emp_ind
+        else:
+            matches["industry"] = "none"
+
+        # same country only if emp says yes
+        same_country = _safe_lower(emp_row.get("same_country"))
+        if same_country == "yes":
+            emp_country = _safe_lower(emp_row.get("country_residence"))
+            mentor_country = _safe_lower(mentor_row.get("country_residence"))
+            if emp_country and mentor_country and emp_country == mentor_country:
+                score += 20
+                matches["country"] = emp_country
+            else:
+                matches["country"] = "none"
+        else:
+            matches["country"] = "none"
+
+        # business years: mentor >= emp
+        emp_min = _business_age_bucket_to_min_years(emp_row.get("business_age", ""))
+        mentor_max = _mentor_years_to_max_years(mentor_row.get("business_years", ""))
+        if mentor_max >= emp_min:
+            score += 10
+            matches["biz_age"] = f"mentor_max={mentor_max} >= emp_min={emp_min}"
+        else:
+            matches["biz_age"] = "none"
+
+        return score, matches
+
+    def add_llm_score(emp_row, mentor_row, score, matches):
+        """
+        Runs OpenAI only for already-good candidates.
+        Adds weighted LLM score and explanations.
+        """
+        emp_email = emp_row["email"]
+        mentor_email = mentor_row["email"]
+
+        # LLM 1
+        key1 = (mentor_email, emp_email, "expertise_vs_growth")
+        if key1 in llm_cache:
+            s1, expl1 = llm_cache[key1]
+        else:
+            s1, expl1 = _llm_fit_score(
+                client,
+                mentor_text=mentor_row.get("professional_expertise", ""),
+                emp_text=emp_row.get("growth_how", ""),
+                label="expertise vs growth plan",
+            )
+            llm_cache[key1] = (s1, expl1)
+
+        # LLM 2
+        key2 = (mentor_email, emp_email, "motivation_vs_challenge")
+        if key2 in llm_cache:
+            s2, expl2 = llm_cache[key2]
+        else:
+            s2, expl2 = _llm_fit_score(
+                client,
+                mentor_text=mentor_row.get("motivation", ""),
+                emp_text=emp_row.get("biggest_challenge", ""),
+                label="motivation vs challenge",
+            )
+            llm_cache[key2] = (s2, expl2)
+
+        score += 6 * s1 + 6 * s2
+        matches["llm1"] = expl1 if s1 > 0 else "none"
+        matches["llm2"] = expl2 if s2 > 0 else "none"
+        return score, matches
+
+    # Greedy assignment with LLM only on top candidates
+    unassigned_mentors = set(mentor_df["email"].tolist())
+    pairs = []
+
+    # Cache LLM results so we never re-call for the same pair
+    llm_cache = {}  # key: (mentor_email, emp_email, label) -> (score, reasoning)
+
+    TOP_K_FOR_LLM = 3  # only run LLM on top K candidates per emprendedora
+
+    def score_pair_base(emp_row, mentor_row):
+        """
+        Fast scoring without OpenAI. Also enforces required availability overlap.
+        Returns (score, matches_dict) where score < 0 means invalid.
+        """
+        emp_email = emp_row["email"]
+        mentor_email = mentor_row["email"]
+
+        overlap = sorted(emp_av[emp_email].intersection(mentor_av[mentor_email]))
+        if not overlap:
+            return -10_000, {"availability": []}
+
+        score = 0
+        matches = {}
+
+        # availability required: reward more overlaps
+        score += 100 + 10 * len(overlap)
+        matches["availability"] = overlap
+
+        # industry
+        emp_ind = _safe_lower(emp_row.get("industry"))
+        mentor_ind = _safe_lower(mentor_row.get("business_industry"))
+        if emp_ind and mentor_ind and emp_ind == mentor_ind:
+            score += 30
+            matches["industry"] = emp_ind
+        else:
+            matches["industry"] = "none"
+
+        # same country only if emp says yes
+        same_country = _safe_lower(emp_row.get("same_country"))
+        if same_country == "yes":
+            emp_country = _safe_lower(emp_row.get("country_residence"))
+            mentor_country = _safe_lower(mentor_row.get("country_residence"))
+            if emp_country and mentor_country and emp_country == mentor_country:
+                score += 20
+                matches["country"] = emp_country
+            else:
+                matches["country"] = "none"
+        else:
+            matches["country"] = "none"
+
+        # business years: mentor >= emp
+        emp_min = _business_age_bucket_to_min_years(emp_row.get("business_age", ""))
+        mentor_max = _mentor_years_to_max_years(mentor_row.get("business_years", ""))
+        if mentor_max >= emp_min:
+            score += 10
+            matches["biz_age"] = f"mentor_max={mentor_max} >= emp_min={emp_min}"
+        else:
+            matches["biz_age"] = "none"
+
+        return score, matches
+
+    def add_llm_score(emp_row, mentor_row, score, matches):
+        """
+        Runs OpenAI only for already-good candidates.
+        Adds weighted LLM score and explanations.
+        """
+        emp_email = emp_row["email"]
+        mentor_email = mentor_row["email"]
+
+        # LLM 1
+        key1 = (mentor_email, emp_email, "expertise_vs_growth")
+        if key1 in llm_cache:
+            s1, expl1 = llm_cache[key1]
+        else:
+            s1, expl1 = _llm_fit_score(
+                client,
+                mentor_text=mentor_row.get("professional_expertise", ""),
+                emp_text=emp_row.get("growth_how", ""),
+                label="expertise vs growth plan",
+            )
+            llm_cache[key1] = (s1, expl1)
+
+        # LLM 2
+        key2 = (mentor_email, emp_email, "motivation_vs_challenge")
+        if key2 in llm_cache:
+            s2, expl2 = llm_cache[key2]
+        else:
+            s2, expl2 = _llm_fit_score(
+                client,
+                mentor_text=mentor_row.get("motivation", ""),
+                emp_text=emp_row.get("biggest_challenge", ""),
+                label="motivation vs challenge",
+            )
+            llm_cache[key2] = (s2, expl2)
+
+        score += 6 * s1 + 6 * s2
+        matches["llm1"] = expl1 if s1 > 0 else "none"
+        matches["llm2"] = expl2 if s2 > 0 else "none"
+        return score, matches
+
+    # Greedy assignment with LLM only on top candidates
+    unassigned_mentors = set(mentor_df["email"].tolist())
+    pairs = []
+
+    for i, (_, e) in enumerate(emp_df.iterrows(), start=1):
+        if log_fn:
+            log_fn(f"🔗 Pairing {i}/{len(emp_df)}: {e['email']}")
+
+        # 1) base-score all mentors fast
+        scored = []
+        for m_email in list(unassigned_mentors):
+            m = mentor_df[mentor_df["email"] == m_email].iloc[0]
+            base_score, base_matches = score_pair_base(e, m)
+            if base_score > -10_000:
+                scored.append((base_score, m, base_matches))
+
+        if not scored:
+            raise RuntimeError(f"No valid mentor found with matching availability for emprendedora {e['email']}")
+
+        scored.sort(key=lambda x: x[0], reverse=True)
+
+        # 2) run LLM only on top K
+        top = scored[:TOP_K_FOR_LLM]
         best_score = -10_000
+        best_m = None
         best_matches = None
 
-        for m_email in list(unassigned_mentors):
-            m = mentor_rows_by_email[m_email]
-            s, matches = score_pair(e, m)
-            if s > best_score:
-                best_score = s
-                best_email = m_email
-                best_matches = matches
+        for base_score, m, base_matches in top:
+            final_score, final_matches = add_llm_score(e, m, base_score, base_matches)
+            if final_score > best_score:
+                best_score = final_score
+                best_m = m
+                best_matches = final_matches
+
+        if best_m is None:
+            raise RuntimeError(f"No valid mentor found after LLM scoring for emprendedora {e['email']}")
+
+        unassigned_mentors.remove(best_m["email"])
+
+        overlap = best_matches.get("availability", [])
+        pairs.append([
+            e.get("name", ""),
+            best_m.get("name", ""),
+            e.get("email", ""),
+            best_m.get("email", ""),
+            ", ".join(overlap) if overlap else "none",
+            best_matches.get("industry", "none") or "none",
+            best_matches.get("country", "none") or "none",
+            best_matches.get("biz_age", "none") or "none",
+            best_matches.get("llm1", "none") or "none",
+            best_matches.get("llm2", "none") or "none",
+        ])
+
+
+        if not scored:
+            raise RuntimeError(f"No valid mentor found with matching availability for emprendedora {e['email']}")
+
+        scored.sort(key=lambda x: x[0], reverse=True)
+
+        # 2) run LLM only on top K
+        top = scored[:TOP_K_FOR_LLM]
+        best_score = -10_000
+        best_m = None
+        best_matches = None
+
+        for base_score, m, base_matches in top:
+            final_score, final_matches = add_llm_score(e, m, base_score, base_matches)
+            if final_score > best_score:
+                best_score = final_score
+                best_m = m
+                best_matches = final_matches
+
+        if best_m is None:
+            raise RuntimeError(f"No valid mentor found after LLM scoring for emprendedora {e['email']}")
+
+        unassigned_mentors.remove(best_m["email"])
+
+        overlap = best_matches.get("availability", [])
+        pairs.append([
+            e.get("name", ""),
+            best_m.get("name", ""),
+            e.get("email", ""),
+            best_m.get("email", ""),
+            ", ".join(overlap) if overlap else "none",
+            best_matches.get("industry", "none") or "none",
+            best_matches.get("country", "none") or "none",
+            best_matches.get("biz_age", "none") or "none",
+            best_matches.get("llm1", "none") or "none",
+            best_matches.get("llm2", "none") or "none",
+        ])
 
         if best_email is None or best_score < 0:
             raise RuntimeError(f"No valid mentor found with matching availability for emprendedora {e_email}")

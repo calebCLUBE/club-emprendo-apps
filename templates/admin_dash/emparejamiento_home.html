@@ -59,3 +59,24 @@
 </div>
 {% endblock %}
 
+{% if job %}
+  <h3 style="margin-top:20px;">Emparejamiento log</h3>
+
+  <div style="
+    background:#0b1020;
+    color:#e5e7eb;
+    padding:14px;
+    border-radius:10px;
+    font-family:monospace;
+    white-space:pre-wrap;
+    max-height:420px;
+    overflow:auto;
+  ">
+{{ job.log_text }}
+  </div>
+
+  <p style="margin-top:8px;">
+    Status:
+    <strong>{{ job.status }}</strong>
+  </p>
+{% endif %}

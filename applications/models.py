@@ -281,3 +281,25 @@ class GradingJob(models.Model):
     def __str__(self) -> str:
         target = self.form_slug or f"app {self.app_id}"
         return f"GradingJob #{self.id} [{self.status}] → {target}"
+class PairingJob(models.Model):
+    STATUS_QUEUED = "queued"
+    STATUS_RUNNING = "running"
+    STATUS_DONE = "done"
+    STATUS_FAILED = "failed"
+
+    STATUS_CHOICES = [
+        (STATUS_QUEUED, "Queued"),
+        (STATUS_RUNNING, "Running"),
+        (STATUS_DONE, "Done"),
+        (STATUS_FAILED, "Failed"),
+    ]
+
+    group_number = models.IntegerField()
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_QUEUED)
+    log_text = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def append_log(self, msg: str):
+        self.log_text += msg.rstrip() + "\n"
+        self.save(update_fields=["log_text", "updated_at"])

@@ -797,6 +797,12 @@ def emparejamiento_home(request):
     groups = list(FormGroup.objects.order_by("number"))
 
     selected_group = None
+    job = None
+    job_id = request.GET.get("job")
+
+    if job_id and job_id.isdigit():
+        job = PairingJob.objects.filter(id=int(job_id)).first()
+
     if group_raw:
         try:
             selected_group = FormGroup.objects.get(number=int(group_raw))
@@ -812,8 +818,12 @@ def emparejamiento_home(request):
             "groups": groups,
             "selected_group": selected_group,
             "pairing_files": pairing_files,
+            "job": job,   # ✅ THIS IS THE KEY
         },
     )
+
+
+    
 
 
 @staff_member_required
@@ -825,28 +835,26 @@ def run_emparejamiento(request, group_num: int):
     mentor_list = _norm_email_list(mentoras_emails)
     emp_list = _norm_email_list(emprendedoras_emails)
 
-    if not mentor_list or not emp_list:
-        messages.error(request, "Both email lists are required.")
-        return redirect(f"{reverse('admin_emparejamiento_home')}?group={group_num}")
-
-    if len(mentor_list) != len(emp_list):
-        messages.error(
-            request,
-            f"Counts must match (1-to-1). Emprendedoras={len(emp_list)} Mentoras={len(mentor_list)}"
-        )
-        return redirect(f"{reverse('admin_emparejamiento_home')}?group={group_num}")
+    job = PairingJob.objects.create(
+        group_number=group_num,
+        status=PairingJob.STATUS_QUEUED,
+    )
 
     try:
-        # run pairing
+        job.status = PairingJob.STATUS_RUNNING
+        job.save(update_fields=["status"])
+
+        _pair_log(job, "✅ Starting emparejamiento job")
+        _pair_log(job, f"Group: {group_num}")
+        _pair_log(job, f"Mentoras: {len(mentor_list)}")
+        _pair_log(job, f"Emprendedoras: {len(emp_list)}")
+
         df = _pair_one_group(
             group_num=group_num,
             emp_emails=emp_list,
             mentor_emails=mentor_list,
-            log_fn=None,
+            log_fn=lambda m: _pair_log(job, m),
         )
-
-        if df is None or df.empty:
-            raise RuntimeError("Pairing produced an empty output.")
 
         csv_text = df.to_csv(index=False)
 
@@ -854,16 +862,20 @@ def run_emparejamiento(request, group_num: int):
         GradedFile.objects.filter(form_slug=form_slug).delete()
         gf = GradedFile.objects.create(form_slug=form_slug, csv_text=csv_text)
 
-        messages.success(request, f"Pairing completed. Output stored (id={gf.id}).")
-        return redirect(f"{reverse('admin_emparejamiento_home')}?group={group_num}")
+        _pair_log(job, f"📄 CSV saved (GradedFile id={gf.id})")
 
-    except Exception as e:
-        # IMPORTANT: log the full traceback to console so you can see it in runserver output
+        job.status = PairingJob.STATUS_DONE
+        job.save(update_fields=["status"])
+        _pair_log(job, "✅ Emparejamiento completed successfully")
+
+    except Exception:
         import traceback
-        traceback.print_exc()
+        _pair_log(job, "❌ Emparejamiento failed")
+        _pair_log(job, traceback.format_exc())
+        job.status = PairingJob.STATUS_FAILED
+        job.save(update_fields=["status"])
 
-        messages.error(request, f"Pairing failed: {e}")
-        return redirect(f"{reverse('admin_emparejamiento_home')}?group={group_num}")
+    return redirect(f"{reverse('admin_emparejamiento_home')}?group={group_num}&job={job.id}")
 
 
 # ----------------------------
@@ -1079,6 +1091,9 @@ def _csv_preview_html(headers: List[str], rows: List[List[str]], max_rows: int =
         f"<p style='margin-top:8px;color:#666;font-size:12px;'>Showing up to {max_rows} rows.</p>"
     )
 
+def _pair_log(job: PairingJob, msg: str):
+    print(msg, flush=True)          # shows in Render logs
+    job.append_log(msg)
 
 # ----------------------------
 # Toggle (open/closed) for display — your "toggle-form" URL

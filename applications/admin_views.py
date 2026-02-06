@@ -730,8 +730,23 @@ def _pair_one_group(
                 scored.append((base_score, m_email, m, base_matches))
 
         if not scored:
-            raise RuntimeError(f"No valid mentor found with matching availability for emprendedora {e_email}")
+        # ⚠️ No availability match found — DO NOT FAIL
+        # Pick any remaining mentor and mark availability as NO MATCH FOUND
 
+            fallback_email = next(iter(unassigned_mentors))
+            fallback_m = mentor_rows_by_email[fallback_email]
+
+            best_email = fallback_email
+            best_m = fallback_m
+            best_matches = {
+                "availability": ["NO MATCH FOUND"],
+                "industry": "none",
+                "country": "none",
+                "biz_age": "none",
+                "llm1": "none",
+                "llm2": "none",
+            }
+            best_score = 0
         scored.sort(key=lambda x: x[0], reverse=True)
 
         # 2) run LLM only on top K

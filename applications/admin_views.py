@@ -899,40 +899,12 @@ def run_emparejamiento(request, group_num: int):
         status=PairingJob.STATUS_QUEUED,
     )
 
-    try:
-        job.status = PairingJob.STATUS_RUNNING
-        job.save(update_fields=["status"])
-
-        _pair_log(job, "✅ Starting emparejamiento job")
-        _pair_log(job, f"Group: {group_num}")
-        _pair_log(job, f"Mentoras: {len(mentor_list)}")
-        _pair_log(job, f"Emprendedoras: {len(emp_list)}")
-
-        df = _pair_one_group(
-            group_num=group_num,
-            emp_emails=emp_list,
-            mentor_emails=mentor_list,
-            log_fn=lambda m: _pair_log(job, m),
-        )
-
-        csv_text = df.to_csv(index=False)
-
-        form_slug = f"PAIR_G{group_num}"
-        GradedFile.objects.filter(form_slug=form_slug).delete()
-        gf = GradedFile.objects.create(form_slug=form_slug, csv_text=csv_text)
-
-        _pair_log(job, f"📄 CSV saved (GradedFile id={gf.id})")
-
-        job.status = PairingJob.STATUS_DONE
-        job.save(update_fields=["status"])
-        _pair_log(job, "✅ Emparejamiento completed successfully")
-
-    except Exception:
-        import traceback
-        _pair_log(job, "❌ Emparejamiento failed")
-        _pair_log(job, traceback.format_exc())
-        job.status = PairingJob.STATUS_FAILED
-        job.save(update_fields=["status"])
+    t = threading.Thread(
+        target=_run_pair_job,
+        args=(job.id, group_num, emp_list, mentor_list),
+        daemon=True,
+    )
+    t.start()
 
     return redirect(f"{reverse('admin_emparejamiento_home')}?group={group_num}&job={job.id}")
 
@@ -1153,6 +1125,44 @@ def _csv_preview_html(headers: List[str], rows: List[List[str]], max_rows: int =
 def _pair_log(job: PairingJob, msg: str):
     print(msg, flush=True)          # shows in Render logs
     job.append_log(msg)
+
+
+def _run_pair_job(job_id: int, group_num: int, emp_list: list[str], mentor_list: list[str]):
+    job = PairingJob.objects.get(id=job_id)
+    try:
+        job.status = PairingJob.STATUS_RUNNING
+        job.save(update_fields=["status"])
+
+        _pair_log(job, "✅ Starting emparejamiento job")
+        _pair_log(job, f"Group: {group_num}")
+        _pair_log(job, f"Mentoras: {len(mentor_list)}")
+        _pair_log(job, f"Emprendedoras: {len(emp_list)}")
+
+        df = _pair_one_group(
+            group_num=group_num,
+            emp_emails=emp_list,
+            mentor_emails=mentor_list,
+            log_fn=lambda m: _pair_log(job, m),
+        )
+
+        csv_text = df.to_csv(index=False)
+
+        form_slug = f"PAIR_G{group_num}"
+        GradedFile.objects.filter(form_slug=form_slug).delete()
+        gf = GradedFile.objects.create(form_slug=form_slug, csv_text=csv_text)
+
+        _pair_log(job, f"📄 CSV saved (GradedFile id={gf.id})")
+
+        job.status = PairingJob.STATUS_DONE
+        job.save(update_fields=["status"])
+        _pair_log(job, "✅ Emparejamiento completed successfully")
+
+    except Exception:
+        import traceback
+        _pair_log(job, "❌ Emparejamiento failed")
+        _pair_log(job, traceback.format_exc())
+        job.status = PairingJob.STATUS_FAILED
+        job.save(update_fields=["status"])
 
 # ----------------------------
 # Toggle (open/closed) for display — your "toggle-form" URL

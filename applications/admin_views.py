@@ -567,25 +567,38 @@ def _pair_one_group(
     mentor_email_col = _df_col(mentor_df, "email").astype(str).str.strip().str.lower()
 
     if emp_df.empty:
-        raise RuntimeError("No emprendedoras found for the given emails in this group.")
+        if log_fn:
+            log_fn(f"⚠️ No emprendedoras found for the given emails in {emp_slug}. Returning empty pairing file.")
+        import pandas as pd
+        return pd.DataFrame(columns=PAIR_HEADERS)
     if mentor_df.empty:
-        raise RuntimeError("No mentoras found for the given emails in this group.")
+        if log_fn:
+            log_fn(f"⚠️ No mentoras found for the given emails in {mentor_slug}. Returning empty pairing file.")
+        import pandas as pd
+        return pd.DataFrame(columns=PAIR_HEADERS)
 
     # validate all emails found
     found_emp = set(emp_email_col.tolist())
     found_mentor = set(mentor_email_col.tolist())
 
     missing_emp = sorted(set(emp_emails_norm) - found_emp)
-    if missing_emp:
-        raise RuntimeError(f"Some emprendedora emails were not found in {emp_slug}: {missing_emp[:10]}")
+    if missing_emp and log_fn:
+        log_fn(f"⚠️ Missing emprendedora emails in {emp_slug}: {missing_emp[:10]} (total {len(missing_emp)})")
 
     missing_mentor = sorted(set(mentor_emails_norm) - found_mentor)
-    if missing_mentor:
-        raise RuntimeError(f"Some mentora emails were not found in {mentor_slug}: {missing_mentor[:10]}")
+    if missing_mentor and log_fn:
+        log_fn(f"⚠️ Missing mentora emails in {mentor_slug}: {missing_mentor[:10]} (total {len(missing_mentor)})")
 
-    if len(emp_emails_norm) != len(mentor_emails_norm):
-        raise RuntimeError(
-            f"Counts must match (1-to-1). Emprendedoras={len(emp_emails_norm)} Mentoras={len(mentor_emails_norm)}"
+    if len(emp_emails_norm) != len(mentor_emails_norm) and log_fn:
+        log_fn(
+            f"⚠️ Requested counts differ (1-to-1 expected). "
+            f"Emprendedoras={len(emp_emails_norm)} Mentoras={len(mentor_emails_norm)}. "
+            "Will pair only the rows found."
+        )
+    if len(emp_df) != len(mentor_df) and log_fn:
+        log_fn(
+            f"⚠️ After filtering, counts differ: emprendedoras={len(emp_df)}, mentoras={len(mentor_df)}. "
+            "Extra entries will remain unmatched."
         )
 
     # ALWAYS use OpenAI
@@ -714,11 +727,31 @@ def _pair_one_group(
         return score, matches
 
     pairs = []
+    unmatched_emps = []
 
     for i, (_, e) in enumerate(emp_df.iterrows(), start=1):
         e_email = str(_row_get(e, "email", "")).strip().lower()
         if log_fn:
             log_fn(f"🔗 Pairing {i}/{len(emp_df)}: {e_email}")
+
+        if not unassigned_mentors:
+            # no mentors left to assign — record unmatched and continue
+            unmatched_emps.append(e_email)
+            pairs.append(
+                [
+                    _row_get(e, "name", "") or "",
+                    "NO MENTOR FOUND",
+                    e_email,
+                    "none",
+                    "none",
+                    "none",
+                    "none",
+                    "none",
+                    "none",
+                    "none",
+                ]
+            )
+            continue
 
         # 1) base-score all mentors fast
         scored = []
@@ -787,6 +820,13 @@ def _pair_one_group(
         )
 
     import pandas as pd
+
+    if unmatched_emps and log_fn:
+        log_fn(f"⚠️ No mentors were available for: {unmatched_emps[:10]} (total {len(unmatched_emps)})")
+    if unassigned_mentors and log_fn:
+        remaining = sorted(list(unassigned_mentors))
+        log_fn(f"⚠️ Mentoras left unmatched: {remaining[:10]} (total {len(remaining)})")
+
     return pd.DataFrame(pairs, columns=PAIR_HEADERS)
 
 

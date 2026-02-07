@@ -474,6 +474,12 @@ def _row_get(row, colname: str, default=""):
     """
     try:
         v = row.get(colname, default)
+        # If duplicate column labels existed, pandas Series may be returned; take first value.
+        if hasattr(v, "iloc"):
+            try:
+                v = v.iloc[0]
+            except Exception:
+                v = v.values[0] if hasattr(v, "values") and len(getattr(v, "values", [])) else default
     except Exception:
         v = default
     return v
@@ -814,7 +820,38 @@ def _pair_one_group(
                 best_matches = final_matches
 
         if best_email is None or best_m is None or best_score < 0:
-            raise RuntimeError(f"No valid mentor found after LLM scoring for emprendedora {e_email}")
+            # if LLM scoring eliminates all options, fall back to any remaining mentor
+            fallback_email = next((m for m in unassigned_mentors if m in mentor_rows_by_email), None)
+            if fallback_email is None:
+                unmatched_emps.append(e_email)
+                pairs.append(
+                    [
+                        _row_get(e, "name", "") or "",
+                        "NO MENTOR FOUND",
+                        e_email,
+                        "none",
+                        "none",
+                        "none",
+                        "none",
+                        "none",
+                        "none",
+                        "none",
+                    ]
+                )
+                continue
+
+            fallback_m = mentor_rows_by_email.get(fallback_email)
+            best_email = fallback_email
+            best_m = fallback_m
+            best_matches = {
+                "availability": ["NO MATCH FOUND"],
+                "industry": "none",
+                "country": "none",
+                "biz_age": "none",
+                "llm1": "none",
+                "llm2": "none",
+            }
+            best_score = 0
 
         unassigned_mentors.remove(best_email)
 

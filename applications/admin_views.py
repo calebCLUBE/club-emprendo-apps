@@ -625,10 +625,8 @@ def _pair_one_group(
         if m_email and m_email not in mentor_rows_by_email:
             mentor_rows_by_email[m_email] = mr
 
-    # IMPORTANT FIX: .tolist() must be called on a Series, not a DataFrame
-    unassigned_mentors = set(
-        _df_col(mentor_df, "email").astype(str).str.strip().str.lower().tolist()
-    )
+    # Use only mentors with non-empty normalized email
+    unassigned_mentors = set(mentor_rows_by_email.keys())
 
     # Cache LLM results so we never re-call for the same pair
     llm_cache = {}  # key: (mentor_email, emp_email, label) -> (score, reasoning)
@@ -764,11 +762,28 @@ def _pair_one_group(
                 scored.append((base_score, m_email, m, base_matches))
 
         if not scored:
-        # ⚠️ No availability match found — DO NOT FAIL
-        # Pick any remaining mentor and mark availability as NO MATCH FOUND
+            # ⚠️ No availability match found — DO NOT FAIL
+            # Pick any remaining mentor (with a valid row) and mark availability as NO MATCH FOUND
+            fallback_email = next((m for m in unassigned_mentors if m in mentor_rows_by_email), None)
+            if fallback_email is None:
+                unmatched_emps.append(e_email)
+                pairs.append(
+                    [
+                        _row_get(e, "name", "") or "",
+                        "NO MENTOR FOUND",
+                        e_email,
+                        "none",
+                        "none",
+                        "none",
+                        "none",
+                        "none",
+                        "none",
+                        "none",
+                    ]
+                )
+                continue
 
-            fallback_email = next(iter(unassigned_mentors))
-            fallback_m = mentor_rows_by_email[fallback_email]
+            fallback_m = mentor_rows_by_email.get(fallback_email)
 
             best_email = fallback_email
             best_m = fallback_m

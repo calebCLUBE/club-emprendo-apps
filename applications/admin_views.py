@@ -303,6 +303,8 @@ PAIR_HEADERS = [
     "mentora_email",
     "matching_availability",
     "matching_industry",
+    "emprendedora_industry",
+    "mentora_industry",
     "matching_country",
     "business_age_matching",
     "expertise_growth_matching",
@@ -606,6 +608,8 @@ def _pair_one_group(
             f"⚠️ After filtering, counts differ: emprendedoras={len(emp_df)}, mentoras={len(mentor_df)}. "
             "Extra entries will remain unmatched."
         )
+    if log_fn:
+        log_fn(f"🚦 Starting pairing loop for {len(emp_df)} emprendedoras vs {len(mentor_df)} mentoras.")
 
     # ALWAYS use OpenAI
     api_key = os.getenv("OPENAI_API_KEY") or getattr(settings, "OPENAI_API_KEY", None)
@@ -661,6 +665,8 @@ def _pair_one_group(
         # industry
         emp_ind = _safe_lower(_row_get(emp_row, "industry", ""))
         mentor_ind = _safe_lower(_row_get(mentor_row, "business_industry", ""))
+        matches["emp_industry_val"] = _row_get(emp_row, "industry", "") or ""
+        matches["mentor_industry_val"] = _row_get(mentor_row, "business_industry", "") or ""
         if emp_ind and mentor_ind and emp_ind == mentor_ind:
             score += 30
             matches["industry"] = emp_ind
@@ -748,6 +754,8 @@ def _pair_one_group(
                     e_email,
                     "none",
                     "none",
+                    "",
+                    "",
                     "none",
                     "none",
                     "none",
@@ -778,13 +786,15 @@ def _pair_one_group(
                         _row_get(e, "name", "") or "",
                         "NO MENTOR FOUND",
                         e_email,
-                        "none",
-                        "none",
-                        "none",
-                        "none",
-                        "none",
-                        "none",
-                        "none",
+                        "none",  # mentora email placeholder
+                        "none",  # availability
+                        "none",  # matching industry
+                        _row_get(e, "industry", "") or "",  # emprendedora industry
+                        "",  # mentora industry
+                        "none",  # country
+                        "none",  # business age
+                        "none",  # llm1
+                        "none",  # llm2
                     ]
                 )
                 continue
@@ -796,6 +806,8 @@ def _pair_one_group(
             best_matches = {
                 "availability": ["NO MATCH FOUND"],
                 "industry": "none",
+                "emp_industry_val": _row_get(e, "industry", "") or "",
+                "mentor_industry_val": _row_get(fallback_m, "business_industry", "") or "",
                 "country": "none",
                 "biz_age": "none",
                 "llm1": "none",
@@ -829,13 +841,15 @@ def _pair_one_group(
                         _row_get(e, "name", "") or "",
                         "NO MENTOR FOUND",
                         e_email,
-                        "none",
-                        "none",
-                        "none",
-                        "none",
-                        "none",
-                        "none",
-                        "none",
+                        "none",  # mentora email placeholder
+                        "none",  # availability
+                        "none",  # matching industry
+                        _row_get(e, "industry", "") or "",  # emprendedora industry
+                        "",  # mentora industry
+                        "none",  # country
+                        "none",  # business age
+                        "none",  # llm1
+                        "none",  # llm2
                     ]
                 )
                 continue
@@ -846,6 +860,8 @@ def _pair_one_group(
             best_matches = {
                 "availability": ["NO MATCH FOUND"],
                 "industry": "none",
+                "emp_industry_val": _row_get(e, "industry", "") or "",
+                "mentor_industry_val": _row_get(fallback_m, "business_industry", "") or "",
                 "country": "none",
                 "biz_age": "none",
                 "llm1": "none",
@@ -864,6 +880,8 @@ def _pair_one_group(
                 best_email,
                 ", ".join(overlap) if overlap else "none",
                 best_matches.get("industry", "none") or "none",
+                best_matches.get("emp_industry_val", "") or "",
+                best_matches.get("mentor_industry_val", "") or "",
                 best_matches.get("country", "none") or "none",
                 best_matches.get("biz_age", "none") or "none",
                 best_matches.get("llm1", "none") or "none",
@@ -878,6 +896,12 @@ def _pair_one_group(
     if unassigned_mentors and log_fn:
         remaining = sorted(list(unassigned_mentors))
         log_fn(f"⚠️ Mentoras left unmatched: {remaining[:10]} (total {len(remaining)})")
+    if missing_emp and log_fn:
+        log_fn(f"📌 Missing emprendedoras (not found in master CSV): {missing_emp[:10]} (total {len(missing_emp)})")
+    if missing_mentor and log_fn:
+        log_fn(f"📌 Missing mentoras (not found in master CSV): {missing_mentor[:10]} (total {len(missing_mentor)})")
+    if log_fn:
+        log_fn(f"✅ Pairing complete. Output rows: {len(pairs)}.")
 
     return pd.DataFrame(pairs, columns=PAIR_HEADERS)
 

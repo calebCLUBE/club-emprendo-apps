@@ -18,7 +18,7 @@ from django.contrib import messages
 from django.contrib.admin.views.decorators import staff_member_required
 from django.core.files.storage import default_storage
 from django.core.mail import EmailMultiAlternatives, get_connection
-from django.db import transaction
+from django.db import transaction, DatabaseError
 from django.db.models import Model, Count, Q
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -938,11 +938,17 @@ def emparejamiento_home(request):
 
     job_id = (request.GET.get("job") or "").strip()
     if job_id.isdigit():
-        job = PairingJob.objects.filter(id=int(job_id)).first()
+        try:
+            job = PairingJob.objects.filter(id=int(job_id)).first()
+        except DatabaseError:
+            job = None
 
-    pairing_files = GradedFile.objects.filter(
-        form_slug__startswith="PAIR_G"
-    ).order_by("-created_at")[:50]
+    try:
+        pairing_files = GradedFile.objects.filter(
+            form_slug__startswith="PAIR_G"
+        ).order_by("-created_at")[:50]
+    except DatabaseError:
+        pairing_files = []
 
     return render(
         request,

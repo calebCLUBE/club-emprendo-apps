@@ -55,7 +55,11 @@
     <script>
       // auto-refresh every 2 seconds while job is running/queued
       (function() {
-        const status = "{{ job.status|default:\"\" }}".toLowerCase();
+        {% if job.status %}
+        const status = "{{ job.status }}".toLowerCase();
+        {% else %}
+        const status = "";
+        {% endif %}
         if (status === "queued" || status === "running") {
           setTimeout(function() {
             const url = new URL(window.location.href);

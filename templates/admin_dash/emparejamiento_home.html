@@ -52,6 +52,20 @@
   {% if job %}
     <h3 style="margin-top:20px;">Emparejamiento log</h3>
 
+    <script>
+      // auto-refresh every 2 seconds while job is running/queued
+      (function() {
+        const status = "{{ job.status|default:\"\" }}".toLowerCase();
+        if (status === "queued" || status === "running") {
+          setTimeout(function() {
+            const url = new URL(window.location.href);
+            url.searchParams.set("job", "{{ job.id }}");
+            window.location.href = url.toString();
+          }, 2000);
+        }
+      })();
+    </script>
+
     <div style="
       background:#0b1020;
       color:#e5e7eb;

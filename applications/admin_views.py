@@ -574,6 +574,20 @@ def _pair_one_group(
     emp_email_col = _df_col(emp_df, "email").astype(str).str.strip().str.lower()
     mentor_email_col = _df_col(mentor_df, "email").astype(str).str.strip().str.lower()
 
+    # drop duplicates by normalized email to avoid double-counting rows from master CSV
+    emp_dup_count = emp_email_col.duplicated().sum()
+    mentor_dup_count = mentor_email_col.duplicated().sum()
+    if emp_dup_count and log_fn:
+        log_fn(f"ℹ️ Deduping emprendedoras by email: removed {emp_dup_count} duplicate rows.")
+    if mentor_dup_count and log_fn:
+        log_fn(f"ℹ️ Deduping mentoras by email: removed {mentor_dup_count} duplicate rows.")
+    emp_df = emp_df.loc[~emp_email_col.duplicated()].copy()
+    mentor_df = mentor_df.loc[~mentor_email_col.duplicated()].copy()
+
+    # recompute identity cols after dedup
+    emp_email_col = _df_col(emp_df, "email").astype(str).str.strip().str.lower()
+    mentor_email_col = _df_col(mentor_df, "email").astype(str).str.strip().str.lower()
+
     if emp_df.empty:
         if log_fn:
             log_fn(f"⚠️ No emprendedoras found for the given emails in {emp_slug}. Returning empty pairing file.")

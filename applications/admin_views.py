@@ -558,6 +558,16 @@ def _pair_one_group(
     emp_df = _build_master_df_for_form(emp_fd)
     mentor_df = _build_master_df_for_form(mentor_fd)
 
+    # determine question columns (keep identity columns out)
+    ID_COLS = {"created_at", "application_id", "name", "email"}
+    emp_question_cols = [c for c in emp_df.columns if c not in ID_COLS]
+    mentor_question_cols = [c for c in mentor_df.columns if c not in ID_COLS]
+
+    emp_suffix_headers = [f"{c}_emprendedora" for c in emp_question_cols]
+    mentor_suffix_headers = [f"{c}_mentora" for c in mentor_question_cols]
+    base_headers = PAIR_HEADERS
+    full_headers = base_headers + emp_suffix_headers + mentor_suffix_headers
+
     # normalize incoming email lists once
     emp_emails_norm = [str(x).strip().lower() for x in (emp_emails or []) if str(x).strip()]
     mentor_emails_norm = [str(x).strip().lower() for x in (mentor_emails or []) if str(x).strip()]
@@ -592,12 +602,12 @@ def _pair_one_group(
         if log_fn:
             log_fn(f"⚠️ No emprendedoras found for the given emails in {emp_slug}. Returning empty pairing file.")
         import pandas as pd
-        return pd.DataFrame(columns=PAIR_HEADERS)
+        return pd.DataFrame(columns=full_headers)
     if mentor_df.empty:
         if log_fn:
             log_fn(f"⚠️ No mentoras found for the given emails in {mentor_slug}. Returning empty pairing file.")
         import pandas as pd
-        return pd.DataFrame(columns=PAIR_HEADERS)
+        return pd.DataFrame(columns=full_headers)
 
     # validate all emails found
     found_emp = set(emp_email_col.tolist())
@@ -761,22 +771,23 @@ def _pair_one_group(
         if not unassigned_mentors:
             # no mentors left to assign — record unmatched and continue
             unmatched_emps.append(e_email)
-            pairs.append(
-                [
-                    _row_get(e, "name", "") or "",
-                    "NO MENTOR FOUND",
-                    e_email,
-                    "none",
-                    "none",
-                    "",
-                    "",
-                    "none",
-                    "none",
-                    "none",
-                    "none",
-                    "none",
-                ]
-            )
+            row_vals = [
+                _row_get(e, "name", "") or "",
+                "NO MENTOR FOUND",
+                e_email,
+                "none",
+                "none",
+                "",
+                "",
+                "none",
+                "none",
+                "none",
+                "none",
+                "none",
+            ]
+            row_vals.extend([_row_get(e, col, "") or "" for col in emp_question_cols])
+            row_vals.extend(["" for _ in mentor_question_cols])
+            pairs.append(row_vals)
             continue
 
         # 1) base-score all mentors fast
@@ -795,22 +806,23 @@ def _pair_one_group(
             fallback_email = next((m for m in unassigned_mentors if m in mentor_rows_by_email), None)
             if fallback_email is None:
                 unmatched_emps.append(e_email)
-                pairs.append(
-                    [
-                        _row_get(e, "name", "") or "",
-                        "NO MENTOR FOUND",
-                        e_email,
-                        "none",  # mentora email placeholder
-                        "none",  # availability
-                        "none",  # matching industry
-                        _row_get(e, "industry", "") or "",  # emprendedora industry
-                        "",  # mentora industry
-                        "none",  # country
-                        "none",  # business age
-                        "none",  # llm1
-                        "none",  # llm2
-                    ]
-                )
+                row_vals = [
+                    _row_get(e, "name", "") or "",
+                    "NO MENTOR FOUND",
+                    e_email,
+                    "none",  # mentora email placeholder
+                    "none",  # availability
+                    "none",  # matching industry
+                    _row_get(e, "industry", "") or "",  # emprendedora industry
+                    "",  # mentora industry
+                    "none",  # country
+                    "none",  # business age
+                    "none",  # llm1
+                    "none",  # llm2
+                ]
+                row_vals.extend([_row_get(e, col, "") or "" for col in emp_question_cols])
+                row_vals.extend(["" for _ in mentor_question_cols])
+                pairs.append(row_vals)
                 continue
 
             fallback_m = mentor_rows_by_email.get(fallback_email)
@@ -850,22 +862,23 @@ def _pair_one_group(
             fallback_email = next((m for m in unassigned_mentors if m in mentor_rows_by_email), None)
             if fallback_email is None:
                 unmatched_emps.append(e_email)
-                pairs.append(
-                    [
-                        _row_get(e, "name", "") or "",
-                        "NO MENTOR FOUND",
-                        e_email,
-                        "none",  # mentora email placeholder
-                        "none",  # availability
-                        "none",  # matching industry
-                        _row_get(e, "industry", "") or "",  # emprendedora industry
-                        "",  # mentora industry
-                        "none",  # country
-                        "none",  # business age
-                        "none",  # llm1
-                        "none",  # llm2
-                    ]
-                )
+                row_vals = [
+                    _row_get(e, "name", "") or "",
+                    "NO MENTOR FOUND",
+                    e_email,
+                    "none",  # mentora email placeholder
+                    "none",  # availability
+                    "none",  # matching industry
+                    _row_get(e, "industry", "") or "",  # emprendedora industry
+                    "",  # mentora industry
+                    "none",  # country
+                    "none",  # business age
+                    "none",  # llm1
+                    "none",  # llm2
+                ]
+                row_vals.extend([_row_get(e, col, "") or "" for col in emp_question_cols])
+                row_vals.extend(["" for _ in mentor_question_cols])
+                pairs.append(row_vals)
                 continue
 
             fallback_m = mentor_rows_by_email.get(fallback_email)
@@ -886,22 +899,23 @@ def _pair_one_group(
         unassigned_mentors.remove(best_email)
 
         overlap = best_matches.get("availability", [])
-        pairs.append(
-            [
-                _row_get(e, "name", "") or "",
-                _row_get(best_m, "name", "") or "",
-                e_email,
-                best_email,
-                ", ".join(overlap) if overlap else "none",
-                best_matches.get("industry", "none") or "none",
-                best_matches.get("emp_industry_val", "") or "",
-                best_matches.get("mentor_industry_val", "") or "",
-                best_matches.get("country", "none") or "none",
-                best_matches.get("biz_age", "none") or "none",
-                best_matches.get("llm1", "none") or "none",
-                best_matches.get("llm2", "none") or "none",
-            ]
-        )
+        row_vals = [
+            _row_get(e, "name", "") or "",
+            _row_get(best_m, "name", "") or "",
+            e_email,
+            best_email,
+            ", ".join(overlap) if overlap else "none",
+            best_matches.get("industry", "none") or "none",
+            best_matches.get("emp_industry_val", "") or "",
+            best_matches.get("mentor_industry_val", "") or "",
+            best_matches.get("country", "none") or "none",
+            best_matches.get("biz_age", "none") or "none",
+            best_matches.get("llm1", "none") or "none",
+            best_matches.get("llm2", "none") or "none",
+        ]
+        row_vals.extend([_row_get(e, col, "") or "" for col in emp_question_cols])
+        row_vals.extend([_row_get(best_m, col, "") or "" for col in mentor_question_cols])
+        pairs.append(row_vals)
 
     import pandas as pd
 
@@ -917,7 +931,7 @@ def _pair_one_group(
     if log_fn:
         log_fn(f"✅ Pairing complete. Output rows: {len(pairs)}.")
 
-    return pd.DataFrame(pairs, columns=PAIR_HEADERS)
+    return pd.DataFrame(pairs, columns=full_headers)
 
 
 

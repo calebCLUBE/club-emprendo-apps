@@ -35,9 +35,9 @@
       <div id="ce-stepper" style="display:flex; gap:8px; margin-bottom:16px;">
         {% for section in sections %}
           <div data-stepper-item
-               style="padding:8px 12px; border-radius:999px; background:#f2f4ff; color:#2c3191; font-size:13px; display:flex; align-items:center; gap:8px;">
-            <span style="display:inline-block; width:20px; height:20px; border-radius:999px; background:#2c3191; color:#fff; text-align:center; line-height:20px; font-size:12px;">{{ forloop.counter }}</span>
-            <span>{{ section.title }}</span>
+               title="{{ section.title }}"
+               style="padding:6px 10px; border-radius:999px; background:#f2f4ff; color:#2c3191; font-size:13px; display:flex; align-items:center; gap:6px;">
+            <span style="display:inline-block; width:22px; height:22px; border-radius:999px; background:#2c3191; color:#fff; text-align:center; line-height:22px; font-size:12px;">{{ forloop.counter }}</span>
           </div>
         {% endfor %}
       </div>

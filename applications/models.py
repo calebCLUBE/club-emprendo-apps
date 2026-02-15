@@ -128,6 +128,11 @@ class Question(models.Model):
     required = models.BooleanField(default=True)
     position = models.PositiveIntegerField(default=0)
 
+    confirm_value = models.BooleanField(
+        default=False,
+        help_text="If true, render a second confirmation input that must match.",
+    )
+
     section = models.ForeignKey(
         Section,
         null=True,

@@ -45,6 +45,8 @@ def build_application_form(form_slug: str):
                 .order_by("position", "id")
             )
 
+            self._confirm_pairs: list[tuple[str, str]] = []
+
             for q in questions:
                 field_name = f"q_{q.slug}"
 
@@ -120,5 +122,30 @@ def build_application_form(form_slug: str):
                 field.widget.attrs["section_id"] = str(q.section_id or "")
 
                 self.fields[field_name] = field
+
+                # Optional confirmation field (must match original)
+                if q.confirm_value:
+                    confirm_name = f"{field_name}__confirm"
+                    confirm_label = f"Confirma {q.text}"
+                    confirm_field = forms.CharField(
+                        initial="",
+                        label=confirm_label,
+                        required=q.required,
+                        help_text="Ingresa nuevamente para confirmar",
+                    )
+                    confirm_field.widget.attrs["section_id"] = str(q.section_id or "")
+                    self.fields[confirm_name] = confirm_field
+                    self._confirm_pairs.append((field_name, confirm_name))
+
+        def clean(self):
+            data = super().clean()
+            for original, confirm in getattr(self, "_confirm_pairs", []):
+                v1 = data.get(original, "")
+                v2 = data.get(confirm, "")
+                if (v1 or v2) and v1 != v2:
+                    msg = "Los valores no coinciden."
+                    self.add_error(confirm, msg)
+                    self.add_error(original, msg)
+            return data
 
     return DynamicApplicationForm

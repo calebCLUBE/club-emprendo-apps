@@ -115,6 +115,7 @@ def question_update(request, question_id):
     q.field_type = field_type
     q.required = request.POST.get("required") == "on"
     q.active = request.POST.get("active") == "on"
+    q.confirm_value = request.POST.get("confirm_value") == "on"
 
     # ✅ NEW: store “text above + hr” inside q.help_text
     pre_text = request.POST.get("pre_text", "")

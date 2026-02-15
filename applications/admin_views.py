@@ -1156,6 +1156,7 @@ def _clone_form(master_fd: FormDefinition, group: FormGroup) -> FormDefinition:
             position=q.position,
             slug=q.slug,  # IMPORTANT: stable
             active=q.active,
+            confirm_value=q.confirm_value,
             section=new_section,
         )
         for c in q.choices.all().order_by("position", "id"):

@@ -37,6 +37,7 @@ from applications.models import (
     Choice,
     FormDefinition,
     FormGroup,
+    Section,
     Question,
     GradedFile,
     GradingJob,
@@ -1134,7 +1135,18 @@ def _clone_form(master_fd: FormDefinition, group: FormGroup) -> FormDefinition:
         is_public=master_fd.is_public,
     )
 
-    for q in master_fd.questions.all().order_by("position", "id"):
+    # Clone sections first so questions can be linked
+    section_map: dict[int, Section] = {}
+    for s in master_fd.sections.all().order_by("position", "id"):
+        section_map[s.id] = Section.objects.create(
+            form=clone,
+            title=_fill_placeholders(s.title, group_num, start_month, end_month, year) or s.title,
+            description=_fill_placeholders(s.description, group_num, start_month, end_month, year) or s.description,
+            position=s.position,
+        )
+
+    for q in master_fd.questions.select_related("section").all().order_by("position", "id"):
+        new_section = section_map.get(q.section_id)
         q_clone = Question.objects.create(
             form=clone,
             text=_fill_placeholders(q.text, group_num, start_month, end_month, year) or q.text,
@@ -1144,6 +1156,7 @@ def _clone_form(master_fd: FormDefinition, group: FormGroup) -> FormDefinition:
             position=q.position,
             slug=q.slug,  # IMPORTANT: stable
             active=q.active,
+            section=new_section,
         )
         for c in q.choices.all().order_by("position", "id"):
             Choice.objects.create(

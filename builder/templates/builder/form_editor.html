@@ -3,25 +3,58 @@
 
 <script src="https://unpkg.com/htmx.org@1.9.12"></script>
 
-<div style="display:grid; grid-template-columns: 320px 1fr; gap: 18px;">
-  <!-- Left: question list -->
-  <div class="ce-card">
-    <div style="display:flex; justify-content:space-between; align-items:center;">
+<div style="display:grid; grid-template-columns: 340px 1fr; gap: 18px;">
+  <div style="display:flex; flex-direction:column; gap:14px;">
+    <!-- Form header -->
+    <div class="ce-card">
       <div>
         <div class="ce-muted" style="font-size:12px;">Editando</div>
         <div style="font-weight:800;">{{ form_def.slug }} — {{ form_def.name }}</div>
       </div>
-
-      <button class="ce-btn"
-              hx-post="{% url 'builder:question_add' form_def.id %}"
-              hx-target="#question-list"
-              hx-swap="innerHTML">
-        + Agregar
-      </button>
     </div>
 
-    <div id="question-list" style="margin-top:14px;">
-      {% include "builder/partials/question_list.html" %}
+    <!-- Sections -->
+    <div class="ce-card">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <div>
+          <div class="ce-muted" style="font-size:12px;">Secciones</div>
+          <div style="font-weight:700;">Divide el formulario en pasos</div>
+        </div>
+        <button class="ce-btn"
+                hx-post="{% url 'builder:section_add' form_def.id %}"
+                hx-target="#section-list"
+                hx-swap="innerHTML">
+          + Agregar sección
+        </button>
+      </div>
+
+      <div id="section-list" style="margin-top:12px;">
+        {% include "builder/partials/section_list.html" %}
+      </div>
+    </div>
+
+    <!-- Left: question list -->
+    <div class="ce-card">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <div>
+          <div class="ce-muted" style="font-size:12px;">Preguntas</div>
+          <div style="font-weight:700;">Asigna cada pregunta a una sección</div>
+        </div>
+
+        <button class="ce-btn"
+                hx-post="{% url 'builder:question_add' form_def.id %}"
+                hx-target="#question-list"
+                hx-swap="innerHTML">
+          + Agregar
+        </button>
+      </div>
+
+      <div id="question-list"
+           style="margin-top:14px;"
+           hx-get="{% url 'builder:question_list' form_def.id %}"
+           hx-trigger="section-changed from:body">
+        {% include "builder/partials/question_list.html" %}
+      </div>
     </div>
   </div>
 

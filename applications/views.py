@@ -259,6 +259,60 @@ def _m2_sections(form_def: FormDefinition):
     return sections, owned_business_field
 
 
+def _sections_from_model(form_def: FormDefinition, form):
+    """
+    Build a list of section dictionaries using Section model assignments.
+    """
+    sections_qs = list(form_def.sections.order_by("position", "id"))
+    if not sections_qs:
+        return None
+
+    section_map = {
+        s.id: {
+            "id": s.id,
+            "title": s.title,
+            "intro": s.description,
+            "show_if_field": None,
+            "fields": [],
+        }
+        for s in sections_qs
+    }
+
+    default_bucket = {
+        "id": "unassigned",
+        "title": "Preguntas generales",
+        "intro": "",
+        "show_if_field": None,
+        "fields": [],
+    }
+
+    for field in form:
+        raw = field.field.widget.attrs.get("section_id") if hasattr(field.field, "widget") else ""
+        try:
+            sid = int(raw)
+        except (TypeError, ValueError):
+            sid = None
+
+        if sid and sid in section_map:
+            section_map[sid]["fields"].append(field)
+        else:
+            default_bucket["fields"].append(field)
+
+    ordered = []
+    if default_bucket["fields"]:
+        ordered.append(default_bucket)
+
+    for s in sections_qs:
+        bucket = section_map.get(s.id)
+        if bucket and bucket["fields"]:
+            ordered.append(bucket)
+
+    if not ordered:
+        return None
+
+    return ordered
+
+
 def _handle_application_form(request, form_slug: str, second_stage: bool = False):
     form_def = get_object_or_404(FormDefinition, slug=form_slug)
         # Block new submissions when closed (we use is_public as "open" flag)
@@ -302,9 +356,11 @@ def _handle_application_form(request, form_slug: str, second_stage: bool = False
     else:
         form = ApplicationForm()
 
-    sections = None
+    sections = _sections_from_model(form_def, form)
     m2_gate_field = None
-    if (form_def.slug or "").endswith("M_A2"):
+
+    # Legacy: fallback to heuristic sections for Mentora A2 if no explicit sections exist
+    if not sections and (form_def.slug or "").endswith("M_A2"):
         raw_sections, gate = _m2_sections(form_def)
         m2_gate_field = gate
 

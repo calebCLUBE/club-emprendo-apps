@@ -1,0 +1,36 @@
+<div>
+  {% if sections %}
+    <ul style="list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:10px;">
+      {% for s in sections %}
+        <li style="border:1px solid rgba(0,0,0,0.06); border-radius:10px; padding:10px; background:#fafafa;">
+          <form
+            hx-post="{% url 'builder:section_update' s.id %}"
+            hx-target="#section-list"
+            hx-swap="innerHTML"
+          >
+            {% csrf_token %}
+            <div style="display:flex; gap:8px; align-items:center;">
+              <input class="ce-input" name="title" value="{{ s.title }}" style="flex:1;" />
+              <input type="number" class="ce-input" name="position" value="{{ s.position }}" style="width:80px;" min="0" />
+              <button class="ce-btn" type="submit">Guardar</button>
+              <button class="ce-btn ce-btn-danger"
+                      type="button"
+                      hx-post="{% url 'builder:section_delete' s.id %}"
+                      hx-target="#section-list"
+                      hx-swap="innerHTML"
+                      hx-confirm="¿Eliminar esta sección? Las preguntas se mantendrán sin sección.">
+                ✕
+              </button>
+            </div>
+            <textarea class="ce-input" name="description" rows="2" style="margin-top:8px;">{{ s.description }}</textarea>
+            <div class="ce-muted" style="font-size:12px; margin-top:6px;">
+              {{ s.questions.count }} preguntas
+            </div>
+          </form>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="ce-muted" style="margin:0;">No hay secciones. Agrega una para dividir el formulario.</p>
+  {% endif %}
+</div>

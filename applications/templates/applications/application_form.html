@@ -31,267 +31,104 @@
   <form method="post" novalidate>
     {% csrf_token %}
 
-    {% for field in form %}
-
-      {# ---------- PRE-TEXT / HR ABOVE ANY QUESTION ---------- #}
-      {% if field.field.widget.attrs.pre_hr %}
-        <hr style="margin:18px 0 10px 0; border:none; border-top:1px solid rgba(0,0,0,.10);">
-      {% endif %}
-
-      {% if field.field.widget.attrs.pre_text %}
-        <div style="margin:0 0 10px 0; color:#555; line-height:1.45;">
-          {{ field.field.widget.attrs.pre_text|linebreaks }}
-        </div>
-      {% endif %}
-
-      {# ---------- SPECIAL GRID RENDER FOR schedule question ---------- #}
-      {% if field.name == "q_preferred_schedule" or field.name == "q_e2_preferred_schedule" or field.name == "q_m2_preferred_schedule" or "¿En qué horario te resulta más conveniente participar en sesiones virtuales" in field.label|default_if_none:"" %}
-
-        <div class="form-row" data-field="{{ field.name }}">
-          <label {% if field.field.required %}class="required"{% endif %}>
-            {{ field.label }}
-          </label>
-
-          {% if field.help_text %}
-            <span class="form-help">{{ field.help_text|safe }}</span>
-          {% endif %}
-
-          <div style="overflow:auto; border:1px solid #e9e9e9; border-radius:12px; padding:10px;">
-            <table style="border-collapse:collapse; width:100%; min-width:760px; font-size:14px;">
-              <thead>
-                <tr>
-                  <th style="text-align:left; padding:10px; border-bottom:1px solid #eee;"></th>
-                  <th style="text-align:center; padding:10px; border-bottom:1px solid #eee;">Lunes</th>
-                  <th style="text-align:center; padding:10px; border-bottom:1px solid #eee;">Martes</th>
-                  <th style="text-align:center; padding:10px; border-bottom:1px solid #eee;">Miércoles</th>
-                  <th style="text-align:center; padding:10px; border-bottom:1px solid #eee;">Jueves</th>
-                  <th style="text-align:center; padding:10px; border-bottom:1px solid #eee;">Viernes</th>
-                  <th style="text-align:center; padding:10px; border-bottom:1px solid #eee;">Sábado</th>
-                  <th style="text-align:center; padding:10px; border-bottom:1px solid #eee;">Domingo</th>
-                </tr>
-              </thead>
-
-              <tbody>
-                <tr>
-                  <th style="text-align:left; padding:10px; border-bottom:1px solid #f0f0f0;">Mañana</th>
-
-                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">
-                    {% for w in field %}
-                      {% if w.data.value == "mon_morning" or w.choice_label|default:"" == "Lunes - Mañana" %}
-                        {{ w.tag }}
-                      {% endif %}
-                    {% endfor %}
-                  </td>
-
-                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">
-                    {% for w in field %}
-                      {% if w.data.value == "tue_morning" or w.choice_label|default:"" == "Martes - Mañana" %}
-                        {{ w.tag }}
-                      {% endif %}
-                    {% endfor %}
-                  </td>
-
-                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">
-                    {% for w in field %}
-                      {% if w.data.value == "wed_morning" or w.choice_label|default:"" == "Miércoles - Mañana" or w.choice_label|default:"" == "Miercoles - Mañana" %}
-                        {{ w.tag }}
-                      {% endif %}
-                    {% endfor %}
-                  </td>
-
-                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">
-                    {% for w in field %}
-                      {% if w.data.value == "thu_morning" or w.choice_label|default:"" == "Jueves - Mañana" %}
-                        {{ w.tag }}
-                      {% endif %}
-                    {% endfor %}
-                  </td>
-
-                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">
-                    {% for w in field %}
-                      {% if w.data.value == "fri_morning" or w.choice_label|default:"" == "Viernes - Mañana" %}
-                        {{ w.tag }}
-                      {% endif %}
-                    {% endfor %}
-                  </td>
-
-                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">
-                    {% for w in field %}
-                      {% if w.data.value == "sat_morning" or w.choice_label|default:"" == "Sábado - Mañana" or w.choice_label|default:"" == "Sabado - Mañana" %}
-                        {{ w.tag }}
-                      {% endif %}
-                    {% endfor %}
-                  </td>
-
-                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">
-                    {% for w in field %}
-                      {% if w.data.value == "sun_morning" or w.choice_label|default:"" == "Domingo - Mañana" %}
-                        {{ w.tag }}
-                      {% endif %}
-                    {% endfor %}
-                  </td>
-                </tr>
-
-                <tr>
-                  <th style="text-align:left; padding:10px; border-bottom:1px solid #f0f0f0;">Tarde</th>
-
-                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">
-                    {% for w in field %}
-                      {% if w.data.value == "mon_afternoon" or w.choice_label|default:"" == "Lunes - Tarde" %}
-                        {{ w.tag }}
-                      {% endif %}
-                    {% endfor %}
-                  </td>
-
-                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">
-                    {% for w in field %}
-                      {% if w.data.value == "tue_afternoon" or w.choice_label|default:"" == "Martes - Tarde" %}
-                        {{ w.tag }}
-                      {% endif %}
-                    {% endfor %}
-                  </td>
-
-                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">
-                    {% for w in field %}
-                      {% if w.data.value == "wed_afternoon" or w.choice_label|default:"" == "Miércoles - Tarde" or w.choice_label|default:"" == "Miercoles - Tarde" %}
-                        {{ w.tag }}
-                      {% endif %}
-                    {% endfor %}
-                  </td>
-
-                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">
-                    {% for w in field %}
-                      {% if w.data.value == "thu_afternoon" or w.choice_label|default:"" == "Jueves - Tarde" %}
-                        {{ w.tag }}
-                      {% endif %}
-                    {% endfor %}
-                  </td>
-
-                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">
-                    {% for w in field %}
-                      {% if w.data.value == "fri_afternoon" or w.choice_label|default:"" == "Viernes - Tarde" %}
-                        {{ w.tag }}
-                      {% endif %}
-                    {% endfor %}
-                  </td>
-
-                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">
-                    {% for w in field %}
-                      {% if w.data.value == "sat_afternoon" or w.choice_label|default:"" == "Sábado - Tarde" or w.choice_label|default:"" == "Sabado - Tarde" %}
-                        {{ w.tag }}
-                      {% endif %}
-                    {% endfor %}
-                  </td>
-
-                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">
-                    {% for w in field %}
-                      {% if w.data.value == "sun_afternoon" or w.choice_label|default:"" == "Domingo - Tarde" %}
-                        {{ w.tag }}
-                      {% endif %}
-                    {% endfor %}
-                  </td>
-                </tr>
-
-                <tr>
-                  <th style="text-align:left; padding:10px; border-bottom:1px solid #f0f0f0;">Noche</th>
-
-                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">
-                    {% for w in field %}
-                      {% if w.data.value == "mon_night" or w.choice_label|default:"" == "Lunes - Noche" %}
-                        {{ w.tag }}
-                      {% endif %}
-                    {% endfor %}
-                  </td>
-
-                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">
-                    {% for w in field %}
-                      {% if w.data.value == "tue_night" or w.choice_label|default:"" == "Martes - Noche" %}
-                        {{ w.tag }}
-                      {% endif %}
-                    {% endfor %}
-                  </td>
-
-                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">
-                    {% for w in field %}
-                      {% if w.data.value == "wed_night" or w.choice_label|default:"" == "Miércoles - Noche" or w.choice_label|default:"" == "Miercoles - Noche" %}
-                        {{ w.tag }}
-                      {% endif %}
-                    {% endfor %}
-                  </td>
-
-                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">
-                    {% for w in field %}
-                      {% if w.data.value == "thu_night" or w.choice_label|default:"" == "Jueves - Noche" %}
-                        {{ w.tag }}
-                      {% endif %}
-                    {% endfor %}
-                  </td>
-
-                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">
-                    {% for w in field %}
-                      {% if w.data.value == "fri_night" or w.choice_label|default:"" == "Viernes - Noche" %}
-                        {{ w.tag }}
-                      {% endif %}
-                    {% endfor %}
-                  </td>
-
-                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">
-                    {% for w in field %}
-                      {% if w.data.value == "sat_night" or w.choice_label|default:"" == "Sábado - Noche" or w.choice_label|default:"" == "Sabado - Noche" %}
-                        {{ w.tag }}
-                      {% endif %}
-                    {% endfor %}
-                  </td>
-
-                  <td style="text-align:center; padding:10px; border-bottom:1px solid #f0f0f0;">
-                    {% for w in field %}
-                      {% if w.data.value == "sun_night" or w.choice_label|default:"" == "Domingo - Noche" %}
-                        {{ w.tag }}
-                      {% endif %}
-                    {% endfor %}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+    {% if sections %}
+      <div id="ce-stepper" style="display:flex; gap:8px; margin-bottom:16px;">
+        {% for section in sections %}
+          <div data-stepper-item
+               style="padding:8px 12px; border-radius:999px; background:#f2f4ff; color:#2c3191; font-size:13px; display:flex; align-items:center; gap:8px;">
+            <span style="display:inline-block; width:20px; height:20px; border-radius:999px; background:#2c3191; color:#fff; text-align:center; line-height:20px; font-size:12px;">{{ forloop.counter }}</span>
+            <span>{{ section.title }}</span>
           </div>
+        {% endfor %}
+      </div>
 
-          {% if field.errors %}
-            <span class="form-help" style="color:#d14b4b;">
-              {{ field.errors|striptags }}
-            </span>
-          {% endif %}
-        </div>
+      <div id="ce-section-container">
+        {% for section in sections %}
+          <div class="ce-section-panel"
+               data-section-index="{{ forloop.counter0 }}"
+               style="{% if not forloop.first %}display:none;{% endif %}">
+            <div style="margin-bottom:14px;">
+              <h2 class="ce-heading" style="margin:0 0 6px 0;">{{ section.title }}</h2>
+              {% if section.intro %}
+                <p class="ce-muted" style="margin:0;">{{ section.intro|linebreaks }}</p>
+              {% endif %}
+            </div>
 
-      {% else %}
+            {% for field in section.fields %}
+              {% include "applications/_field_render.html" %}
+            {% endfor %}
 
-        <div class="form-row" data-field="{{ field.name }}">
-          <label for="{{ field.id_for_label }}" {% if field.field.required %}class="required"{% endif %}>
-            {{ field.label }}
-          </label>
+            <div class="ce-actions" style="margin-top:18px; display:flex; justify-content:space-between; gap:10px;">
+              <div>
+                {% if not forloop.first %}
+                  <button type="button" class="ce-button-primary" data-prev>Anterior</button>
+                {% endif %}
+              </div>
+              <div>
+                {% if not forloop.last %}
+                  <button type="button" class="ce-button-primary" data-next>Siguiente</button>
+                {% else %}
+                  <button type="submit" class="ce-button-primary">Enviar</button>
+                {% endif %}
+              </div>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      {% for field in form %}
+        {% include "applications/_field_render.html" %}
+      {% endfor %}
 
-          {% if field.help_text %}
-            <span class="form-help">{{ field.help_text|safe }}</span>
-          {% endif %}
-
-          {{ field }}
-
-          {% if field.errors %}
-            <span class="form-help" style="color:#d14b4b;">
-              {{ field.errors|striptags }}
-            </span>
-          {% endif %}
-        </div>
-
-      {% endif %}
-
-    {% endfor %}
-
-    <div class="ce-actions">
-      <button type="submit" class="ce-button-primary">Enviar</button>
-    </div>
+      <div class="ce-actions">
+        <button type="submit" class="ce-button-primary">Enviar</button>
+      </div>
+    {% endif %}
   </form>
 
   <script>
+    (function () {
+      const panels = Array.from(document.querySelectorAll(".ce-section-panel"));
+      if (!panels.length) return;
+
+      const stepperItems = Array.from(document.querySelectorAll("[data-stepper-item]"));
+      let current = 0;
+
+      function setActive(idx) {
+        current = Math.max(0, Math.min(idx, panels.length - 1));
+        panels.forEach((p, i) => {
+          p.style.display = i === current ? "" : "none";
+        });
+        stepperItems.forEach((el, i) => {
+          el.style.background = i === current ? "#2c3191" : "#f2f4ff";
+          el.style.color = i === current ? "#fff" : "#2c3191";
+        });
+
+        const header = document.querySelector(".ce-form-header");
+        const top = header ? header.offsetTop : 0;
+        window.scrollTo({ top: Math.max(top - 10, 0), behavior: "smooth" });
+      }
+
+      function findErrorSection() {
+        for (let i = 0; i < panels.length; i++) {
+          if (panels[i].querySelector(".form-help[style*='color:#d14b4b']")) return i;
+        }
+        return null;
+      }
+
+      panels.forEach((panel, idx) => {
+        panel.querySelectorAll("[data-next]").forEach(btn => {
+          btn.addEventListener("click", () => setActive(idx + 1));
+        });
+        panel.querySelectorAll("[data-prev]").forEach(btn => {
+          btn.addEventListener("click", () => setActive(idx - 1));
+        });
+      });
+
+      const errorIdx = findErrorSection();
+      setActive(errorIdx !== null ? errorIdx : 0);
+    })();
+
     (function () {
       // 🔒 Run ONLY for Mentora A2
       if (!window.location.pathname.includes("_M_A2")) return;

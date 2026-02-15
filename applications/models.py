@@ -72,6 +72,29 @@ class FormDefinition(models.Model):
         return self.name
 
 
+class Section(models.Model):
+    """
+    Logical grouping of questions. Used to paginate forms into steps.
+    """
+
+    form = models.ForeignKey(
+        FormDefinition,
+        on_delete=models.CASCADE,
+        related_name="sections",
+    )
+
+    title = models.CharField(max_length=200)
+    description = models.TextField(blank=True)
+    position = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ["position", "id"]
+        unique_together = ("form", "title")
+
+    def __str__(self) -> str:
+        return f"{self.form.slug} — {self.title}"
+
+
 class Question(models.Model):
     SHORT_TEXT = "short_text"
     LONG_TEXT = "long_text"
@@ -100,6 +123,14 @@ class Question(models.Model):
     field_type = models.CharField(max_length=20, choices=FIELD_TYPES)
     required = models.BooleanField(default=True)
     position = models.PositiveIntegerField(default=0)
+
+    section = models.ForeignKey(
+        Section,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="questions",
+    )
 
     slug = models.SlugField(
         help_text="Stable identifier for grading (e.g. 'm_a1_requisitos')."

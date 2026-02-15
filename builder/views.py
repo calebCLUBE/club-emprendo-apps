@@ -5,7 +5,8 @@ from django.shortcuts import render, get_object_or_404
 from django.views.decorators.http import require_POST
 from django.http import HttpResponse
 
-from applications.models import FormDefinition, Question, Choice
+from applications.models import FormDefinition, Question, Choice, Section
+from django.db.models import Max
 
 
 _PRE_RE = re.compile(
@@ -48,11 +49,12 @@ def builder_home(request):
 @staff_member_required
 def form_editor(request, form_id):
     form_def = get_object_or_404(FormDefinition, id=form_id)
-    questions = form_def.questions.all()
+    questions = form_def.questions.select_related("section").all()
+    sections = form_def.sections.all()
     return render(
         request,
         "builder/form_editor.html",
-        {"form_def": form_def, "questions": questions},
+        {"form_def": form_def, "questions": questions, "sections": sections},
     )
 
 
@@ -69,8 +71,13 @@ def question_add(request, form_id):
         active=True,
         help_text="",   # ✅ keep existing field available
     )
-    questions = form_def.questions.all()
-    return render(request, "builder/partials/question_list.html", {"questions": questions})
+    questions = form_def.questions.select_related("section").all()
+    sections = form_def.sections.all()
+    return render(
+        request,
+        "builder/partials/question_list.html",
+        {"questions": questions, "sections": sections},
+    )
 
 
 @staff_member_required
@@ -88,6 +95,7 @@ def question_panel(request, question_id):
             "pre_text": pre_text,
             "pre_hr": pre_hr,
             "help_text_clean": help_text_clean,
+            "sections": q.form.sections.all(),
         },
     )
 
@@ -100,7 +108,10 @@ def question_update(request, question_id):
     # Existing fields (unchanged behavior)
     q.text = request.POST.get("text", q.text)
     q.slug = request.POST.get("slug", q.slug)
-    q.field_type = request.POST.get("field_type", q.field_type)
+    field_type = request.POST.get("field_type", q.field_type)
+    if field_type == "single_choice":  # legacy alias
+        field_type = Question.CHOICE
+    q.field_type = field_type
     q.required = request.POST.get("required") == "on"
     q.active = request.POST.get("active") == "on"
 
@@ -109,10 +120,22 @@ def question_update(request, question_id):
     pre_hr = request.POST.get("pre_hr") == "on"
     help_text_clean = request.POST.get("help_text", "")
 
+    section_id = request.POST.get("section_id") or ""
+
     q.help_text = pack_help_text(pre_text, pre_hr, help_text_clean)
 
+    if section_id.strip():
+        try:
+            q.section = Section.objects.get(id=int(section_id), form=q.form)
+        except (Section.DoesNotExist, ValueError):
+            q.section = None
+    else:
+        q.section = None
+
     q.save()
-    return HttpResponse("✅ Guardado")
+    resp = HttpResponse("✅ Guardado")
+    resp["HX-Trigger"] = "section-changed"
+    return resp
 
 
 @staff_member_required
@@ -121,5 +144,87 @@ def question_delete(request, question_id):
     q = get_object_or_404(Question, id=question_id)
     form_def = q.form
     q.delete()
-    questions = form_def.questions.all()
-    return render(request, "builder/partials/question_list.html", {"questions": questions})
+    questions = form_def.questions.select_related("section").all()
+    sections = form_def.sections.all()
+    return render(
+        request,
+        "builder/partials/question_list.html",
+        {"questions": questions, "sections": sections},
+    )
+
+
+@staff_member_required
+def question_list(request, form_id):
+    form_def = get_object_or_404(FormDefinition, id=form_id)
+    questions = form_def.questions.select_related("section").all()
+    sections = form_def.sections.all()
+    return render(
+        request,
+        "builder/partials/question_list.html",
+        {"questions": questions, "sections": sections},
+    )
+
+
+@staff_member_required
+@require_POST
+def section_add(request, form_id):
+    form_def = get_object_or_404(FormDefinition, id=form_id)
+    max_pos = form_def.sections.aggregate(max_pos=Max("position")).get("max_pos") or 0
+    Section.objects.create(
+        form=form_def,
+        title="Nueva sección",
+        description="",
+        position=max_pos + 1,
+    )
+    sections = form_def.sections.all()
+    resp = render(
+        request,
+        "builder/partials/section_list.html",
+        {"sections": sections, "form_def": form_def},
+    )
+    resp["HX-Trigger"] = "section-changed"
+    return resp
+
+
+@staff_member_required
+@require_POST
+def section_update(request, section_id):
+    section = get_object_or_404(Section, id=section_id)
+
+    section.title = request.POST.get("title", section.title)
+    section.description = request.POST.get("description", section.description)
+    try:
+        section.position = int(request.POST.get("position", section.position) or section.position)
+    except ValueError:
+        pass
+
+    section.save()
+
+    sections = section.form.sections.all()
+    resp = render(
+        request,
+        "builder/partials/section_list.html",
+        {"sections": sections, "form_def": section.form},
+    )
+    resp["HX-Trigger"] = "section-changed"
+    return resp
+
+
+@staff_member_required
+@require_POST
+def section_delete(request, section_id):
+    section = get_object_or_404(Section, id=section_id)
+    form_def = section.form
+
+    # Unassign questions that belonged to this section
+    form_def.questions.filter(section=section).update(section=None)
+    section.delete()
+
+    sections = form_def.sections.all()
+    resp = render(
+        request,
+        "builder/partials/section_list.html",
+        {"sections": sections, "form_def": form_def},
+    )
+    resp["HX-Trigger"] = "section-changed"
+    return resp

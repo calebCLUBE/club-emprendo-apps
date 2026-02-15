@@ -5,7 +5,7 @@ from django.utils.html import format_html
 import re
 from django import forms
 
-from .models import FormDefinition, Question, Choice, Application
+from .models import FormDefinition, Question, Choice, Application, Section
 
 
 # =========================
@@ -102,6 +102,13 @@ class ChoiceInline(admin.TabularInline):
     ordering = ("position", "id")
 
 
+class SectionInline(admin.TabularInline):
+    model = Section
+    extra = 0
+    fields = ("position", "title", "description")
+    ordering = ("position", "id")
+
+
 class QuestionInline(admin.StackedInline):
     model = Question
     form = QuestionAdminForm  # ✅ IMPORTANT: make inline use the custom form
@@ -138,7 +145,7 @@ class FormDefinitionAdmin(admin.ModelAdmin):
     list_display = ("__str__", "slug", "submission_count", "preview_link", "survey_public_link", "survey_data_link")
     search_fields = ("slug", "name")
     readonly_fields = ("preview_link", "survey_public_link", "survey_data_link")
-    inlines = [QuestionInline]
+    inlines = [SectionInline, QuestionInline]
     def submission_count(self, obj):
         return obj.applications.count()
     submission_count.short_description = "Submissions"

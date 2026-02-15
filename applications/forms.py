@@ -50,23 +50,27 @@ def build_application_form(form_slug: str):
 
                 pre_text, pre_hr, remaining_help = split_help_text(q.help_text)
 
+                field_type = q.field_type
+                if field_type == "single_choice":  # legacy alias
+                    field_type = Question.CHOICE
+
                 common = {
                     "label": q.text,
                     "help_text": remaining_help,
                     "required": q.required,
                 }
 
-                if q.field_type == Question.SHORT_TEXT:
+                if field_type == Question.SHORT_TEXT:
                     field = forms.CharField(initial="", **common)
 
-                elif q.field_type == Question.LONG_TEXT:
+                elif field_type == Question.LONG_TEXT:
                     field = forms.CharField(
                         widget=forms.Textarea(attrs={"rows": 4}),
                         initial="",
                         **common,
                     )
 
-                elif q.field_type == Question.INTEGER:
+                elif field_type == Question.INTEGER:
                     # Keep blank by default (no 0)
                     field = forms.IntegerField(
                         initial=None,
@@ -74,7 +78,7 @@ def build_application_form(form_slug: str):
                         **common,
                     )
 
-                elif q.field_type == Question.BOOLEAN:
+                elif field_type == Question.BOOLEAN:
                     # Radio buttons: must include a blank option to avoid preselect
                     choices = [
                         ("", "— Selecciona —"),
@@ -88,7 +92,7 @@ def build_application_form(form_slug: str):
                         **common,
                     )
 
-                elif q.field_type == Question.CHOICE:
+                elif field_type == Question.CHOICE:
                     choices = [(c.value, c.label) for c in q.choices.all().order_by("position", "id")]
                     choices = [("", "— Selecciona —")] + choices
                     field = forms.ChoiceField(
@@ -98,7 +102,7 @@ def build_application_form(form_slug: str):
                         **common,
                     )
 
-                elif q.field_type == Question.MULTI_CHOICE:
+                elif field_type == Question.MULTI_CHOICE:
                     choices = [(c.value, c.label) for c in q.choices.all().order_by("position", "id")]
                     field = forms.MultipleChoiceField(
                         choices=choices,
@@ -113,6 +117,7 @@ def build_application_form(form_slug: str):
                 # Expose “pre” content to templates via widget attrs
                 field.widget.attrs["pre_text"] = pre_text
                 field.widget.attrs["pre_hr"] = "1" if pre_hr else ""
+                field.widget.attrs["section_id"] = str(q.section_id or "")
 
                 self.fields[field_name] = field
 

@@ -11,12 +11,22 @@
   <label class="ce-label" style="margin-top:12px;">Slug</label>
   <input class="ce-input" name="slug" value="{{ q.slug }}" />
 
+  <label class="ce-label" style="margin-top:12px;">Sección</label>
+  <select class="ce-input" name="section_id">
+    <option value="">— Sin sección —</option>
+    {% for s in sections %}
+      <option value="{{ s.id }}" {% if q.section_id == s.id %}selected{% endif %}>{{ s.title }}</option>
+    {% endfor %}
+  </select>
+
   <label class="ce-label" style="margin-top:12px;">Tipo</label>
   <select class="ce-input" name="field_type">
     <option value="short_text" {% if q.field_type == "short_text" %}selected{% endif %}>Texto corto</option>
     <option value="long_text" {% if q.field_type == "long_text" %}selected{% endif %}>Texto largo</option>
-    <option value="single_choice" {% if q.field_type == "single_choice" %}selected{% endif %}>Opción múltiple</option>
-    <option value="multi_choice" {% if q.field_type == "multi_choice" %}selected{% endif %}>Casillas</option>
+    <option value="integer" {% if q.field_type == "integer" %}selected{% endif %}>Número</option>
+    <option value="boolean" {% if q.field_type == "boolean" %}selected{% endif %}>Sí/No</option>
+    <option value="choice" {% if q.field_type == "choice" %}selected{% endif %}>Opción única</option>
+    <option value="multi_choice" {% if q.field_type == "multi_choice" %}selected{% endif %}>Casillas (varias)</option>
   </select>
 
   <div style="display:flex; gap:16px; margin-top:12px;">

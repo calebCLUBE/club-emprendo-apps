@@ -4,6 +4,7 @@ from django.urls import reverse
 from django.utils.html import format_html
 import re
 from django import forms
+from django.http import HttpResponseRedirect
 
 from .models import FormDefinition, Question, Choice, Application, Section
 
@@ -175,6 +176,22 @@ class FormDefinitionAdmin(admin.ModelAdmin):
         "survey_public_link",
         "survey_data_link",
     )
+
+    def _should_follow_default(self, request):
+        return any(
+            key in request.POST
+            for key in ("_continue", "_addanother", "_popup")
+        )
+
+    def response_change(self, request, obj):
+        if self._should_follow_default(request):
+            return super().response_change(request, obj)
+        return HttpResponseRedirect(reverse("admin_apps_list"))
+
+    def response_add(self, request, obj, post_url_continue=None):
+        if self._should_follow_default(request):
+            return super().response_add(request, obj, post_url_continue)
+        return HttpResponseRedirect(reverse("admin_apps_list"))
     inlines = [SectionInline, QuestionInline]
     def submission_count(self, obj):
         return obj.applications.count()

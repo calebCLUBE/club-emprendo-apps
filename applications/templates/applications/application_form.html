@@ -94,6 +94,50 @@
       const stepperItems = Array.from(document.querySelectorAll("[data-stepper-item]"));
       let current = 0;
 
+      function clearConfirmError(input) {
+        input.style.borderColor = "";
+        const err = input.parentElement.querySelector(".confirm-error");
+        if (err) err.remove();
+      }
+
+      function showConfirmError(input) {
+        input.style.borderColor = "#d14b4b";
+        let err = input.parentElement.querySelector(".confirm-error");
+        if (!err) {
+          err = document.createElement("span");
+          err.className = "form-help confirm-error";
+          err.style.color = "#d14b4b";
+          err.textContent = "Los valores deben coincidir.";
+          input.parentElement.appendChild(err);
+        }
+      }
+
+      function validatePanel(panel) {
+        let ok = true;
+        const confirmInputs = panel.querySelectorAll("[data-confirm-of]");
+        confirmInputs.forEach(ci => {
+          const sourceName = ci.dataset.confirmOf;
+          const source = panel.querySelector(`[name=\"${sourceName}\"]`);
+          if (!source) return;
+          const v1 = (source.value || "").trim();
+          const v2 = (ci.value || "").trim();
+          if (v1 || v2) {
+            if (v1 !== v2) {
+              showConfirmError(ci);
+              showConfirmError(source);
+              ok = false;
+            } else {
+              clearConfirmError(ci);
+              clearConfirmError(source);
+            }
+          } else {
+            clearConfirmError(ci);
+            clearConfirmError(source);
+          }
+        });
+        return ok;
+      }
+
       function setActive(idx) {
         current = Math.max(0, Math.min(idx, panels.length - 1));
         panels.forEach((p, i) => {
@@ -118,10 +162,17 @@
 
       panels.forEach((panel, idx) => {
         panel.querySelectorAll("[data-next]").forEach(btn => {
-          btn.addEventListener("click", () => setActive(idx + 1));
+          btn.addEventListener("click", () => {
+            if (!validatePanel(panel)) return;
+            setActive(idx + 1);
+          });
         });
         panel.querySelectorAll("[data-prev]").forEach(btn => {
           btn.addEventListener("click", () => setActive(idx - 1));
+        });
+
+        panel.querySelectorAll("input").forEach(inp => {
+          inp.addEventListener("input", () => clearConfirmError(inp));
         });
       });
 

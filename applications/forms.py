@@ -134,6 +134,7 @@ def build_application_form(form_slug: str):
                         help_text="Ingresa nuevamente para confirmar",
                     )
                     confirm_field.widget.attrs["section_id"] = str(q.section_id or "")
+                    confirm_field.widget.attrs["data-confirm-of"] = field_name
                     self.fields[confirm_name] = confirm_field
                     self._confirm_pairs.append((field_name, confirm_name))
 

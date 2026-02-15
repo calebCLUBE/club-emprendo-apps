@@ -61,6 +61,12 @@ class QuestionAdminForm(forms.ModelForm):
         label="Help text (below question)",
         widget=forms.Textarea(attrs={"rows": 3}),
     )
+    section = forms.ModelChoiceField(
+        required=False,
+        queryset=Section.objects.none(),
+        label="Section",
+        help_text="Optional: group this question into a section/page.",
+    )
 
     class Meta:
         model = Question
@@ -79,14 +85,23 @@ class QuestionAdminForm(forms.ModelForm):
         self.fields["pre_hr"].initial = pre_hr
         self.fields["help_text_clean"].initial = rest
 
+        form_obj = getattr(self.instance, "form", None)
+        qs = Section.objects.none()
+        if form_obj:
+            qs = form_obj.sections.all()
+        self.fields["section"].queryset = qs
+        self.fields["section"].initial = getattr(self.instance, "section_id", None)
+
     def save(self, commit=True):
         obj = super().save(commit=False)
 
         pre_text = self.cleaned_data.get("pre_text", "")
         pre_hr = bool(self.cleaned_data.get("pre_hr"))
         rest = self.cleaned_data.get("help_text_clean", "")
+        section = self.cleaned_data.get("section")
 
         obj.help_text = _pack_help_text(pre_text, pre_hr, rest)
+        obj.section = section
 
         if commit:
             obj.save()
@@ -123,6 +138,7 @@ class QuestionInline(admin.StackedInline):
         "required",
         "slug",
         "text",
+        "section",
         "pre_hr",
         "pre_text",
         "help_text_clean",
@@ -145,6 +161,19 @@ class FormDefinitionAdmin(admin.ModelAdmin):
     list_display = ("__str__", "slug", "submission_count", "preview_link", "survey_public_link", "survey_data_link")
     search_fields = ("slug", "name")
     readonly_fields = ("preview_link", "survey_public_link", "survey_data_link")
+    fields = (
+        "slug",
+        "name",
+        "description",
+        "is_master",
+        "group",
+        "is_public",
+        "accepting_responses",
+        "default_section_title",
+        "preview_link",
+        "survey_public_link",
+        "survey_data_link",
+    )
     inlines = [SectionInline, QuestionInline]
     def submission_count(self, obj):
         return obj.applications.count()
@@ -223,6 +252,7 @@ class QuestionAdmin(admin.ModelAdmin):
         "required",
         "slug",
         "text",
+        "section",
         "pre_hr",
         "pre_text",
         "help_text_clean",

@@ -280,7 +280,7 @@ def _sections_from_model(form_def: FormDefinition, form):
 
     default_bucket = {
         "id": "unassigned",
-        "title": "Preguntas generales",
+        "title": form_def.default_section_title or "Preguntas generales",
         "intro": "",
         "show_if_field": None,
         "fields": [],

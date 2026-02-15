@@ -4,14 +4,33 @@
         hx-get="{% url 'builder:question_panel' q.id %}"
         hx-target="#editor-panel"
         hx-swap="innerHTML">
-      <div style="font-weight:700; display:flex; justify-content:space-between; gap:8px;">
-        <span>{{ q.text|default:q.slug }}</span>
-        <span class="ce-pill" style="background:#eef2ff; color:#2c3191; font-size:11px;">
-          {% if q.section %}{{ q.section.title }}{% else %}Sin sección{% endif %}
-        </span>
-      </div>
-      <div class="ce-muted" style="font-size:12px;">
-        {{ q.field_type }} · {% if q.required %}Requerida{% else %}Opcional{% endif %} · {% if q.active %}Activa{% else %}Oculta{% endif %}
+      <div style="display:flex; align-items:flex-start; gap:10px;">
+        <div style="flex:1;">
+          <div style="font-weight:700; display:flex; justify-content:space-between; gap:8px;">
+            <span>{{ q.text|default:q.slug }}</span>
+          </div>
+          <div class="ce-muted" style="font-size:12px;">
+            {{ q.field_type }} · {% if q.required %}Requerida{% else %}Opcional{% endif %} · {% if q.active %}Activa{% else %}Oculta{% endif %}
+          </div>
+        </div>
+        <div style="min-width:180px;">
+          <label class="ce-label" style="font-size:11px; margin:0 0 4px 0;">Sección</label>
+          <input type="hidden" id="csrf-token-{{ q.id }}" name="csrfmiddlewaretoken" value="{% csrf_token %}">
+          <select class="ce-input"
+                  name="section_id"
+                  hx-post="{% url 'builder:question_assign_section' q.id %}"
+                  hx-target="#question-list"
+                  hx-swap="innerHTML"
+                  hx-include="#csrf-token-{{ q.id }}"
+                  hx-trigger="change"
+                  onclick="event.stopPropagation();"
+                  onmousedown="event.stopPropagation();">
+            <option value="" {% if not q.section_id %}selected{% endif %}>{{ form_def.default_section_title|default:"Sin sección" }}</option>
+            {% for s in sections %}
+              <option value="{{ s.id }}" {% if q.section_id == s.id %}selected{% endif %}>{{ s.title }}</option>
+            {% endfor %}
+          </select>
+        </div>
       </div>
     </li>
   {% empty %}

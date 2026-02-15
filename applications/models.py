@@ -65,7 +65,11 @@ class FormDefinition(models.Model):
         ),
     )
     accepting_responses = models.BooleanField(default=True)
-
+    default_section_title = models.CharField(
+        max_length=200,
+        default="Preguntas generales",
+        help_text="Título para las preguntas sin sección asignada.",
+    )
 
 
     def __str__(self) -> str:

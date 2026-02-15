@@ -76,7 +76,7 @@ def question_add(request, form_id):
     return render(
         request,
         "builder/partials/question_list.html",
-        {"questions": questions, "sections": sections},
+        {"questions": questions, "sections": sections, "form_def": form_def},
     )
 
 
@@ -96,6 +96,7 @@ def question_panel(request, question_id):
             "pre_hr": pre_hr,
             "help_text_clean": help_text_clean,
             "sections": q.form.sections.all(),
+            "form_def": q.form,
         },
     )
 
@@ -149,7 +150,7 @@ def question_delete(request, question_id):
     return render(
         request,
         "builder/partials/question_list.html",
-        {"questions": questions, "sections": sections},
+        {"questions": questions, "sections": sections, "form_def": form_def},
     )
 
 
@@ -161,8 +162,49 @@ def question_list(request, form_id):
     return render(
         request,
         "builder/partials/question_list.html",
-        {"questions": questions, "sections": sections},
+        {"questions": questions, "sections": sections, "form_def": form_def},
     )
+
+
+@staff_member_required
+@require_POST
+def question_assign_section(request, question_id):
+    q = get_object_or_404(Question.objects.select_related("form"), id=question_id)
+    section_id = request.POST.get("section_id") or ""
+
+    if section_id.strip():
+        try:
+            section = Section.objects.get(id=int(section_id), form=q.form)
+        except (Section.DoesNotExist, ValueError):
+            section = None
+    else:
+        section = None
+
+    q.section = section
+    q.save(update_fields=["section"])
+
+    questions = q.form.questions.select_related("section").all()
+    sections = q.form.sections.all()
+    resp = render(
+        request,
+        "builder/partials/question_list.html",
+        {"questions": questions, "sections": sections, "form_def": q.form},
+    )
+    resp["HX-Trigger"] = "section-changed"
+    return resp
+
+
+@staff_member_required
+@require_POST
+def update_default_section_title(request, form_id):
+    form_def = get_object_or_404(FormDefinition, id=form_id)
+    title = (request.POST.get("default_section_title") or "").strip()
+    if title:
+        form_def.default_section_title = title
+        form_def.save(update_fields=["default_section_title"])
+    resp = HttpResponse("")
+    resp["HX-Trigger"] = "section-changed"
+    return resp
 
 
 @staff_member_required

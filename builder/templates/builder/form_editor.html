@@ -31,6 +31,19 @@
       <div id="section-list" style="margin-top:12px;">
         {% include "builder/partials/section_list.html" %}
       </div>
+
+      <div style="margin-top:14px;">
+        <label class="ce-label" style="font-size:12px;">Título para preguntas sin sección</label>
+        <input class="ce-input"
+               name="default_section_title"
+               value="{{ form_def.default_section_title }}"
+               hx-post="{% url 'builder:update_default_section_title' form_def.id %}"
+               hx-trigger="change"
+               hx-swap="none" />
+        <div class="ce-muted" style="font-size:12px; margin-top:4px;">
+          Se usa para la página que contiene preguntas sin sección asignada.
+        </div>
+      </div>
     </div>
 
     <!-- Left: question list -->

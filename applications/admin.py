@@ -278,6 +278,29 @@ class QuestionAdmin(admin.ModelAdmin):
         "field_type",
     )
 
+    def _follow_default(self, request):
+        return any(
+            key in request.POST
+            for key in ("_continue", "_addanother", "_popup")
+        )
+
+    def _redirect_to_form(self, obj):
+        if getattr(obj, "form_id", None):
+            return HttpResponseRedirect(
+                reverse("admin:applications_formdefinition_change", args=[obj.form_id])
+            )
+        return HttpResponseRedirect(reverse("admin:applications_question_changelist"))
+
+    def response_change(self, request, obj):
+        if self._follow_default(request):
+            return super().response_change(request, obj)
+        return self._redirect_to_form(obj)
+
+    def response_add(self, request, obj, post_url_continue=None):
+        if self._follow_default(request):
+            return super().response_add(request, obj, post_url_continue)
+        return self._redirect_to_form(obj)
+
 
 # ---------- Choice admin ----------
 @admin.register(Choice)

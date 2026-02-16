@@ -25,13 +25,36 @@
             <textarea class="ce-input" name="description" rows="2" style="margin-top:8px;">{{ s.description }}</textarea>
             <div style="display:flex; gap:8px; margin-top:8px; align-items:center;">
               <label class="ce-label" style="font-size:12px; margin:0;">Mostrar si</label>
-              <select class="ce-input" name="show_if_question" style="flex:1;">
+              <select class="ce-input" name="show_if_question" style="flex:1;" data-show-if-question>
                 <option value="">— Siempre —</option>
                 {% for q in form_def.questions.all %}
-                  <option value="{{ q.id }}" {% if s.show_if_question_id == q.id %}selected{% endif %}>{{ q.text|default:q.slug }}</option>
+                  {# Build a pipe-separated list of options for JS (labels not needed, we store values) #}
+                  {% if q.field_type == "boolean" %}
+                    {% with opts="yes|no" %}
+                      <option value="{{ q.id }}" data-options="{{ opts }}" {% if s.show_if_question_id == q.id %}selected{% endif %}>{{ q.text|default:q.slug }}</option>
+                    {% endwith %}
+                  {% elif q.field_type == "choice" or q.field_type == "multi_choice" %}
+                    <option value="{{ q.id }}" data-options="{% for c in q.choices.all %}{{ c.value }}{% if not forloop.last %}|{% endif %}{% endfor %}" {% if s.show_if_question_id == q.id %}selected{% endif %}>{{ q.text|default:q.slug }}</option>
+                  {% else %}
+                    <option value="{{ q.id }}" data-options="" {% if s.show_if_question_id == q.id %}selected{% endif %}>{{ q.text|default:q.slug }}</option>
+                  {% endif %}
                 {% endfor %}
               </select>
-              <input class="ce-input" name="show_if_value" placeholder="valor esperado" value="{{ s.show_if_value }}" style="flex:1;" />
+              <input class="ce-input" name="show_if_value" placeholder="valor esperado" value="{{ s.show_if_value }}" style="flex:1;" list="opts-{{ s.id }}" data-show-if-value />
+              {% with q=s.show_if_question %}
+                <datalist id="opts-{{ s.id }}">
+                  {% if q %}
+                    {% if q.field_type == "boolean" %}
+                      <option value="yes"></option>
+                      <option value="no"></option>
+                    {% elif q.field_type == "choice" or q.field_type == "multi_choice" %}
+                      {% for c in q.choices.all %}
+                        <option value="{{ c.value }}">{{ c.label }}</option>
+                      {% endfor %}
+                    {% endif %}
+                  {% endif %}
+                </datalist>
+              {% endwith %}
             </div>
             {% include "builder/partials/section_condition_help.html" %}
             <div class="ce-muted" style="font-size:12px; margin-top:6px;">

@@ -50,7 +50,7 @@ def builder_home(request):
 def form_editor(request, form_id):
     form_def = get_object_or_404(FormDefinition, id=form_id)
     questions = form_def.questions.select_related("section").all()
-    sections = form_def.sections.all()
+    sections = form_def.sections.select_related("show_if_question").all()
     return render(
         request,
         "builder/form_editor.html",
@@ -72,7 +72,7 @@ def question_add(request, form_id):
         help_text="",   # ✅ keep existing field available
     )
     questions = form_def.questions.select_related("section").all()
-    sections = form_def.sections.all()
+    sections = form_def.sections.select_related("show_if_question").all()
     return render(
         request,
         "builder/partials/question_list.html",
@@ -147,7 +147,7 @@ def question_delete(request, question_id):
     form_def = q.form
     q.delete()
     questions = form_def.questions.select_related("section").all()
-    sections = form_def.sections.all()
+    sections = form_def.sections.select_related("show_if_question").all()
     return render(
         request,
         "builder/partials/question_list.html",
@@ -159,7 +159,7 @@ def question_delete(request, question_id):
 def question_list(request, form_id):
     form_def = get_object_or_404(FormDefinition, id=form_id)
     questions = form_def.questions.select_related("section").all()
-    sections = form_def.sections.all()
+    sections = form_def.sections.select_related("show_if_question").all()
     return render(
         request,
         "builder/partials/question_list.html",
@@ -219,7 +219,7 @@ def section_add(request, form_id):
         description="",
         position=max_pos + 1,
     )
-    sections = form_def.sections.all()
+    sections = form_def.sections.select_related("show_if_question").all()
     resp = render(
         request,
         "builder/partials/section_list.html",
@@ -249,7 +249,7 @@ def section_update(request, section_id):
 
     section.save()
 
-    sections = section.form.sections.all()
+    sections = section.form.sections.select_related("show_if_question").all()
     resp = render(
         request,
         "builder/partials/section_list.html",

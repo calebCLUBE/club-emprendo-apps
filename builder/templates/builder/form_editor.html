@@ -2,6 +2,7 @@
 {% block content %}
 
 <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+{% load static %}
 
 <div style="display:grid; grid-template-columns: 340px 1fr; gap: 18px;">
   <div style="display:flex; flex-direction:column; gap:14px;">
@@ -78,5 +79,7 @@
     </div>
   </div>
 </div>
+
+<script src="{% static 'builder/section_conditions.js' %}"></script>
 
 {% endblock %}

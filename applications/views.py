@@ -314,18 +314,15 @@ def _sections_from_model(form_def: FormDefinition, form):
         qid = bucket.get("show_if_question_id")
         expected = (bucket.get("show_if_value") or "").strip().lower()
         if qid:
-            # find the question slug by id
-            try:
-                q_obj = q_by_id[qid]
+            q_obj = q_by_id.get(qid)
+            if q_obj:
                 fname = f"q_{q_obj.slug}"
                 val = (_value_for_field(fname) or "").strip().lower()
-                if val != expected:
+                if expected and val != expected:
                     # make contained fields non-required so validation passes
                     for f in bucket["fields"]:
                         f.field.required = False
                     continue  # hide bucket
-            except StopIteration:
-                pass
         filtered.append(bucket)
 
     ordered = []

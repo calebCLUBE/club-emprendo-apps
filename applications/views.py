@@ -263,7 +263,7 @@ def _sections_from_model(form_def: FormDefinition, form):
     """
     Build a list of section dictionaries using Section model assignments.
     """
-    sections_qs = list(form_def.sections.select_related("show_if_question").order_by("position", "id"))
+    sections_qs = list(form_def.sections.order_by("position", "id"))
     if not sections_qs:
         return None
 
@@ -274,10 +274,6 @@ def _sections_from_model(form_def: FormDefinition, form):
             "id": s.id,
             "title": s.title,
             "intro": s.description,
-            "show_if_question_id": s.show_if_question_id,
-            "show_if_question_slug": q_by_id.get(s.show_if_question_id).slug if s.show_if_question_id in q_by_id else None,
-            "show_if_field_name": f"q_{q_by_id.get(s.show_if_question_id).slug}" if s.show_if_question_id in q_by_id else None,
-            "show_if_value": (s.show_if_value or "").strip(),
             "fields": [],
         }
         for s in sections_qs
@@ -287,8 +283,6 @@ def _sections_from_model(form_def: FormDefinition, form):
         "id": "unassigned",
         "title": form_def.default_section_title or "Preguntas generales",
         "intro": "",
-        "show_if_question_id": None,
-        "show_if_value": "",
         "fields": [],
     }
 
@@ -304,60 +298,8 @@ def _sections_from_model(form_def: FormDefinition, form):
         else:
             default_bucket["fields"].append(field)
 
-    # Apply conditional visibility (show_if_question + value)
-    def _value_for_field(fname: str):
-        """
-        Return submitted value(s) for a field name, supporting multi-value inputs.
-        """
-        data = getattr(form, "data", None)
-        if data is not None:
-            lst = data.getlist(fname)
-            if lst and len(lst) > 1:
-                return lst
-            if fname in data:
-                return data.get(fname)
-        return form.initial.get(fname, "")
-
-    filtered = []
-    for bucket in ([default_bucket] + [section_map[s.id] for s in sections_qs]):
-        qid = bucket.get("show_if_question_id")
-        expected = (bucket.get("show_if_value") or "").strip().lower()
-        if qid and expected:
-            q_obj = q_by_id.get(qid)
-            if q_obj:
-                fname = f"q_{q_obj.slug}"
-                raw_val = _value_for_field(fname)
-
-                def truthy(v: str) -> bool:
-                    v = (v or "").strip().lower()
-                    return v in {"1", "true", "yes", "si", "sí", "on"}
-
-                match = False
-                if isinstance(raw_val, list):
-                    vals = [str(v).strip().lower() for v in raw_val]
-                    if q_obj.field_type == Question.MULTI_CHOICE:
-                        match = expected in vals
-                    else:
-                        match = expected in vals
-                else:
-                    val = (str(raw_val or "")).strip().lower()
-                    if q_obj.field_type == Question.BOOLEAN:
-                        if expected in {"yes", "si", "sí"}:
-                            match = truthy(val)
-                        elif expected == "no":
-                            match = not truthy(val)
-                    else:
-                        match = val == expected
-
-                if not match:
-                    # make contained fields non-required so validation passes
-                    for f in bucket["fields"]:
-                        f.field.required = False
-                    continue  # hide bucket
-        filtered.append(bucket)
-
     ordered = []
-    for bucket in filtered:
+    for bucket in ([default_bucket] + [section_map[s.id] for s in sections_qs]):
         if bucket["fields"]:
             ordered.append(bucket)
 

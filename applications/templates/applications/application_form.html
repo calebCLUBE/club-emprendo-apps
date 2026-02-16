@@ -36,8 +36,6 @@
         {% for section in sections %}
           <div data-stepper-item
                title="{{ section.title }}"
-               data-show-if-question="{{ section.show_if_field_name|default:'' }}"
-               data-show-if-value="{{ section.show_if_value|default:'' }}"
                style="padding:6px 10px; border-radius:999px; background:#f2f4ff; color:#2c3191; font-size:13px; display:flex; align-items:center; gap:6px;">
             <span style="display:inline-block; width:22px; height:22px; border-radius:999px; background:#2c3191; color:#fff; text-align:center; line-height:22px; font-size:12px;">{{ forloop.counter }}</span>
           </div>
@@ -48,8 +46,6 @@
         {% for section in sections %}
           <div class="ce-section-panel"
                data-section-index="{{ forloop.counter0 }}"
-               data-show-if-question="{{ section.show_if_field_name|default:'' }}"
-               data-show-if-value="{{ section.show_if_value|default:'' }}"
                style="{% if not forloop.first %}display:none;{% endif %}">
             <div style="margin-bottom:14px;">
               <h2 class="ce-heading" style="margin:0 0 6px 0;">{{ section.title }}</h2>
@@ -142,63 +138,21 @@
         return ok;
       }
 
-      function isSectionVisible(panel) {
-        const qName = (panel.dataset.showIfQuestion || "").trim();
-        const expected = (panel.dataset.showIfValue || "").trim().toLowerCase();
-        if (!qName || !expected) return true;
-
-        const inputs = Array.from(document.querySelectorAll(`[name="${qName}"], [name="${qName}[]"]`));
-        if (!inputs.length) return true;
-
-        const truthy = (v) => ["1", "true", "yes", "si", "sí", "on"].includes((v || "").trim().toLowerCase());
-
-        // Single checkbox -> treat as boolean yes/no
-        if (inputs.length === 1 && inputs[0].type === "checkbox") {
-          const checked = inputs[0].checked;
-          if (["yes", "si", "sí"].includes(expected)) return checked;
-          if (expected === "no") return !checked;
-        }
-
-        // Radio buttons or multi-choice checkboxes
-        let anyMatch = false;
-        inputs.forEach(inp => {
-          const type = (inp.type || "").toLowerCase();
-          if ((type === "radio" || type === "checkbox") && inp.checked) {
-            if ((inp.value || "").trim().toLowerCase() === expected) anyMatch = true;
-          }
-        });
-        if (anyMatch) return true;
-
-        // Select or text
-        for (const inp of inputs) {
-          if ((inp.type || "").toLowerCase() !== "radio" && (inp.type || "").toLowerCase() !== "checkbox") {
-            const v = (inp.value || "").trim().toLowerCase();
-            if (v === expected) return true;
-            if (["yes", "si", "sí", "no"].includes(expected) && truthy(v) === truthy(expected)) return true;
-          }
-        }
-
-        return false;
-      }
-
       function visiblePanels() {
-        return panels.filter(isSectionVisible);
+        return panels; // no conditional hiding
       }
 
       function setActive(idx, opts = { scroll: true }) {
         const vis = visiblePanels();
         if (!vis.length) return;
         current = Math.max(0, Math.min(idx, vis.length - 1));
-        panels.forEach(p => {
-          const show = vis.includes(p);
-          p.style.display = show && vis[current] === p ? "" : "none";
+        panels.forEach((p, i) => {
+          p.style.display = vis[current] === p ? "" : "none";
         });
         stepperItems.forEach((el, i) => {
-          const matchPanel = panels[i];
-          const show = vis.includes(matchPanel);
-          el.style.display = show ? "flex" : "none";
-          el.style.background = show && matchPanel === vis[current] ? "#2c3191" : "#f2f4ff";
-          el.style.color = show && matchPanel === vis[current] ? "#fff" : "#2c3191";
+          el.style.display = "flex";
+          el.style.background = vis[current] === panels[i] ? "#2c3191" : "#f2f4ff";
+          el.style.color = vis[current] === panels[i] ? "#fff" : "#2c3191";
         });
 
         if (opts.scroll) {
@@ -229,11 +183,7 @@
         panel.querySelectorAll("input, select, textarea").forEach(inp => {
           inp.addEventListener("input", () => {
             clearConfirmError(inp);
-            setActive(current, { scroll: false });
           });
-          if (inp.type === "radio" || inp.type === "checkbox" || inp.tagName === "SELECT") {
-            inp.addEventListener("change", () => setActive(current, { scroll: false }));
-          }
         });
       });
 

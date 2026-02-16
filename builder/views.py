@@ -50,7 +50,7 @@ def builder_home(request):
 def form_editor(request, form_id):
     form_def = get_object_or_404(FormDefinition, id=form_id)
     questions = form_def.questions.select_related("section").all()
-    sections = form_def.sections.select_related("show_if_question").all()
+    sections = form_def.sections.all()
     return render(
         request,
         "builder/form_editor.html",
@@ -72,7 +72,7 @@ def question_add(request, form_id):
         help_text="",   # ✅ keep existing field available
     )
     questions = form_def.questions.select_related("section").all()
-    sections = form_def.sections.select_related("show_if_question").all()
+    sections = form_def.sections.all()
     return render(
         request,
         "builder/partials/question_list.html",
@@ -147,7 +147,7 @@ def question_delete(request, question_id):
     form_def = q.form
     q.delete()
     questions = form_def.questions.select_related("section").all()
-    sections = form_def.sections.select_related("show_if_question").all()
+    sections = form_def.sections.all()
     return render(
         request,
         "builder/partials/question_list.html",
@@ -159,7 +159,7 @@ def question_delete(request, question_id):
 def question_list(request, form_id):
     form_def = get_object_or_404(FormDefinition, id=form_id)
     questions = form_def.questions.select_related("section").all()
-    sections = form_def.sections.select_related("show_if_question").all()
+    sections = form_def.sections.all()
     return render(
         request,
         "builder/partials/question_list.html",
@@ -219,7 +219,7 @@ def section_add(request, form_id):
         description="",
         position=max_pos + 1,
     )
-    sections = form_def.sections.select_related("show_if_question").all()
+    sections = form_def.sections.all()
     resp = render(
         request,
         "builder/partials/section_list.html",
@@ -240,16 +240,9 @@ def section_update(request, section_id):
         section.position = int(request.POST.get("position", section.position) or section.position)
     except ValueError:
         pass
-    sid = request.POST.get("show_if_question") or ""
-    try:
-        section.show_if_question = Question.objects.get(id=int(sid), form=section.form) if sid else None
-    except (Question.DoesNotExist, ValueError):
-        section.show_if_question = None
-    section.show_if_value = (request.POST.get("show_if_value") or "").strip()
-
     section.save()
 
-    sections = section.form.sections.select_related("show_if_question").all()
+    sections = section.form.sections.all()
     resp = render(
         request,
         "builder/partials/section_list.html",

@@ -40,21 +40,19 @@
                   {% endif %}
                 {% endfor %}
               </select>
-              <input class="ce-input" name="show_if_value" placeholder="valor esperado" value="{{ s.show_if_value }}" style="flex:1;" list="opts-{{ s.id }}" data-show-if-value />
-              {% with q=s.show_if_question %}
-                <datalist id="opts-{{ s.id }}">
-                  {% if q %}
-                    {% if q.field_type == "boolean" %}
-                      <option value="yes"></option>
-                      <option value="no"></option>
-                    {% elif q.field_type == "choice" or q.field_type == "multi_choice" %}
-                      {% for c in q.choices.all %}
-                        <option value="{{ c.value }}">{{ c.label }}</option>
-                      {% endfor %}
-                    {% endif %}
+              <select class="ce-input" name="show_if_value" style="flex:1;" data-show-if-value>
+                <option value="">Selecciona valor</option>
+                {% if s.show_if_question %}
+                  {% if s.show_if_question.field_type == "boolean" %}
+                    <option value="yes" {% if s.show_if_value|lower == "yes" %}selected{% endif %}>Sí</option>
+                    <option value="no" {% if s.show_if_value|lower == "no" %}selected{% endif %}>No</option>
+                  {% elif s.show_if_question.field_type == "choice" or s.show_if_question.field_type == "multi_choice" %}
+                    {% for c in s.show_if_question.choices.all %}
+                      <option value="{{ c.value }}" {% if s.show_if_value == c.value %}selected{% endif %}>{{ c.label }}</option>
+                    {% endfor %}
                   {% endif %}
-                </datalist>
-              {% endwith %}
+                {% endif %}
+              </select>
             </div>
             {% include "builder/partials/section_condition_help.html" %}
             <div class="ce-muted" style="font-size:12px; margin-top:6px;">

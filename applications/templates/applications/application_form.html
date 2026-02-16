@@ -164,7 +164,7 @@
         return panels.filter(isSectionVisible);
       }
 
-      function setActive(idx) {
+      function setActive(idx, opts = { scroll: true }) {
         const vis = visiblePanels();
         if (!vis.length) return;
         current = Math.max(0, Math.min(idx, vis.length - 1));
@@ -180,9 +180,11 @@
           el.style.color = show && matchPanel === vis[current] ? "#fff" : "#2c3191";
         });
 
-        const header = document.querySelector(".ce-form-header");
-        const top = header ? header.offsetTop : 0;
-        window.scrollTo({ top: Math.max(top - 10, 0), behavior: "smooth" });
+        if (opts.scroll) {
+          const header = document.querySelector(".ce-form-header");
+          const top = header ? header.offsetTop : 0;
+          window.scrollTo({ top: Math.max(top - 10, 0), behavior: "smooth" });
+        }
       }
 
       function findErrorSection() {
@@ -196,26 +198,26 @@
         panel.querySelectorAll("[data-next]").forEach(btn => {
           btn.addEventListener("click", () => {
             if (!validatePanel(panel)) return;
-            setActive(idx + 1);
+            setActive(idx + 1, { scroll: true });
           });
         });
         panel.querySelectorAll("[data-prev]").forEach(btn => {
-          btn.addEventListener("click", () => setActive(idx - 1));
+          btn.addEventListener("click", () => setActive(idx - 1, { scroll: true }));
         });
 
         panel.querySelectorAll("input, select, textarea").forEach(inp => {
           inp.addEventListener("input", () => {
             clearConfirmError(inp);
-            setActive(current);
+            setActive(current, { scroll: false });
           });
           if (inp.type === "radio" || inp.type === "checkbox" || inp.tagName === "SELECT") {
-            inp.addEventListener("change", () => setActive(current));
+            inp.addEventListener("change", () => setActive(current, { scroll: false }));
           }
         });
       });
 
       const errorIdx = findErrorSection();
-      setActive(errorIdx !== null ? errorIdx : 0);
+      setActive(errorIdx !== null ? errorIdx : 0, { scroll: false });
     })();
 
     (function () {

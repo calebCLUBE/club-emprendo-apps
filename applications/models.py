@@ -90,6 +90,19 @@ class Section(models.Model):
     title = models.CharField(max_length=200)
     description = models.TextField(blank=True)
     position = models.PositiveIntegerField(default=0)
+    show_if_question = models.ForeignKey(
+        "applications.Question",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="sections_conditioned",
+        help_text="Optional: only show this section if the question equals the expected value.",
+    )
+    show_if_value = models.CharField(
+        max_length=200,
+        blank=True,
+        help_text="Match is case-insensitive; works for short_text/choice/boolean. Leave blank for no condition.",
+    )
 
     class Meta:
         ordering = ["position", "id"]

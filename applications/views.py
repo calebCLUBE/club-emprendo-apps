@@ -272,7 +272,8 @@ def _sections_from_model(form_def: FormDefinition, form):
             "id": s.id,
             "title": s.title,
             "intro": s.description,
-            "show_if_field": None,
+            "show_if_question_id": s.show_if_question_id,
+            "show_if_value": (s.show_if_value or "").strip(),
             "fields": [],
         }
         for s in sections_qs
@@ -282,7 +283,8 @@ def _sections_from_model(form_def: FormDefinition, form):
         "id": "unassigned",
         "title": form_def.default_section_title or "Preguntas generales",
         "intro": "",
-        "show_if_field": None,
+        "show_if_question_id": None,
+        "show_if_value": "",
         "fields": [],
     }
 
@@ -298,13 +300,34 @@ def _sections_from_model(form_def: FormDefinition, form):
         else:
             default_bucket["fields"].append(field)
 
-    ordered = []
-    if default_bucket["fields"]:
-        ordered.append(default_bucket)
+    # Apply conditional visibility (show_if_question + value)
+    def _value_for_field(fname: str):
+        if fname in form.data:
+            return form.data.get(fname)
+        return form.initial.get(fname, "")
 
-    for s in sections_qs:
-        bucket = section_map.get(s.id)
-        if bucket and bucket["fields"]:
+    filtered = []
+    for bucket in ([default_bucket] + [section_map[s.id] for s in sections_qs]):
+        qid = bucket.get("show_if_question_id")
+        expected = (bucket.get("show_if_value") or "").strip().lower()
+        if qid:
+            # find the question slug by id
+            try:
+                q_obj = next(q for q in form_def.questions.all() if q.id == qid)
+                fname = f"q_{q_obj.slug}"
+                val = (_value_for_field(fname) or "").strip().lower()
+                if val != expected:
+                    # make contained fields non-required so validation passes
+                    for f in bucket["fields"]:
+                        f.field.required = False
+                    continue  # hide bucket
+            except StopIteration:
+                pass
+        filtered.append(bucket)
+
+    ordered = []
+    for bucket in filtered:
+        if bucket["fields"]:
             ordered.append(bucket)
 
     if not ordered:

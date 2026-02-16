@@ -23,8 +23,22 @@
               </button>
             </div>
             <textarea class="ce-input" name="description" rows="2" style="margin-top:8px;">{{ s.description }}</textarea>
+            <div style="display:flex; gap:8px; margin-top:8px; align-items:center;">
+              <label class="ce-label" style="font-size:12px; margin:0;">Mostrar si</label>
+              <select class="ce-input" name="show_if_question" style="flex:1;">
+                <option value="">— Siempre —</option>
+                {% for q in form_def.questions.all %}
+                  <option value="{{ q.id }}" {% if s.show_if_question_id == q.id %}selected{% endif %}>{{ q.text|default:q.slug }}</option>
+                {% endfor %}
+              </select>
+              <input class="ce-input" name="show_if_value" placeholder="valor esperado" value="{{ s.show_if_value }}" style="flex:1;" />
+            </div>
+            {% include "builder/partials/section_condition_help.html" %}
             <div class="ce-muted" style="font-size:12px; margin-top:6px;">
               {{ s.questions.count }} preguntas
+              {% if s.show_if_question %}
+                · Condición: {{ s.show_if_question.text|default:s.show_if_question.slug }} == "{{ s.show_if_value|default:"" }}"
+              {% endif %}
             </div>
           </form>
         </li>

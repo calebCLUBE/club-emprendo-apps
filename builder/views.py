@@ -240,6 +240,12 @@ def section_update(request, section_id):
         section.position = int(request.POST.get("position", section.position) or section.position)
     except ValueError:
         pass
+    sid = request.POST.get("show_if_question") or ""
+    try:
+        section.show_if_question = Question.objects.get(id=int(sid), form=section.form) if sid else None
+    except (Question.DoesNotExist, ValueError):
+        section.show_if_question = None
+    section.show_if_value = (request.POST.get("show_if_value") or "").strip()
 
     section.save()
 

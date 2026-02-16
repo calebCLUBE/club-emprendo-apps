@@ -36,7 +36,7 @@
         {% for section in sections %}
           <div data-stepper-item
                title="{{ section.title }}"
-               data-show-if-question="{{ section.show_if_question_slug|default:'' }}"
+               data-show-if-question="{{ section.show_if_field_name|default:'' }}"
                data-show-if-value="{{ section.show_if_value|default:'' }}"
                style="padding:6px 10px; border-radius:999px; background:#f2f4ff; color:#2c3191; font-size:13px; display:flex; align-items:center; gap:6px;">
             <span style="display:inline-block; width:22px; height:22px; border-radius:999px; background:#2c3191; color:#fff; text-align:center; line-height:22px; font-size:12px;">{{ forloop.counter }}</span>
@@ -48,7 +48,7 @@
         {% for section in sections %}
           <div class="ce-section-panel"
                data-section-index="{{ forloop.counter0 }}"
-               data-show-if-question="{{ section.show_if_question_slug|default:'' }}"
+               data-show-if-question="{{ section.show_if_field_name|default:'' }}"
                data-show-if-value="{{ section.show_if_value|default:'' }}"
                style="{% if not forloop.first %}display:none;{% endif %}">
             <div style="margin-bottom:14px;">

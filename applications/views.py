@@ -276,6 +276,7 @@ def _sections_from_model(form_def: FormDefinition, form):
             "intro": s.description,
             "show_if_question_id": s.show_if_question_id,
             "show_if_question_slug": q_by_id.get(s.show_if_question_id).slug if s.show_if_question_id in q_by_id else None,
+            "show_if_field_name": f"q_{q_by_id.get(s.show_if_question_id).slug}" if s.show_if_question_id in q_by_id else None,
             "show_if_value": (s.show_if_value or "").strip(),
             "fields": [],
         }

@@ -7,8 +7,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const selected = selectEl.options[selectEl.selectedIndex];
     const valsRaw = selected ? (selected.dataset.optValues || "") : "";
     const labelsRaw = selected ? (selected.dataset.optLabels || "") : "";
-    const values = valsRaw.split("|").filter(Boolean);
-    const labels = labelsRaw.split("|").filter(Boolean);
+    const values = valsRaw.split("|").filter((x) => x !== "");
+    const labels = labelsRaw.split("|").filter((x) => x !== "");
 
     const current = valueSelect.value || valueSelect.dataset.current || "";
     valueSelect.innerHTML = "";

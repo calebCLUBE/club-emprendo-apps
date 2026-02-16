@@ -18,7 +18,7 @@
 
     <h1 class="ce-form-title ce-heading">{{ form_def.name }}</h1>
     {% if form_def.description %}
-      <p class="ce-form-subtitle">{{ form_def.description }}</p>
+      <p class="ce-form-subtitle">{{ form_def.description|linebreaks }}</p>
     {% endif %}
   </div>
 

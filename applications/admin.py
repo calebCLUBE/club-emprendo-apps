@@ -121,7 +121,7 @@ class ChoiceInline(admin.TabularInline):
 class SectionInline(admin.TabularInline):
     model = Section
     extra = 0
-    fields = ("position", "title", "description")
+    fields = ("position", "title", "description", "show_if_question", "show_if_value")
     ordering = ("position", "id")
 
 

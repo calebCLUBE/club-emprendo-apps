@@ -263,9 +263,11 @@ def _sections_from_model(form_def: FormDefinition, form):
     """
     Build a list of section dictionaries using Section model assignments.
     """
-    sections_qs = list(form_def.sections.order_by("position", "id"))
+    sections_qs = list(form_def.sections.select_related("show_if_question").order_by("position", "id"))
     if not sections_qs:
         return None
+
+    q_by_id = {q.id: q for q in form_def.questions.all()}
 
     section_map = {
         s.id: {
@@ -273,6 +275,7 @@ def _sections_from_model(form_def: FormDefinition, form):
             "title": s.title,
             "intro": s.description,
             "show_if_question_id": s.show_if_question_id,
+            "show_if_question_slug": q_by_id.get(s.show_if_question_id).slug if s.show_if_question_id in q_by_id else None,
             "show_if_value": (s.show_if_value or "").strip(),
             "fields": [],
         }
@@ -313,7 +316,7 @@ def _sections_from_model(form_def: FormDefinition, form):
         if qid:
             # find the question slug by id
             try:
-                q_obj = next(q for q in form_def.questions.all() if q.id == qid)
+                q_obj = q_by_id[qid]
                 fname = f"q_{q_obj.slug}"
                 val = (_value_for_field(fname) or "").strip().lower()
                 if val != expected:

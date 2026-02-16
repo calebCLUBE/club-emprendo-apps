@@ -146,18 +146,39 @@
         const qName = (panel.dataset.showIfQuestion || "").trim();
         const expected = (panel.dataset.showIfValue || "").trim().toLowerCase();
         if (!qName || !expected) return true;
-        const inputs = document.querySelectorAll(`[name="${qName}"], [name="${qName}[]"]`);
+
+        const inputs = Array.from(document.querySelectorAll(`[name="${qName}"], [name="${qName}[]"]`));
         if (!inputs.length) return true;
-        let val = "";
+
+        const truthy = (v) => ["1", "true", "yes", "si", "sí", "on"].includes((v || "").trim().toLowerCase());
+
+        // Single checkbox -> treat as boolean yes/no
+        if (inputs.length === 1 && inputs[0].type === "checkbox") {
+          const checked = inputs[0].checked;
+          if (["yes", "si", "sí"].includes(expected)) return checked;
+          if (expected === "no") return !checked;
+        }
+
+        // Radio buttons or multi-choice checkboxes
+        let anyMatch = false;
         inputs.forEach(inp => {
           const type = (inp.type || "").toLowerCase();
-          if (type === "radio" || type === "checkbox") {
-            if (inp.checked) val = inp.value;
-          } else {
-            val = inp.value;
+          if ((type === "radio" || type === "checkbox") && inp.checked) {
+            if ((inp.value || "").trim().toLowerCase() === expected) anyMatch = true;
           }
         });
-        return (val || "").trim().toLowerCase() === expected;
+        if (anyMatch) return true;
+
+        // Select or text
+        for (const inp of inputs) {
+          if ((inp.type || "").toLowerCase() !== "radio" && (inp.type || "").toLowerCase() !== "checkbox") {
+            const v = (inp.value || "").trim().toLowerCase();
+            if (v === expected) return true;
+            if (["yes", "si", "sí", "no"].includes(expected) && truthy(v) === truthy(expected)) return true;
+          }
+        }
+
+        return false;
       }
 
       function visiblePanels() {

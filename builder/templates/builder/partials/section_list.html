@@ -33,7 +33,7 @@
                             data-opt-values="yes|no"
                             data-opt-labels="Sí|No"
                             {% if s.show_if_question_id == q.id %}selected{% endif %}>{{ q.text|default:q.slug }}</option>
-                  {% elif q.field_type == "choice" or q.field_type == "multi_choice" %}
+                  {% elif q.field_type == "choice" or q.field_type == "multi_choice" or q.field_type == "single_choice" %}
                     <option value="{{ q.id }}"
                             data-opt-values="{% for c in q.choices.all %}{{ c.value }}{% if not forloop.last %}|{% endif %}{% endfor %}"
                             data-opt-labels="{% for c in q.choices.all %}{{ c.label|default:c.value }}{% if not forloop.last %}|{% endif %}{% endfor %}"
@@ -46,9 +46,21 @@
                   {% endif %}
                 {% endfor %}
               </select>
-              <select class="ce-input" name="show_if_value" style="flex:1;" data-show-if-value data-current="{{ s.show_if_value }}">
-                <option value="">Selecciona valor</option>
-              </select>
+              {% with q=s.show_if_question %}
+                <select class="ce-input" name="show_if_value" style="flex:1;" data-show-if-value data-current="{{ s.show_if_value }}">
+                  <option value="">Selecciona valor</option>
+                  {% if q %}
+                    {% if q.field_type == "boolean" %}
+                      <option value="yes" {% if s.show_if_value|lower == "yes" %}selected{% endif %}>Sí</option>
+                      <option value="no" {% if s.show_if_value|lower == "no" %}selected{% endif %}>No</option>
+                    {% elif q.field_type == "choice" or q.field_type == "multi_choice" or q.field_type == "single_choice" %}
+                      {% for c in q.choices.all %}
+                        <option value="{{ c.value }}" {% if s.show_if_value == c.value %}selected{% endif %}>{{ c.label|default:c.value }}</option>
+                      {% endfor %}
+                    {% endif %}
+                  {% endif %}
+                </select>
+              {% endwith %}
             </div>
             {% include "builder/partials/section_condition_help.html" %}
             <div class="ce-muted" style="font-size:12px; margin-top:6px;">

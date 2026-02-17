@@ -5,6 +5,7 @@ from django.conf import settings
 from django.core.mail import EmailMultiAlternatives
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse
+from django.utils import timezone
 
 from .forms import build_application_form
 from .models import Application, Answer, FormDefinition
@@ -317,7 +318,25 @@ def _sections_from_model(form_def: FormDefinition, form):
 
 def _handle_application_form(request, form_slug: str, second_stage: bool = False):
     form_def = get_object_or_404(FormDefinition, slug=form_slug)
-        # Block new submissions when closed (we use is_public as "open" flag)
+
+    # Auto open/close based on group schedule
+    grp = getattr(form_def, "group", None)
+    if grp and (grp.open_at or grp.close_at):
+        now = timezone.now()
+        desired_open = True
+        if grp.open_at and now < grp.open_at:
+            desired_open = False
+        if grp.close_at and now >= grp.close_at:
+            desired_open = False
+        if desired_open != form_def.is_public or desired_open != getattr(form_def, "accepting_responses", desired_open):
+            FormDefinition.objects.filter(id=form_def.id).update(
+                is_public=desired_open,
+                accepting_responses=desired_open,
+            )
+            form_def.is_public = desired_open
+            form_def.accepting_responses = desired_open
+
+    # Block new submissions when closed (we use is_public as "open" flag)
     if not form_def.is_public:
         return render(
             request,

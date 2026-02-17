@@ -136,10 +136,18 @@
             <input type="date" name="a2_deadline" value="{{ g.a2_deadline|date:'Y-m-d' }}" class="vDateField">
           </div>
           <div>
+            <label class="inline">Abrir en</label><br>
+            <input type="datetime-local" name="open_at" value="{{ g.open_at|date:'Y-m-d\\TH:i' }}" class="vDateTimeField">
+          </div>
+          <div>
+            <label class="inline">Cerrar en</label><br>
+            <input type="datetime-local" name="close_at" value="{{ g.close_at|date:'Y-m-d\\TH:i' }}" class="vDateTimeField">
+          </div>
+          <div>
             <button type="submit" class="button default">Guardar fechas</button>
           </div>
           <div style="color:#555; font-size:12px;">
-            Actualiza sólo las fechas; meses/año permanecen igual.
+            Actualiza fechas; meses/año permanecen igual. Apertura/cierre cambian visibilidad automática.
           </div>
         </form>
       </div>

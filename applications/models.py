@@ -13,6 +13,8 @@ class FormGroup(models.Model):
     end_month = models.CharField(max_length=30)
     year = models.PositiveIntegerField()
     a2_deadline = models.DateField(null=True, blank=True, help_text="Fecha límite para completar la aplicación 2.")
+    open_at = models.DateTimeField(null=True, blank=True, help_text="Fecha/hora en la que las aplicaciones del grupo se abrirán automáticamente.")
+    close_at = models.DateTimeField(null=True, blank=True, help_text="Fecha/hora en la que las aplicaciones del grupo se cerrarán automáticamente.")
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

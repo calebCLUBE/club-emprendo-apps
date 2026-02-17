@@ -7,6 +7,7 @@ from typing import List, Tuple
 from urllib.parse import urlparse
 from django.core.mail import get_connection
 import time
+from datetime import datetime
 from applications.grading import grade_from_answers
 from openai import OpenAI
 from django.core.files.base import ContentFile
@@ -25,6 +26,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_POST
 import os
+from django.utils import timezone
 from applications.grader_e import grade_single_row, grade_from_dataframe
 from django.db import connection
 from applications.grader_e import grade_from_dataframe as grade_e_df
@@ -1033,6 +1035,8 @@ class CreateGroupForm(forms.Form):
     end_month = forms.CharField(max_length=30, label="End month")
     year = forms.IntegerField(min_value=2020, max_value=2100, label="Year")
     a2_deadline = forms.DateField(label="Fecha límite A2", required=False, help_text="YYYY-MM-DD")
+    open_at = forms.DateTimeField(label="Abrir automáticamente en", required=False, help_text="YYYY-MM-DD HH:MM")
+    close_at = forms.DateTimeField(label="Cerrar automáticamente en", required=False, help_text="YYYY-MM-DD HH:MM")
 
 
 # ----------------------------
@@ -1062,6 +1066,33 @@ def _model_has_field(model: type[Model], field_name: str) -> bool:
         return True
     except Exception:
         return False
+
+
+def _sync_group_open_close(group: FormGroup):
+    """
+    Auto-open/close all forms in a group based on open_at/close_at window.
+    If no schedule is set, leave forms as-is.
+    """
+    if not group:
+        return
+
+    now = timezone.now()
+    open_at = group.open_at
+    close_at = group.close_at
+
+    if not open_at and not close_at:
+        return
+
+    desired_open = True
+    if open_at and now < open_at:
+        desired_open = False
+    if close_at and now >= close_at:
+        desired_open = False
+
+    FormDefinition.objects.filter(group=group).update(
+        is_public=desired_open,
+        accepting_responses=desired_open,
+    )
 
 def _ensure_test_a2_form(role: str) -> FormDefinition:
     """
@@ -1358,6 +1389,7 @@ def apps_list(request):
     groups = list(FormGroup.objects.order_by("number"))
     group_list = []
     for g in groups:
+        _sync_group_open_close(g)
         forms_for_group = list(FormDefinition.objects.filter(group=g).order_by("slug"))
         group_list.append((g, forms_for_group))
 
@@ -1400,6 +1432,8 @@ def create_group(request):
     year = form.cleaned_data["year"]
     start_day = form.cleaned_data["start_day"]
     a2_deadline = form.cleaned_data.get("a2_deadline")
+    open_at = form.cleaned_data.get("open_at")
+    close_at = form.cleaned_data.get("close_at")
 
     with transaction.atomic():
         group, _created = FormGroup.objects.get_or_create(
@@ -1410,6 +1444,8 @@ def create_group(request):
                 "year": year,
                 "start_day": start_day,
                 "a2_deadline": a2_deadline,
+                "open_at": open_at,
+                "close_at": close_at,
             },
         )
         group.start_month = start_month
@@ -1417,6 +1453,8 @@ def create_group(request):
         group.year = year
         group.start_day = start_day
         group.a2_deadline = a2_deadline
+        group.open_at = open_at
+        group.close_at = close_at
         group.save()
 
         masters = FormDefinition.objects.filter(slug__in=MASTER_SLUGS).order_by("slug")
@@ -1424,6 +1462,7 @@ def create_group(request):
             _clone_form(master_fd, group)
 
     messages.success(request, f"Grupo {group_num} creado/actualizado y formularios clonados.")
+    _sync_group_open_close(group)
     return redirect("admin_apps_list")
 
 
@@ -1466,7 +1505,7 @@ def delete_group(request, group_num: int):
 @require_POST
 def update_group_dates(request, group_num: int):
     """
-    Update start_day and A2 deadline for a group without recloning forms.
+    Update start_day, A2 deadline, and open/close schedule for a group without recloning forms.
     """
     group = get_object_or_404(FormGroup, number=group_num)
 
@@ -1484,14 +1523,32 @@ def update_group_dates(request, group_num: int):
         except Exception:
             deadline = group.a2_deadline
 
+    raw_open = (request.POST.get("open_at") or "").strip()
+    raw_close = (request.POST.get("close_at") or "").strip()
+    open_at = group.open_at
+    close_at = group.close_at
+    try:
+        from django.utils import timezone
+        if raw_open:
+            open_at = timezone.make_aware(datetime.strptime(raw_open, "%Y-%m-%dT%H:%M"))
+        if raw_close:
+            close_at = timezone.make_aware(datetime.strptime(raw_close, "%Y-%m-%dT%H:%M"))
+    except Exception:
+        pass
+
     group.start_day = start_day
     group.a2_deadline = deadline
-    group.save(update_fields=["start_day", "a2_deadline"])
+    group.open_at = open_at
+    group.close_at = close_at
+    group.save(update_fields=["start_day", "a2_deadline", "open_at", "close_at"])
+
+    _sync_group_open_close(group)
 
     messages.success(
         request,
-        f"Actualizado Grupo {group.number}: día de inicio {start_day}, fecha límite A2 "
-        f"{deadline.strftime('%d/%m/%Y') if deadline else 'no definida'}."
+        f"Actualizado Grupo {group.number}: día {start_day}, fecha límite A2 "
+        f"{deadline.strftime('%d/%m/%Y') if deadline else 'no definida'}, "
+        f"apertura {open_at} / cierre {close_at}."
     )
     return redirect("admin_apps_list")
 

@@ -1462,6 +1462,40 @@ def delete_group(request, group_num: int):
     return redirect("admin_apps_list")
 
 
+@staff_member_required
+@require_POST
+def update_group_dates(request, group_num: int):
+    """
+    Update start_day and A2 deadline for a group without recloning forms.
+    """
+    group = get_object_or_404(FormGroup, number=group_num)
+
+    try:
+        start_day = int(request.POST.get("start_day") or group.start_day or 1)
+    except ValueError:
+        start_day = group.start_day or 1
+
+    raw_deadline = (request.POST.get("a2_deadline") or "").strip()
+    deadline = None
+    if raw_deadline:
+        try:
+            from datetime import datetime
+            deadline = datetime.strptime(raw_deadline, "%Y-%m-%d").date()
+        except Exception:
+            deadline = group.a2_deadline
+
+    group.start_day = start_day
+    group.a2_deadline = deadline
+    group.save(update_fields=["start_day", "a2_deadline"])
+
+    messages.success(
+        request,
+        f"Actualizado Grupo {group.number}: día de inicio {start_day}, fecha límite A2 "
+        f"{deadline.strftime('%d/%m/%Y') if deadline else 'no definida'}."
+    )
+    return redirect("admin_apps_list")
+
+
 # ----------------------------
 # Database
 # ----------------------------

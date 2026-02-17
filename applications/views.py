@@ -83,6 +83,11 @@ def _mentor_a1_autograde_and_email(request, app: Application):
             reverse("apply_mentora_second", kwargs={"token": app.invite_token})
         )
 
+        deadline_str = ""
+        grp = getattr(app.form, "group", None)
+        if grp and getattr(grp, "a2_deadline", None):
+            deadline_str = grp.a2_deadline.strftime("%d/%m/%Y")
+
         subject = "Siguiente paso: Completa la segunda solicitud"
         html_body = (
             '<div style="font-family:Arial,Helvetica,sans-serif;line-height:1.6;max-width:700px;margin:0 auto;word-break:break-word;white-space:normal;">'
@@ -92,7 +97,8 @@ def _mentor_a1_autograde_and_email(request, app: Application):
             "<p>A continuación, te compartimos la <strong>Aplicación #2</strong>, que es el segundo y último paso para postularte como mentora voluntaria.</p>"
             "<p><strong>📌 Instrucciones para acceder a la Aplicación #2:</strong></p>"
             "<ol>"
-            f'<li>Haz clic aquí: 👉 <a href="{form2_url}">Aplicación 2</a> fecha límite - 01/03/2026 </li>'
+            f'<li>Haz clic aquí: 👉 <a href="{form2_url}">Aplicación 2</a>'
+            f'{" — Fecha límite: " + deadline_str if deadline_str else ""}</li>'
             "<li>Lee con atención y responde cada pregunta.</li>"
             "</ol>"
             "<p>Gracias nuevamente por tu interés y compromiso con otras mujeres emprendedoras 💛</p>"

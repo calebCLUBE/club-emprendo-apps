@@ -11,6 +11,7 @@ urlpatterns = [
     # ============================
     path("admin/apps/", admin_views.apps_list, name="admin_apps_list"),
     path("admin/apps/create-group/", admin_views.create_group, name="admin_create_group"),
+    path("admin/apps/update-group/<int:group_num>/", admin_views.update_group_dates, name="admin_update_group"),
     path("admin/apps/delete-group/<int:group_num>/", admin_views.delete_group, name="admin_delete_group"),
     path("admin/apps/toggle-form/<slug:form_slug>/", admin_views.toggle_form_open, name="admin_toggle_form_open"),
     path("admin/apps/toggle-accepting/<slug:form_slug>/", admin_views.toggle_form_accepting, name="admin_toggle_form_accepting"),

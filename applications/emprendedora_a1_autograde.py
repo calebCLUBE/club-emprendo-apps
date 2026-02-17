@@ -95,6 +95,11 @@ def autograde_and_email_emprendedora_a1(request, app: Application):
         )
 
         subject = "Próximo paso para recibir mentorías 💛"
+        deadline_str = ""
+        grp = getattr(app.form, "group", None)
+        if grp and getattr(grp, "a2_deadline", None):
+            deadline_str = grp.a2_deadline.strftime("%d/%m/%Y")
+
         html_body = (
             '<div style="font-family:Arial,Helvetica,sans-serif;line-height:1.6;max-width:700px;'
             'margin:0 auto;word-break:break-word;white-space:normal;">'
@@ -105,7 +110,8 @@ def autograde_and_email_emprendedora_a1(request, app: Application):
             "<p>A continuación, te compartimos la <strong>Aplicación #2</strong>, que es el último paso del proceso de postulación.</p>"
             "<p><strong>📌 Instrucciones para completar la Aplicación #2:</strong></p>"
             "<ul>"
-            f'<li>👉 <a href="{form2_url}">Haz clic aquí para completar la Aplicación #2</a> - Fecha Limite: 01/03/2026 - </li>'
+            f'<li>👉 <a href="{form2_url}">Haz clic aquí para completar la Aplicación #2</a>'
+            f"{' - Fecha límite: ' + deadline_str if deadline_str else ''}</li>"
             "</ul>"
             "<p>Con cariño,<br><strong>El equipo de Club Emprendo</strong></p>"
             "</div>"

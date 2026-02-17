@@ -12,25 +12,29 @@ def _is_yes(value: str) -> bool:
     return (value or "").strip().lower() in ("yes", "sí", "si", "true", "1")
 
 
-def build_approved_html(form_2_link: str) -> str:
+def build_approved_html(form_2_link: str, deadline_str: str | None) -> str:
     # Your exact HTML structure (adapted to Django)
-    return (
-        '<div style="font-family:Arial,Helvetica,sans-serif;line-height:1.6;max-width:700px;margin:0 auto;word-break:break-word;white-space:normal;">'
-        '<p><strong>Querida aplicante a Mentora,</strong></p>'
-        '<p>Gracias por completar la primera aplicación para ser mentora en Club Emprendo. 🌱</p>'
-        '<p>Con base en tus respuestas, confirmamos que cumples con los requisitos y la disponibilidad necesaria, por lo que estás habilitada para continuar con el proceso.</p>'
-        '<p>A continuación, te compartimos la <strong>Aplicación #2</strong>, que es el segundo y último paso para postularte como mentora voluntaria.</p>'
-        '<p><strong>📌 Instrucciones para acceder a la Aplicación #2:</strong></p>'
-        '<ol>'
-        f'<li>Haz clic aquí: 👉 <a href="{form_2_link}">Aplicación 2</a> - Fecha límite: 11/01/2026 - </li>'
-        '<li>Lee con atención y responde cada pregunta.</li>'
-        '</ol>'
-        '<p>📅 <strong>Fecha límite para completarlo:</strong> Domingo 7 de Septiembre.</p>'
-        '<p>📩 Una vez completes esta segunda aplicación, evaluaremos tu postulación y te contactaremos por correo electrónico en las próximas semanas para informarte si has sido seleccionada como mentora para este grupo. Te invitamos a estar atenta a tu bandeja de entrada.</p>'
-        '<p>Gracias nuevamente por tu interés y compromiso con otras mujeres emprendedoras 💛</p>'
-        '<p>Con cariño,<br><strong>El equipo de Club Emprendo</strong></p>'
-        '</div>'
-    )
+    parts = [
+        '<div style="font-family:Arial,Helvetica,sans-serif;line-height:1.6;max-width:700px;margin:0 auto;word-break:break-word;white-space:normal;">',
+        '<p><strong>Querida aplicante a Mentora,</strong></p>',
+        '<p>Gracias por completar la primera aplicación para ser mentora en Club Emprendo. 🌱</p>',
+        '<p>Con base en tus respuestas, confirmamos que cumples con los requisitos y la disponibilidad necesaria, por lo que estás habilitada para continuar con el proceso.</p>',
+        '<p>A continuación, te compartimos la <strong>Aplicación #2</strong>, que es el segundo y último paso para postularte como mentora voluntaria.</p>',
+        '<p><strong>📌 Instrucciones para acceder a la Aplicación #2:</strong></p>',
+        '<ol>',
+        f'<li>Haz clic aquí: 👉 <a href="{form_2_link}">Aplicación 2</a>{(" - Fecha límite: " + deadline_str) if deadline_str else ""}</li>',
+        '<li>Lee con atención y responde cada pregunta.</li>',
+        '</ol>',
+    ]
+    if deadline_str:
+        parts.append(f'<p>📅 <strong>Fecha límite para completarlo:</strong> {deadline_str}</p>')
+    parts.extend([
+        '<p>📩 Una vez completes esta segunda aplicación, evaluaremos tu postulación y te contactaremos por correo electrónico en las próximas semanas para informarte si has sido seleccionada como mentora para este grupo. Te invitamos a estar atenta a tu bandeja de entrada.</p>',
+        '<p>Gracias nuevamente por tu interés y compromiso con otras mujeres emprendedoras 💛</p>',
+        '<p>Con cariño,<br><strong>El equipo de Club Emprendo</strong></p>',
+        '</div>',
+    ])
+    return "".join(parts)
 
 
 def build_rejected_html() -> str:
@@ -88,10 +92,15 @@ def autograde_and_email_mentora_a1(*, request, application, answers_by_slug: dic
             reverse("apply_mentora_second", args=[application.invite_token])
         )
 
+        deadline_str = ""
+        grp = getattr(application.form, "group", None)
+        if grp and getattr(grp, "a2_deadline", None):
+            deadline_str = grp.a2_deadline.strftime("%d/%m/%Y")
+
         send_html_email(
             to_email=application.email,
             subject=APROBADO_SUBJECT,
-            html_body=build_approved_html(form2_link),
+            html_body=build_approved_html(form2_link, deadline_str),
         )
         return "Aprobado"
 

@@ -1028,21 +1028,24 @@ def toggle_form_accepting(request, form_slug: str):
 # ----------------------------
 class CreateGroupForm(forms.Form):
     group_num = forms.IntegerField(min_value=1, label="Group number")
+    start_day = forms.IntegerField(min_value=1, max_value=31, label="Start day")
     start_month = forms.CharField(max_length=30, label="Start month")
     end_month = forms.CharField(max_length=30, label="End month")
     year = forms.IntegerField(min_value=2020, max_value=2100, label="Year")
+    a2_deadline = forms.DateField(label="Fecha límite A2", required=False, help_text="YYYY-MM-DD")
 
 
 # ----------------------------
 # Helpers
 # ----------------------------
 def _fill_placeholders(
-    text: str | None, group_num: int, start_month: str, end_month: str, year: int
+    text: str | None, group_num: int, start_day: int, start_month: str, end_month: str, year: int
 ) -> str | None:
     if not text:
         return text
 
     out = text.replace("#(group number)", str(group_num))
+    out = out.replace("#(day)", str(start_day))
 
     if "#(month)" in out:
         out = out.replace("#(month)", start_month, 1)
@@ -1112,6 +1115,7 @@ def _ensure_test_a2_form(role: str) -> FormDefinition:
 
 def _clone_form(master_fd: FormDefinition, group: FormGroup) -> FormDefinition:
     group_num = group.number
+    start_day = group.start_day
     start_month = group.start_month
     end_month = group.end_month
     year = group.year
@@ -1127,7 +1131,7 @@ def _clone_form(master_fd: FormDefinition, group: FormGroup) -> FormDefinition:
         slug=new_slug,
         name=new_name,
         description=_fill_placeholders(
-            master_fd.description, group_num, start_month, end_month, year
+            master_fd.description, group_num, start_day, start_month, end_month, year
         )
         or "",
         is_master=False,
@@ -1140,8 +1144,8 @@ def _clone_form(master_fd: FormDefinition, group: FormGroup) -> FormDefinition:
     for s in master_fd.sections.all().order_by("position", "id"):
         section_map[s.id] = Section.objects.create(
             form=clone,
-            title=_fill_placeholders(s.title, group_num, start_month, end_month, year) or s.title,
-            description=_fill_placeholders(s.description, group_num, start_month, end_month, year) or s.description,
+            title=_fill_placeholders(s.title, group_num, start_day, start_month, end_month, year) or s.title,
+            description=_fill_placeholders(s.description, group_num, start_day, start_month, end_month, year) or s.description,
             position=s.position,
         )
 
@@ -1149,8 +1153,8 @@ def _clone_form(master_fd: FormDefinition, group: FormGroup) -> FormDefinition:
         new_section = section_map.get(q.section_id)
         q_clone = Question.objects.create(
             form=clone,
-            text=_fill_placeholders(q.text, group_num, start_month, end_month, year) or q.text,
-            help_text=_fill_placeholders(q.help_text, group_num, start_month, end_month, year) or q.help_text,
+            text=_fill_placeholders(q.text, group_num, start_day, start_month, end_month, year) or q.text,
+            help_text=_fill_placeholders(q.help_text, group_num, start_day, start_month, end_month, year) or q.help_text,
             field_type=q.field_type,
             required=q.required,
             position=q.position,
@@ -1162,7 +1166,7 @@ def _clone_form(master_fd: FormDefinition, group: FormGroup) -> FormDefinition:
         for c in q.choices.all().order_by("position", "id"):
             Choice.objects.create(
                 question=q_clone,
-                label=_fill_placeholders(c.label, group_num, start_month, end_month, year) or c.label,
+                label=_fill_placeholders(c.label, group_num, start_day, start_month, end_month, year) or c.label,
                 value=c.value,
                 position=c.position,
             )
@@ -1394,15 +1398,25 @@ def create_group(request):
     start_month = form.cleaned_data["start_month"]
     end_month = form.cleaned_data["end_month"]
     year = form.cleaned_data["year"]
+    start_day = form.cleaned_data["start_day"]
+    a2_deadline = form.cleaned_data.get("a2_deadline")
 
     with transaction.atomic():
         group, _created = FormGroup.objects.get_or_create(
             number=group_num,
-            defaults={"start_month": start_month, "end_month": end_month, "year": year},
+            defaults={
+                "start_month": start_month,
+                "end_month": end_month,
+                "year": year,
+                "start_day": start_day,
+                "a2_deadline": a2_deadline,
+            },
         )
         group.start_month = start_month
         group.end_month = end_month
         group.year = year
+        group.start_day = start_day
+        group.a2_deadline = a2_deadline
         group.save()
 
         masters = FormDefinition.objects.filter(slug__in=MASTER_SLUGS).order_by("slug")

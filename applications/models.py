@@ -8,16 +8,18 @@ class FormGroup(models.Model):
     Represents a cohort/group like 'Group 6', with dates used for #(month)/#(year) placeholders.
     """
     number = models.PositiveIntegerField(unique=True)
+    start_day = models.PositiveIntegerField(default=1)
     start_month = models.CharField(max_length=30)
     end_month = models.CharField(max_length=30)
     year = models.PositiveIntegerField()
+    a2_deadline = models.DateField(null=True, blank=True, help_text="Fecha límite para completar la aplicación 2.")
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ["number"]
 
     def __str__(self):
-        return f"Group {self.number} ({self.start_month}–{self.end_month} {self.year})"
+        return f"Group {self.number} ({self.start_day} {self.start_month}–{self.end_month} {self.year})"
 
 class GradingJob(models.Model):
     STATUS_CHOICES = [

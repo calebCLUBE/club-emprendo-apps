@@ -80,4 +80,46 @@
   </div>
 </div>
 
+<script src="{% static 'builder/section_conditions.js' %}"></script>
+<script>
+  // Fallback: ensure value dropdown populates even if static caching fails
+  (function () {
+    function updateValueSelect(sel) {
+      const form = sel.closest("form");
+      if (!form) return;
+      const valueSelect = form.querySelector("[data-show-if-value]");
+      if (!valueSelect) return;
+      const opt = sel.options[sel.selectedIndex];
+      const vals = (opt?.dataset.optValues || "").split("|").filter(Boolean);
+      const labels = (opt?.dataset.optLabels || "").split("|").filter(Boolean);
+      const current = (valueSelect.dataset.current || valueSelect.value || "").toLowerCase();
+      valueSelect.innerHTML = "";
+      const ph = document.createElement("option");
+      ph.value = "";
+      ph.textContent = "Selecciona valor";
+      valueSelect.appendChild(ph);
+      valueSelect.disabled = vals.length === 0;
+      vals.forEach((v, idx) => {
+        const o = document.createElement("option");
+        o.value = v;
+        o.textContent = labels[idx] || v;
+        if (v.toLowerCase() === current) o.selected = true;
+        valueSelect.appendChild(o);
+      });
+    }
+    function init(root) {
+      (root || document).querySelectorAll("[data-show-if-question]").forEach((sel) => {
+        sel.removeEventListener("change", sel._ce_cond_handler || (()=>{}));
+        sel._ce_cond_handler = () => updateValueSelect(sel);
+        sel.addEventListener("change", sel._ce_cond_handler);
+        updateValueSelect(sel);
+      });
+    }
+    document.addEventListener("DOMContentLoaded", () => init(document));
+    if (window.htmx) {
+      document.body.addEventListener("htmx:afterSwap", (e) => init(e.target));
+    }
+  })();
+</script>
+
 {% endblock %}

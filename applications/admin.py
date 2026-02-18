@@ -118,10 +118,23 @@ class ChoiceInline(admin.TabularInline):
     ordering = ("position", "id")
 
 
+class SectionAdminForm(forms.ModelForm):
+    class Meta:
+        model = Section
+        fields = "__all__"
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        form_obj = getattr(self.instance, "form", None)
+        if form_obj:
+            self.fields["show_if_question"].queryset = form_obj.questions.all()
+
+
 class SectionInline(admin.TabularInline):
     model = Section
     extra = 0
-    fields = ("position", "title", "description")
+    form = SectionAdminForm
+    fields = ("position", "title", "description", "show_if_question", "show_if_value")
     ordering = ("position", "id")
 
 

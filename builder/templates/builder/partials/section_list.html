@@ -23,8 +23,39 @@
               </button>
             </div>
             <textarea class="ce-input" name="description" rows="2" style="margin-top:8px;">{{ s.description }}</textarea>
+            <div style="display:flex; gap:8px; margin-top:8px; align-items:center; flex-wrap:wrap;">
+              <label class="ce-label" style="font-size:12px; margin:0;">Mostrar si</label>
+              <select class="ce-input" name="show_if_question" style="flex:1;" data-show-if-question>
+                <option value="">— Siempre —</option>
+                {% for q in form_def.questions.all %}
+                  {% if q.field_type == "boolean" %}
+                    <option value="{{ q.id }}"
+                            data-opt-values="yes|no"
+                            data-opt-labels="Sí|No"
+                            {% if s.show_if_question_id == q.id %}selected{% endif %}>{{ q.text|default:q.slug }}</option>
+                  {% elif q.field_type == "choice" or q.field_type == "multi_choice" %}
+                    <option value="{{ q.id }}"
+                            data-opt-values="{% for c in q.choices.all %}{{ c.value }}{% if not forloop.last %}|{% endif %}{% endfor %}"
+                            data-opt-labels="{% for c in q.choices.all %}{{ c.label|default:c.value }}{% if not forloop.last %}|{% endif %}{% endfor %}"
+                            {% if s.show_if_question_id == q.id %}selected{% endif %}>{{ q.text|default:q.slug }}</option>
+                  {% else %}
+                    <option value="{{ q.id }}"
+                            data-opt-values=""
+                            data-opt-labels=""
+                            {% if s.show_if_question_id == q.id %}selected{% endif %}>{{ q.text|default:q.slug }}</option>
+                  {% endif %}
+                {% endfor %}
+              </select>
+              <select class="ce-input" name="show_if_value" style="flex:1;" data-show-if-value data-current="{{ s.show_if_value }}">
+                <option value="">Selecciona valor</option>
+              </select>
+            </div>
+            {% include "builder/partials/section_condition_help.html" %}
             <div class="ce-muted" style="font-size:12px; margin-top:6px;">
               {{ s.questions.count }} preguntas
+              {% if s.show_if_question %}
+                · Condición: {{ s.show_if_question.text|default:s.show_if_question.slug }} == "{{ s.show_if_value|default:"" }}"
+              {% endif %}
             </div>
           </form>
         </li>

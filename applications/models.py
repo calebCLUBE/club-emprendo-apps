@@ -128,6 +128,11 @@ class Section(models.Model):
         default=LOGIC_AND,
         help_text="Cómo combinar las 2 condiciones (si ambas existen).",
     )
+    show_if_conditions = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Lista de condiciones [{'question_id':..., 'value':...}]. Usa lógica AND/OR.",
+    )
 
     class Meta:
         ordering = ["position", "id"]

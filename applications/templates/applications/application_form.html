@@ -187,14 +187,20 @@
         if (!inputs.length) return false;
 
         // Radio/checkbox
+        let anyChecked = false;
         for (const inp of inputs) {
           const type = (inp.type || "").toLowerCase();
           if ((type === "radio" || type === "checkbox") && inp.checked) {
+            anyChecked = true;
             const val = (inp.value || "").trim().toLowerCase();
             if (val === expected) return true;
             if (truthy(expected) && truthy(val)) return true;
             if (falsyVals.includes(expected) && !truthy(val)) return true;
           }
+        }
+        // If expecting a falsy value and no checkbox/radio is selected, treat as false
+        if (!anyChecked && inputs[0] && ["checkbox", "radio"].includes((inputs[0].type || "").toLowerCase())) {
+          if (falsyVals.includes(expected)) return true;
         }
         // Text/select
         for (const inp of inputs) {
@@ -214,11 +220,7 @@
         if (!conds.length) return true;
         const logic = (panel.dataset.showIfLogic || "AND").toUpperCase();
         const results = conds.map(matchesCondition);
-        if (logic === "OR") {
-          return results.some(Boolean);
-        }
-        // Default AND
-        return results.every(Boolean);
+        return logic === "OR" ? results.some(Boolean) : results.every(Boolean);
       }
 
       function visiblePanels() {
@@ -239,6 +241,20 @@
           el.style.display = show ? "flex" : "none";
           el.style.background = show && matchPanel === vis[current] ? "#2c3191" : "#f2f4ff";
           el.style.color = show && matchPanel === vis[current] ? "#fff" : "#2c3191";
+        });
+
+        // Toggle next/submit buttons based on *visible* order
+        const lastVisible = vis[vis.length - 1];
+        panels.forEach((p) => {
+          const nextBtn = p.querySelector("[data-next]");
+          const submitBtn = p.querySelector("button[type=\"submit\"]");
+          if (p === lastVisible) {
+            if (nextBtn) nextBtn.style.display = "none";
+            if (submitBtn) submitBtn.style.display = "";
+          } else {
+            if (nextBtn) nextBtn.style.display = "";
+            if (submitBtn) submitBtn.style.display = "none";
+          }
         });
 
         if (opts.scroll) {

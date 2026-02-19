@@ -1,8 +1,8 @@
 document.addEventListener("DOMContentLoaded", () => {
   function updateValueInput(selectEl) {
-    const form = selectEl.closest("form");
-    if (!form) return;
-    const valueSelect = form.querySelector("[data-show-if-value]");
+    const row = selectEl.closest(".condition-row");
+    if (!row) return;
+    const valueSelect = row.querySelector("[data-show-if-value]");
     if (!valueSelect) return;
     const selected = selectEl.options[selectEl.selectedIndex];
     const valsRaw = selected ? (selected.dataset.optValues || "") : "";
@@ -29,20 +29,38 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  function wireRow(row) {
+    const sel = row.querySelector("[data-show-if-question]");
+    if (!sel) return;
+    sel.addEventListener("change", () => updateValueInput(sel));
+    updateValueInput(sel);
+  }
+
+  function addCondition(btn) {
+    const container = btn.closest("form").querySelector("[data-cond-container]");
+    if (!container) return;
+    const template = container.querySelector(".condition-row");
+    const clone = template.cloneNode(true);
+    clone.querySelector("[data-show-if-question]").selectedIndex = 0;
+    const valueSelect = clone.querySelector("[data-show-if-value]");
+    valueSelect.innerHTML = '<option value=\"\">Selecciona valor</option>';
+    valueSelect.dataset.current = "";
+    container.appendChild(clone);
+    wireRow(clone);
+  }
+
   function initSectionConditions(root) {
     const scope = root || document;
-    scope.querySelectorAll("[data-show-if-question]").forEach((sel) => {
-      sel.addEventListener("change", () => {
-        updateValueInput(sel);
-      });
-      updateValueInput(sel);
+    scope.querySelectorAll("[data-cond-container]").forEach((container) => {
+      container.querySelectorAll(".condition-row").forEach(wireRow);
+    });
+    scope.querySelectorAll("[data-add-cond]").forEach((btn) => {
+      btn.addEventListener("click", () => addCondition(btn));
     });
   }
 
   document.addEventListener("DOMContentLoaded", () => initSectionConditions(document));
   if (window.htmx) {
-    document.body.addEventListener("htmx:afterSwap", (e) => {
-      initSectionConditions(e.target);
-    });
+    document.body.addEventListener("htmx:afterSwap", (e) => initSectionConditions(e.target));
   }
 });

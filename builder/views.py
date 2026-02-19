@@ -240,12 +240,38 @@ def section_update(request, section_id):
         section.position = int(request.POST.get("position", section.position) or section.position)
     except ValueError:
         pass
-    sid = request.POST.get("show_if_question") or ""
-    try:
-        section.show_if_question = Question.objects.get(id=int(sid), form=section.form) if sid else None
-    except (Question.DoesNotExist, ValueError):
-        section.show_if_question = None
-    section.show_if_value = (request.POST.get("show_if_value") or "").strip()
+    # collect multiple conditions
+    q_ids = request.POST.getlist("show_if_question")
+    vals = request.POST.getlist("show_if_value")
+    conditions = []
+    for qid, val in zip(q_ids, vals):
+        if not qid or not val:
+            continue
+        try:
+            q_obj = Question.objects.get(id=int(qid), form=section.form)
+            conditions.append({"question_id": q_obj.id, "value": val})
+        except Exception:
+            continue
+
+    # backward compatibility primary/secondary fields
+    section.show_if_question = None
+    section.show_if_value = ""
+    section.show_if_question_2 = None
+    section.show_if_value_2 = ""
+    if conditions:
+        try:
+            section.show_if_question = Question.objects.get(id=conditions[0]["question_id"], form=section.form)
+            section.show_if_value = conditions[0]["value"]
+        except Exception:
+            pass
+    if len(conditions) > 1:
+        try:
+            section.show_if_question_2 = Question.objects.get(id=conditions[1]["question_id"], form=section.form)
+            section.show_if_value_2 = conditions[1]["value"]
+        except Exception:
+            pass
+
+    section.show_if_conditions = conditions
     section.save()
 
     sections = section.form.sections.select_related("show_if_question").all()

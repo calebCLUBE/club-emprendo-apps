@@ -163,6 +163,8 @@ class SectionAdminForm(forms.ModelForm):
             label="Show if value",
             help_text="Se mostrará la sección sólo si la respuesta coincide.",
         )
+        if not self.data and getattr(self.instance, "show_if_value", None):
+            self.fields["show_if_value"].initial = self.instance.show_if_value
 
         # Second condition
         q_obj2 = None
@@ -181,6 +183,8 @@ class SectionAdminForm(forms.ModelForm):
             label="Show if value (2)",
             help_text="Segunda condición opcional.",
         )
+        if not self.data and getattr(self.instance, "show_if_value_2", None):
+            self.fields["show_if_value_2"].initial = self.instance.show_if_value_2
         if form_obj:
             self.fields["show_if_question_2"].queryset = form_obj.questions.all()
 

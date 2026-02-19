@@ -4,6 +4,7 @@ from django.urls import reverse
 from django.utils.html import format_html
 import re
 from django import forms
+import json
 from django.http import HttpResponseRedirect
 
 from .models import FormDefinition, Question, Choice, Application, Section
@@ -118,6 +119,23 @@ class ChoiceInline(admin.TabularInline):
     ordering = ("position", "id")
 
 
+class ShowIfConditionsWidget(forms.Widget):
+    template_name = "admin/widgets/show_if_conditions.html"
+
+    def __init__(self, *args, **kwargs):
+        self.questions_json = kwargs.pop("questions_json", "[]")
+        super().__init__(*args, **kwargs)
+
+    def get_context(self, name, value, attrs):
+        ctx = super().get_context(name, value, attrs)
+        ctx["widget"]["questions_json"] = self.questions_json
+        if isinstance(value, str):
+            ctx["widget"]["value_json"] = value
+        else:
+            ctx["widget"]["value_json"] = json.dumps(value or [])
+        return ctx
+
+
 class SectionAdminForm(forms.ModelForm):
     def _value_choices_for_question(self, q):
         if not q:
@@ -142,51 +160,65 @@ class SectionAdminForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         form_obj = getattr(self.instance, "form", None)
         if form_obj:
-            self.fields["show_if_question"].queryset = form_obj.questions.all()
+            qs = form_obj.questions.all()
+        else:
+            qs = Question.objects.none()
 
-        # Dynamically convert show_if_value into a dropdown of that question's values
-        q_obj = None
-        # prefer bound data (when user just selected a question)
-        if self.data:
-            try:
-                qid = int(self.data.get(self.add_prefix("show_if_question")) or 0)
-                q_obj = form_obj.questions.get(id=qid) if form_obj and qid else None
-            except Exception:
-                q_obj = None
-        if not q_obj:
-            q_obj = getattr(self.instance, "show_if_question", None)
-
-        choices = self._value_choices_for_question(q_obj)
-        self.fields["show_if_value"] = forms.ChoiceField(
-            required=False,
-            choices=choices,
-            label="Show if value",
-            help_text="Se mostrará la sección sólo si la respuesta coincide.",
+        # JSON-based multi-conditions widget
+        questions_json = json.dumps(
+            [
+                {
+                    "id": q.id,
+                    "text": q.text or q.slug,
+                    "field_type": q.field_type,
+                    "choices": [{"value": c.value, "label": c.label or c.value} for c in q.choices.all()],
+                }
+                for q in qs
+            ]
         )
-        if not self.data and getattr(self.instance, "show_if_value", None):
-            self.fields["show_if_value"].initial = self.instance.show_if_value
-
-        # Second condition
-        q_obj2 = None
-        if self.data:
-            try:
-                qid2 = int(self.data.get(self.add_prefix("show_if_question_2")) or 0)
-                q_obj2 = form_obj.questions.get(id=qid2) if form_obj and qid2 else None
-            except Exception:
-                q_obj2 = None
-        if not q_obj2:
-            q_obj2 = getattr(self.instance, "show_if_question_2", None)
-        choices2 = self._value_choices_for_question(q_obj2)
-        self.fields["show_if_value_2"] = forms.ChoiceField(
+        self.fields["show_if_conditions"] = forms.JSONField(
             required=False,
-            choices=choices2,
-            label="Show if value (2)",
-            help_text="Segunda condición opcional.",
+            widget=ShowIfConditionsWidget(questions_json=questions_json),
+            label="Show if conditions",
+            help_text="Añade una o más condiciones y elige AND/OR arriba.",
         )
-        if not self.data and getattr(self.instance, "show_if_value_2", None):
-            self.fields["show_if_value_2"].initial = self.instance.show_if_value_2
-        if form_obj:
-            self.fields["show_if_question_2"].queryset = form_obj.questions.all()
+        # initial JSON from instance or legacy fields
+        if not self.data:
+            conds = list(getattr(self.instance, "show_if_conditions", []) or [])
+            if not conds:
+                if getattr(self.instance, "show_if_question_id", None) and self.instance.show_if_value:
+                    conds.append({"question_id": self.instance.show_if_question_id, "value": self.instance.show_if_value})
+                if getattr(self.instance, "show_if_question_2_id", None) and self.instance.show_if_value_2:
+                    conds.append({"question_id": self.instance.show_if_question_2_id, "value": self.instance.show_if_value_2})
+            self.fields["show_if_conditions"].initial = conds
+
+    def save(self, commit=True):
+        obj = super().save(commit=False)
+        conds = self.cleaned_data.get("show_if_conditions") or []
+        obj.show_if_conditions = conds
+
+        # sync legacy fields (first two conditions)
+        obj.show_if_question = None
+        obj.show_if_value = ""
+        obj.show_if_question_2 = None
+        obj.show_if_value_2 = ""
+        if len(conds) > 0:
+            try:
+                obj.show_if_question_id = int(conds[0].get("question_id") or 0) or None
+                obj.show_if_value = conds[0].get("value", "")
+            except Exception:
+                pass
+        if len(conds) > 1:
+            try:
+                obj.show_if_question_2_id = int(conds[1].get("question_id") or 0) or None
+                obj.show_if_value_2 = conds[1].get("value", "")
+            except Exception:
+                pass
+
+        if commit:
+            obj.save()
+            self.save_m2m()
+        return obj
 
 
 class SectionInline(admin.TabularInline):
@@ -198,10 +230,7 @@ class SectionInline(admin.TabularInline):
         "title",
         "description",
         "show_if_logic",
-        "show_if_question",
-        "show_if_value",
-        "show_if_question_2",
-        "show_if_value_2",
+        "show_if_conditions",
     )
     ordering = ("position", "id")
 

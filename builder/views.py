@@ -46,11 +46,25 @@ def builder_home(request):
     return render(request, "builder/home.html", {"forms": forms})
 
 
+def _with_cond_list(sections):
+    for s in sections:
+        conds = list(getattr(s, "show_if_conditions", []) or [])
+        if not conds:
+            if getattr(s, "show_if_question_id", None) and s.show_if_value:
+                conds.append({"question_id": s.show_if_question_id, "value": s.show_if_value})
+            if getattr(s, "show_if_question_2_id", None) and s.show_if_value_2:
+                conds.append({"question_id": s.show_if_question_2_id, "value": s.show_if_value_2})
+        if not conds:
+            conds = [{"question_id": "", "value": ""}]
+        s.cond_list = conds
+    return sections
+
+
 @staff_member_required
 def form_editor(request, form_id):
     form_def = get_object_or_404(FormDefinition, id=form_id)
     questions = form_def.questions.select_related("section").all()
-    sections = form_def.sections.all()
+    sections = _with_cond_list(form_def.sections.all())
     return render(
         request,
         "builder/form_editor.html",
@@ -72,7 +86,7 @@ def question_add(request, form_id):
         help_text="",   # ✅ keep existing field available
     )
     questions = form_def.questions.select_related("section").all()
-    sections = form_def.sections.all()
+    sections = _with_cond_list(form_def.sections.all())
     return render(
         request,
         "builder/partials/question_list.html",
@@ -147,7 +161,7 @@ def question_delete(request, question_id):
     form_def = q.form
     q.delete()
     questions = form_def.questions.select_related("section").all()
-    sections = form_def.sections.all()
+    sections = _with_cond_list(form_def.sections.all())
     return render(
         request,
         "builder/partials/question_list.html",
@@ -159,7 +173,7 @@ def question_delete(request, question_id):
 def question_list(request, form_id):
     form_def = get_object_or_404(FormDefinition, id=form_id)
     questions = form_def.questions.select_related("section").all()
-    sections = form_def.sections.all()
+    sections = _with_cond_list(form_def.sections.all())
     return render(
         request,
         "builder/partials/question_list.html",
@@ -185,7 +199,7 @@ def question_assign_section(request, question_id):
     q.save(update_fields=["section"])
 
     questions = q.form.questions.select_related("section").all()
-    sections = q.form.sections.all()
+    sections = _with_cond_list(q.form.sections.all())
     resp = render(
         request,
         "builder/partials/question_list.html",
@@ -219,7 +233,7 @@ def section_add(request, form_id):
         description="",
         position=max_pos + 1,
     )
-    sections = form_def.sections.all()
+    sections = _with_cond_list(form_def.sections.all())
     resp = render(
         request,
         "builder/partials/section_list.html",
@@ -272,9 +286,10 @@ def section_update(request, section_id):
             pass
 
     section.show_if_conditions = conditions
+    section.show_if_logic = request.POST.get("show_if_logic") or section.show_if_logic
     section.save()
 
-    sections = section.form.sections.select_related("show_if_question").all()
+    sections = _with_cond_list(section.form.sections.all())
     resp = render(
         request,
         "builder/partials/section_list.html",
@@ -294,7 +309,7 @@ def section_delete(request, section_id):
     form_def.questions.filter(section=section).update(section=None)
     section.delete()
 
-    sections = form_def.sections.all()
+    sections = _with_cond_list(form_def.sections.all())
     resp = render(
         request,
         "builder/partials/section_list.html",

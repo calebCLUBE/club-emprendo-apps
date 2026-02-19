@@ -291,20 +291,32 @@ def _sections_from_model(form_def: FormDefinition, form):
                 }
             return None
 
-        cond1 = build_cond(s.show_if_question_id, s.show_if_value)
-        cond2 = build_cond(s.show_if_question_2_id, s.show_if_value_2)
+        conds = []
+        if getattr(s, "show_if_conditions", None):
+            for c in s.show_if_conditions:
+                qid = c.get("question_id")
+                val = c.get("value")
+                cond = build_cond(qid, val)
+                if cond:
+                    conds.append(cond)
+        else:
+            cond1 = build_cond(s.show_if_question_id, s.show_if_value)
+            cond2 = build_cond(s.show_if_question_2_id, s.show_if_value_2)
+            for c in (cond1, cond2):
+                if c:
+                    conds.append(c)
 
         section_map[s.id] = {
             "id": s.id,
             "title": s.title,
             "intro": s.description,
             "show_if_logic": s.show_if_logic,
-            "conditions": [c for c in (cond1, cond2) if c],
-            "conditions_json": json.dumps([c for c in (cond1, cond2) if c]),
-            "show_if_field_name": cond1["field_name"] if cond1 else "",
-            "show_if_value": cond1["value"] if cond1 else "",
-            "show_if_field_name_2": cond2["field_name"] if cond2 else "",
-            "show_if_value_2": cond2["value"] if cond2 else "",
+            "conditions": conds,
+            "conditions_json": json.dumps(conds),
+            "show_if_field_name": conds[0]["field_name"] if len(conds) > 0 else "",
+            "show_if_value": conds[0]["value"] if len(conds) > 0 else "",
+            "show_if_field_name_2": conds[1]["field_name"] if len(conds) > 1 else "",
+            "show_if_value_2": conds[1]["value"] if len(conds) > 1 else "",
             "fields": [],
         }
 

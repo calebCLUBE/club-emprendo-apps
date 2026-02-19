@@ -23,50 +23,45 @@
               </button>
             </div>
             <textarea class="ce-input" name="description" rows="2" style="margin-top:8px;">{{ s.description }}</textarea>
-            {% with conds=s.show_if_conditions|default:[] %}
-              {% if not conds %}
-                {% if s.show_if_question_id %}
-                  {% with c1={"question_id":s.show_if_question_id,"value":s.show_if_value} %}
-                    {% firstof conds.append c1 %}{% endwith %}
-                {% endif %}
-                {% if s.show_if_question_2_id %}
-                  {% with c2={"question_id":s.show_if_question_2_id,"value":s.show_if_value_2} %}
-                    {% firstof conds.append c2 %}{% endwith %}
-                {% endif %}
-              {% endif %}
-              <div class="condition-list" data-cond-container>
-                {% for c in conds|default_if_none:[] %}
-                  <div class="condition-row" style="display:flex; gap:8px; margin-top:8px; align-items:center; flex-wrap:wrap;">
-                    <label class="ce-label" style="font-size:12px; margin:0;">Mostrar si</label>
-                    <select class="ce-input" name="show_if_question" style="flex:1;" data-show-if-question>
-                      <option value="">— Siempre —</option>
-                      {% for q in form_def.questions.all %}
-                        {% if q.field_type == "boolean" %}
-                          <option value="{{ q.id }}"
-                                  data-opt-values="yes|no"
-                                  data-opt-labels="Sí|No"
-                                  {% if c.question_id == q.id %}selected{% endif %}>{{ q.text|default:q.slug }}</option>
-                        {% elif q.field_type == "choice" or q.field_type == "multi_choice" %}
-                          <option value="{{ q.id }}"
-                                  data-opt-values="{% for ch in q.choices.all %}{{ ch.value }}{% if not forloop.last %}|{% endif %}{% endfor %}"
-                                  data-opt-labels="{% for ch in q.choices.all %}{{ ch.label|default:ch.value }}{% if not forloop.last %}|{% endif %}{% endfor %}"
-                                  {% if c.question_id == q.id %}selected{% endif %}>{{ q.text|default:q.slug }}</option>
-                        {% else %}
-                          <option value="{{ q.id }}"
-                                  data-opt-values=""
-                                  data-opt-labels=""
-                                  {% if c.question_id == q.id %}selected{% endif %}>{{ q.text|default:q.slug }}</option>
-                        {% endif %}
-                      {% endfor %}
-                    </select>
-                    <select class="ce-input" name="show_if_value" style="flex:1;" data-show-if-value data-current="{{ c.value }}">
-                      <option value="">Selecciona valor</option>
-                    </select>
-                  </div>
-                {% endfor %}
-              </div>
-              <button type="button" class="ce-btn" data-add-cond style="margin-top:8px;">+ Añadir condición</button>
-            {% endwith %}
+            <div style="display:flex; gap:8px; align-items:center; margin-top:8px;">
+              <label class="ce-label" style="font-size:12px; margin:0;">Lógica</label>
+              <select class="ce-input" name="show_if_logic" style="width:120px;">
+                <option value="AND" {% if s.show_if_logic == "AND" %}selected{% endif %}>AND</option>
+                <option value="OR" {% if s.show_if_logic == "OR" %}selected{% endif %}>OR</option>
+              </select>
+            </div>
+            <div class="condition-list" data-cond-container>
+              {% for c in s.cond_list %}
+                <div class="condition-row" style="display:flex; gap:8px; margin-top:8px; align-items:center; flex-wrap:wrap;">
+                  <label class="ce-label" style="font-size:12px; margin:0;">Mostrar si</label>
+                  <select class="ce-input" name="show_if_question" style="flex:1;" data-show-if-question>
+                    <option value="">— Siempre —</option>
+                    {% for q in form_def.questions.all %}
+                      {% if q.field_type == "boolean" %}
+                        <option value="{{ q.id }}"
+                                data-opt-values="yes|no"
+                                data-opt-labels="Sí|No"
+                                {% if c.question_id == q.id %}selected{% endif %}>{{ q.text|default:q.slug }}</option>
+                      {% elif q.field_type == "choice" or q.field_type == "multi_choice" %}
+                        <option value="{{ q.id }}"
+                                data-opt-values="{% for ch in q.choices.all %}{{ ch.value }}{% if not forloop.last %}|{% endif %}{% endfor %}"
+                                data-opt-labels="{% for ch in q.choices.all %}{{ ch.label|default:ch.value }}{% if not forloop.last %}|{% endif %}{% endfor %}"
+                                {% if c.question_id == q.id %}selected{% endif %}>{{ q.text|default:q.slug }}</option>
+                      {% else %}
+                        <option value="{{ q.id }}"
+                                data-opt-values=""
+                                data-opt-labels=""
+                                {% if c.question_id == q.id %}selected{% endif %}>{{ q.text|default:q.slug }}</option>
+                      {% endif %}
+                    {% endfor %}
+                  </select>
+                  <select class="ce-input" name="show_if_value" style="flex:1;" data-show-if-value data-current="{{ c.value }}">
+                    <option value="">Selecciona valor</option>
+                  </select>
+                </div>
+              {% endfor %}
+            </div>
+            <button type="button" class="ce-btn" data-add-cond style="margin-top:8px;">Add another show if question</button>
             {% include "builder/partials/section_condition_help.html" %}
             <div class="ce-muted" style="font-size:12px; margin-top:6px;">
               {{ s.questions.count }} preguntas

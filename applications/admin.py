@@ -119,6 +119,21 @@ class ChoiceInline(admin.TabularInline):
 
 
 class SectionAdminForm(forms.ModelForm):
+    def _value_choices_for_question(self, q):
+        if not q:
+            return [("", "— Selecciona valor —")]
+        if q.field_type == Question.BOOLEAN:
+            return [
+                ("", "— Selecciona valor —"),
+                ("yes", "Sí"),
+                ("no", "No"),
+            ]
+        if q.field_type in (Question.CHOICE, Question.MULTI_CHOICE):
+            opts = [("", "— Selecciona valor —")]
+            opts += [(c.value, c.label or c.value) for c in q.choices.all()]
+            return opts
+        return [("", "— Selecciona valor —")]
+
     class Meta:
         model = Section
         fields = "__all__"
@@ -129,12 +144,61 @@ class SectionAdminForm(forms.ModelForm):
         if form_obj:
             self.fields["show_if_question"].queryset = form_obj.questions.all()
 
+        # Dynamically convert show_if_value into a dropdown of that question's values
+        q_obj = None
+        # prefer bound data (when user just selected a question)
+        if self.data:
+            try:
+                qid = int(self.data.get(self.add_prefix("show_if_question")) or 0)
+                q_obj = form_obj.questions.get(id=qid) if form_obj and qid else None
+            except Exception:
+                q_obj = None
+        if not q_obj:
+            q_obj = getattr(self.instance, "show_if_question", None)
+
+        choices = self._value_choices_for_question(q_obj)
+        self.fields["show_if_value"] = forms.ChoiceField(
+            required=False,
+            choices=choices,
+            label="Show if value",
+            help_text="Se mostrará la sección sólo si la respuesta coincide.",
+        )
+
+        # Second condition
+        q_obj2 = None
+        if self.data:
+            try:
+                qid2 = int(self.data.get(self.add_prefix("show_if_question_2")) or 0)
+                q_obj2 = form_obj.questions.get(id=qid2) if form_obj and qid2 else None
+            except Exception:
+                q_obj2 = None
+        if not q_obj2:
+            q_obj2 = getattr(self.instance, "show_if_question_2", None)
+        choices2 = self._value_choices_for_question(q_obj2)
+        self.fields["show_if_value_2"] = forms.ChoiceField(
+            required=False,
+            choices=choices2,
+            label="Show if value (2)",
+            help_text="Segunda condición opcional.",
+        )
+        if form_obj:
+            self.fields["show_if_question_2"].queryset = form_obj.questions.all()
+
 
 class SectionInline(admin.TabularInline):
     model = Section
     extra = 0
     form = SectionAdminForm
-    fields = ("position", "title", "description", "show_if_question", "show_if_value")
+    fields = (
+        "position",
+        "title",
+        "description",
+        "show_if_logic",
+        "show_if_question",
+        "show_if_value",
+        "show_if_question_2",
+        "show_if_value_2",
+    )
     ordering = ("position", "id")
 
 

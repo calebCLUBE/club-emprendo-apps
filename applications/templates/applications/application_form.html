@@ -36,8 +36,12 @@
         {% for section in sections %}
           <div data-stepper-item
                title="{{ section.title }}"
+               data-show-if="{{ section.conditions_json|escapejs }}"
                data-show-if-question="{{ section.show_if_field_name|default:'' }}"
                data-show-if-value="{{ section.show_if_value|default:'' }}"
+               data-show-if-question-2="{{ section.show_if_field_name_2|default:'' }}"
+               data-show-if-value-2="{{ section.show_if_value_2|default:'' }}"
+               data-show-if-logic="{{ section.show_if_logic|default:'AND' }}"
                style="padding:6px 10px; border-radius:999px; background:#f2f4ff; color:#2c3191; font-size:13px; display:flex; align-items:center; gap:6px;">
             <span style="display:inline-block; width:22px; height:22px; border-radius:999px; background:#2c3191; color:#fff; text-align:center; line-height:22px; font-size:12px;">{{ forloop.counter }}</span>
           </div>
@@ -48,8 +52,12 @@
         {% for section in sections %}
           <div class="ce-section-panel"
                data-section-index="{{ forloop.counter0 }}"
+               data-show-if-logic="{{ section.show_if_logic|default:'AND' }}"
+               data-show-if="{{ section.conditions_json|escapejs }}"
                data-show-if-question="{{ section.show_if_field_name|default:'' }}"
                data-show-if-value="{{ section.show_if_value|default:'' }}"
+               data-show-if-question-2="{{ section.show_if_field_name_2|default:'' }}"
+               data-show-if-value-2="{{ section.show_if_value_2|default:'' }}"
                style="{% if not forloop.first %}display:none;{% endif %}">
             <div style="margin-bottom:14px;">
               <h2 class="ce-heading" style="margin:0 0 6px 0;">{{ section.title }}</h2>
@@ -142,39 +150,71 @@
         return ok;
       }
 
-      function isSectionVisible(panel) {
-        const qName = (panel.dataset.showIfQuestion || "").trim();
-        const expected = (panel.dataset.showIfValue || "").trim().toLowerCase();
-        if (!qName || !expected) return true;
+      function parseConditions(panel) {
+        const out = [];
+        // JSON (multi) path
+        const jsonAttr = panel.getAttribute("data-show-if");
+        if (jsonAttr) {
+          try {
+            const parsed = JSON.parse(jsonAttr);
+            if (Array.isArray(parsed)) {
+              parsed.forEach((c) => {
+                if (c && c.field_name && c.value) out.push(c);
+              });
+            }
+          } catch (e) {}
+        }
+        // Fallback single / second condition attributes
+        const q1 = (panel.dataset.showIfQuestion || "").trim();
+        const v1 = (panel.dataset.showIfValue || "").trim();
+        if (q1 && v1) out.push({ field_name: q1, value: v1 });
+        const q2 = (panel.dataset.showIfQuestion2 || "").trim();
+        const v2 = (panel.dataset.showIfValue2 || "").trim();
+        if (q2 && v2) out.push({ field_name: q2, value: v2 });
+        return out;
+      }
 
-        const inputs = Array.from(document.querySelectorAll(`[name="${qName}"], [name="${qName}[]"]`));
-        if (!inputs.length) return true;
+      function matchesCondition(cond) {
+        const truthyVals = ["1", "true", "yes", "si", "sí", "on"];
+        const falsyVals = ["0", "false", "no", "off"];
+        const truthy = (v) => truthyVals.includes((v || "").trim().toLowerCase());
 
-        const truthy = (v) => ["1", "true", "yes", "si", "sí", "on"].includes((v || "").trim().toLowerCase());
+        const fname = cond.field_name || cond.field || cond.name || "";
+        const expected = (cond.value || "").toLowerCase();
+        if (!fname || !expected) return true;
 
-        // Handle checkboxes/radios
+        const inputs = Array.from(document.querySelectorAll(`[name="${fname}"], [name="${fname}[]"]`));
+        if (!inputs.length) return false;
+
+        // Radio/checkbox
         for (const inp of inputs) {
           const type = (inp.type || "").toLowerCase();
           if ((type === "radio" || type === "checkbox") && inp.checked) {
             const val = (inp.value || "").trim().toLowerCase();
             if (val === expected) return true;
-            if (expected === "yes" && truthy(val)) return true;
-            if (expected === "no" && !truthy(val)) return true;
+            if (truthy(expected) && truthy(val)) return true;
+            if (falsyVals.includes(expected) && !truthy(val)) return true;
           }
         }
-
-        // Handle select / text
+        // Text/select
         for (const inp of inputs) {
           const type = (inp.type || "").toLowerCase();
           if (type !== "radio" && type !== "checkbox") {
             const val = (inp.value || "").trim().toLowerCase();
             if (val === expected) return true;
-            if (expected === "yes" && truthy(val)) return true;
-            if (expected === "no" && !truthy(val)) return true;
+            if (truthy(expected) && truthy(val)) return true;
+            if (falsyVals.includes(expected) && !truthy(val)) return true;
           }
         }
-
         return false;
+      }
+
+      function isSectionVisible(panel) {
+        const conds = parseConditions(panel);
+        if (!conds.length) return true;
+        const logic = (panel.dataset.showIfLogic || "AND").toUpperCase();
+        const results = conds.map(matchesCondition);
+        return logic === "OR" ? results.some(Boolean) : results.every(Boolean);
       }
 
       function visiblePanels() {

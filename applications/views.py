@@ -6,9 +6,10 @@ from django.core.mail import EmailMultiAlternatives
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse
 from django.utils import timezone
+import json
 
 from .forms import build_application_form
-from .models import Application, Answer, FormDefinition
+from .models import Application, Answer, FormDefinition, Question, Section
 from .emprendedora_a1_autograde import autograde_and_email_emprendedora_a1
 
 
@@ -276,18 +277,34 @@ def _sections_from_model(form_def: FormDefinition, form):
 
     q_by_id = {q.id: q for q in form_def.questions.all()}
 
-    section_map = {
-        s.id: {
+    section_map = {}
+    for s in sections_qs:
+        def build_cond(qid, val):
+            if qid and qid in q_by_id and val:
+                return {
+                    "question_id": qid,
+                    "field_name": f"q_{q_by_id[qid].slug}",
+                    "value": (val or "").strip(),
+                    "field_type": q_by_id[qid].field_type,
+                }
+            return None
+
+        cond1 = build_cond(s.show_if_question_id, s.show_if_value)
+        cond2 = build_cond(s.show_if_question_2_id, s.show_if_value_2)
+
+        section_map[s.id] = {
             "id": s.id,
             "title": s.title,
             "intro": s.description,
-            "show_if_question_id": s.show_if_question_id,
-            "show_if_value": (s.show_if_value or "").strip(),
-            "show_if_field_name": f"q_{q_by_id[s.show_if_question_id].slug}" if s.show_if_question_id in q_by_id else None,
+            "show_if_logic": s.show_if_logic,
+            "conditions": [c for c in (cond1, cond2) if c],
+            "conditions_json": json.dumps([c for c in (cond1, cond2) if c]),
+            "show_if_field_name": cond1["field_name"] if cond1 else "",
+            "show_if_value": cond1["value"] if cond1 else "",
+            "show_if_field_name_2": cond2["field_name"] if cond2 else "",
+            "show_if_value_2": cond2["value"] if cond2 else "",
             "fields": [],
         }
-        for s in sections_qs
-    }
 
     default_bucket = {
         "id": "unassigned",
@@ -325,39 +342,44 @@ def _sections_from_model(form_def: FormDefinition, form):
 
     filtered = []
     for bucket in ([default_bucket] + [section_map[s.id] for s in sections_qs]):
-        qid = bucket.get("show_if_question_id")
-        expected = (bucket.get("show_if_value") or "").strip().lower()
-        if qid and expected:
-            q_obj = q_by_id.get(qid)
-            if q_obj:
-                fname = f"q_{q_obj.slug}"
-                raw_val = _value_for_field(fname)
+        conditions = bucket.get("conditions", [])
+        logic = (bucket.get("show_if_logic") or Section.LOGIC_AND)
 
-                def truthy(v: str) -> bool:
-                    v = (v or "").strip().lower()
-                    return v in {"1", "true", "yes", "si", "sí", "on"}
+        def matches(cond):
+            fname = cond["field_name"]
+            expected = (cond["value"] or "").strip().lower()
+            raw_val = _value_for_field(fname)
 
-                match = False
-                if isinstance(raw_val, list):
-                    vals = [str(v).strip().lower() for v in raw_val]
-                    if q_obj.field_type == Question.MULTI_CHOICE:
-                        match = expected in vals
-                    else:
-                        match = expected in vals
-                else:
-                    val = (str(raw_val or "")).strip().lower()
-                    if q_obj.field_type == Question.BOOLEAN:
-                        if expected in {"yes", "si", "sí"}:
-                            match = truthy(val)
-                        elif expected == "no":
-                            match = not truthy(val)
-                    else:
-                        match = val == expected
+            def truthy(v: str) -> bool:
+                v = (v or "").strip().lower()
+                return v in {"1", "true", "yes", "si", "sí", "on"}
 
-                if not match:
-                    for f in bucket["fields"]:
-                        f.field.required = False
-                    continue  # hide bucket
+            exp_truthy = expected in {"1", "true", "yes", "si", "sí", "on"}
+            exp_falsey = expected in {"0", "false", "no", "off"}
+
+            if isinstance(raw_val, list):
+                vals = [str(v).strip().lower() for v in raw_val]
+                if exp_truthy:
+                    return any(truthy(v) for v in vals)
+                if exp_falsey:
+                    return all(not truthy(v) for v in vals)
+                return expected in vals
+
+            val = (str(raw_val or "")).strip().lower()
+            if exp_truthy:
+                return truthy(val)
+            if exp_falsey:
+                return not truthy(val)
+            return val == expected
+
+        visible = True
+        if conditions:
+            results = [matches(c) for c in conditions]
+            visible = all(results) if logic == Section.LOGIC_AND else any(results)
+            if not visible:
+                for f in bucket["fields"]:
+                    f.field.required = False
+        bucket["hidden"] = not visible
         filtered.append(bucket)
 
     ordered = [b for b in filtered if b["fields"]]

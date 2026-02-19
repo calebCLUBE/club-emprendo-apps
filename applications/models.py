@@ -107,6 +107,27 @@ class Section(models.Model):
         blank=True,
         help_text="Match is case-insensitive; works for short_text/choice/boolean. Leave blank for no condition.",
     )
+    show_if_question_2 = models.ForeignKey(
+        "applications.Question",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="sections_conditioned_second",
+        help_text="Segunda condición opcional.",
+    )
+    show_if_value_2 = models.CharField(max_length=200, blank=True)
+    LOGIC_AND = "AND"
+    LOGIC_OR = "OR"
+    LOGIC_CHOICES = [
+        (LOGIC_AND, "AND"),
+        (LOGIC_OR, "OR"),
+    ]
+    show_if_logic = models.CharField(
+        max_length=3,
+        choices=LOGIC_CHOICES,
+        default=LOGIC_AND,
+        help_text="Cómo combinar las 2 condiciones (si ambas existen).",
+    )
 
     class Meta:
         ordering = ["position", "id"]

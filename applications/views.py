@@ -343,7 +343,11 @@ def _sections_from_model(form_def: FormDefinition, form):
     filtered = []
     for bucket in ([default_bucket] + [section_map[s.id] for s in sections_qs]):
         conditions = bucket.get("conditions", [])
-        logic = (bucket.get("show_if_logic") or "AND").upper()
+        logic = (bucket.get("show_if_logic") or "AND")
+        if isinstance(logic, str):
+            logic = logic.strip().upper()
+        else:
+            logic = "AND"
 
         def matches(cond):
             fname = cond["field_name"]

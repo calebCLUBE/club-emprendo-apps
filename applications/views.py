@@ -271,7 +271,9 @@ def _sections_from_model(form_def: FormDefinition, form):
     """
     Build a list of section dictionaries using Section model assignments.
     """
-    sections_qs = list(form_def.sections.select_related("show_if_question").order_by("position", "id"))
+    sections_qs = list(
+        form_def.sections.select_related("show_if_question", "show_if_question_2").order_by("position", "id")
+    )
     if not sections_qs:
         return None
 

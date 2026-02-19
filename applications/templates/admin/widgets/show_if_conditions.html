@@ -1,0 +1,122 @@
+<div class="ce-cond-widget" data-questions='{{ widget.questions_json|escapejs }}'>
+  <input type="hidden" name="{{ widget.name }}" value="{{ widget.value_json|default:'[]'|escapejs }}" data-cond-input>
+  <div data-cond-rows></div>
+  <button type="button" class="button" data-add-cond>Add another show if question</button>
+</div>
+
+<script>
+  (function() {
+    const root = document.currentScript?.previousElementSibling;
+    if (!root || root.dataset.inited === "1") return;
+    root.dataset.inited = "1";
+
+    const questions = JSON.parse(root.getAttribute("data-questions") || "[]");
+    const input = root.querySelector("[data-cond-input]");
+    const rows = root.querySelector("[data-cond-rows]");
+
+    function buildValueOptions(q, current) {
+      const opts = [];
+      opts.push({ value: "", label: "Selecciona valor" });
+      if (!q) return opts;
+      if (q.field_type === "boolean") {
+        opts.push({ value: "yes", label: "Sí" });
+        opts.push({ value: "no", label: "No" });
+      } else if (q.field_type === "choice" || q.field_type === "multi_choice") {
+        (q.choices || []).forEach(c => opts.push({ value: c.value, label: c.label || c.value }));
+      }
+      return opts;
+    }
+
+    function buildQuestionOptions(currentId) {
+      const opts = [{ value: "", label: "— Siempre —" }];
+      questions.forEach(q => {
+        opts.push({ value: String(q.id), label: q.text });
+      });
+      return opts;
+    }
+
+    function createSelect(options, current) {
+      const sel = document.createElement("select");
+      sel.className = "vTextField";
+      options.forEach(o => {
+        const opt = document.createElement("option");
+        opt.value = o.value;
+        opt.textContent = o.label;
+        if (String(o.value) === String(current || "")) opt.selected = true;
+        sel.appendChild(opt);
+      });
+      return sel;
+    }
+
+    function renderRow(cond) {
+      const row = document.createElement("div");
+      row.style.display = "flex";
+      row.style.gap = "8px";
+      row.style.marginTop = "6px";
+      row.style.alignItems = "center";
+
+      const qSelect = createSelect(buildQuestionOptions(), cond.question_id || "");
+      const valSelect = createSelect(buildValueOptions(null), cond.value || "");
+
+      qSelect.addEventListener("change", () => {
+        const q = questions.find(x => String(x.id) === String(qSelect.value));
+        const opts = buildValueOptions(q);
+        valSelect.innerHTML = "";
+        opts.forEach(o => {
+          const opt = document.createElement("option");
+          opt.value = o.value;
+          opt.textContent = o.label;
+          valSelect.appendChild(opt);
+        });
+        sync();
+      });
+      valSelect.addEventListener("change", sync);
+
+      row.appendChild(qSelect);
+      row.appendChild(valSelect);
+      rows.appendChild(row);
+
+      if (qSelect.value) {
+        const q = questions.find(x => String(x.id) === String(qSelect.value));
+        const opts = buildValueOptions(q);
+        valSelect.innerHTML = "";
+        opts.forEach(o => {
+          const opt = document.createElement("option");
+          opt.value = o.value;
+          opt.textContent = o.label;
+          if (String(o.value) === String(cond.value || "")) opt.selected = true;
+          valSelect.appendChild(opt);
+        });
+      }
+    }
+
+    function sync() {
+      const data = [];
+      rows.querySelectorAll("div").forEach(r => {
+        const selects = r.querySelectorAll("select");
+        if (selects.length < 2) return;
+        const qid = selects[0].value;
+        const val = selects[1].value;
+        if (qid && val) data.push({ question_id: Number(qid), value: val });
+      });
+      input.value = JSON.stringify(data);
+    }
+
+    function init() {
+      let data = [];
+      try { data = JSON.parse(input.value || "[]"); } catch (e) {}
+      if (!Array.isArray(data)) data = [];
+      if (!data.length) data = [{ question_id: "", value: "" }];
+      rows.innerHTML = "";
+      data.forEach(renderRow);
+      sync();
+    }
+
+    root.querySelector("[data-add-cond]").addEventListener("click", () => {
+      renderRow({ question_id: "", value: "" });
+      sync();
+    });
+
+    init();
+  })();
+</script>

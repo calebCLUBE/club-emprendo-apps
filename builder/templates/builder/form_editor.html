@@ -1,10 +1,34 @@
 {% extends "applications/base.html" %}
+{% block extra_head %}
+  <style>
+    /* Force the builder to use the full viewport width with even gutters */
+    body {
+      overflow-x: hidden;
+    }
+
+    body .ce-page .ce-main .ce-container {
+      max-width: none !important;
+      width: 100% !important;
+      margin-left: 0 !important;
+      margin-right: 0 !important;
+      padding-left: clamp(16px, 2vw, 32px);
+      padding-right: clamp(16px, 2vw, 32px);
+    }
+
+    /* Make sure the grid itself stretches edge-to-edge inside the container */
+    #form-builder-grid {
+      width: 100%;
+    }
+  </style>
+{% endblock %}
+
 {% block content %}
 
 <script src="https://unpkg.com/htmx.org@1.9.12"></script>
 {% load static %}
 
-<div style="display:grid; grid-template-columns: 340px 1fr; gap: 18px;">
+<div id="form-builder-grid"
+     style="display:grid; grid-template-columns: 340px 1fr; gap: 18px;">
   <div style="display:flex; flex-direction:column; gap:14px;">
     <!-- Form header -->
     <div class="ce-card">

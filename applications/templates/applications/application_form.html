@@ -214,7 +214,11 @@
         if (!conds.length) return true;
         const logic = (panel.dataset.showIfLogic || "AND").toUpperCase();
         const results = conds.map(matchesCondition);
-        return logic === "OR" ? results.some(Boolean) : results.every(Boolean);
+        if (logic === "OR") {
+          return results.some(Boolean);
+        }
+        // Default AND
+        return results.every(Boolean);
       }
 
       function visiblePanels() {

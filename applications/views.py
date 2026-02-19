@@ -372,14 +372,13 @@ def _sections_from_model(form_def: FormDefinition, form):
                 return not truthy(val)
             return val == expected
 
-        visible = True
         if conditions:
             results = [matches(c) for c in conditions]
-            visible = all(results) if logic == Section.LOGIC_AND else any(results)
+            visible = results.any() if logic == Section.LOGIC_OR else all(results)
             if not visible:
                 for f in bucket["fields"]:
                     f.field.required = False
-        bucket["hidden"] = not visible
+            bucket["hidden"] = not visible
         filtered.append(bucket)
 
     ordered = [b for b in filtered if b["fields"]]

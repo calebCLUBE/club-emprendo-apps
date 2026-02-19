@@ -343,7 +343,7 @@ def _sections_from_model(form_def: FormDefinition, form):
     filtered = []
     for bucket in ([default_bucket] + [section_map[s.id] for s in sections_qs]):
         conditions = bucket.get("conditions", [])
-        logic = (bucket.get("show_if_logic") or Section.LOGIC_AND)
+        logic = (bucket.get("show_if_logic") or "AND").upper()
 
         def matches(cond):
             fname = cond["field_name"]
@@ -374,7 +374,7 @@ def _sections_from_model(form_def: FormDefinition, form):
 
         if conditions:
             results = [matches(c) for c in conditions]
-            visible = results.any() if logic == Section.LOGIC_OR else all(results)
+            visible = any(results) if logic == "OR" else all(results)
             if not visible:
                 for f in bucket["fields"]:
                     f.field.required = False

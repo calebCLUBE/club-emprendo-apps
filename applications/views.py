@@ -9,11 +9,7 @@ from django.utils import timezone
 import json
 
 from .forms import build_application_form
-<<<<<<< HEAD
 from .models import Application, Answer, FormDefinition, Question, Section
-=======
-from .models import Application, Answer, FormDefinition, Question
->>>>>>> d097e98a (ASD)
 from .emprendedora_a1_autograde import autograde_and_email_emprendedora_a1
 
 

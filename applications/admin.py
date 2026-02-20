@@ -103,8 +103,6 @@ class QuestionAdminForm(forms.ModelForm):
         self.fields["section"].queryset = qs
         self.fields["section"].initial = getattr(self.instance, "section_id", None)
         self.fields["show_if_question"].queryset = show_if_qs
-        # expose choices map on the question field too (for JS fallback)
-        self.fields["show_if_question"].widget.attrs["data-show-if-choices-map"] = ""
 
         # Build a map of possible values per question (only for boolean/choice types)
         choice_map: dict[str, list[tuple[str, str]]] = {}
@@ -116,17 +114,7 @@ class QuestionAdminForm(forms.ModelForm):
                 opts = [(c.value, f"{c.label or c.value}") for c in q.choices.all()]
             if opts:
                 choice_map[str(q.id)] = opts
-
-        # Fallback: if no map built (e.g. new inline without form_obj), try all questions on the model
-        if not choice_map and form_obj:
-            for q in form_obj.questions.prefetch_related("choices"):
-                opts: list[tuple[str, str]] = []
-                if q.field_type == Question.BOOLEAN:
-                    opts = [("yes", "Sí / Yes"), ("no", "No")]
-                elif q.field_type in (Question.CHOICE, Question.MULTI_CHOICE):
-                    opts = [(c.value, f"{c.label or c.value}") for c in q.choices.all()]
-                if opts:
-                    choice_map[str(q.id)] = opts
+        self.fields["show_if_question"].widget.attrs["data-show-if-choices-map"] = json.dumps(choice_map)
 
         # Determine currently selected show_if_question
         target_q = None
@@ -153,20 +141,20 @@ class QuestionAdminForm(forms.ModelForm):
 
         def _choices_for(q: Question | None):
             if not q:
-                return []
+                return [("", "— Selecciona valor —")]
             if q.field_type == Question.BOOLEAN:
-                return [("yes", "Sí / Yes"), ("no", "No")]
+                return [("", "— Selecciona valor —"), ("yes", "Sí / Yes"), ("no", "No")]
             if q.field_type in (Question.CHOICE, Question.MULTI_CHOICE):
-                return [(c.value, f"{c.label or c.value}") for c in q.choices.all()]
-            return []
+                opts = [("", "— Selecciona valor —")]
+                opts += [(c.value, f"{c.label or c.value}") for c in q.choices.all()]
+                return opts
+            return [("", "— Selecciona valor —")]
 
         target_opts = _choices_for(target_q)
         if target_opts and selected_qid and selected_qid not in choice_map:
             choice_map[selected_qid] = target_opts
 
-        initial_choices = [("", "— Selecciona valor —")]
-        for val, label in target_opts:
-            initial_choices.append((val, label))
+        initial_choices = list(target_opts)
         if current_val and current_val not in [v for v, _ in initial_choices]:
             initial_choices.append((current_val, f"{current_val} (actual)"))
 

@@ -49,6 +49,9 @@ def _pack_help_text(pre_text: str, pre_hr: bool, rest_help_text: str) -> str:
 # CUSTOM ADMIN FORM FOR QUESTION
 # =========================
 class QuestionAdminForm(forms.ModelForm):
+    class Media:
+        js = ("applications/js/admin_show_if_value.js",)
+
     pre_hr = forms.BooleanField(
         required=False,
         label="Show horizontal line above",
@@ -96,6 +99,47 @@ class QuestionAdminForm(forms.ModelForm):
         self.fields["section"].queryset = qs
         self.fields["section"].initial = getattr(self.instance, "section_id", None)
         self.fields["show_if_question"].queryset = show_if_qs
+
+        # Build a map of possible values per question (only for boolean/choice types)
+        choice_map: dict[str, list[tuple[str, str]]] = {}
+        for q in show_if_qs:
+            opts: list[tuple[str, str]] = []
+            if q.field_type == Question.BOOLEAN:
+                opts = [("yes", "Sí / Yes"), ("no", "No")]
+            elif q.field_type in (Question.CHOICE, Question.MULTI_CHOICE):
+                opts = [(c.value, f"{c.label or c.value}") for c in q.choices.all()]
+            if opts:
+                choice_map[str(q.id)] = opts
+
+        # Always render show_if_value as a select; JS will swap options when question changes
+        prev_label = self.fields["show_if_value"].label
+        prev_help = self.fields["show_if_value"].help_text
+        current_val = (
+            (self.data.get(self.add_prefix("show_if_value")) or "").strip()
+            if self.data
+            else (getattr(self.instance, "show_if_value", "") or "")
+        )
+        selected_qid = (
+            self.data.get(self.add_prefix("show_if_question"))
+            if self.data
+            else (str(getattr(self.instance, "show_if_question_id", "") or "") if self.instance else "")
+        )
+
+        initial_choices = [("", "— Selecciona valor —")]
+        for val, label in choice_map.get(str(selected_qid) or "", []):
+            initial_choices.append((val, label))
+        if current_val and current_val not in [v for v, _ in initial_choices]:
+            initial_choices.append((current_val, f"{current_val} (actual)"))
+
+        self.fields["show_if_value"] = forms.ChoiceField(
+            required=False,
+            label=prev_label,
+            help_text=prev_help,
+            choices=initial_choices,
+        )
+        self.fields["show_if_value"].widget.attrs["data-show-if-choices"] = json.dumps(choice_map)
+        self.fields["show_if_value"].widget.attrs["data-current-value"] = current_val
+        self.fields["show_if_value"].widget.attrs["data-placeholder"] = "— Selecciona valor —"
 
     def save(self, commit=True):
         obj = super().save(commit=False)

@@ -430,6 +430,8 @@ class QuestionAdmin(admin.ModelAdmin):
         "slug",
         "text",
         "section",
+        "show_if_question",
+        "show_if_value",
         "confirm_value",
         "pre_hr",
         "pre_text",

@@ -128,6 +128,19 @@ class QuestionAdminForm(forms.ModelForm):
                 if opts:
                     choice_map[str(q.id)] = opts
 
+        # Determine currently selected show_if_question
+        target_q = None
+        if self.data.get(self.add_prefix("show_if_question")):
+            try:
+                target_q = show_if_qs.get(id=self.data.get(self.add_prefix("show_if_question")))
+            except Exception:
+                target_q = None
+        elif getattr(self.instance, "show_if_question_id", None):
+            try:
+                target_q = show_if_qs.get(id=self.instance.show_if_question_id)
+            except Exception:
+                target_q = None
+
         # Always render show_if_value as a select; JS will swap options when question changes
         prev_label = self.fields["show_if_value"].label
         prev_help = self.fields["show_if_value"].help_text
@@ -136,14 +149,23 @@ class QuestionAdminForm(forms.ModelForm):
             if self.data
             else (getattr(self.instance, "show_if_value", "") or "")
         )
-        selected_qid = (
-            self.data.get(self.add_prefix("show_if_question"))
-            if self.data
-            else (str(getattr(self.instance, "show_if_question_id", "") or "") if self.instance else "")
-        )
+        selected_qid = str(getattr(target_q, "id", "") or "")
+
+        def _choices_for(q: Question | None):
+            if not q:
+                return []
+            if q.field_type == Question.BOOLEAN:
+                return [("yes", "Sí / Yes"), ("no", "No")]
+            if q.field_type in (Question.CHOICE, Question.MULTI_CHOICE):
+                return [(c.value, f"{c.label or c.value}") for c in q.choices.all()]
+            return []
+
+        target_opts = _choices_for(target_q)
+        if target_opts and selected_qid and selected_qid not in choice_map:
+            choice_map[selected_qid] = target_opts
 
         initial_choices = [("", "— Selecciona valor —")]
-        for val, label in choice_map.get(str(selected_qid) or "", []):
+        for val, label in target_opts:
             initial_choices.append((val, label))
         if current_val and current_val not in [v for v, _ in initial_choices]:
             initial_choices.append((current_val, f"{current_val} (actual)"))

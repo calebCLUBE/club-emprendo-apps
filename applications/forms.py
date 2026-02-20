@@ -41,6 +41,7 @@ def build_application_form(form_slug: str):
             form_def = FormDefinition.objects.get(slug=form_slug)
             questions = (
                 form_def.questions.filter(active=True)
+                .select_related("show_if_question")
                 .prefetch_related("choices")
                 .order_by("position", "id")
             )
@@ -61,6 +62,8 @@ def build_application_form(form_slug: str):
                     "help_text": remaining_help,
                     "required": q.required,
                 }
+                show_if_q = q.show_if_question
+                show_if_value = (q.show_if_value or "").strip()
 
                 if field_type == Question.SHORT_TEXT:
                     field = forms.CharField(initial="", **common)
@@ -120,6 +123,11 @@ def build_application_form(form_slug: str):
                 field.widget.attrs["pre_text"] = pre_text
                 field.widget.attrs["pre_hr"] = "1" if pre_hr else ""
                 field.widget.attrs["section_id"] = str(q.section_id or "")
+                field._ce_base_required = q.required
+
+                if show_if_q and show_if_value:
+                    field.widget.attrs["show_if_question"] = f"q_{show_if_q.slug}"
+                    field.widget.attrs["show_if_value"] = show_if_value
 
                 self.fields[field_name] = field
 
@@ -135,6 +143,10 @@ def build_application_form(form_slug: str):
                     )
                     confirm_field.widget.attrs["section_id"] = str(q.section_id or "")
                     confirm_field.widget.attrs["data-confirm-of"] = field_name
+                    confirm_field._ce_base_required = q.required
+                    if show_if_q and show_if_value:
+                        confirm_field.widget.attrs["show_if_question"] = f"q_{show_if_q.slug}"
+                        confirm_field.widget.attrs["show_if_value"] = show_if_value
                     self.fields[confirm_name] = confirm_field
                     self._confirm_pairs.append((field_name, confirm_name))
 

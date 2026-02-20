@@ -1,3 +1,5 @@
+{% with show_q=field.field.widget.attrs.show_if_question|default:"" show_val=field.field.widget.attrs.show_if_value|default:"" %}
+<div class="form-question" data-show-if-question="{{ show_q }}" data-show-if-value="{{ show_val }}">
 {# Shared renderer for a single form field #}
 
 {# ---------- PRE-TEXT / HR ABOVE ANY QUESTION ---------- #}
@@ -14,7 +16,10 @@
 {# ---------- SPECIAL GRID RENDER FOR schedule question ---------- #}
 {% if field.name == "q_preferred_schedule" or field.name == "q_e2_preferred_schedule" or field.name == "q_m2_preferred_schedule" or "¿En qué horario te resulta más conveniente participar en sesiones virtuales" in field.label|default_if_none:"" %}
 
-  <div class="form-row" data-field="{{ field.name }}">
+  <div class="form-row"
+       data-field="{{ field.name }}"
+       data-show-if-question="{{ show_q }}"
+       data-show-if-value="{{ show_val }}">
     <label {% if field.field.required %}class="required"{% endif %}>
       {{ field.label }}
     </label>
@@ -231,7 +236,10 @@
 
 {% else %}
 
-  <div class="form-row" data-field="{{ field.name }}">
+  <div class="form-row"
+       data-field="{{ field.name }}"
+       data-show-if-question="{{ show_q }}"
+       data-show-if-value="{{ show_val }}">
     <label for="{{ field.id_for_label }}" {% if field.field.required %}class="required"{% endif %}>
       {{ field.label }}
     </label>
@@ -250,3 +258,6 @@
   </div>
 
 {% endif %}
+
+</div>
+{% endwith %}

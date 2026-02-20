@@ -298,6 +298,79 @@
     })();
 
     (function () {
+      const blocks = Array.from(document.querySelectorAll(".form-question"));
+      if (!blocks.length) return;
+
+      const truthy = (v) => ["1", "true", "yes", "si", "sí", "on"].includes((v || "").trim().toLowerCase());
+
+      function getValuesForField(name) {
+        const inputs = Array.from(document.querySelectorAll(`[name="${name}"], [name="${name}[]"]`));
+        const vals = [];
+        inputs.forEach(inp => {
+          const type = (inp.type || "").toLowerCase();
+          if ((type === "checkbox" || type === "radio")) {
+            if (inp.checked) vals.push(inp.value || "");
+          } else {
+            vals.push(inp.value || "");
+          }
+        });
+        return vals;
+      }
+
+      function shouldShow(block) {
+        const target = (block.dataset.showIfQuestion || "").trim();
+        const expected = (block.dataset.showIfValue || "").trim().toLowerCase();
+        if (!target || !expected) return true;
+
+        const values = getValuesForField(target);
+        if (!values.length) return false;
+
+        for (const raw of values) {
+          const val = (raw || "").trim().toLowerCase();
+          if (expected === "yes" && truthy(val)) return true;
+          if (expected === "no" && !truthy(val)) return true;
+          if (val === expected) return true;
+        }
+        return false;
+      }
+
+      function toggleBlock(block, show) {
+        const inputs = block.querySelectorAll("input, select, textarea");
+        if (show) {
+          block.style.display = "";
+          inputs.forEach(inp => {
+            if (inp.dataset.wasRequired === "1") {
+              inp.required = true;
+            }
+          });
+        } else {
+          block.style.display = "none";
+          inputs.forEach(inp => {
+            if (inp.required) {
+              inp.dataset.wasRequired = "1";
+            }
+            inp.required = false;
+          });
+        }
+      }
+
+      function applyVisibility() {
+        blocks.forEach(block => {
+          const show = shouldShow(block);
+          toggleBlock(block, show);
+        });
+      }
+
+      applyVisibility();
+
+      const allInputs = Array.from(document.querySelectorAll("input, select, textarea"));
+      allInputs.forEach(inp => {
+        const evt = (inp.type === "radio" || inp.type === "checkbox" || inp.tagName === "SELECT") ? "change" : "input";
+        inp.addEventListener(evt, applyVisibility);
+      });
+    })();
+
+    (function () {
       // 🔒 Run ONLY for Mentora A2
       if (!window.location.pathname.includes("_M_A2")) return;
 
@@ -376,7 +449,8 @@
         const picked = norm(getSelectedChoiceText(driverRow));
         const show = picked.startsWith("si");
         targetRows.forEach(row => {
-          row.style.display = show ? "" : "none";
+          const block = row.closest(".form-question") || row;
+          block.style.display = show ? "" : "none";
         });
       }
 
@@ -437,7 +511,8 @@
 
       function setRowVisible(row, show) {
         if (!row) return;
-        row.style.display = show ? "" : "none";
+        const block = row.closest(".form-question") || row;
+        block.style.display = show ? "" : "none";
       }
 
       function getSelectedChoiceText(row) {

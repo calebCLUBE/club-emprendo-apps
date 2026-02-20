@@ -89,10 +89,13 @@ class QuestionAdminForm(forms.ModelForm):
 
         form_obj = getattr(self.instance, "form", None)
         qs = Section.objects.none()
+        show_if_qs = Question.objects.none()
         if form_obj:
             qs = form_obj.sections.all()
+            show_if_qs = form_obj.questions.exclude(id=getattr(self.instance, "id", None))
         self.fields["section"].queryset = qs
         self.fields["section"].initial = getattr(self.instance, "section_id", None)
+        self.fields["show_if_question"].queryset = show_if_qs
 
     def save(self, commit=True):
         obj = super().save(commit=False)
@@ -250,6 +253,8 @@ class QuestionInline(admin.StackedInline):
         "slug",
         "text",
         "section",
+        "show_if_question",
+        "show_if_value",
         "confirm_value",
         "pre_hr",
         "pre_text",

@@ -9,7 +9,11 @@ from django.utils import timezone
 import json
 
 from .forms import build_application_form
+<<<<<<< HEAD
 from .models import Application, Answer, FormDefinition, Question, Section
+=======
+from .models import Application, Answer, FormDefinition, Question
+>>>>>>> d097e98a (ASD)
 from .emprendedora_a1_autograde import autograde_and_email_emprendedora_a1
 
 
@@ -45,6 +49,63 @@ def _send_html_email(to_email: str, subject: str, html_body: str):
     )
     msg.attach_alternative(html_body, "text/html")
     msg.send(fail_silently=False)
+
+
+def _apply_question_conditions(form):
+    """
+    Toggle required flags for conditional questions based on current form data.
+    Fields carry `show_if_question` and `show_if_value` in widget attrs.
+    """
+    data = getattr(form, "data", None)
+
+    def _value_for_field(fname: str):
+        if data is not None:
+            if hasattr(data, "getlist"):
+                vals = data.getlist(fname)
+                if len(vals) > 1:
+                    return vals
+                if fname in data:
+                    return data.get(fname)
+            else:
+                if fname in data:
+                    return data.get(fname)
+        return form.initial.get(fname, "")
+
+    def _matches(expected: str, raw_val):
+        expected = (expected or "").strip().lower()
+        if not expected:
+            return True
+
+        def truthy(v: str) -> bool:
+            v = (v or "").strip().lower()
+            return v in {"1", "true", "yes", "si", "sí", "on"}
+
+        if isinstance(raw_val, list):
+            vals = [str(v).strip().lower() for v in raw_val]
+            if expected == "yes":
+                return any(truthy(v) for v in vals)
+            if expected == "no":
+                return any(not truthy(v) for v in vals)
+            return expected in vals
+
+        val = (str(raw_val or "")).strip().lower()
+        if expected == "yes":
+            return truthy(val)
+        if expected == "no":
+            return not truthy(val)
+        return val == expected
+
+    for name, field in form.fields.items():
+        show_if_q = (field.widget.attrs.get("show_if_question") or "").strip()
+        expected = (field.widget.attrs.get("show_if_value") or "").strip()
+        base_required = getattr(field, "_ce_base_required", field.required)
+
+        if not show_if_q or not expected:
+            field.required = base_required
+            continue
+
+        raw_val = _value_for_field(show_if_q)
+        field.required = base_required if _matches(expected, raw_val) else False
 
 
 def _mentor_a1_autograde_and_email(request, app: Application):
@@ -465,6 +526,8 @@ def _handle_application_form(request, form_slug: str, second_stage: bool = False
         form = ApplicationForm(request.POST)
     else:
         form = ApplicationForm()
+
+    _apply_question_conditions(form)
 
     sections = _sections_from_model(form_def, form)
     m2_gate_field = None

@@ -176,6 +176,20 @@ class Question(models.Model):
         help_text="If true, render a second confirmation input that must match.",
     )
 
+    show_if_question = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="dependent_questions",
+        help_text="Optional: only show this question when another question has the expected value.",
+    )
+    show_if_value = models.CharField(
+        max_length=200,
+        blank=True,
+        help_text="Case-insensitive match. For yes/no, use 'yes' or 'no'. For choices, use the stored choice value.",
+    )
+
     section = models.ForeignKey(
         Section,
         null=True,

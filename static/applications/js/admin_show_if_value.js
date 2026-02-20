@@ -16,7 +16,15 @@
 
   function wirePair(qSelect, vSelect) {
     const placeholder = vSelect.dataset.placeholder || "— Selecciona valor —";
-    const choiceMap = parseChoices(vSelect);
+    let choiceMap = parseChoices(vSelect);
+    if (!choiceMap || Object.keys(choiceMap).length === 0) {
+      // fallback: try map stored on the question select
+      try {
+        choiceMap = JSON.parse(qSelect.dataset.showIfChoicesMap || "{}") || {};
+      } catch (_) {
+        choiceMap = {};
+      }
+    }
 
     function rebuild() {
       const qid = qSelect.value || "";

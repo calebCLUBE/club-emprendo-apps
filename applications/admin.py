@@ -95,7 +95,11 @@ class QuestionAdminForm(forms.ModelForm):
         show_if_qs = Question.objects.none()
         if form_obj:
             qs = form_obj.sections.all()
-            show_if_qs = form_obj.questions.exclude(id=getattr(self.instance, "id", None))
+            show_if_qs = (
+                form_obj.questions
+                .exclude(id=getattr(self.instance, "id", None))
+                .prefetch_related("choices")
+            )
         self.fields["section"].queryset = qs
         self.fields["section"].initial = getattr(self.instance, "section_id", None)
         self.fields["show_if_question"].queryset = show_if_qs
@@ -110,6 +114,17 @@ class QuestionAdminForm(forms.ModelForm):
                 opts = [(c.value, f"{c.label or c.value}") for c in q.choices.all()]
             if opts:
                 choice_map[str(q.id)] = opts
+
+        # Fallback: if no map built (e.g. new inline without form_obj), try all questions on the model
+        if not choice_map and form_obj:
+            for q in form_obj.questions.prefetch_related("choices"):
+                opts: list[tuple[str, str]] = []
+                if q.field_type == Question.BOOLEAN:
+                    opts = [("yes", "Sí / Yes"), ("no", "No")]
+                elif q.field_type in (Question.CHOICE, Question.MULTI_CHOICE):
+                    opts = [(c.value, f"{c.label or c.value}") for c in q.choices.all()]
+                if opts:
+                    choice_map[str(q.id)] = opts
 
         # Always render show_if_value as a select; JS will swap options when question changes
         prev_label = self.fields["show_if_value"].label
@@ -184,21 +199,6 @@ class ShowIfConditionsWidget(forms.Widget):
 
 
 class SectionAdminForm(forms.ModelForm):
-    def _value_choices_for_question(self, q):
-        if not q:
-            return [("", "— Selecciona valor —")]
-        if q.field_type == Question.BOOLEAN:
-            return [
-                ("", "— Selecciona valor —"),
-                ("yes", "Sí"),
-                ("no", "No"),
-            ]
-        if q.field_type in (Question.CHOICE, Question.MULTI_CHOICE):
-            opts = [("", "— Selecciona valor —")]
-            opts += [(c.value, c.label or c.value) for c in q.choices.all()]
-            return opts
-        return [("", "— Selecciona valor —")]
-
     class Meta:
         model = Section
         fields = "__all__"
@@ -211,56 +211,50 @@ class SectionAdminForm(forms.ModelForm):
         else:
             qs = Question.objects.none()
 
-        # JSON-based multi-conditions widget
-        questions_json = json.dumps(
-            [
-                {
-                    "id": q.id,
-                    "text": q.text or q.slug,
-                    "field_type": q.field_type,
-                    "choices": [{"value": c.value, "label": c.label or c.value} for c in q.choices.all()],
-                }
-                for q in qs
-            ]
-        )
-        self.fields["show_if_conditions"] = forms.JSONField(
-            required=False,
-            widget=ShowIfConditionsWidget(questions_json=questions_json),
-            label="Show if conditions",
-            help_text="Añade una o más condiciones y elige AND/OR arriba.",
-        )
-        # initial JSON from instance or legacy fields
-        if not self.data:
-            conds = list(getattr(self.instance, "show_if_conditions", []) or [])
-            if not conds:
-                if getattr(self.instance, "show_if_question_id", None) and self.instance.show_if_value:
-                    conds.append({"question_id": self.instance.show_if_question_id, "value": self.instance.show_if_value})
-                if getattr(self.instance, "show_if_question_2_id", None) and self.instance.show_if_value_2:
-                    conds.append({"question_id": self.instance.show_if_question_2_id, "value": self.instance.show_if_value_2})
-            self.fields["show_if_conditions"].initial = conds
+        self.fields["show_if_question"].queryset = qs
+        self.fields["show_if_question_2"].queryset = qs
+
+        def _choices_for(q: Question | None):
+            if not q:
+                return [("", "— Selecciona valor —")]
+            if q.field_type == Question.BOOLEAN:
+                return [("", "— Selecciona valor —"), ("yes", "Sí"), ("no", "No")]
+            if q.field_type in (Question.CHOICE, Question.MULTI_CHOICE):
+                opts = [("", "— Selecciona valor —")]
+                opts += [(c.value, c.label or c.value) for c in q.choices.all()]
+                return opts
+            return [("", "— Selecciona valor —")]
+
+        q1 = None
+        if self.data.get("show_if_question"):
+            try:
+                q1 = qs.get(id=self.data.get("show_if_question"))
+            except Exception:
+                pass
+        elif getattr(self.instance, "show_if_question_id", None):
+            q1 = self.instance.show_if_question
+
+        q2 = None
+        if self.data.get("show_if_question_2"):
+            try:
+                q2 = qs.get(id=self.data.get("show_if_question_2"))
+            except Exception:
+                pass
+        elif getattr(self.instance, "show_if_question_2_id", None):
+            q2 = self.instance.show_if_question_2
+
+        self.fields["show_if_value"].widget = forms.Select(choices=_choices_for(q1))
+        self.fields["show_if_value_2"].widget = forms.Select(choices=_choices_for(q2))
 
     def save(self, commit=True):
         obj = super().save(commit=False)
-        conds = self.cleaned_data.get("show_if_conditions") or []
+        # keep JSON field in sync for compatibility (optional)
+        conds = []
+        if obj.show_if_question_id and obj.show_if_value:
+            conds.append({"question_id": obj.show_if_question_id, "value": obj.show_if_value})
+        if obj.show_if_question_2_id and obj.show_if_value_2:
+            conds.append({"question_id": obj.show_if_question_2_id, "value": obj.show_if_value_2})
         obj.show_if_conditions = conds
-
-        # sync legacy fields (first two conditions)
-        obj.show_if_question = None
-        obj.show_if_value = ""
-        obj.show_if_question_2 = None
-        obj.show_if_value_2 = ""
-        if len(conds) > 0:
-            try:
-                obj.show_if_question_id = int(conds[0].get("question_id") or 0) or None
-                obj.show_if_value = conds[0].get("value", "")
-            except Exception:
-                pass
-        if len(conds) > 1:
-            try:
-                obj.show_if_question_2_id = int(conds[1].get("question_id") or 0) or None
-                obj.show_if_value_2 = conds[1].get("value", "")
-            except Exception:
-                pass
 
         if commit:
             obj.save()
@@ -276,8 +270,8 @@ class SectionInline(admin.TabularInline):
         "position",
         "title",
         "description",
-        "show_if_logic",
-        "show_if_conditions",
+        "show_if_question",
+        "show_if_value",
     )
     ordering = ("position", "id")
 

@@ -103,6 +103,8 @@ class QuestionAdminForm(forms.ModelForm):
         self.fields["section"].queryset = qs
         self.fields["section"].initial = getattr(self.instance, "section_id", None)
         self.fields["show_if_question"].queryset = show_if_qs
+        # expose choices map on the question field too (for JS fallback)
+        self.fields["show_if_question"].widget.attrs["data-show-if-choices-map"] = ""
 
         # Build a map of possible values per question (only for boolean/choice types)
         choice_map: dict[str, list[tuple[str, str]]] = {}
@@ -155,6 +157,7 @@ class QuestionAdminForm(forms.ModelForm):
         self.fields["show_if_value"].widget.attrs["data-show-if-choices"] = json.dumps(choice_map)
         self.fields["show_if_value"].widget.attrs["data-current-value"] = current_val
         self.fields["show_if_value"].widget.attrs["data-placeholder"] = "— Selecciona valor —"
+        self.fields["show_if_question"].widget.attrs["data-show-if-choices-map"] = json.dumps(choice_map)
 
     def save(self, commit=True):
         obj = super().save(commit=False)
@@ -212,7 +215,9 @@ class SectionAdminForm(forms.ModelForm):
             qs = Question.objects.none()
 
         self.fields["show_if_question"].queryset = qs
-        self.fields["show_if_question_2"].queryset = qs
+        # remove secondary condition fields from the form (we only want one)
+        self.fields.pop("show_if_question_2", None)
+        self.fields.pop("show_if_value_2", None)
 
         def _choices_for(q: Question | None):
             if not q:
@@ -234,17 +239,7 @@ class SectionAdminForm(forms.ModelForm):
         elif getattr(self.instance, "show_if_question_id", None):
             q1 = self.instance.show_if_question
 
-        q2 = None
-        if self.data.get("show_if_question_2"):
-            try:
-                q2 = qs.get(id=self.data.get("show_if_question_2"))
-            except Exception:
-                pass
-        elif getattr(self.instance, "show_if_question_2_id", None):
-            q2 = self.instance.show_if_question_2
-
         self.fields["show_if_value"].widget = forms.Select(choices=_choices_for(q1))
-        self.fields["show_if_value_2"].widget = forms.Select(choices=_choices_for(q2))
 
     def save(self, commit=True):
         obj = super().save(commit=False)
@@ -252,8 +247,9 @@ class SectionAdminForm(forms.ModelForm):
         conds = []
         if obj.show_if_question_id and obj.show_if_value:
             conds.append({"question_id": obj.show_if_question_id, "value": obj.show_if_value})
-        if obj.show_if_question_2_id and obj.show_if_value_2:
-            conds.append({"question_id": obj.show_if_question_2_id, "value": obj.show_if_value_2})
+        # clear secondary fields
+        obj.show_if_question_2 = None
+        obj.show_if_value_2 = ""
         obj.show_if_conditions = conds
 
         if commit:

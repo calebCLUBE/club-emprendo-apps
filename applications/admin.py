@@ -103,6 +103,8 @@ class QuestionAdminForm(forms.ModelForm):
         self.fields["section"].queryset = qs
         self.fields["section"].initial = getattr(self.instance, "section_id", None)
         self.fields["show_if_question"].queryset = show_if_qs
+        self.fields["show_if_question"].label = "Controlling question"
+        self.fields["show_if_question"].help_text = "Select the question whose answer should control visibility of this one."
 
         # Build a map of possible values per question (only for boolean/choice types)
         choice_map: dict[str, list[tuple[str, str]]] = {}
@@ -172,6 +174,8 @@ class QuestionAdminForm(forms.ModelForm):
             help_text=prev_help,
             choices=initial_choices,
         )
+        self.fields["show_if_value"].label = "Triggering answer (from controlling question)"
+        self.fields["show_if_value"].help_text = "Pick the answer to the controlling question that should make this question appear."
         self.fields["show_if_value"].widget.attrs["data-show-if-choices"] = json.dumps(choice_map)
         self.fields["show_if_value"].widget.attrs["data-current-value"] = current_val
         self.fields["show_if_value"].widget.attrs["data-placeholder"] = "— Selecciona valor —"

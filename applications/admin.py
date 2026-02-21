@@ -134,9 +134,43 @@ class QuestionAdminForm(forms.ModelForm):
                 conds.append({"question_id": self.instance.show_if_question_id, "value": self.instance.show_if_value})
             self.fields["show_if_conditions"].initial = conds
 
-        # hide legacy single fields, but keep for backward compat (first condition mirrored)
-        self.fields["show_if_question"].widget = forms.HiddenInput()
-        self.fields["show_if_value"].widget = forms.HiddenInput()
+        # ----- Legacy single fields (visible for clarity, mirrored to first condition) -----
+        self.fields["show_if_question"].queryset = show_if_qs
+        self.fields["show_if_question"].label = "Controlling question (first condition)"
+
+        # Build value choices map
+        choice_map: dict[str, list[tuple[str, str]]] = {}
+        for q in show_if_qs:
+            opts: list[tuple[str, str]] = []
+            if q.field_type == Question.BOOLEAN:
+                opts = [("yes", "Sí / Yes"), ("no", "No")]
+            elif q.field_type in (Question.CHOICE, Question.MULTI_CHOICE):
+                opts = [(c.value, c.label or c.value) for c in q.choices.all()]
+            if opts:
+                choice_map[str(q.id)] = opts
+
+        sel_qid = ""
+        if self.data.get(self.add_prefix("show_if_question")):
+            sel_qid = str(self.data.get(self.add_prefix("show_if_question")) or "")
+        elif getattr(self.instance, "show_if_question_id", None):
+            sel_qid = str(self.instance.show_if_question_id or "")
+
+        current_val = (
+            (self.data.get(self.add_prefix("show_if_value")) or "").strip()
+            if self.data
+            else (getattr(self.instance, "show_if_value", "") or "")
+        )
+
+        opts = [("", "— Selecciona valor —")]
+        opts += choice_map.get(sel_qid, [])
+        if current_val and current_val not in [v for v, _ in opts]:
+            opts.append((current_val, f"{current_val} (actual)"))
+
+        self.fields["show_if_value"] = forms.ChoiceField(
+            required=False,
+            label="Triggering answer (first condition)",
+            choices=opts,
+        )
 
     def save(self, commit=True):
         obj = super().save(commit=False)

@@ -116,16 +116,18 @@ class QuestionAdminForm(forms.ModelForm):
                 choice_map[str(q.id)] = opts
         self.fields["show_if_question"].widget.attrs["data-show-if-choices-map"] = json.dumps(choice_map)
 
-        # Determine currently selected show_if_question
-        target_q = None
+        # Determine selected show_if_question id
+        selected_qid = ""
         if self.data.get(self.add_prefix("show_if_question")):
-            try:
-                target_q = show_if_qs.get(id=self.data.get(self.add_prefix("show_if_question")))
-            except Exception:
-                target_q = None
+            selected_qid = str(self.data.get(self.add_prefix("show_if_question")) or "")
         elif getattr(self.instance, "show_if_question_id", None):
+            selected_qid = str(self.instance.show_if_question_id or "")
+
+        # Try to resolve the actual question object (not required if map is enough)
+        target_q = None
+        if selected_qid:
             try:
-                target_q = show_if_qs.get(id=self.instance.show_if_question_id)
+                target_q = show_if_qs.get(id=selected_qid)
             except Exception:
                 target_q = None
 
@@ -137,7 +139,6 @@ class QuestionAdminForm(forms.ModelForm):
             if self.data
             else (getattr(self.instance, "show_if_value", "") or "")
         )
-        selected_qid = str(getattr(target_q, "id", "") or "")
 
         def _choices_for(q: Question | None):
             if not q:
@@ -150,13 +151,16 @@ class QuestionAdminForm(forms.ModelForm):
                 return opts
             return [("", "— Selecciona valor —")]
 
-        target_opts = _choices_for(target_q)
-        if (not target_opts or len(target_opts) <= 1) and selected_qid:
-            # fallback to precomputed map if target_q couldn't be resolved
-            mapped = choice_map.get(selected_qid) or []
-            target_opts = [("", "— Selecciona valor —")] + mapped
-        if target_opts and selected_qid and selected_qid not in choice_map:
-            choice_map[selected_qid] = target_opts[1:]  # store without placeholder
+        placeholder = ("", "— Selecciona valor —")
+        target_opts = [placeholder]
+        # Prefer map (handles choice labels correctly even if target_q unresolved)
+        if selected_qid and selected_qid in choice_map:
+            target_opts += choice_map[selected_qid]
+        else:
+            target_opts = _choices_for(target_q)
+        # Keep map in sync if we resolved via target_q
+        if selected_qid and selected_qid not in choice_map and target_q and target_q.field_type in (Question.BOOLEAN, Question.CHOICE, Question.MULTI_CHOICE):
+            choice_map[selected_qid] = target_opts[1:]
 
         initial_choices = list(target_opts)
         if current_val and current_val not in [v for v, _ in initial_choices]:

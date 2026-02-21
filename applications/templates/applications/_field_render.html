@@ -19,7 +19,8 @@
   <div class="form-row"
        data-field="{{ field.name }}"
        data-show-if-question="{{ show_q }}"
-       data-show-if-value="{{ show_val }}">
+       data-show-if-value="{{ show_val }}"
+       data-show-if-conditions='{{ field.field.widget.attrs.show_if_conditions|default:""|safe }}'>
     <label {% if field.field.required %}class="required"{% endif %}>
       {{ field.label }}
     </label>
@@ -239,7 +240,8 @@
   <div class="form-row"
        data-field="{{ field.name }}"
        data-show-if-question="{{ show_q }}"
-       data-show-if-value="{{ show_val }}">
+       data-show-if-value="{{ show_val }}"
+       data-show-if-conditions='{{ field.field.widget.attrs.show_if_conditions|default:""|safe }}'>
     <label for="{{ field.id_for_label }}" {% if field.field.required %}class="required"{% endif %}>
       {{ field.label }}
     </label>

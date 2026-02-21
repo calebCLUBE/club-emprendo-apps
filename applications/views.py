@@ -92,16 +92,34 @@ def _apply_question_conditions(form):
         return val == expected
 
     for name, field in form.fields.items():
-        show_if_q = (field.widget.attrs.get("show_if_question") or "").strip()
-        expected = (field.widget.attrs.get("show_if_value") or "").strip()
         base_required = getattr(field, "_ce_base_required", field.required)
+        single_q = (field.widget.attrs.get("show_if_question") or "").strip()
+        single_val = (field.widget.attrs.get("show_if_value") or "").strip()
+        conds_raw = field.widget.attrs.get("show_if_conditions")
+        conds = []
+        if conds_raw:
+            try:
+                conds = json.loads(conds_raw)
+            except Exception:
+                conds = []
 
-        if not show_if_q or not expected:
-            field.required = base_required
-            continue
+        def cond_matches(cond):
+            fname = cond.get("field") or ""
+            expected = (cond.get("value") or "").strip()
+            if not fname or not expected:
+                return False
+            raw_val = _value_for_field(fname)
+            return _matches(expected, raw_val)
 
-        raw_val = _value_for_field(show_if_q)
-        field.required = base_required if _matches(expected, raw_val) else False
+        match = False
+        if single_q and single_val:
+            raw_val = _value_for_field(single_q)
+            match = _matches(single_val, raw_val)
+
+        if conds:
+            match = match or any(cond_matches(c) for c in conds)
+
+        field.required = base_required if match or (not single_q and not conds) else False
 
 
 def _mentor_a1_autograde_and_email(request, app: Application):

@@ -192,6 +192,18 @@ class QuestionAdminForm(forms.ModelForm):
         obj.help_text = _pack_help_text(pre_text, pre_hr, rest)
         obj.section = section
 
+        # Sync multi-conditions back to model + legacy fields (first condition)
+        conds = self.cleaned_data.get("show_if_conditions") or []
+        obj.show_if_conditions = conds
+        obj.show_if_question = None
+        obj.show_if_value = ""
+        if conds:
+            try:
+                obj.show_if_question_id = int(conds[0].get("question_id") or 0) or None
+                obj.show_if_value = conds[0].get("value", "")
+            except Exception:
+                pass
+
         if commit:
             obj.save()
             self.save_m2m()
@@ -444,6 +456,7 @@ class QuestionAdmin(admin.ModelAdmin):
         "section",
         "show_if_question",
         "show_if_value",
+        "show_if_conditions",
         "confirm_value",
         "pre_hr",
         "pre_text",

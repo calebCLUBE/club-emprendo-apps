@@ -317,9 +317,35 @@
         return vals;
       }
 
+      function condMatches(cond) {
+        const field = (cond.field || "").trim();
+        const expected = (cond.value || "").trim().toLowerCase();
+        if (!field || !expected) return false;
+        const values = getValuesForField(field);
+        if (!values.length) return false;
+        for (const raw of values) {
+          const val = (raw || "").trim().toLowerCase();
+          if (expected === "yes" && truthy(val)) return true;
+          if (expected === "no" && !truthy(val)) return true;
+          if (val === expected) return true;
+        }
+        return false;
+      }
+
       function shouldShow(block) {
         const target = (block.dataset.showIfQuestion || "").trim();
         const expected = (block.dataset.showIfValue || "").trim().toLowerCase();
+        const condsRaw = block.dataset.showIfConditions || "";
+        let conds = [];
+        if (condsRaw) {
+          try { conds = JSON.parse(condsRaw); } catch (_) { conds = []; }
+        }
+
+        // If multiple conditions exist, show when ANY matches
+        if (conds.length) {
+          return conds.some(condMatches);
+        }
+
         if (!target || !expected) return true;
 
         const values = getValuesForField(target);

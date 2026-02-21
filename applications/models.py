@@ -189,6 +189,11 @@ class Question(models.Model):
         blank=True,
         help_text="Case-insensitive match. For yes/no, use 'yes' or 'no'. For choices, use the stored choice value.",
     )
+    show_if_conditions = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Lista de condiciones [{'question_id':..., 'value':...}]. Usa lógica OR (se muestra si cualquiera coincide).",
+    )
 
     section = models.ForeignKey(
         Section,

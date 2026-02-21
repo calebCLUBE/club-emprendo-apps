@@ -45,6 +45,7 @@ def build_application_form(form_slug: str):
                 .prefetch_related("choices")
                 .order_by("position", "id")
             )
+            id_to_slug = {q.id: q.slug for q in questions}
 
             self._confirm_pairs: list[tuple[str, str]] = []
 
@@ -64,6 +65,9 @@ def build_application_form(form_slug: str):
                 }
                 show_if_q = q.show_if_question
                 show_if_value = (q.show_if_value or "").strip()
+                conds = list(getattr(q, "show_if_conditions", []) or [])
+                if show_if_q and show_if_value and not conds:
+                    conds = [{"question_id": show_if_q.id, "value": show_if_value}]
 
                 if field_type == Question.SHORT_TEXT:
                     field = forms.CharField(initial="", **common)
@@ -124,10 +128,19 @@ def build_application_form(form_slug: str):
                 field.widget.attrs["pre_hr"] = "1" if pre_hr else ""
                 field.widget.attrs["section_id"] = str(q.section_id or "")
                 field._ce_base_required = q.required
-
                 if show_if_q and show_if_value:
                     field.widget.attrs["show_if_question"] = f"q_{show_if_q.slug}"
                     field.widget.attrs["show_if_value"] = show_if_value
+                if conds:
+                    processed = []
+                    for c in conds:
+                        qid = c.get("question_id")
+                        val = (c.get("value") or "").strip()
+                        slug = id_to_slug.get(qid)
+                        if slug and val:
+                            processed.append({"field": f"q_{slug}", "value": val})
+                    if processed:
+                        field.widget.attrs["show_if_conditions"] = json.dumps(processed)
 
                 self.fields[field_name] = field
 

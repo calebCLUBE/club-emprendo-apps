@@ -102,84 +102,41 @@ class QuestionAdminForm(forms.ModelForm):
             )
         self.fields["section"].queryset = qs
         self.fields["section"].initial = getattr(self.instance, "section_id", None)
-        self.fields["show_if_question"].queryset = show_if_qs
-        self.fields["show_if_question"].label = "Controlling question"
-        self.fields["show_if_question"].help_text = "Select the question whose answer should control visibility of this one."
 
-        # Build a map of possible values per question (only for boolean/choice types)
-        choice_map: dict[str, list[tuple[str, str]]] = {}
-        for q in show_if_qs:
-            opts: list[tuple[str, str]] = []
-            if q.field_type == Question.BOOLEAN:
-                opts = [("yes", "Sí / Yes"), ("no", "No")]
-            elif q.field_type in (Question.CHOICE, Question.MULTI_CHOICE):
-                opts = [(c.value, f"{c.label or c.value}") for c in q.choices.all()]
-            if opts:
-                choice_map[str(q.id)] = opts
-        self.fields["show_if_question"].widget.attrs["data-show-if-choices-map"] = json.dumps(choice_map)
-
-        # Determine selected show_if_question id
-        selected_qid = ""
-        if self.data.get(self.add_prefix("show_if_question")):
-            selected_qid = str(self.data.get(self.add_prefix("show_if_question")) or "")
-        elif getattr(self.instance, "show_if_question_id", None):
-            selected_qid = str(self.instance.show_if_question_id or "")
-
-        # Try to resolve the actual question object (not required if map is enough)
-        target_q = None
-        if selected_qid:
-            try:
-                target_q = show_if_qs.get(id=selected_qid)
-            except Exception:
-                target_q = None
-
-        # Always render show_if_value as a select; JS will swap options when question changes
-        prev_label = self.fields["show_if_value"].label
-        prev_help = self.fields["show_if_value"].help_text
-        current_val = (
-            (self.data.get(self.add_prefix("show_if_value")) or "").strip()
-            if self.data
-            else (getattr(self.instance, "show_if_value", "") or "")
+        # ----- Multi controlling questions (OR) -----
+        questions_json = json.dumps(
+            [
+                {
+                    "id": q.id,
+                    "text": q.text or q.slug,
+                    "field_type": q.field_type,
+                    "choices": [
+                        {"value": c.value, "label": c.label or c.value}
+                        for c in q.choices.all()
+                    ] if q.field_type in (Question.CHOICE, Question.MULTI_CHOICE) else
+                    [{"value": "yes", "label": "Sí / Yes"}, {"value": "no", "label": "No"}] if q.field_type == Question.BOOLEAN else [],
+                }
+                for q in show_if_qs
+            ]
         )
 
-        def _choices_for(q: Question | None):
-            if not q:
-                return [("", "— Selecciona valor —")]
-            if q.field_type == Question.BOOLEAN:
-                return [("", "— Selecciona valor —"), ("yes", "Sí / Yes"), ("no", "No")]
-            if q.field_type in (Question.CHOICE, Question.MULTI_CHOICE):
-                opts = [("", "— Selecciona valor —")]
-                opts += [(c.value, f"{c.label or c.value}") for c in q.choices.all()]
-                return opts
-            return [("", "— Selecciona valor —")]
-
-        placeholder = ("", "— Selecciona valor —")
-        target_opts = [placeholder]
-        # Prefer map (handles choice labels correctly even if target_q unresolved)
-        if selected_qid and selected_qid in choice_map:
-            target_opts += choice_map[selected_qid]
-        else:
-            target_opts = _choices_for(target_q)
-        # Keep map in sync if we resolved via target_q
-        if selected_qid and selected_qid not in choice_map and target_q and target_q.field_type in (Question.BOOLEAN, Question.CHOICE, Question.MULTI_CHOICE):
-            choice_map[selected_qid] = target_opts[1:]
-
-        initial_choices = list(target_opts)
-        if current_val and current_val not in [v for v, _ in initial_choices]:
-            initial_choices.append((current_val, f"{current_val} (actual)"))
-
-        self.fields["show_if_value"] = forms.ChoiceField(
+        self.fields["show_if_conditions"] = forms.JSONField(
             required=False,
-            label=prev_label,
-            help_text=prev_help,
-            choices=initial_choices,
+            widget=ShowIfConditionsWidget(questions_json=questions_json),
+            label="Show if conditions (ANY match)",
+            help_text="Add one or more controlling questions + expected values. This question shows if ANY condition matches.",
         )
-        self.fields["show_if_value"].label = "Triggering answer (from controlling question)"
-        self.fields["show_if_value"].help_text = "Pick the answer to the controlling question that should make this question appear."
-        self.fields["show_if_value"].widget.attrs["data-show-if-choices"] = json.dumps(choice_map)
-        self.fields["show_if_value"].widget.attrs["data-current-value"] = current_val
-        self.fields["show_if_value"].widget.attrs["data-placeholder"] = "— Selecciona valor —"
-        self.fields["show_if_question"].widget.attrs["data-show-if-choices-map"] = json.dumps(choice_map)
+
+        # initial conditions from stored JSON or legacy single
+        if not self.data:
+            conds = list(getattr(self.instance, "show_if_conditions", []) or [])
+            if not conds and getattr(self.instance, "show_if_question_id", None) and self.instance.show_if_value:
+                conds.append({"question_id": self.instance.show_if_question_id, "value": self.instance.show_if_value})
+            self.fields["show_if_conditions"].initial = conds
+
+        # hide legacy single fields, but keep for backward compat (first condition mirrored)
+        self.fields["show_if_question"].widget = forms.HiddenInput()
+        self.fields["show_if_value"].widget = forms.HiddenInput()
 
     def save(self, commit=True):
         obj = super().save(commit=False)
@@ -454,8 +411,6 @@ class QuestionAdmin(admin.ModelAdmin):
         "slug",
         "text",
         "section",
-        "show_if_question",
-        "show_if_value",
         "show_if_conditions",
         "confirm_value",
         "pre_hr",

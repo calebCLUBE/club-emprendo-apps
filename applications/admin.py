@@ -151,8 +151,12 @@ class QuestionAdminForm(forms.ModelForm):
             return [("", "— Selecciona valor —")]
 
         target_opts = _choices_for(target_q)
+        if (not target_opts or len(target_opts) <= 1) and selected_qid:
+            # fallback to precomputed map if target_q couldn't be resolved
+            mapped = choice_map.get(selected_qid) or []
+            target_opts = [("", "— Selecciona valor —")] + mapped
         if target_opts and selected_qid and selected_qid not in choice_map:
-            choice_map[selected_qid] = target_opts
+            choice_map[selected_qid] = target_opts[1:]  # store without placeholder
 
         initial_choices = list(target_opts)
         if current_val and current_val not in [v for v, _ in initial_choices]:

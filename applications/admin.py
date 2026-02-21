@@ -314,6 +314,7 @@ class QuestionInline(admin.StackedInline):
         "section",
         "show_if_question",
         "show_if_value",
+        "show_if_conditions",
         "confirm_value",
         "pre_hr",
         "pre_text",

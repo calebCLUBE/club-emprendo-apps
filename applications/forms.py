@@ -1,4 +1,5 @@
 # applications/forms.py
+import json
 import re
 from django import forms
 from .models import FormDefinition, Question

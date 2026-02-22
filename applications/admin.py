@@ -134,43 +134,50 @@ class QuestionAdminForm(forms.ModelForm):
                 conds.append({"question_id": self.instance.show_if_question_id, "value": self.instance.show_if_value})
             self.fields["show_if_conditions"].initial = conds
 
-        # ----- Legacy single fields (visible for clarity, mirrored to first condition) -----
-        self.fields["show_if_question"].queryset = show_if_qs
-        self.fields["show_if_question"].label = "Controlling question (first condition)"
+        # ----- Legacy single fields (visible; mirrored to first condition) -----
+        if "show_if_question" in self.fields:
+            self.fields["show_if_question"].queryset = show_if_qs
+            self.fields["show_if_question"].label = "Controlling question (first condition)"
+            self.fields["show_if_question"].widget.attrs["data-show-if-choices-map"] = json.dumps({
+                str(q.id): [
+                    (c.value, c.label or c.value) for c in q.choices.all()
+                ] if q.field_type in (Question.CHOICE, Question.MULTI_CHOICE) else [("yes", "Sí / Yes"), ("no", "No")] if q.field_type == Question.BOOLEAN else []
+                for q in show_if_qs
+            })
 
-        # Build value choices map
-        choice_map: dict[str, list[tuple[str, str]]] = {}
-        for q in show_if_qs:
-            opts: list[tuple[str, str]] = []
-            if q.field_type == Question.BOOLEAN:
-                opts = [("yes", "Sí / Yes"), ("no", "No")]
-            elif q.field_type in (Question.CHOICE, Question.MULTI_CHOICE):
-                opts = [(c.value, c.label or c.value) for c in q.choices.all()]
-            if opts:
-                choice_map[str(q.id)] = opts
+        if "show_if_value" in self.fields:
+            choice_map: dict[str, list[tuple[str, str]]] = {}
+            for q in show_if_qs:
+                opts: list[tuple[str, str]] = []
+                if q.field_type == Question.BOOLEAN:
+                    opts = [("yes", "Sí / Yes"), ("no", "No")]
+                elif q.field_type in (Question.CHOICE, Question.MULTI_CHOICE):
+                    opts = [(c.value, c.label or c.value) for c in q.choices.all()]
+                if opts:
+                    choice_map[str(q.id)] = opts
 
-        sel_qid = ""
-        if self.data.get(self.add_prefix("show_if_question")):
-            sel_qid = str(self.data.get(self.add_prefix("show_if_question")) or "")
-        elif getattr(self.instance, "show_if_question_id", None):
-            sel_qid = str(self.instance.show_if_question_id or "")
+            sel_qid = ""
+            if self.data.get(self.add_prefix("show_if_question")):
+                sel_qid = str(self.data.get(self.add_prefix("show_if_question")) or "")
+            elif getattr(self.instance, "show_if_question_id", None):
+                sel_qid = str(self.instance.show_if_question_id or "")
 
-        current_val = (
-            (self.data.get(self.add_prefix("show_if_value")) or "").strip()
-            if self.data
-            else (getattr(self.instance, "show_if_value", "") or "")
-        )
+            current_val = (
+                (self.data.get(self.add_prefix("show_if_value")) or "").strip()
+                if self.data
+                else (getattr(self.instance, "show_if_value", "") or "")
+            )
 
-        opts = [("", "— Selecciona valor —")]
-        opts += choice_map.get(sel_qid, [])
-        if current_val and current_val not in [v for v, _ in opts]:
-            opts.append((current_val, f"{current_val} (actual)"))
+            opts = [("", "— Selecciona valor —")]
+            opts += choice_map.get(sel_qid, [])
+            if current_val and current_val not in [v for v, _ in opts]:
+                opts.append((current_val, f"{current_val} (actual)"))
 
-        self.fields["show_if_value"] = forms.ChoiceField(
-            required=False,
-            label="Triggering answer (first condition)",
-            choices=opts,
-        )
+            self.fields["show_if_value"] = forms.ChoiceField(
+                required=False,
+                label="Triggering answer (first condition)",
+                choices=opts,
+            )
 
     def save(self, commit=True):
         obj = super().save(commit=False)
@@ -185,6 +192,11 @@ class QuestionAdminForm(forms.ModelForm):
 
         # Sync multi-conditions back to model + legacy fields (first condition)
         conds = self.cleaned_data.get("show_if_conditions") or []
+        if not conds:
+            qid = self.cleaned_data.get("show_if_question")
+            val = (self.cleaned_data.get("show_if_value") or "").strip()
+            if qid and val:
+                conds = [{"question_id": getattr(qid, "id", qid), "value": val}]
         obj.show_if_conditions = conds
         obj.show_if_question = None
         obj.show_if_value = ""
@@ -446,6 +458,8 @@ class QuestionAdmin(admin.ModelAdmin):
         "slug",
         "text",
         "section",
+        "show_if_question",
+        "show_if_value",
         "show_if_conditions",
         "confirm_value",
         "pre_hr",

@@ -91,6 +91,18 @@ class QuestionAdminForm(forms.ModelForm):
         self.fields["help_text_clean"].initial = rest
 
         form_obj = getattr(self.instance, "form", None)
+        if not form_obj:
+            raw_form_id = (
+                self.data.get(self.add_prefix("form"))
+                or self.initial.get("form")
+                or self.data.get("form")
+            )
+            try:
+                form_id = int(getattr(raw_form_id, "pk", raw_form_id) or 0)
+            except (TypeError, ValueError):
+                form_id = 0
+            if form_id:
+                form_obj = FormDefinition.objects.filter(pk=form_id).first()
         qs = Section.objects.none()
         show_if_qs = Question.objects.none()
         if form_obj:
@@ -192,11 +204,12 @@ class QuestionAdminForm(forms.ModelForm):
 
         # Sync multi-conditions back to model + legacy fields (first condition)
         conds = self.cleaned_data.get("show_if_conditions") or []
-        if not conds:
-            qid = self.cleaned_data.get("show_if_question")
-            val = (self.cleaned_data.get("show_if_value") or "").strip()
-            if qid and val:
-                conds = [{"question_id": getattr(qid, "id", qid), "value": val}]
+        legacy_qid = self.cleaned_data.get("show_if_question")
+        legacy_qid = getattr(legacy_qid, "id", legacy_qid) if legacy_qid else None
+        legacy_val = (self.cleaned_data.get("show_if_value") or "").strip()
+
+        if not conds and legacy_qid and legacy_val:
+            conds = [{"question_id": legacy_qid, "value": legacy_val}]
         obj.show_if_conditions = conds
         obj.show_if_question = None
         obj.show_if_value = ""
@@ -206,6 +219,14 @@ class QuestionAdminForm(forms.ModelForm):
                 obj.show_if_value = conds[0].get("value", "")
             except Exception:
                 pass
+        elif legacy_qid:
+            # Keep the selected controlling question even when triggering value is blank.
+            # This prevents admin edits from dropping the selection before the user picks a value.
+            try:
+                obj.show_if_question_id = int(legacy_qid) or None
+            except (TypeError, ValueError):
+                obj.show_if_question_id = None
+            obj.show_if_value = legacy_val
 
         if commit:
             obj.save()

@@ -1,5 +1,5 @@
-<div class="ce-cond-widget" data-questions='{{ widget.questions_json|escapejs }}'>
-  <input type="hidden" name="{{ widget.name }}" value="{{ widget.value_json|default:'[]'|escapejs }}" data-cond-input>
+<div class="ce-cond-widget" data-questions="{{ widget.questions_json|escape }}">
+  <input type="hidden" name="{{ widget.name }}" value="{{ widget.value_json|default:'[]'|escape }}" data-cond-input>
   <div data-cond-rows></div>
   <button type="button" class="button" data-add-cond>Add another show if question</button>
 </div>
@@ -10,7 +10,20 @@
     if (!root || root.dataset.inited === "1") return;
     root.dataset.inited = "1";
 
-    const questions = JSON.parse(root.getAttribute("data-questions") || "[]");
+    function parseAttrJSON(raw, fallback) {
+      if (!raw) return fallback;
+      try { return JSON.parse(raw); } catch (e) {}
+      try {
+        const normalized = raw
+          .replace(/\\u0022/g, "\"")
+          .replace(/\\u0027/g, "'")
+          .replace(/\\u005C/g, "\\");
+        return JSON.parse(normalized);
+      } catch (e) {}
+      return fallback;
+    }
+
+    const questions = parseAttrJSON(root.getAttribute("data-questions"), []);
     const input = root.querySelector("[data-cond-input]");
     const rows = root.querySelector("[data-cond-rows]");
 
@@ -50,6 +63,7 @@
 
     function renderRow(cond) {
       const row = document.createElement("div");
+      row.setAttribute("data-cond-row", "1");
       row.style.display = "flex";
       row.style.gap = "8px";
       row.style.marginTop = "6px";
@@ -76,6 +90,7 @@
       row.appendChild(valSelect);
       rows.appendChild(row);
 
+      // initialize values for question
       if (qSelect.value) {
         const q = questions.find(x => String(x.id) === String(qSelect.value));
         const opts = buildValueOptions(q);
@@ -92,7 +107,7 @@
 
     function sync() {
       const data = [];
-      rows.querySelectorAll("div").forEach(r => {
+      rows.querySelectorAll("[data-cond-row='1']").forEach(r => {
         const selects = r.querySelectorAll("select");
         if (selects.length < 2) return;
         const qid = selects[0].value;
@@ -103,8 +118,7 @@
     }
 
     function init() {
-      let data = [];
-      try { data = JSON.parse(input.value || "[]"); } catch (e) {}
+      let data = parseAttrJSON(input.value || "[]", []);
       if (!Array.isArray(data)) data = [];
       if (!data.length) data = [{ question_id: "", value: "" }];
       rows.innerHTML = "";
@@ -112,10 +126,13 @@
       sync();
     }
 
-    root.querySelector("[data-add-cond]").addEventListener("click", () => {
-      renderRow({ question_id: "", value: "" });
-      sync();
-    });
+    const addButton = root.querySelector("[data-add-cond]");
+    if (addButton) {
+      addButton.addEventListener("click", () => {
+        renderRow({ question_id: "", value: "" });
+        sync();
+      });
+    }
 
     init();
   })();

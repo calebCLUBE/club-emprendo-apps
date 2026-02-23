@@ -2386,6 +2386,26 @@ def send_second_stage_reminders(request, form_slug: str):
     # ✅ Link for this group’s A2 form (public slug link)
     a2_link = f"https://apply.clubemprendo.org/apply/{form_slug}/"
 
+    # ✅ Use the corresponding group's A2 deadline (required for reminders)
+    group = getattr(_a2_form, "group", None)
+    deadline = getattr(group, "a2_deadline", None) if group else None
+    if not deadline:
+        messages.error(
+            request,
+            (
+                f"No se pudo enviar reminders para {form_slug}: "
+                "este formulario no tiene fecha límite A2 configurada en su grupo."
+            ),
+        )
+        return redirect("admin_apps_list")
+
+    deadline_month = MONTH_NUM_TO_ES.get(deadline.month, "")
+    deadline_str = (
+        f"{deadline.day} de {deadline_month} de {deadline.year}"
+        if deadline_month
+        else deadline.strftime("%d/%m/%Y")
+    )
+
     subject = "Últimos días para completar la segunda aplicación"
 
     html_body = f"""
@@ -2398,7 +2418,7 @@ def send_second_stage_reminders(request, form_slug: str):
       </p>
       <p>
         Te recordamos que es necesario completar la segunda aplicación, ya que la fecha límite es el
-        <strong>18 de enero de 2026</strong>. Estamos en los últimos días para aplicar.
+        <strong>{deadline_str}</strong>. Estamos en los últimos días para aplicar.
       </p>
       <p>A continuación, te dejamos nuevamente el enlace y las instrucciones:</p>
       <ol>

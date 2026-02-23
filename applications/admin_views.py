@@ -1099,10 +1099,6 @@ class CreateGroupForm(forms.Form):
                     "Respond by day/month is not a valid date for the selected year."
                 )
 
-            if a2_deadline and a2_deadline != derived_deadline:
-                raise forms.ValidationError(
-                    "Use either Fecha límite A2 or Respond by day/month, or make them match."
-                )
             cleaned["a2_deadline"] = derived_deadline
 
         return cleaned

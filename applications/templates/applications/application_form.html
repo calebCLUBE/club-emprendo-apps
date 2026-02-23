@@ -124,8 +124,91 @@
         }
       }
 
+      function rowForInput(input) {
+        return input.closest(".form-row") || input.parentElement;
+      }
+
+      function clearRequiredError(row) {
+        if (!row) return;
+        row.querySelectorAll(".required-error").forEach((el) => el.remove());
+        row.querySelectorAll("input, select, textarea").forEach((el) => {
+          el.style.borderColor = "";
+        });
+      }
+
+      function showRequiredError(row) {
+        if (!row) return;
+        clearRequiredError(row);
+        row.querySelectorAll("input, select, textarea").forEach((el) => {
+          const t = (el.type || "").toLowerCase();
+          if (t !== "radio" && t !== "checkbox") {
+            el.style.borderColor = "#d14b4b";
+          }
+        });
+        const err = document.createElement("span");
+        err.className = "form-help required-error";
+        err.style.color = "#d14b4b";
+        err.textContent = "Completa este campo para continuar.";
+        row.appendChild(err);
+      }
+
+      function isVisible(el) {
+        if (!el) return false;
+        if (el.closest(".form-question")?.style.display === "none") return false;
+        return !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
+      }
+
+      function rowHasValue(row) {
+        const controls = Array.from(row.querySelectorAll("input, select, textarea"))
+          .filter((el) => isVisible(el))
+          .filter((el) => !el.disabled)
+          .filter((el) => (el.type || "").toLowerCase() !== "hidden");
+
+        if (!controls.length) return true;
+
+        const radios = controls.filter((el) => (el.type || "").toLowerCase() === "radio");
+        if (radios.length) {
+          const names = Array.from(new Set(radios.map((el) => el.name)));
+          return names.every((name) =>
+            controls.some((el) => (el.type || "").toLowerCase() === "radio" && el.name === name && el.checked)
+          );
+        }
+
+        const checkboxes = controls.filter((el) => (el.type || "").toLowerCase() === "checkbox");
+        if (checkboxes.length && checkboxes.length === controls.length) {
+          return checkboxes.some((el) => el.checked);
+        }
+
+        return controls.every((el) => {
+          const tag = el.tagName;
+          const type = (el.type || "").toLowerCase();
+          if (type === "file") return !!(el.files && el.files.length) || !!(el.value || "").trim();
+          if (tag === "SELECT") {
+            if (el.multiple) return el.selectedOptions && el.selectedOptions.length > 0;
+            return !!(el.value || "").trim();
+          }
+          return !!(el.value || "").trim();
+        });
+      }
+
       function validatePanel(panel) {
         let ok = true;
+        let firstInvalidRow = null;
+
+        const requiredRows = Array.from(panel.querySelectorAll(".form-row"))
+          .filter((row) => isVisible(row))
+          .filter((row) => row.querySelector("input, select, textarea"));
+
+        requiredRows.forEach((row) => {
+          if (rowHasValue(row)) {
+            clearRequiredError(row);
+            return;
+          }
+          showRequiredError(row);
+          if (!firstInvalidRow) firstInvalidRow = row;
+          ok = false;
+        });
+
         const confirmInputs = panel.querySelectorAll("[data-confirm-of]");
         confirmInputs.forEach(ci => {
           const sourceName = ci.dataset.confirmOf;
@@ -137,6 +220,7 @@
             if (v1 !== v2) {
               showConfirmError(ci);
               showConfirmError(source);
+              if (!firstInvalidRow) firstInvalidRow = rowForInput(ci);
               ok = false;
             } else {
               clearConfirmError(ci);
@@ -147,6 +231,11 @@
             clearConfirmError(source);
           }
         });
+
+        if (!ok && firstInvalidRow) {
+          firstInvalidRow.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+
         return ok;
       }
 
@@ -285,10 +374,14 @@
         panel.querySelectorAll("input, select, textarea").forEach(inp => {
           inp.addEventListener("input", () => {
             clearConfirmError(inp);
+            clearRequiredError(rowForInput(inp));
             setActive(current, { scroll: false });
           });
           if (inp.type === "radio" || inp.type === "checkbox" || inp.tagName === "SELECT") {
-            inp.addEventListener("change", () => setActive(current, { scroll: false }));
+            inp.addEventListener("change", () => {
+              clearRequiredError(rowForInput(inp));
+              setActive(current, { scroll: false });
+            });
           }
         });
       });

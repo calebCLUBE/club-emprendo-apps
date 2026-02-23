@@ -207,16 +207,20 @@ class QuestionAdminForm(forms.ModelForm):
         legacy_qid = self.cleaned_data.get("show_if_question")
         legacy_qid = getattr(legacy_qid, "id", legacy_qid) if legacy_qid else None
         legacy_val = (self.cleaned_data.get("show_if_value") or "").strip()
-        conds_changed = "show_if_conditions" in self.changed_data
+        legacy_changed = (
+            "show_if_question" in self.changed_data
+            or "show_if_value" in self.changed_data
+        )
 
         try:
             legacy_qid_int = int(legacy_qid) if legacy_qid else None
         except (TypeError, ValueError):
             legacy_qid_int = None
 
-        # Keep the first legacy pair mirrored to the first JSON condition unless
-        # the JSON widget was edited in this request.
-        if legacy_qid_int and legacy_val and not conds_changed:
+        # If the visible legacy pair was edited, mirror it into condition #1.
+        # This keeps admin saves predictable even when the hidden JSON field
+        # is re-serialized by browser JS.
+        if legacy_changed and legacy_qid_int and legacy_val:
             first = {"question_id": legacy_qid_int, "value": legacy_val}
             if conds:
                 conds[0] = first

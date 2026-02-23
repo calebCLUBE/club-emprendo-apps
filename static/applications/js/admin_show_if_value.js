@@ -82,6 +82,9 @@
     qSelect.dataset.showIfValueWired = "1";
 
     const placeholder = vSelect.dataset.placeholder || "— Selecciona valor —";
+    if (!vSelect.dataset.currentValue) {
+      vSelect.dataset.currentValue = vSelect.value || "";
+    }
 
     function rebuild() {
       const choiceMap = getChoiceMap(qSelect, vSelect);

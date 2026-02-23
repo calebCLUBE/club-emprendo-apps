@@ -136,3 +136,38 @@ class QuestionAdminFormTests(TestCase):
         obj = form.save(commit=False)
         self.assertEqual(obj.show_if_value, "no")
         self.assertEqual(obj.show_if_conditions[0]["value"], "no")
+
+    def test_legacy_first_condition_wins_when_both_inputs_change(self):
+        dependent = Question.objects.create(
+            form=self.form_def,
+            text="Dependent both",
+            slug="dependent_both",
+            field_type=Question.SHORT_TEXT,
+            required=True,
+            active=True,
+            position=4,
+            show_if_question=self.controller,
+            show_if_value="yes",
+            show_if_conditions=[{"question_id": self.controller.id, "value": "yes"}],
+        )
+
+        form = QuestionAdminForm(
+            data={
+                "form": str(self.form_def.id),
+                "text": "Dependent both",
+                "slug": "dependent_both",
+                "field_type": Question.SHORT_TEXT,
+                "required": "on",
+                "position": "4",
+                "active": "on",
+                "show_if_question": str(self.controller.id),
+                "show_if_value": "no",
+                "show_if_conditions": '[{"question_id": %d, "value": "yes"}, {"question_id": %d, "value": "yes"}]'
+                % (self.controller.id, self.controller.id),
+            },
+            instance=dependent,
+        )
+        self.assertTrue(form.is_valid(), form.errors)
+        obj = form.save(commit=False)
+        self.assertEqual(obj.show_if_value, "no")
+        self.assertEqual(obj.show_if_conditions[0]["value"], "no")

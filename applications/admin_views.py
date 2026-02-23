@@ -2282,6 +2282,86 @@ def _send_html_email(to_email: str, subject: str, html_body: str):
     msg.send(fail_silently=False)
 
 
+def _send_reminders_worker(form_slug: str, targets: list[str], subject: str, html_body: str):
+    """
+    Background sender for reminder emails.
+    Sends one-by-one with retry + periodic reconnect to reduce timeout/socket issues.
+    """
+    total = len(targets)
+    sent = 0
+    failed = 0
+
+    MAX_RETRIES = 3
+    RECONNECT_EVERY = 25
+    connection = None
+
+    def _reconnect():
+        nonlocal connection
+        try:
+            if connection:
+                connection.close()
+        except Exception:
+            pass
+        connection = get_connection(fail_silently=False)
+        connection.open()
+
+    try:
+        _reconnect()
+
+        for idx, email in enumerate(targets, start=1):
+            if idx > 1 and (idx - 1) % RECONNECT_EVERY == 0:
+                _reconnect()
+
+            delivered = False
+            for attempt in range(1, MAX_RETRIES + 1):
+                try:
+                    msg = EmailMultiAlternatives(
+                        subject=subject,
+                        body="",
+                        from_email=getattr(settings, "DEFAULT_FROM_EMAIL", None),
+                        to=[email],
+                        connection=connection,
+                    )
+                    msg.attach_alternative(html_body, "text/html")
+                    sent_count = msg.send()
+                    if sent_count:
+                        sent += 1
+                        delivered = True
+                    break
+                except Exception:
+                    if attempt < MAX_RETRIES:
+                        time.sleep(0.6 * attempt)
+                        _reconnect()
+                    else:
+                        logger.exception(
+                            "Reminder send failed after retries (form=%s, email=%s)",
+                            form_slug,
+                            email,
+                        )
+                        failed += 1
+
+            if not delivered and failed < (idx - sent):
+                failed += 1
+
+    except Exception:
+        logger.exception("Reminder worker fatal error (form=%s)", form_slug)
+        failed = max(failed, total - sent)
+    finally:
+        try:
+            if connection:
+                connection.close()
+        except Exception:
+            pass
+
+    logger.info(
+        "Reminder worker completed for %s: sent=%s failed=%s total=%s",
+        form_slug,
+        sent,
+        failed,
+        total,
+    )
+
+
 def _a1_slug_for_a2(form_slug: str) -> str | None:
     """
     Map:
@@ -2434,45 +2514,16 @@ def send_second_stage_reminders(request, form_slug: str):
     </div>
     """
 
-    sent = 0
-    failed = 0
+    threading.Thread(
+        target=_send_reminders_worker,
+        args=(form_slug, targets, subject, html_body),
+        daemon=True,
+    ).start()
 
-    # ✅ One shared SMTP connection (much faster + safer on Render)
-    connection = get_connection(fail_silently=False)
-    try:
-        connection.open()
-
-        for email in targets:
-            try:
-                msg = EmailMultiAlternatives(
-                    subject=subject,
-                    body="",
-                    from_email=getattr(settings, "DEFAULT_FROM_EMAIL", None),
-                    to=[email],
-                    connection=connection,
-                )
-                msg.attach_alternative(html_body, "text/html")
-                msg.send()
-                sent += 1
-            except Exception:
-                failed += 1
-
-    finally:
-        try:
-            connection.close()
-        except Exception:
-            pass
-
-    if failed > 0:
-        messages.warning(
-            request,
-            f"Reminders enviados para {form_slug}: {sent} enviados, {failed} fallidos."
-        )
-    else:
-        messages.success(
-            request,
-            f"Reminders enviados para {form_slug}: {sent} enviados."
-        )
+    messages.success(
+        request,
+        f"Reminders iniciados para {form_slug}: {len(targets)} destinatarios. Se enviarán en segundo plano.",
+    )
 
     return redirect("admin_apps_list")
 @staff_member_required

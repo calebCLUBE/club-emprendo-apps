@@ -65,3 +65,74 @@ class QuestionAdminFormTests(TestCase):
         self.assertEqual(obj.show_if_question_id, self.controller.id)
         self.assertEqual(obj.show_if_value, "")
         self.assertEqual(obj.show_if_conditions, [])
+
+    def test_existing_question_updates_first_condition_from_legacy_fields(self):
+        dependent = Question.objects.create(
+            form=self.form_def,
+            text="Dependent existing",
+            slug="dependent_existing",
+            field_type=Question.SHORT_TEXT,
+            required=True,
+            active=True,
+            position=2,
+            show_if_question=self.controller,
+            show_if_value="yes",
+            show_if_conditions=[{"question_id": self.controller.id, "value": "yes"}],
+        )
+        original_conditions = '[{"question_id": %d, "value": "yes"}]' % self.controller.id
+
+        form = QuestionAdminForm(
+            data={
+                "form": str(self.form_def.id),
+                "text": "Dependent existing",
+                "slug": "dependent_existing",
+                "field_type": Question.SHORT_TEXT,
+                "required": "on",
+                "position": "2",
+                "active": "on",
+                "show_if_question": str(self.controller.id),
+                "show_if_value": "no",
+                "show_if_conditions": original_conditions,
+            },
+            instance=dependent,
+        )
+        self.assertTrue(form.is_valid(), form.errors)
+        obj = form.save(commit=False)
+        self.assertEqual(obj.show_if_question_id, self.controller.id)
+        self.assertEqual(obj.show_if_value, "no")
+        self.assertEqual(obj.show_if_conditions[0]["value"], "no")
+
+    def test_existing_question_keeps_widget_value_when_conditions_json_changes(self):
+        dependent = Question.objects.create(
+            form=self.form_def,
+            text="Dependent widget",
+            slug="dependent_widget",
+            field_type=Question.SHORT_TEXT,
+            required=True,
+            active=True,
+            position=3,
+            show_if_question=self.controller,
+            show_if_value="yes",
+            show_if_conditions=[{"question_id": self.controller.id, "value": "yes"}],
+        )
+        changed_conditions = '[{"question_id": %d, "value": "no"}]' % self.controller.id
+
+        form = QuestionAdminForm(
+            data={
+                "form": str(self.form_def.id),
+                "text": "Dependent widget",
+                "slug": "dependent_widget",
+                "field_type": Question.SHORT_TEXT,
+                "required": "on",
+                "position": "3",
+                "active": "on",
+                "show_if_question": str(self.controller.id),
+                "show_if_value": "yes",
+                "show_if_conditions": changed_conditions,
+            },
+            instance=dependent,
+        )
+        self.assertTrue(form.is_valid(), form.errors)
+        obj = form.save(commit=False)
+        self.assertEqual(obj.show_if_value, "no")
+        self.assertEqual(obj.show_if_conditions[0]["value"], "no")

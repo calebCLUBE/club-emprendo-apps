@@ -1043,6 +1043,11 @@ MONTH_CHOICES_ES = [
     ("diciembre", "diciembre"),
 ]
 
+MONTH_NUM_TO_ES = {
+    month_number: month_name
+    for month_number, (month_name, _) in enumerate(MONTH_CHOICES_ES, start=1)
+}
+
 RESPOND_BY_MONTH_CHOICES = [("", "---------"), *MONTH_CHOICES_ES]
 RESPOND_BY_MONTH_TO_NUM = {
     month_name: month_number
@@ -1107,7 +1112,14 @@ class CreateGroupForm(forms.Form):
 # Helpers
 # ----------------------------
 def _fill_placeholders(
-    text: str | None, group_num: int, start_day: int, start_month: str, end_month: str, year: int
+    text: str | None,
+    group_num: int,
+    start_day: int,
+    start_month: str,
+    end_month: str,
+    year: int,
+    respond_day: str = "",
+    respond_month: str = "",
 ) -> str | None:
     if not text:
         return text
@@ -1121,6 +1133,8 @@ def _fill_placeholders(
         out = out.replace("#(month)", end_month, 1)
 
     out = out.replace("#(year)", str(year))
+    out = out.replace("#(respond_day)", str(respond_day or ""))
+    out = out.replace("#(respond_month)", str(respond_month or ""))
     return out
 
 
@@ -1214,6 +1228,11 @@ def _clone_form(master_fd: FormDefinition, group: FormGroup) -> FormDefinition:
     start_month = group.start_month
     end_month = group.end_month
     year = group.year
+    respond_day = ""
+    respond_month = ""
+    if group.a2_deadline:
+        respond_day = str(group.a2_deadline.day)
+        respond_month = MONTH_NUM_TO_ES.get(group.a2_deadline.month, "")
 
     new_slug = f"G{group_num}_{master_fd.slug}"
     new_name = f"Grupo {group_num} — {master_fd.name}"
@@ -1226,7 +1245,14 @@ def _clone_form(master_fd: FormDefinition, group: FormGroup) -> FormDefinition:
         slug=new_slug,
         name=new_name,
         description=_fill_placeholders(
-            master_fd.description, group_num, start_day, start_month, end_month, year
+            master_fd.description,
+            group_num,
+            start_day,
+            start_month,
+            end_month,
+            year,
+            respond_day=respond_day,
+            respond_month=respond_month,
         )
         or "",
         is_master=False,
@@ -1239,8 +1265,26 @@ def _clone_form(master_fd: FormDefinition, group: FormGroup) -> FormDefinition:
     for s in master_fd.sections.all().order_by("position", "id"):
         section_map[s.id] = Section.objects.create(
             form=clone,
-            title=_fill_placeholders(s.title, group_num, start_day, start_month, end_month, year) or s.title,
-            description=_fill_placeholders(s.description, group_num, start_day, start_month, end_month, year) or s.description,
+            title=_fill_placeholders(
+                s.title,
+                group_num,
+                start_day,
+                start_month,
+                end_month,
+                year,
+                respond_day=respond_day,
+                respond_month=respond_month,
+            ) or s.title,
+            description=_fill_placeholders(
+                s.description,
+                group_num,
+                start_day,
+                start_month,
+                end_month,
+                year,
+                respond_day=respond_day,
+                respond_month=respond_month,
+            ) or s.description,
             position=s.position,
         )
 
@@ -1248,8 +1292,26 @@ def _clone_form(master_fd: FormDefinition, group: FormGroup) -> FormDefinition:
         new_section = section_map.get(q.section_id)
         q_clone = Question.objects.create(
             form=clone,
-            text=_fill_placeholders(q.text, group_num, start_day, start_month, end_month, year) or q.text,
-            help_text=_fill_placeholders(q.help_text, group_num, start_day, start_month, end_month, year) or q.help_text,
+            text=_fill_placeholders(
+                q.text,
+                group_num,
+                start_day,
+                start_month,
+                end_month,
+                year,
+                respond_day=respond_day,
+                respond_month=respond_month,
+            ) or q.text,
+            help_text=_fill_placeholders(
+                q.help_text,
+                group_num,
+                start_day,
+                start_month,
+                end_month,
+                year,
+                respond_day=respond_day,
+                respond_month=respond_month,
+            ) or q.help_text,
             field_type=q.field_type,
             required=q.required,
             position=q.position,
@@ -1261,7 +1323,16 @@ def _clone_form(master_fd: FormDefinition, group: FormGroup) -> FormDefinition:
         for c in q.choices.all().order_by("position", "id"):
             Choice.objects.create(
                 question=q_clone,
-                label=_fill_placeholders(c.label, group_num, start_day, start_month, end_month, year) or c.label,
+                label=_fill_placeholders(
+                    c.label,
+                    group_num,
+                    start_day,
+                    start_month,
+                    end_month,
+                    year,
+                    respond_day=respond_day,
+                    respond_month=respond_month,
+                ) or c.label,
                 value=c.value,
                 position=c.position,
             )

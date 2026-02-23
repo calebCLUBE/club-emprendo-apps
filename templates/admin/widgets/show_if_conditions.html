@@ -1,7 +1,11 @@
 <div class="ce-cond-widget" data-questions="{{ widget.questions_json|escape }}">
   <input type="hidden" name="{{ widget.name }}" value="{{ widget.value_json|default:'[]'|escape }}" data-cond-input>
-  <div data-cond-rows></div>
-  <button type="button" class="button" data-add-cond>Add another show if question</button>
+  <p style="margin:0 0 8px 0; color:#555; font-size:12px;">
+    esta pregunta se mostrara cuando se cumpla al menos una regla.
+    si no agregas reglas, la pregunta se mostrara siempre.
+  </p>
+  <div data-cond-rows style="display:grid; gap:8px;"></div>
+  <button type="button" class="button" data-add-cond>agregar otra regla</button>
 </div>
 
 <script>
@@ -27,23 +31,23 @@
     const input = root.querySelector("[data-cond-input]");
     const rows = root.querySelector("[data-cond-rows]");
 
-    function buildValueOptions(q, current) {
+    function buildValueOptions(q) {
       const opts = [];
-      opts.push({ value: "", label: "Selecciona valor" });
+      opts.push({ value: "", label: "elige una respuesta" });
       if (!q) return opts;
       if (q.field_type === "boolean") {
-        opts.push({ value: "yes", label: "Sí" });
-        opts.push({ value: "no", label: "No" });
+        opts.push({ value: "yes", label: "si" });
+        opts.push({ value: "no", label: "no" });
       } else if (q.field_type === "choice" || q.field_type === "multi_choice") {
         (q.choices || []).forEach(c => opts.push({ value: c.value, label: c.label || c.value }));
       }
       return opts;
     }
 
-    function buildQuestionOptions(currentId) {
-      const opts = [{ value: "", label: "— Siempre —" }];
+    function buildQuestionOptions() {
+      const opts = [{ value: "", label: "— siempre mostrar esta pregunta —" }];
       questions.forEach(q => {
-        opts.push({ value: String(q.id), label: q.text });
+        opts.push({ value: String(q.id), label: q.text || q.slug || "pregunta" });
       });
       return opts;
     }
@@ -61,18 +65,40 @@
       return sel;
     }
 
+    function labeledField(labelText, selectEl) {
+      const wrap = document.createElement("label");
+      wrap.style.display = "grid";
+      wrap.style.gap = "4px";
+      wrap.style.flex = "1";
+
+      const label = document.createElement("span");
+      label.textContent = labelText;
+      label.style.fontSize = "12px";
+      label.style.color = "#555";
+      label.style.fontWeight = "600";
+
+      wrap.appendChild(label);
+      wrap.appendChild(selectEl);
+      return wrap;
+    }
+
     function renderRow(cond) {
       const row = document.createElement("div");
       row.setAttribute("data-cond-row", "1");
       row.style.display = "flex";
       row.style.gap = "8px";
-      row.style.marginTop = "6px";
-      row.style.alignItems = "center";
+      row.style.flexWrap = "wrap";
+      row.style.alignItems = "flex-end";
+      row.style.padding = "8px";
+      row.style.border = "1px solid #ddd";
+      row.style.borderRadius = "8px";
 
       const qSelect = createSelect(buildQuestionOptions(), cond.question_id || "");
       const valSelect = createSelect(buildValueOptions(null), cond.value || "");
+      qSelect.setAttribute("data-cond-question", "1");
+      valSelect.setAttribute("data-cond-value", "1");
 
-      qSelect.addEventListener("change", () => {
+      function refreshValueOptions(selected) {
         const q = questions.find(x => String(x.id) === String(qSelect.value));
         const opts = buildValueOptions(q);
         valSelect.innerHTML = "";
@@ -80,38 +106,49 @@
           const opt = document.createElement("option");
           opt.value = o.value;
           opt.textContent = o.label;
+          if (String(o.value) === String(selected || "")) opt.selected = true;
           valSelect.appendChild(opt);
         });
+      }
+
+      qSelect.addEventListener("change", () => {
+        refreshValueOptions("");
         sync();
       });
       valSelect.addEventListener("change", sync);
 
-      row.appendChild(qSelect);
-      row.appendChild(valSelect);
+      const qField = labeledField("si la respuesta de esta pregunta...", qSelect);
+      const vField = labeledField("...es esta respuesta", valSelect);
+      row.appendChild(qField);
+      row.appendChild(vField);
+
+      const removeBtn = document.createElement("button");
+      removeBtn.type = "button";
+      removeBtn.className = "button";
+      removeBtn.textContent = "quitar";
+      removeBtn.style.marginLeft = "auto";
+      removeBtn.addEventListener("click", () => {
+        row.remove();
+        if (!rows.querySelector("[data-cond-row='1']")) {
+          renderRow({ question_id: "", value: "" });
+        }
+        sync();
+      });
+      row.appendChild(removeBtn);
+
       rows.appendChild(row);
 
-      // initialize values for question
-      if (qSelect.value) {
-        const q = questions.find(x => String(x.id) === String(qSelect.value));
-        const opts = buildValueOptions(q);
-        valSelect.innerHTML = "";
-        opts.forEach(o => {
-          const opt = document.createElement("option");
-          opt.value = o.value;
-          opt.textContent = o.label;
-          if (String(o.value) === String(cond.value || "")) opt.selected = true;
-          valSelect.appendChild(opt);
-        });
-      }
+      refreshValueOptions(cond.value || "");
     }
 
     function sync() {
       const data = [];
       rows.querySelectorAll("[data-cond-row='1']").forEach(r => {
-        const selects = r.querySelectorAll("select");
-        if (selects.length < 2) return;
-        const qid = selects[0].value;
-        const val = selects[1].value;
+        const qSel = r.querySelector("select[data-cond-question='1']");
+        const vSel = r.querySelector("select[data-cond-value='1']");
+        if (!qSel || !vSel) return;
+        const qid = qSel.value;
+        const val = vSel.value;
         if (qid && val) data.push({ question_id: Number(qid), value: val });
       });
       input.value = JSON.stringify(data);

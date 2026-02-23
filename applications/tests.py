@@ -1,4 +1,6 @@
 from django.test import TestCase
+from django.urls import reverse
+import re
 
 from applications.admin import QuestionAdminForm
 from applications.models import FormDefinition, Question
@@ -171,3 +173,61 @@ class QuestionAdminFormTests(TestCase):
         obj = form.save(commit=False)
         self.assertEqual(obj.show_if_value, "no")
         self.assertEqual(obj.show_if_conditions[0]["value"], "no")
+
+
+class ApplicationFormRenderTests(TestCase):
+    def test_question_wrapper_carries_multi_show_if_conditions(self):
+        form_def = FormDefinition.objects.create(
+            slug="test_render_form",
+            name="Test Render Form",
+            is_public=True,
+            accepting_responses=True,
+        )
+        controller_1 = Question.objects.create(
+            form=form_def,
+            text="Controller 1",
+            slug="controller_1",
+            field_type=Question.BOOLEAN,
+            required=False,
+            position=1,
+            active=True,
+        )
+        controller_2 = Question.objects.create(
+            form=form_def,
+            text="Controller 2",
+            slug="controller_2",
+            field_type=Question.BOOLEAN,
+            required=False,
+            position=2,
+            active=True,
+        )
+        Question.objects.create(
+            form=form_def,
+            text="Dependent",
+            slug="dependent",
+            field_type=Question.SHORT_TEXT,
+            required=False,
+            position=3,
+            active=True,
+            show_if_question=controller_1,
+            show_if_value="yes",
+            show_if_conditions=[
+                {"question_id": controller_1.id, "value": "yes"},
+                {"question_id": controller_2.id, "value": "yes"},
+            ],
+        )
+
+        response = self.client.get(
+            reverse("apply_by_slug", kwargs={"form_slug": form_def.slug}),
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        html = response.content.decode("utf-8")
+        self.assertRegex(
+            html,
+            re.compile(
+                r'class="form-question"[^>]*data-show-if-question="q_controller_1"[^>]*data-show-if-conditions=',
+                re.DOTALL,
+            ),
+        )

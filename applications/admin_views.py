@@ -1028,15 +1028,79 @@ def toggle_form_accepting(request, form_slug: str):
 # ----------------------------
 # Forms
 # ----------------------------
+MONTH_CHOICES_ES = [
+    ("enero", "enero"),
+    ("febrero", "febrero"),
+    ("marzo", "marzo"),
+    ("abril", "abril"),
+    ("mayo", "mayo"),
+    ("junio", "junio"),
+    ("julio", "julio"),
+    ("agosto", "agosto"),
+    ("septiembre", "septiembre"),
+    ("octubre", "octubre"),
+    ("noviembre", "noviembre"),
+    ("diciembre", "diciembre"),
+]
+
+RESPOND_BY_MONTH_CHOICES = [("", "---------"), *MONTH_CHOICES_ES]
+RESPOND_BY_MONTH_TO_NUM = {
+    month_name: month_number
+    for month_number, (month_name, _) in enumerate(MONTH_CHOICES_ES, start=1)
+}
+
+
 class CreateGroupForm(forms.Form):
     group_num = forms.IntegerField(min_value=1, label="Group number")
     start_day = forms.IntegerField(min_value=1, max_value=31, label="Start day")
-    start_month = forms.CharField(max_length=30, label="Start month")
-    end_month = forms.CharField(max_length=30, label="End month")
+    start_month = forms.ChoiceField(choices=MONTH_CHOICES_ES, label="mes de inicio")
+    end_month = forms.ChoiceField(choices=MONTH_CHOICES_ES, label="mes de fin")
     year = forms.IntegerField(min_value=2020, max_value=2100, label="Year")
     a2_deadline = forms.DateField(label="Fecha límite A2", required=False, help_text="YYYY-MM-DD")
+    respond_by_day = forms.IntegerField(min_value=1, max_value=31, required=False, label="Respond by day")
+    respond_by_month = forms.ChoiceField(
+        choices=RESPOND_BY_MONTH_CHOICES,
+        required=False,
+        label="mes para responder",
+    )
     open_at = forms.DateTimeField(label="Abrir automáticamente en", required=False, help_text="YYYY-MM-DD HH:MM")
     close_at = forms.DateTimeField(label="Cerrar automáticamente en", required=False, help_text="YYYY-MM-DD HH:MM")
+
+    def clean(self):
+        cleaned = super().clean()
+        year = cleaned.get("year")
+        a2_deadline = cleaned.get("a2_deadline")
+        respond_by_day = cleaned.get("respond_by_day")
+        respond_by_month = (cleaned.get("respond_by_month") or "").strip().lower()
+
+        has_day = respond_by_day is not None
+        has_month = bool(respond_by_month)
+
+        if has_day != has_month:
+            raise forms.ValidationError(
+                "If you use 'Respond by', provide both day and month."
+            )
+
+        if has_day and has_month:
+            month_num = RESPOND_BY_MONTH_TO_NUM.get(respond_by_month)
+            if not month_num:
+                raise forms.ValidationError("Respond by month is invalid.")
+            try:
+                derived_deadline = datetime(
+                    int(year), int(month_num), int(respond_by_day)
+                ).date()
+            except Exception:
+                raise forms.ValidationError(
+                    "Respond by day/month is not a valid date for the selected year."
+                )
+
+            if a2_deadline and a2_deadline != derived_deadline:
+                raise forms.ValidationError(
+                    "Use either Fecha límite A2 or Respond by day/month, or make them match."
+                )
+            cleaned["a2_deadline"] = derived_deadline
+
+        return cleaned
 
 
 # ----------------------------

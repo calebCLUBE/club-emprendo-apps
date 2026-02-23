@@ -48,8 +48,8 @@
       let opts = [];
       if (q.field_type === "boolean") {
         opts = [
-          ["yes", "Sí / Yes"],
-          ["no", "No"],
+          ["yes", "si"],
+          ["no", "no"],
         ];
       } else if (q.field_type === "choice" || q.field_type === "multi_choice") {
         opts = (q.choices || []).map((c) => [c.value, c.label || c.value]);
@@ -81,7 +81,7 @@
     if (!qSelect || !vSelect || qSelect.dataset.showIfValueWired === "1") return;
     qSelect.dataset.showIfValueWired = "1";
 
-    const placeholder = vSelect.dataset.placeholder || "— Selecciona valor —";
+    const placeholder = vSelect.dataset.placeholder || "— elige una respuesta —";
     if (!vSelect.dataset.currentValue) {
       vSelect.dataset.currentValue = vSelect.value || "";
     }

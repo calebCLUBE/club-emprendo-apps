@@ -126,7 +126,7 @@ class QuestionAdminForm(forms.ModelForm):
                         {"value": c.value, "label": c.label or c.value}
                         for c in q.choices.all()
                     ] if q.field_type in (Question.CHOICE, Question.MULTI_CHOICE) else
-                    [{"value": "yes", "label": "Sí / Yes"}, {"value": "no", "label": "No"}] if q.field_type == Question.BOOLEAN else [],
+                    [{"value": "yes", "label": "si"}, {"value": "no", "label": "no"}] if q.field_type == Question.BOOLEAN else [],
                 }
                 for q in show_if_qs
             ]
@@ -135,8 +135,11 @@ class QuestionAdminForm(forms.ModelForm):
         self.fields["show_if_conditions"] = forms.JSONField(
             required=False,
             widget=ShowIfConditionsWidget(questions_json=questions_json),
-            label="Show if conditions (ANY match)",
-            help_text="Add one or more controlling questions + expected values. This question shows if ANY condition matches.",
+            label="Reglas para mostrar esta pregunta",
+            help_text=(
+                "Agrega una o más reglas. Esta pregunta se mostrará cuando se cumpla "
+                "al menos una de ellas."
+            ),
         )
 
         # initial conditions from stored JSON or legacy single
@@ -149,11 +152,14 @@ class QuestionAdminForm(forms.ModelForm):
         # ----- Legacy single fields (visible; mirrored to first condition) -----
         if "show_if_question" in self.fields:
             self.fields["show_if_question"].queryset = show_if_qs
-            self.fields["show_if_question"].label = "Controlling question (first condition)"
+            self.fields["show_if_question"].label = "Pregunta que controla visibilidad (regla principal)"
+            self.fields["show_if_question"].help_text = (
+                "Opcional. Usa esto como versión simple de la primera regla."
+            )
             self.fields["show_if_question"].widget.attrs["data-show-if-choices-map"] = json.dumps({
                 str(q.id): [
                     (c.value, c.label or c.value) for c in q.choices.all()
-                ] if q.field_type in (Question.CHOICE, Question.MULTI_CHOICE) else [("yes", "Sí / Yes"), ("no", "No")] if q.field_type == Question.BOOLEAN else []
+                ] if q.field_type in (Question.CHOICE, Question.MULTI_CHOICE) else [("yes", "si"), ("no", "no")] if q.field_type == Question.BOOLEAN else []
                 for q in show_if_qs
             })
 
@@ -162,7 +168,7 @@ class QuestionAdminForm(forms.ModelForm):
             for q in show_if_qs:
                 opts: list[tuple[str, str]] = []
                 if q.field_type == Question.BOOLEAN:
-                    opts = [("yes", "Sí / Yes"), ("no", "No")]
+                    opts = [("yes", "si"), ("no", "no")]
                 elif q.field_type in (Question.CHOICE, Question.MULTI_CHOICE):
                     opts = [(c.value, c.label or c.value) for c in q.choices.all()]
                 if opts:
@@ -180,14 +186,15 @@ class QuestionAdminForm(forms.ModelForm):
                 else (getattr(self.instance, "show_if_value", "") or "")
             )
 
-            opts = [("", "— Selecciona valor —")]
+            opts = [("", "— elige una respuesta —")]
             opts += choice_map.get(sel_qid, [])
             if current_val and current_val not in [v for v, _ in opts]:
                 opts.append((current_val, f"{current_val} (actual)"))
 
             self.fields["show_if_value"] = forms.ChoiceField(
                 required=False,
-                label="Triggering answer (first condition)",
+                label="Respuesta esperada (regla principal)",
+                help_text="Si la pregunta de arriba tiene esta respuesta, se mostrará esta pregunta.",
                 choices=opts,
             )
 
@@ -287,20 +294,24 @@ class SectionAdminForm(forms.ModelForm):
             qs = Question.objects.none()
 
         self.fields["show_if_question"].queryset = qs
+        self.fields["show_if_question"].label = "Mostrar esta sección solo cuando"
+        self.fields["show_if_question"].help_text = (
+            "Elige la pregunta que decide si esta sección se muestra."
+        )
         # remove secondary condition fields from the form (we only want one)
         self.fields.pop("show_if_question_2", None)
         self.fields.pop("show_if_value_2", None)
 
         def _choices_for(q: Question | None):
             if not q:
-                return [("", "— Selecciona valor —")]
+                return [("", "— elige una respuesta —")]
             if q.field_type == Question.BOOLEAN:
-                return [("", "— Selecciona valor —"), ("yes", "Sí"), ("no", "No")]
+                return [("", "— elige una respuesta —"), ("yes", "si"), ("no", "no")]
             if q.field_type in (Question.CHOICE, Question.MULTI_CHOICE):
-                opts = [("", "— Selecciona valor —")]
+                opts = [("", "— elige una respuesta —")]
                 opts += [(c.value, c.label or c.value) for c in q.choices.all()]
                 return opts
-            return [("", "— Selecciona valor —")]
+            return [("", "— elige una respuesta —")]
 
         q1 = None
         if self.data.get("show_if_question"):
@@ -312,6 +323,10 @@ class SectionAdminForm(forms.ModelForm):
             q1 = self.instance.show_if_question
 
         self.fields["show_if_value"].widget = forms.Select(choices=_choices_for(q1))
+        self.fields["show_if_value"].label = "Respuesta esperada"
+        self.fields["show_if_value"].help_text = (
+            "La sección se mostrará cuando la respuesta sea exactamente esta."
+        )
 
     def save(self, commit=True):
         obj = super().save(commit=False)

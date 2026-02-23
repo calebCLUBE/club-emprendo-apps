@@ -1,5 +1,8 @@
 {% with show_q=field.field.widget.attrs.show_if_question|default:"" show_val=field.field.widget.attrs.show_if_value|default:"" %}
-<div class="form-question" data-show-if-question="{{ show_q }}" data-show-if-value="{{ show_val }}">
+<div class="form-question"
+     data-show-if-question="{{ show_q }}"
+     data-show-if-value="{{ show_val }}"
+     data-show-if-conditions='{{ field.field.widget.attrs.show_if_conditions|default:""|safe }}'>
 {# Shared renderer for a single form field #}
 
 {# ---------- PRE-TEXT / HR ABOVE ANY QUESTION ---------- #}

@@ -1478,26 +1478,44 @@ def _csv_preview_html(headers: List[str], rows: List[List[str]], max_rows: int =
     def esc(s: str) -> str:
         return (s or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
+    def esc_attr(s: str) -> str:
+        return (
+            (s or "")
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace('"', "&quot;")
+            .replace("'", "&#39;")
+        )
+
     preview = rows[:max_rows]
 
     ths = "".join(
-        f"<th style='text-align:left;padding:6px;border-bottom:1px solid #ddd;'>{esc(h)}</th>"
+        f"<th style='text-align:left;padding:6px;border-bottom:1px solid #ddd;white-space:nowrap;'>"
+        f"{esc(h)}</th>"
         for h in headers
     )
 
     body = []
     for r in preview:
         tds = "".join(
-            f"<td style='padding:6px;border-bottom:1px solid #eee;vertical-align:top;'>{esc(str(v))}</td>"
+            (
+                "<td style='border-bottom:1px solid #eee;vertical-align:middle;height:38px;'>"
+                f"<div title='{esc_attr(str(v))}' "
+                "style='padding:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"
+                "line-height:1.2;'>"
+                f"{esc(str(v))}</div>"
+                "</td>"
+            )
             for v in r
         )
         body.append(f"<tr>{tds}</tr>")
 
     return (
         "<div style='overflow:auto;border:1px solid #ddd;border-radius:8px;'>"
-        "<table style='border-collapse:collapse;width:100%;font-size:13px;'>"
+        "<table style='border-collapse:collapse;width:100%;font-size:13px;table-layout:fixed;'>"
         f"<thead><tr>{ths}</tr></thead>"
-        f"<tbody>{''.join(body) if body else '<tr><td style=\"padding:8px;\">No submissions yet.</td></tr>'}</tbody>"
+        f"<tbody>{''.join(body) if body else f'<tr><td colspan=\"{max(1, len(headers))}\" style=\"padding:8px;\">No submissions yet.</td></tr>'}</tbody>"
         "</table></div>"
         f"<p style='margin-top:8px;color:#666;font-size:12px;'>Showing up to {max_rows} rows.</p>"
     )

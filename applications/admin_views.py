@@ -1478,20 +1478,10 @@ def _csv_preview_html(headers: List[str], rows: List[List[str]], max_rows: int =
     def esc(s: str) -> str:
         return (s or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
-    def esc_attr(s: str) -> str:
-        return (
-            (s or "")
-            .replace("&", "&amp;")
-            .replace("<", "&lt;")
-            .replace(">", "&gt;")
-            .replace('"', "&quot;")
-            .replace("'", "&#39;")
-        )
-
     preview = rows[:max_rows]
 
     ths = "".join(
-        f"<th style='text-align:left;padding:6px;border-bottom:1px solid #ddd;white-space:nowrap;'>"
+        f"<th style='text-align:left;padding:6px;border-bottom:1px solid #ddd;white-space:nowrap;width:1%;'>"
         f"{esc(h)}</th>"
         for h in headers
     )
@@ -1499,21 +1489,14 @@ def _csv_preview_html(headers: List[str], rows: List[List[str]], max_rows: int =
     body = []
     for r in preview:
         tds = "".join(
-            (
-                "<td style='border-bottom:1px solid #eee;vertical-align:middle;height:38px;'>"
-                f"<div title='{esc_attr(str(v))}' "
-                "style='padding:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"
-                "line-height:1.2;'>"
-                f"{esc(str(v))}</div>"
-                "</td>"
-            )
+            f"<td style='padding:6px;border-bottom:1px solid #eee;vertical-align:top;word-break:break-word;'>{esc(str(v))}</td>"
             for v in r
         )
         body.append(f"<tr>{tds}</tr>")
 
     return (
         "<div style='overflow:auto;border:1px solid #ddd;border-radius:8px;'>"
-        "<table style='border-collapse:collapse;width:100%;font-size:13px;table-layout:fixed;'>"
+        "<table style='border-collapse:collapse;width:100%;font-size:13px;table-layout:auto;'>"
         f"<thead><tr>{ths}</tr></thead>"
         f"<tbody>{''.join(body) if body else f'<tr><td colspan=\"{max(1, len(headers))}\" style=\"padding:8px;\">No submissions yet.</td></tr>'}</tbody>"
         "</table></div>"

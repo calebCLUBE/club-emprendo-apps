@@ -1478,6 +1478,16 @@ def _csv_preview_html(headers: List[str], rows: List[List[str]], max_rows: int =
     def esc(s: str) -> str:
         return (s or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
+    def esc_attr(s: str) -> str:
+        return (
+            (s or "")
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace('"', "&quot;")
+            .replace("'", "&#39;")
+        )
+
     preview = rows[:max_rows]
 
     ths = "".join(
@@ -1489,7 +1499,14 @@ def _csv_preview_html(headers: List[str], rows: List[List[str]], max_rows: int =
     body = []
     for r in preview:
         tds = "".join(
-            f"<td style='padding:6px;border-bottom:1px solid #eee;vertical-align:top;word-break:break-word;'>{esc(str(v))}</td>"
+            (
+                "<td style='border-bottom:1px solid #eee;vertical-align:middle;height:34px;'>"
+                f"<div title='{esc_attr(str(v))}' "
+                "style='padding:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"
+                "line-height:1.2;'>"
+                f"{esc(str(v))}</div>"
+                "</td>"
+            )
             for v in r
         )
         body.append(f"<tr>{tds}</tr>")

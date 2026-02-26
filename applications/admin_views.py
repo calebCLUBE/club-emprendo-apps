@@ -1496,15 +1496,34 @@ def _csv_preview_html(headers: List[str], rows: List[List[str]], max_rows: int |
         f"{esc(h)}</th>"
         for h in headers
     )
+    unique_values_by_col: list[list[str]] = []
+    for i in range(len(headers)):
+        seen: set[str] = set()
+        values: list[str] = []
+        for r in preview:
+            v = str(r[i]) if i < len(r) and r[i] is not None else ""
+            if v in seen:
+                continue
+            seen.add(v)
+            values.append(v)
+        values.sort(key=lambda x: x.lower())
+        unique_values_by_col.append(values)
+
     filter_ths = "".join(
         (
             "<th style='padding:4px 6px;border-bottom:1px solid #ddd;background:#fafafa;'>"
-            f"<input type='text' data-csv-filter='{i}' placeholder='Filter {esc_attr(h)}' "
+            f"<select data-csv-filter='{i}' "
             "style='width:100%;box-sizing:border-box;font-size:12px;padding:4px 6px;"
             "border:1px solid #ccc;border-radius:4px;'>"
+            "<option value=''>All</option>"
+            + "".join(
+                f"<option value='{esc_attr(v)}'>{esc(v) if v else '(blank)'}</option>"
+                for v in unique_values_by_col[i]
+            )
+            + "</select>"
             "</th>"
         )
-        for i, h in enumerate(headers)
+        for i, _h in enumerate(headers)
     )
 
     body = []
@@ -1540,7 +1559,7 @@ def _csv_preview_html(headers: List[str], rows: List[List[str]], max_rows: int |
         f"const root=document.getElementById('{table_id}');"
         "if(!root||root.dataset.filterInit==='1') return;"
         "root.dataset.filterInit='1';"
-        "const inputs=Array.from(root.querySelectorAll('input[data-csv-filter]'));"
+        "const inputs=Array.from(root.querySelectorAll('select[data-csv-filter]'));"
         "const rows=Array.from(root.querySelectorAll('tbody tr[data-csv-row]'));"
         "const countEl=(root.nextElementSibling&&root.nextElementSibling.matches('[data-csv-count]'))?root.nextElementSibling:null;"
         "function applyFilters(){"
@@ -1551,14 +1570,14 @@ def _csv_preview_html(headers: List[str], rows: List[List[str]], max_rows: int |
         "const show=filters.every((f,idx)=>{"
         "if(!f) return true;"
         "const txt=(cells[idx]&&cells[idx].innerText)?cells[idx].innerText:'';"
-        "return txt.toLowerCase().includes(f);"
+        "return txt.trim().toLowerCase()===f;"
         "});"
         "tr.style.display=show?'':'none';"
         "if(show) visible+=1;"
         "});"
         "if(countEl){countEl.textContent=`Showing ${visible} of ${rows.length} rows.`;}"
         "}"
-        "inputs.forEach((inp)=>inp.addEventListener('input',applyFilters));"
+        "inputs.forEach((inp)=>inp.addEventListener('change',applyFilters));"
         "applyFilters();"
         "})();"
         "</script>"

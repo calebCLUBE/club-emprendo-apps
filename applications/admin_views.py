@@ -1512,15 +1512,24 @@ def _csv_preview_html(headers: List[str], rows: List[List[str]], max_rows: int |
     filter_ths = "".join(
         (
             "<th style='padding:4px 6px;border-bottom:1px solid #ddd;background:#fafafa;'>"
+            "<div style='display:flex;flex-direction:column;gap:4px;'>"
+            f"<input type='text' data-csv-filter-search='{i}' placeholder='Search options...' "
+            "style='width:100%;box-sizing:border-box;font-size:12px;padding:4px 6px;"
+            "border:1px solid #ccc;border-radius:4px;'>"
             f"<select data-csv-filter='{i}' "
             "style='width:100%;box-sizing:border-box;font-size:12px;padding:4px 6px;"
             "border:1px solid #ccc;border-radius:4px;'>"
             "<option value=''>All</option>"
             + "".join(
-                f"<option value='{esc_attr(v)}'>{esc(v) if v else '(blank)'}</option>"
+                (
+                    "<option value='__BLANK__'>(blank)</option>"
+                    if v == ""
+                    else f"<option value='{esc_attr(v)}'>{esc(v)}</option>"
+                )
                 for v in unique_values_by_col[i]
             )
             + "</select>"
+            "</div>"
             "</th>"
         )
         for i, _h in enumerate(headers)
@@ -1560,8 +1569,21 @@ def _csv_preview_html(headers: List[str], rows: List[List[str]], max_rows: int |
         "if(!root||root.dataset.filterInit==='1') return;"
         "root.dataset.filterInit='1';"
         "const inputs=Array.from(root.querySelectorAll('select[data-csv-filter]'));"
+        "const searchInputs=Array.from(root.querySelectorAll('input[data-csv-filter-search]'));"
         "const rows=Array.from(root.querySelectorAll('tbody tr[data-csv-row]'));"
         "const countEl=(root.nextElementSibling&&root.nextElementSibling.matches('[data-csv-count]'))?root.nextElementSibling:null;"
+        "function filterSelectOptions(searchEl){"
+        "const idx=(searchEl&&searchEl.getAttribute('data-csv-filter-search'))||'';"
+        "const sel=root.querySelector(`select[data-csv-filter='${idx}']`);"
+        "if(!sel) return;"
+        "const q=(searchEl.value||'').trim().toLowerCase();"
+        "Array.from(sel.options).forEach((opt,optIdx)=>{"
+        "if(optIdx===0){opt.hidden=false;return;}"
+        "const txt=(opt.textContent||'').trim().toLowerCase();"
+        "const val=(opt.value||'').trim().toLowerCase();"
+        "opt.hidden=!!q&&txt.indexOf(q)===-1&&val.indexOf(q)===-1;"
+        "});"
+        "}"
         "function applyFilters(){"
         "const filters=inputs.map(i=>(i.value||'').trim().toLowerCase());"
         "let visible=0;"
@@ -1570,7 +1592,9 @@ def _csv_preview_html(headers: List[str], rows: List[List[str]], max_rows: int |
         "const show=filters.every((f,idx)=>{"
         "if(!f) return true;"
         "const txt=(cells[idx]&&cells[idx].innerText)?cells[idx].innerText:'';"
-        "return txt.trim().toLowerCase()===f;"
+        "const normalized=txt.trim().toLowerCase();"
+        "if(f==='__blank__') return normalized==='';"
+        "return normalized===f;"
         "});"
         "tr.style.display=show?'':'none';"
         "if(show) visible+=1;"
@@ -1578,6 +1602,8 @@ def _csv_preview_html(headers: List[str], rows: List[List[str]], max_rows: int |
         "if(countEl){countEl.textContent=`Showing ${visible} of ${rows.length} rows.`;}"
         "}"
         "inputs.forEach((inp)=>inp.addEventListener('change',applyFilters));"
+        "searchInputs.forEach((inp)=>inp.addEventListener('input',()=>filterSelectOptions(inp)));"
+        "searchInputs.forEach((inp)=>filterSelectOptions(inp));"
         "applyFilters();"
         "})();"
         "</script>"

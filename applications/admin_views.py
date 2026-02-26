@@ -1474,7 +1474,7 @@ def _csv_http_response(filename: str, headers: List[str], rows: List[List[str]])
     return resp
 
 
-def _csv_preview_html(headers: List[str], rows: List[List[str]], max_rows: int = 25) -> str:
+def _csv_preview_html(headers: List[str], rows: List[List[str]], max_rows: int | None = None) -> str:
     def esc(s: str) -> str:
         return (s or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
@@ -1488,12 +1488,23 @@ def _csv_preview_html(headers: List[str], rows: List[List[str]], max_rows: int =
             .replace("'", "&#39;")
         )
 
-    preview = rows[:max_rows]
+    preview = rows if max_rows is None else rows[:max_rows]
+    table_id = f"csv-preview-{abs(hash(tuple(headers))) % 1000000}-{len(rows)}"
 
     ths = "".join(
         f"<th style='text-align:left;padding:6px;border-bottom:1px solid #ddd;white-space:nowrap;width:1%;'>"
         f"{esc(h)}</th>"
         for h in headers
+    )
+    filter_ths = "".join(
+        (
+            "<th style='padding:4px 6px;border-bottom:1px solid #ddd;background:#fafafa;'>"
+            f"<input type='text' data-csv-filter='{i}' placeholder='Filter {esc_attr(h)}' "
+            "style='width:100%;box-sizing:border-box;font-size:12px;padding:4px 6px;"
+            "border:1px solid #ccc;border-radius:4px;'>"
+            "</th>"
+        )
+        for i, h in enumerate(headers)
     )
 
     body = []
@@ -1509,15 +1520,48 @@ def _csv_preview_html(headers: List[str], rows: List[List[str]], max_rows: int =
             )
             for v in r
         )
-        body.append(f"<tr>{tds}</tr>")
+        body.append(f"<tr data-csv-row='1'>{tds}</tr>")
+
+    if max_rows is None:
+        info_text = f"Showing all {len(preview)} rows."
+    else:
+        info_text = f"Showing {len(preview)} of {len(rows)} rows."
 
     return (
-        "<div style='overflow:auto;border:1px solid #ddd;border-radius:8px;'>"
+        f"<div id='{table_id}' style='overflow:auto;border:1px solid #ddd;border-radius:8px;'>"
         "<table style='border-collapse:collapse;width:100%;font-size:13px;table-layout:auto;'>"
-        f"<thead><tr>{ths}</tr></thead>"
+        f"<thead><tr>{ths}</tr><tr>{filter_ths}</tr></thead>"
         f"<tbody>{''.join(body) if body else f'<tr><td colspan=\"{max(1, len(headers))}\" style=\"padding:8px;\">No submissions yet.</td></tr>'}</tbody>"
-        "</table></div>"
-        f"<p style='margin-top:8px;color:#666;font-size:12px;'>Showing up to {max_rows} rows.</p>"
+        "</table>"
+        "</div>"
+        f"<p data-csv-count style='margin-top:8px;color:#666;font-size:12px;'>{info_text}</p>"
+        "<script>"
+        "(function(){"
+        f"const root=document.getElementById('{table_id}');"
+        "if(!root||root.dataset.filterInit==='1') return;"
+        "root.dataset.filterInit='1';"
+        "const inputs=Array.from(root.querySelectorAll('input[data-csv-filter]'));"
+        "const rows=Array.from(root.querySelectorAll('tbody tr[data-csv-row]'));"
+        "const countEl=(root.nextElementSibling&&root.nextElementSibling.matches('[data-csv-count]'))?root.nextElementSibling:null;"
+        "function applyFilters(){"
+        "const filters=inputs.map(i=>(i.value||'').trim().toLowerCase());"
+        "let visible=0;"
+        "rows.forEach((tr)=>{"
+        "const cells=Array.from(tr.querySelectorAll('td'));"
+        "const show=filters.every((f,idx)=>{"
+        "if(!f) return true;"
+        "const txt=(cells[idx]&&cells[idx].innerText)?cells[idx].innerText:'';"
+        "return txt.toLowerCase().includes(f);"
+        "});"
+        "tr.style.display=show?'':'none';"
+        "if(show) visible+=1;"
+        "});"
+        "if(countEl){countEl.textContent=`Showing ${visible} of ${rows.length} rows.`;}"
+        "}"
+        "inputs.forEach((inp)=>inp.addEventListener('input',applyFilters));"
+        "applyFilters();"
+        "})();"
+        "</script>"
     )
 
 def _pair_log(job: PairingJob, msg: str):
@@ -1877,7 +1921,7 @@ def database_form_detail(request, form_slug: str):
     )
 
     headers, rows = _build_csv_for_form(form_def)
-    preview_html = _csv_preview_html(headers, rows, max_rows=25)
+    preview_html = _csv_preview_html(headers, rows, max_rows=None)
 
     return render(
         request,
@@ -1907,7 +1951,7 @@ def database_type_detail(request, app_type: str):
     selected_group: int | None = int(group_raw) if group_raw.isdigit() else None
 
     headers, rows, forms = _build_csv_for_app_type(app_type, selected_group)
-    preview_html = _csv_preview_html(headers, rows, max_rows=25)
+    preview_html = _csv_preview_html(headers, rows, max_rows=None)
 
     all_forms = _group_forms_for_app_type(app_type)
     group_options = sorted(

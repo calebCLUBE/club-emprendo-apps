@@ -21,7 +21,7 @@ from django.core.files.storage import default_storage
 from django.core.mail import EmailMultiAlternatives, get_connection
 from django.db import transaction, DatabaseError
 from django.db.models import Model, Count, Q
-from django.http import HttpResponse
+from django.http import HttpResponse, Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_POST
@@ -1360,6 +1360,111 @@ def _build_csv_for_form(form_def: FormDefinition) -> Tuple[List[str], List[List[
     return headers, rows
 
 
+def _group_number_from_slug(slug: str) -> int | None:
+    m = GROUP_SLUG_RE.match((slug or "").strip())
+    if not m:
+        return None
+    try:
+        return int(m.group("num"))
+    except Exception:
+        return None
+
+
+def _group_forms_for_app_type(app_type: str) -> list[FormDefinition]:
+    app_type = (app_type or "").upper().strip()
+    if app_type not in MASTER_SLUGS:
+        raise ValueError(f"Unsupported app type: {app_type}")
+
+    candidates = list(
+        FormDefinition.objects.filter(
+            slug__startswith="G",
+            slug__endswith=f"_{app_type}",
+        ).select_related("group")
+    )
+
+    forms: list[FormDefinition] = []
+    for fd in candidates:
+        m = GROUP_SLUG_RE.match((fd.slug or "").strip())
+        if not m:
+            continue
+        if m.group("master") != app_type:
+            continue
+        forms.append(fd)
+
+    def _sort_key(fd: FormDefinition):
+        gnum = getattr(getattr(fd, "group", None), "number", None)
+        if gnum is None:
+            gnum = _group_number_from_slug(fd.slug or "") or 0
+        return (gnum, fd.slug or "")
+
+    forms.sort(key=_sort_key)
+    return forms
+
+
+def _build_csv_for_app_type(
+    app_type: str,
+    group_number: int | None = None,
+) -> Tuple[List[str], List[List[str]], list[FormDefinition]]:
+    forms = _group_forms_for_app_type(app_type)
+    if group_number is not None:
+        filtered_forms: list[FormDefinition] = []
+        for fd in forms:
+            gnum = getattr(getattr(fd, "group", None), "number", None)
+            if gnum is None:
+                gnum = _group_number_from_slug(fd.slug or "")
+            if gnum == group_number:
+                filtered_forms.append(fd)
+        forms = filtered_forms
+
+    if not forms:
+        headers = ["created_at", "application_id", "group_number", "form_slug", "name", "email"]
+        return headers, [], forms
+
+    question_slugs: list[str] = []
+    seen_slugs: set[str] = set()
+    for fd in forms:
+        for q in fd.questions.filter(active=True).order_by("position", "id"):
+            if q.slug in seen_slugs:
+                continue
+            seen_slugs.add(q.slug)
+            question_slugs.append(q.slug)
+
+    headers = [
+        "created_at",
+        "application_id",
+        "group_number",
+        "form_slug",
+        "name",
+        "email",
+    ] + question_slugs
+
+    apps = (
+        Application.objects.filter(form__in=forms)
+        .select_related("form", "form__group")
+        .prefetch_related("answers__question")
+        .order_by("created_at", "id")
+    )
+
+    rows: List[List[str]] = []
+    for app in apps:
+        amap = {a.question.slug: (a.value or "") for a in app.answers.all() if getattr(a, "question_id", None)}
+        gnum = getattr(getattr(app.form, "group", None), "number", None)
+        if gnum is None:
+            gnum = _group_number_from_slug(getattr(app.form, "slug", "") or "")
+
+        row = [
+            app.created_at.isoformat(),
+            str(app.id),
+            str(gnum or ""),
+            app.form.slug,
+            app.name,
+            app.email,
+        ] + [amap.get(slug, "") for slug in question_slugs]
+        rows.append(row)
+
+    return headers, rows, forms
+
+
 def _csv_http_response(filename: str, headers: List[str], rows: List[List[str]]) -> HttpResponse:
     resp = HttpResponse(content_type="text/csv; charset=utf-8")
     resp["Content-Disposition"] = f'attachment; filename="{filename}"'
@@ -1706,6 +1811,14 @@ def database_home(request):
         row["form__slug"]: row["c"]
         for row in Application.objects.values("form__slug").annotate(c=Count("id"))
     }
+    combined_type_counts = {k: 0 for k in MASTER_SLUGS}
+    for slug, c in counts.items():
+        m = GROUP_SLUG_RE.match((slug or "").strip())
+        if not m:
+            continue
+        master = m.group("master")
+        if master in combined_type_counts:
+            combined_type_counts[master] += c
 
     for fd in masters:
         fd.submission_count = counts.get(fd.slug, 0)
@@ -1730,6 +1843,7 @@ def database_home(request):
             "surveys": surveys,
             "surveys_e": surveys_e,
             "surveys_m": surveys_m,
+            "combined_type_counts": combined_type_counts,
         },
     )
 
@@ -1763,6 +1877,67 @@ def database_form_master_csv(request, form_slug: str):
     form_def = get_object_or_404(FormDefinition, slug=form_slug)
     headers, rows = _build_csv_for_form(form_def)
     return _csv_http_response(f"{form_slug}_MASTER.csv", headers, rows)
+
+
+@staff_member_required
+def database_type_detail(request, app_type: str):
+    app_type = (app_type or "").upper().strip()
+    if app_type not in MASTER_SLUGS:
+        raise Http404("Unsupported application type")
+
+    group_raw = (request.GET.get("group") or "").strip()
+    selected_group: int | None = int(group_raw) if group_raw.isdigit() else None
+
+    headers, rows, forms = _build_csv_for_app_type(app_type, selected_group)
+    preview_html = _csv_preview_html(headers, rows, max_rows=25)
+
+    all_forms = _group_forms_for_app_type(app_type)
+    group_options = sorted(
+        g
+        for g in {
+            getattr(getattr(fd, "group", None), "number", None)
+            or _group_number_from_slug(fd.slug or "")
+            for fd in all_forms
+        }
+        if g is not None
+    )
+
+    apps = (
+        Application.objects.filter(form__in=forms)
+        .select_related("form", "form__group")
+        .order_by("-created_at", "-id")
+    ) if forms else []
+
+    return render(
+        request,
+        "admin_dash/database_type_detail.html",
+        {
+            "app_type": app_type,
+            "selected_group": selected_group,
+            "group_options": group_options,
+            "apps": apps,
+            "preview_html": preview_html,
+            "rows_count": len(rows),
+        },
+    )
+
+
+@staff_member_required
+def database_type_master_csv(request, app_type: str):
+    app_type = (app_type or "").upper().strip()
+    if app_type not in MASTER_SLUGS:
+        raise Http404("Unsupported application type")
+
+    group_raw = (request.GET.get("group") or "").strip()
+    selected_group: int | None = int(group_raw) if group_raw.isdigit() else None
+
+    headers, rows, _forms = _build_csv_for_app_type(app_type, selected_group)
+    filename = (
+        f"{app_type}_ALL_GROUPS_MASTER.csv"
+        if selected_group is None
+        else f"{app_type}_G{selected_group}_MASTER.csv"
+    )
+    return _csv_http_response(filename, headers, rows)
 
 
 @staff_member_required

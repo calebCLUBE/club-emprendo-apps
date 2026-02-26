@@ -8,8 +8,12 @@
     <a class="button" href="{% url 'admin_export_form_csv' form_def.slug %}">Download CSV</a>
   </p>
 
-  <h2>CSV Preview</h2>
-  {{ preview_html|safe }}
+  <details>
+    <summary style="cursor:pointer; font-weight:600;">CSV Preview (click to expand/collapse)</summary>
+    <div style="margin-top:10px;">
+      {{ preview_html|safe }}
+    </div>
+  </details>
 
   <h2 style="margin-top:18px;">Submissions ({{ apps|length }})</h2>
   {% if apps %}
@@ -51,4 +55,3 @@
     <p><em>No submissions yet.</em></p>
   {% endif %}
 {% endblock %}
-

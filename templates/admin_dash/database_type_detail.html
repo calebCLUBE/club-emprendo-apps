@@ -1,0 +1,52 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+  <h1>{{ app_type }} — all groups</h1>
+
+  <p style="margin:10px 0;">
+    <a href="{% url 'admin_database' %}">← Back to database</a>
+  </p>
+
+  <form method="get" style="margin:10px 0; padding:10px; border:1px solid #ddd; border-radius:10px; display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap;">
+    <div>
+      <label for="group_filter"><strong>Filter by group</strong></label><br>
+      <select id="group_filter" name="group" class="vTextField">
+        <option value="">All groups</option>
+        {% for g in group_options %}
+          <option value="{{ g }}" {% if selected_group == g %}selected{% endif %}>Group {{ g }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <button type="submit" class="button default">Apply</button>
+      <a class="button" href="{% url 'admin_database_type_detail' app_type %}" style="margin-left:6px;">Clear</a>
+    </div>
+  </form>
+
+  <p style="margin:10px 0;">
+    <a class="button" href="{% url 'admin_database_type_master_csv' app_type %}{% if selected_group %}?group={{ selected_group }}{% endif %}">
+      Download MASTER CSV
+    </a>
+  </p>
+
+  <details style="margin-top:12px;">
+    <summary style="cursor:pointer; font-weight:600;">CSV Preview (click to expand/collapse)</summary>
+    <div style="margin-top:10px;">
+      {{ preview_html|safe }}
+    </div>
+  </details>
+
+  <h2 style="margin-top:18px;">Submissions ({{ apps|length }})</h2>
+  {% if apps %}
+    <ul>
+      {% for a in apps %}
+        <li style="margin:6px 0;">
+          <a href="{% url 'admin_database_submission_detail' a.id %}">
+            #{{ a.id }} — Group {{ a.form.group.number|default:"?" }} — {{ a.form.slug }} — {{ a.created_at }} — {{ a.name }} ({{ a.email }})
+          </a>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p><em>No submissions for this filter.</em></p>
+  {% endif %}
+{% endblock %}

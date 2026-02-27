@@ -90,10 +90,10 @@
                 <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
                   {# Send reminders button (ONLY for A2) #}
                   {% if fd.slug and "_A2" in fd.slug %}
-                    <form method="post" action="{% url 'admin_send_second_stage_reminders' fd.slug %}" style="display:inline;">
+                    <form method="post" action="{% url 'admin_send_second_stage_reminders' fd.slug %}" style="display:inline;"
+                      onsubmit="if(!confirm('Send reminders for {{ fd.slug }}?')) return false; var b=this.querySelector('button[type=submit]'); if(b){b.disabled=true;b.textContent='Sending...';} return true;">
                       {% csrf_token %}
-                      <button type="submit" class="button"
-                        onclick="return confirm('Send reminders for {{ fd.slug }}?');">
+                      <button type="submit" class="button">
                         Send reminders
                       </button>
                     </form>

@@ -19,6 +19,7 @@ from django.contrib import messages
 from django.contrib.admin.views.decorators import staff_member_required
 from django.core.files.storage import default_storage
 from django.core.mail import EmailMultiAlternatives, get_connection
+from django.core.cache import cache
 from django.db import transaction, DatabaseError
 from django.db.models import Model, Count, Q
 from django.http import HttpResponse, Http404
@@ -54,6 +55,11 @@ TEST_E_A2_SLUG = "TEST_E_A2"
 TEST_M_A2_SLUG = "TEST_M_A2"
 A2_FORM_RE = re.compile(r"^(G\d+_)?(E_A2|M_A2)$")
 TEST_A2_FORM_RE = re.compile(r"^TEST_(E_A2|M_A2)$")
+REMINDER_LOCK_TTL_SECONDS = 60 * 60
+
+
+def _reminder_lock_key(form_slug: str) -> str:
+    return f"admin:reminders:lock:{(form_slug or '').strip().lower()}"
 
 @staff_member_required
 def download_graded_csv(request, graded_file_id: int):
@@ -2564,7 +2570,13 @@ def _send_html_email(to_email: str, subject: str, html_body: str):
     msg.send(fail_silently=False)
 
 
-def _send_reminders_worker(form_slug: str, targets: list[str], subject: str, html_body: str):
+def _send_reminders_worker(
+    form_slug: str,
+    targets: list[str],
+    subject: str,
+    html_body: str,
+    lock_key: str | None = None,
+):
     """
     Background sender for reminder emails.
     Sends one-by-one with retry + periodic reconnect to reduce timeout/socket issues.
@@ -2634,6 +2646,11 @@ def _send_reminders_worker(form_slug: str, targets: list[str], subject: str, htm
                 connection.close()
         except Exception:
             pass
+        if lock_key:
+            try:
+                cache.delete(lock_key)
+            except Exception:
+                logger.exception("Failed to clear reminder lock key: %s", lock_key)
 
     logger.info(
         "Reminder worker completed for %s: sent=%s failed=%s total=%s",
@@ -2815,11 +2832,25 @@ def send_second_stage_reminders(request, form_slug: str):
     </div>
     """
 
-    threading.Thread(
-        target=_send_reminders_worker,
-        args=(form_slug, targets, subject, html_body),
-        daemon=True,
-    ).start()
+    lock_key = _reminder_lock_key(form_slug)
+    if not cache.add(lock_key, "1", timeout=REMINDER_LOCK_TTL_SECONDS):
+        messages.warning(
+            request,
+            f"Ya hay un envío de reminders en progreso para {form_slug}. Espera a que termine antes de volver a enviarlo.",
+        )
+        return redirect("admin_apps_list")
+
+    try:
+        threading.Thread(
+            target=_send_reminders_worker,
+            args=(form_slug, targets, subject, html_body, lock_key),
+            daemon=True,
+        ).start()
+    except Exception:
+        cache.delete(lock_key)
+        logger.exception("Failed to start reminder worker for %s", form_slug)
+        messages.error(request, f"No se pudo iniciar el envío de reminders para {form_slug}.")
+        return redirect("admin_apps_list")
 
     messages.success(
         request,

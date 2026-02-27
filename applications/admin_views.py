@@ -2674,13 +2674,13 @@ def _a1_slug_for_a2(form_slug: str) -> str | None:
 def send_second_stage_reminders(request, form_slug: str):
 
     """
-    Sends reminder emails to A1-approved users who have NOT completed A2 yet.
-    Works for:
-      - G6_E_A2 / G6_M_A2
-      - E_A2 / M_A2
+    Sends reminder emails to people in the same group who submitted A1
+    and have NOT completed A2 yet.
+    Expected form slugs:
+      - G6_E_A2 / G6_M_A2 (group-specific A2 forms)
 
     Rules:
-    - Only sends to users who were invited_to_second_stage=True
+    - Uses only submissions from the matching A1 form(s) in the same group
     - Only sends 1 email per unique email address
     - Skips anyone who already submitted this A2 form
     - No max cap
@@ -2698,19 +2698,36 @@ def send_second_stage_reminders(request, form_slug: str):
     is_emprendedora = form_slug.endswith("E_A2")
     track_word = "emprendedora" if is_emprendedora else "mentora"
 
-    # -------- derive matching A1 slug --------
-    m = GROUP_SLUG_RE.match(form_slug)
-    if m:
-        gnum = m.group("num")
-        a1_slug = f"G{gnum}_{'E_A1' if is_emprendedora else 'M_A1'}"
-    else:
-        a1_slug = "E_A1" if is_emprendedora else "M_A1"
+    # Strict same-group matching: reminders only for people in this group's A1.
+    group = getattr(_a2_form, "group", None)
+    if not group:
+        messages.error(
+            request,
+            (
+                f"No se pudo enviar reminders para {form_slug}: "
+                "el formulario A2 no está vinculado a un grupo."
+            ),
+        )
+        return redirect("admin_apps_list")
 
-    # ✅ Find approved A1 submissions only (they MUST have been invited)
+    a1_suffix = "_E_A1" if is_emprendedora else "_M_A1"
+    a1_forms = list(
+        FormDefinition.objects.filter(group=group, slug__endswith=a1_suffix).only("id", "slug")
+    )
+    if not a1_forms:
+        messages.error(
+            request,
+            (
+                f"No se pudo enviar reminders para {form_slug}: "
+                "no se encontró el formulario A1 correspondiente en este grupo."
+            ),
+        )
+        return redirect("admin_apps_list")
+
+    # ✅ Find everyone who submitted matching A1 in this specific group
     a1_apps_qs = (
         Application.objects.filter(
-            form__slug=a1_slug,
-            invited_to_second_stage=True,
+            form__in=a1_forms,
         )
         .exclude(email__isnull=True)
         .exclude(email__exact="")
@@ -2719,12 +2736,15 @@ def send_second_stage_reminders(request, form_slug: str):
     )
 
     # ✅ Find who already completed THIS A2
-    completed_emails = set(
-        Application.objects.filter(form__slug=form_slug)
+    completed_emails = {
+        (email or "").strip().lower()
+        for email in Application.objects.filter(form=_a2_form)
         .exclude(email__isnull=True)
         .exclude(email__exact="")
         .values_list("email", flat=True)
-    )
+        if (email or "").strip()
+    }
+    completed_emails.discard("")
 
     # ✅ Build unique target list
     targets = []
@@ -2749,8 +2769,7 @@ def send_second_stage_reminders(request, form_slug: str):
     a2_link = f"https://apply.clubemprendo.org/apply/{form_slug}/"
 
     # ✅ Use the corresponding group's A2 deadline (required for reminders)
-    group = getattr(_a2_form, "group", None)
-    deadline = getattr(group, "a2_deadline", None) if group else None
+    deadline = getattr(group, "a2_deadline", None)
     if not deadline:
         messages.error(
             request,

@@ -1,8 +1,10 @@
 import pandas as pd
 from openai import OpenAI
+import logging
 
 MODEL = "gpt-5.2"
 TIMEOUT = 60
+logger = logging.getLogger(__name__)
 
 W = {
     "owned_business": 3,
@@ -41,6 +43,58 @@ def business_years_pts(v, owned):
     if pd.isna(v) or v == "":
         return -1 if yes(owned) else 0
     return mapping.get(v, 0)
+
+
+def _categories_to_dict(categories) -> dict:
+    if categories is None:
+        return {}
+    if isinstance(categories, dict):
+        return {str(k): bool(v) for k, v in categories.items()}
+    if hasattr(categories, "model_dump"):
+        dumped = categories.model_dump()
+        if isinstance(dumped, dict):
+            return {str(k): bool(v) for k, v in dumped.items()}
+
+    out = {}
+    for attr in dir(categories):
+        if attr.startswith("_"):
+            continue
+        try:
+            val = getattr(categories, attr)
+        except Exception:
+            continue
+        if isinstance(val, bool):
+            out[attr] = val
+    return out
+
+
+def detect_red_flags(client: OpenAI, *texts):
+    combined = "\n".join(
+        t.strip() for t in texts if isinstance(t, str) and t.strip()
+    )
+    if not combined:
+        return ""
+
+    try:
+        moderation = client.moderations.create(
+            model="omni-moderation-latest",
+            input=combined[:15000],
+        )
+        result = moderation.results[0] if moderation.results else None
+        data = _categories_to_dict(getattr(result, "categories", None))
+    except Exception:
+        logger.exception("OpenAI moderation failed in grader_m red flag detection.")
+        return ""
+
+    sexual = bool(data.get("sexual") or data.get("sexual_minors") or data.get("sexual/minors"))
+    illicit = bool(data.get("illicit") or data.get("illicit_violent") or data.get("illicit/violent"))
+
+    flags = []
+    if sexual:
+        flags.append("contenido sexual")
+    if illicit:
+        flags.append("contenido ilicito")
+    return ", ".join(flags)
 
 # -----------------------
 # OpenAI grading
@@ -184,6 +238,14 @@ def grade_single_row(row: dict, client: OpenAI) -> dict:
         prof_raw * W["professional_expertise"],
     ])
 
+    red_flags = detect_red_flags(
+        client,
+        row.get("business_description"),
+        row.get("mentoring_exp_detail"),
+        row.get("motivation"),
+        row.get("professional_expertise"),
+    )
+
     return {
         "total_pts": total_pts,
         "certificate_name": row.get("certificate_name"),
@@ -193,7 +255,7 @@ def grade_single_row(row: dict, client: OpenAI) -> dict:
         "whatsapp": row.get("whatsapp"),
         "country_residence": row.get("country_residence"),
         "age_range": row.get("age_range"),
-        "red_flags": "",
+        "red_flags": red_flags,
         "meets_all_req": "yes",
         "owned_business": row.get("owned_business"),
         "owned_business_pt": owned_pt,

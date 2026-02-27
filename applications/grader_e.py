@@ -1,5 +1,6 @@
 import pandas as pd
 from openai import OpenAI
+import logging
 
 # ==================================================
 # Config
@@ -7,6 +8,7 @@ from openai import OpenAI
 
 MODEL = "gpt-5.2"
 TIMEOUT = 60
+logger = logging.getLogger(__name__)
 
 W = {
     "prior_mentoring": 2,
@@ -60,14 +62,56 @@ def has_employees_pts(v):
 # Red flag detection
 # ==================================================
 
-def detect_red_flags(*texts):
+def _categories_to_dict(categories) -> dict:
+    if categories is None:
+        return {}
+    if isinstance(categories, dict):
+        return {str(k): bool(v) for k, v in categories.items()}
+    if hasattr(categories, "model_dump"):
+        dumped = categories.model_dump()
+        if isinstance(dumped, dict):
+            return {str(k): bool(v) for k, v in dumped.items()}
+
+    out = {}
+    for attr in dir(categories):
+        if attr.startswith("_"):
+            continue
+        try:
+            val = getattr(categories, attr)
+        except Exception:
+            continue
+        if isinstance(val, bool):
+            out[attr] = val
+    return out
+
+
+def detect_red_flags(client: OpenAI, *texts):
+    combined = "\n".join(
+        t.strip() for t in texts if isinstance(t, str) and t.strip()
+    )
+    if not combined:
+        return ""
+
+    try:
+        moderation = client.moderations.create(
+            model="omni-moderation-latest",
+            input=combined[:15000],
+        )
+        result = moderation.results[0] if moderation.results else None
+        data = _categories_to_dict(getattr(result, "categories", None))
+    except Exception:
+        logger.exception("OpenAI moderation failed in grader_e red flag detection.")
+        return ""
+
+    sexual = bool(data.get("sexual") or data.get("sexual_minors") or data.get("sexual/minors"))
+    illicit = bool(data.get("illicit") or data.get("illicit_violent") or data.get("illicit/violent"))
+
     flags = []
-    keywords = ["sex", "sexual", "drug", "alcohol", "weed", "cocaine", "illegal", "illicit"]
-    combined = " ".join([t.lower() for t in texts if isinstance(t, str)])
-    for k in keywords:
-        if k in combined:
-            flags.append(k)
-    return ", ".join(sorted(set(flags)))
+    if sexual:
+        flags.append("contenido sexual")
+    if illicit:
+        flags.append("contenido ilicito")
+    return ", ".join(flags)
 
 
 # ==================================================
@@ -205,6 +249,7 @@ def grade_single_row(row: dict, client: OpenAI) -> list | None:
     ])
 
     red_flags = detect_red_flags(
+        client,
         row.get("business_description"),
         row.get("growth_how"),
         row.get("biggest_challenge"),

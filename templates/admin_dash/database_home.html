@@ -14,8 +14,6 @@
 
         &nbsp; — &nbsp;
         <a href="{% url 'admin_export_form_csv' fd.slug %}">CSV</a>
-        &nbsp;|&nbsp;
-        <a href="{% url 'admin_database_form_master_csv' fd.slug %}">MASTER CSV</a>
 
         {% if fd.admin_edit_url %}
           &nbsp;|&nbsp;
@@ -33,28 +31,28 @@
       E_A1 — all groups ({{ combined_type_counts.E_A1|default:0 }})
     </a>
     &nbsp; — &nbsp;
-    <a href="{% url 'admin_database_type_master_csv' 'E_A1' %}">MASTER CSV</a>
+    <a href="{% url 'admin_database_type_master_csv' 'E_A1' %}">CSV</a>
   </li>
   <li style="margin:6px 0;">
     <a href="{% url 'admin_database_type_detail' 'E_A2' %}">
       E_A2 — all groups ({{ combined_type_counts.E_A2|default:0 }})
     </a>
     &nbsp; — &nbsp;
-    <a href="{% url 'admin_database_type_master_csv' 'E_A2' %}">MASTER CSV</a>
+    <a href="{% url 'admin_database_type_master_csv' 'E_A2' %}">CSV</a>
   </li>
   <li style="margin:6px 0;">
     <a href="{% url 'admin_database_type_detail' 'M_A1' %}">
       M_A1 — all groups ({{ combined_type_counts.M_A1|default:0 }})
     </a>
     &nbsp; — &nbsp;
-    <a href="{% url 'admin_database_type_master_csv' 'M_A1' %}">MASTER CSV</a>
+    <a href="{% url 'admin_database_type_master_csv' 'M_A1' %}">CSV</a>
   </li>
   <li style="margin:6px 0;">
     <a href="{% url 'admin_database_type_detail' 'M_A2' %}">
       M_A2 — all groups ({{ combined_type_counts.M_A2|default:0 }})
     </a>
     &nbsp; — &nbsp;
-    <a href="{% url 'admin_database_type_master_csv' 'M_A2' %}">MASTER CSV</a>
+    <a href="{% url 'admin_database_type_master_csv' 'M_A2' %}">CSV</a>
   </li>
 </ul>
 
@@ -78,8 +76,6 @@
 
               &nbsp; — &nbsp;
               <a href="{% url 'admin_export_form_csv' fd.slug %}">CSV</a>
-              &nbsp;|&nbsp;
-              <a href="{% url 'admin_database_form_master_csv' fd.slug %}">MASTER CSV</a>
 
               {% if fd.admin_edit_url %}
                 &nbsp;|&nbsp;
@@ -115,8 +111,6 @@
 
             &nbsp; — &nbsp;
             <a href="{% url 'admin_export_form_csv' s.slug %}">CSV</a>
-            &nbsp;|&nbsp;
-            <a href="{% url 'admin_database_form_master_csv' s.slug %}">MASTER CSV</a>
 
             {% if s.admin_edit_url %}
               &nbsp;|&nbsp;
@@ -143,8 +137,6 @@
 
             &nbsp; — &nbsp;
             <a href="{% url 'admin_export_form_csv' s.slug %}">CSV</a>
-            &nbsp;|&nbsp;
-            <a href="{% url 'admin_database_form_master_csv' s.slug %}">MASTER CSV</a>
 
             {% if s.admin_edit_url %}
               &nbsp;|&nbsp;

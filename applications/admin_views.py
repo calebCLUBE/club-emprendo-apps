@@ -2047,9 +2047,9 @@ def database_type_master_csv(request, app_type: str):
 
     headers, rows, _forms = _build_csv_for_app_type(app_type, selected_group)
     filename = (
-        f"{app_type}_ALL_GROUPS_MASTER.csv"
+        f"{app_type}_ALL_GROUPS.csv"
         if selected_group is None
-        else f"{app_type}_G{selected_group}_MASTER.csv"
+        else f"{app_type}_G{selected_group}.csv"
     )
     return _csv_http_response(filename, headers, rows)
 

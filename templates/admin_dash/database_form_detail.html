@@ -3,8 +3,6 @@
   <h1>{{ form_def.slug }} — {{ form_def.name }}</h1>
 
   <p style="margin:10px 0;">
-    <a class="button" href="{% url 'admin_database_form_master_csv' form_def.slug %}">Download MASTER CSV</a>
-    &nbsp;
     <a class="button" href="{% url 'admin_export_form_csv' form_def.slug %}">Download CSV</a>
   </p>
 

@@ -29,6 +29,7 @@ urlpatterns = [
     path("admin/database/export/<slug:form_slug>.csv", admin_views.export_form_csv, name="admin_export_form_csv"),
 
     # ✅ Delete submission + file actions
+    path("admin/database/delete-submissions/", admin_views.bulk_delete_submissions, name="admin_bulk_delete_submissions"),
     path("admin/database/delete-submission/<int:app_id>/", admin_views.delete_submission, name="admin_delete_submission"),
     path("admin/database/delete-answer-file/<int:answer_id>/", admin_views.delete_answer_file_value, name="admin_delete_answer_file_value"),
     path("admin/database/delete-application-files/<int:app_id>/", admin_views.delete_application_files, name="admin_delete_application_files"),

@@ -25,6 +25,7 @@ from django.db.models import Model, Count, Q
 from django.http import HttpResponse, Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
 import os
 from django.utils import timezone
@@ -2081,39 +2082,108 @@ def export_form_csv(request, form_slug: str):
 # ----------------------------
 # Delete submission (REAL delete)
 # ----------------------------
-@staff_member_required
-@require_POST
-def delete_submission(request, app_id: int):
-    app = get_object_or_404(Application.objects.select_related("form"), id=app_id)
-    form_slug = app.form.slug
+def _database_next_redirect(request, fallback_name: str = "admin_database", **kwargs):
+    next_url = (request.POST.get("next") or "").strip()
+    if next_url and url_has_allowed_host_and_scheme(
+        next_url,
+        allowed_hosts={request.get_host()},
+        require_https=request.is_secure(),
+    ):
+        return redirect(next_url)
+    return redirect(fallback_name, **kwargs) if kwargs else redirect(fallback_name)
 
+
+def _delete_application_record(app: Application) -> int:
     answers = Answer.objects.filter(application=app)
     deleted_storage = 0
 
     for ans in answers:
         v = (ans.value or "").strip()
-        if not v:
-            continue
-        if not _looks_like_file_value(v):
+        if not v or not _looks_like_file_value(v):
             continue
 
         storage_path = _extract_storage_path_from_value(v)
-        if storage_path:
-            try:
-                if default_storage.exists(storage_path):
-                    default_storage.delete(storage_path)
-                    deleted_storage += 1
-            except Exception:
-                pass
+        if not storage_path:
+            continue
+        try:
+            if default_storage.exists(storage_path):
+                default_storage.delete(storage_path)
+                deleted_storage += 1
+        except Exception:
+            pass
 
     app.delete()
+    return deleted_storage
+
+
+@staff_member_required
+@require_POST
+def delete_submission(request, app_id: int):
+    app = get_object_or_404(Application.objects.select_related("form"), id=app_id)
+    form_slug = app.form.slug
+    deleted_storage = _delete_application_record(app)
 
     msg = "Submission eliminada de la base de datos."
     if deleted_storage:
         msg += f" Archivos eliminados del storage: {deleted_storage}."
     messages.success(request, msg)
 
-    return redirect("admin_database_form_detail", form_slug=form_slug)
+    return _database_next_redirect(
+        request,
+        fallback_name="admin_database_form_detail",
+        form_slug=form_slug,
+    )
+
+
+@staff_member_required
+@require_POST
+def bulk_delete_submissions(request):
+    raw_ids = request.POST.getlist("app_ids")
+    app_ids: list[int] = []
+    seen_ids: set[int] = set()
+    for raw in raw_ids:
+        try:
+            app_id = int(raw)
+        except (TypeError, ValueError):
+            continue
+        if app_id in seen_ids:
+            continue
+        seen_ids.add(app_id)
+        app_ids.append(app_id)
+
+    if not app_ids:
+        messages.info(request, "No se seleccionaron submissions para eliminar.")
+        return _database_next_redirect(request)
+
+    apps = list(
+        Application.objects.select_related("form")
+        .filter(id__in=app_ids)
+        .order_by("id")
+    )
+    if not apps:
+        messages.info(request, "Las submissions seleccionadas ya no existen.")
+        return _database_next_redirect(request)
+
+    deleted_count = 0
+    deleted_storage = 0
+    fallback_form_slug = apps[0].form.slug if len({app.form.slug for app in apps}) == 1 else None
+
+    for app in apps:
+        deleted_storage += _delete_application_record(app)
+        deleted_count += 1
+
+    msg = f"Submissions eliminadas: {deleted_count}."
+    if deleted_storage:
+        msg += f" Archivos eliminados del storage: {deleted_storage}."
+    messages.success(request, msg)
+
+    if fallback_form_slug:
+        return _database_next_redirect(
+            request,
+            fallback_name="admin_database_form_detail",
+            form_slug=fallback_form_slug,
+        )
+    return _database_next_redirect(request)
 
 
 # ----------------------------

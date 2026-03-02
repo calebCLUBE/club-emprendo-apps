@@ -17,40 +17,71 @@
 
   <h2 style="margin-top:18px;">Submissions ({{ apps|length }})</h2>
   {% if apps %}
-    <ul>
-      {% for a in apps %}
-        <li style="margin:6px 0;">
-          <a href="{% url 'admin_database_submission_detail' a.id %}">
-            #{{ a.id }} — {{ a.created_at }} — {{ a.name }} ({{ a.email }})
-          </a>
+    <form method="post"
+          action="{% url 'admin_bulk_delete_submissions' %}"
+          onsubmit="return confirm('¿Eliminar las submissions seleccionadas? Esto borrará las respuestas y no se puede deshacer.');">
+      {% csrf_token %}
+      <input type="hidden" name="next" value="{{ request.get_full_path }}">
 
-          {# Delete ALL file values for this submission (no layout change: inline) #}
-          <form method="post"
-                action="{% url 'admin_delete_application_files' a.id %}"
-                style="display:inline; margin:0; padding:0;">
-            {% csrf_token %}
-            <input type="hidden" name="next" value="{{ request.get_full_path }}">
-            <button type="submit"
-                    title="Eliminar archivos de esta postulación"
-                    style="border:0; background:transparent; cursor:pointer; padding:0 0 0 8px; line-height:1;">
-              🗑️
-            </button>
-          </form>
-          <form method="post"
-                action="{% url 'admin_delete_submission' a.id %}"
-                style="display:inline; margin:0; padding:0;"
-                onsubmit="return confirm('¿Eliminar esta submission por completo? Esto borrará las respuestas y no se puede deshacer.');">
-            {% csrf_token %}
-            <button type="submit"
-                    title="Eliminar submission (borrar de la base de datos)"
-                    style="border:0; background:transparent; cursor:pointer; padding:0 0 0 8px; line-height:1;">
-                ❌
-            </button>
-            </form>
+      <div style="margin:10px 0; padding:10px; border:1px solid #ddd; border-radius:10px; display:flex; gap:16px; align-items:center; flex-wrap:wrap;">
+        <label style="display:flex; align-items:center; gap:8px; margin:0;">
+          <input type="checkbox" data-select-all>
+          <strong>Select all</strong>
+        </label>
+        <button type="submit"
+                class="button"
+                data-delete-selected
+                disabled
+                style="background:#ba2121; color:white; border-color:#ba2121;">
+          Delete selected
+        </button>
+      </div>
 
-        </li>
-      {% endfor %}
-    </ul>
+      <ul style="list-style:none; padding-left:0; margin:0;">
+        {% for a in apps %}
+          <li style="margin:6px 0; padding:8px 10px; border:1px solid #eee; border-radius:8px;">
+            <label style="display:flex; align-items:flex-start; gap:10px;">
+              <input type="checkbox" name="app_ids" value="{{ a.id }}" data-submission-checkbox style="margin-top:3px;">
+              <span>
+                <a href="{% url 'admin_database_submission_detail' a.id %}">
+                  #{{ a.id }} — {{ a.created_at }} — {{ a.name }} ({{ a.email }})
+                </a>
+              </span>
+            </label>
+          </li>
+        {% endfor %}
+      </ul>
+    </form>
+    <script>
+      (function() {
+        const form = document.currentScript.previousElementSibling;
+        if (!form) return;
+        const selectAll = form.querySelector('[data-select-all]');
+        const checkboxes = Array.from(form.querySelectorAll('[data-submission-checkbox]'));
+        const deleteBtn = form.querySelector('[data-delete-selected]');
+        function syncState() {
+          const checkedCount = checkboxes.filter((cb) => cb.checked).length;
+          if (deleteBtn) {
+            deleteBtn.disabled = checkedCount === 0;
+            deleteBtn.textContent = checkedCount > 0 ? `Delete selected (${checkedCount})` : 'Delete selected';
+          }
+          if (selectAll) {
+            selectAll.checked = checkedCount > 0 && checkedCount === checkboxes.length;
+            selectAll.indeterminate = checkedCount > 0 && checkedCount < checkboxes.length;
+          }
+        }
+        if (selectAll) {
+          selectAll.addEventListener('change', function() {
+            checkboxes.forEach((cb) => {
+              cb.checked = selectAll.checked;
+            });
+            syncState();
+          });
+        }
+        checkboxes.forEach((cb) => cb.addEventListener('change', syncState));
+        syncState();
+      })();
+    </script>
   {% else %}
     <p><em>No submissions yet.</em></p>
   {% endif %}

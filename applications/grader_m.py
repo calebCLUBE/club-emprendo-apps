@@ -45,6 +45,24 @@ def business_years_pts(v, owned):
     return mapping.get(v, 0)
 
 
+REQ_FIELDS = [
+    "req_basic_woman",
+    "req_basic_latam",
+    "req_basic_business_exp",
+    "req_basic_punctual",
+    "req_basic_internet_device",
+    "req_basic_training",
+    "req_basic_surveys",
+    "req_avail_period",
+    "req_avail_2hrs_week",
+    "req_avail_kickoff",
+]
+
+
+def _disqualification_reasons(row: dict) -> list[str]:
+    return [field for field in REQ_FIELDS if str(row.get(field, "")).lower() != "yes"]
+
+
 def _categories_to_dict(categories) -> dict:
     if categories is None:
         return {}
@@ -155,6 +173,7 @@ COLUMNS = [
     "age_range",
     "red_flags",
     "meets_all_req",
+    "req_explain",
     "owned_business",
     "owned_business_pt",
     "prior_participation",
@@ -186,23 +205,8 @@ COLUMNS = [
 # -----------------------
 
 def grade_single_row(row: dict, client: OpenAI) -> dict:
-    meets_all = all(str(row.get(c, "")).lower() == "yes" for c in [
-        "req_basic_woman",
-        "req_basic_latam",
-        "req_basic_business_exp",
-        "req_basic_punctual",
-        "req_basic_internet_device",
-        "req_basic_training",
-        "req_basic_surveys",
-        "req_avail_period",
-        "req_avail_2hrs_week",
-        "req_avail_kickoff",
-    ])
-
-    if not meets_all:
-        return {c: "" for c in COLUMNS}
-
-    score_exp = []
+    disqual_reasons = _disqualification_reasons(row)
+    meets_all = not disqual_reasons
 
     owned_pt = yes(row.get("owned_business")) * W["owned_business"]
     prior_pt = prior_participation_pts(row.get("prior_participation"))
@@ -216,6 +220,53 @@ def grade_single_row(row: dict, client: OpenAI) -> dict:
         and row.get("professional_expertise").strip()
         else 0
     ) * W["professional_expertise_struct"]
+
+    red_flags = detect_red_flags(
+        client,
+        row.get("business_description"),
+        row.get("mentoring_exp_detail"),
+        row.get("motivation"),
+        row.get("professional_expertise"),
+    )
+
+    if not meets_all:
+        return {
+            "total_pts": "NA",
+            "certificate_name": row.get("certificate_name"),
+            "preferred_name": row.get("preferred_name"),
+            "id_number": row.get("id_number"),
+            "email": row.get("email"),
+            "whatsapp": row.get("whatsapp"),
+            "country_residence": row.get("country_residence"),
+            "age_range": row.get("age_range"),
+            "red_flags": red_flags,
+            "meets_all_req": "no",
+            "req_explain": row.get("req_explain", ""),
+            "owned_business": row.get("owned_business"),
+            "owned_business_pt": "",
+            "prior_participation": row.get("prior_participation"),
+            "prior_participation_pt": "",
+            "business_years": row.get("business_years"),
+            "business_years_pt": "",
+            "has_employees": row.get("has_employees"),
+            "has_employees_pt": "",
+            "professional_expertise": row.get("professional_expertise"),
+            "professional_expertise_pt": "",
+            "mentoring_exp_as_mentor": row.get("mentoring_exp_as_mentor"),
+            "mentoring_exp_as_mentor_pt": "",
+            "mentoring_exp_as_student": row.get("mentoring_exp_as_student"),
+            "mentoring_exp_as_student_pt": "",
+            "business_description": row.get("business_description"),
+            "business_description_pt": "",
+            "mentoring_exp_detail": row.get("mentoring_exp_detail"),
+            "mentoring_exp_detail_pt": "",
+            "motivation": row.get("motivation"),
+            "motivation_pt": "",
+            "score_exp": "Disqualified: " + ", ".join(disqual_reasons),
+            "grading_rubric": "Disqualified before scoring. Total score set to NA.",
+        }
+
+    score_exp = []
 
     bd_raw, bd_exp = grade_unstructured(client, row.get("business_description"), "business_description")
     med_raw, med_exp = grade_unstructured(client, row.get("mentoring_exp_detail"), "mentoring_exp_detail")
@@ -238,14 +289,6 @@ def grade_single_row(row: dict, client: OpenAI) -> dict:
         prof_raw * W["professional_expertise"],
     ])
 
-    red_flags = detect_red_flags(
-        client,
-        row.get("business_description"),
-        row.get("mentoring_exp_detail"),
-        row.get("motivation"),
-        row.get("professional_expertise"),
-    )
-
     return {
         "total_pts": total_pts,
         "certificate_name": row.get("certificate_name"),
@@ -257,6 +300,7 @@ def grade_single_row(row: dict, client: OpenAI) -> dict:
         "age_range": row.get("age_range"),
         "red_flags": red_flags,
         "meets_all_req": "yes",
+        "req_explain": row.get("req_explain", ""),
         "owned_business": row.get("owned_business"),
         "owned_business_pt": owned_pt,
         "prior_participation": row.get("prior_participation"),

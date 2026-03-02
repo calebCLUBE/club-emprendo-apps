@@ -58,6 +58,19 @@ def has_employees_pts(v):
     return 2 if yes(v) else 0
 
 
+def _disqualification_reasons(row: dict) -> list[str]:
+    reasons = []
+    if row.get("internet_access") != "yes_ok":
+        reasons.append("internet_access")
+    if row.get("hours_per_week") == "lt_2":
+        reasons.append("hours_per_week")
+    if not yes(row.get("commit_3_months")):
+        reasons.append("commit_3_months")
+    if str(row.get("business_age", "")).strip().lower() == "idea":
+        reasons.append("business_age=idea")
+    return reasons
+
+
 # ==================================================
 # Red flag detection
 # ==================================================
@@ -209,20 +222,43 @@ COLUMNS = [
 # Grade ONE row (NO category row here)
 # ==================================================
 
-def grade_single_row(row: dict, client: OpenAI) -> list | None:
-    qualifies = (
-        row.get("internet_access") == "yes_ok"
-        and row.get("hours_per_week") != "lt_2"
-        and yes(row.get("commit_3_months"))
-    )
-
-    if not qualifies:
-        return None  # EXACT behavior of original script (skip row)
+def grade_single_row(row: dict, client: OpenAI) -> list:
+    disqual_reasons = _disqualification_reasons(row)
 
     prior_pt = prior_mentoring_pts(row.get("prior_mentoring"))
     business_age_pt = business_age_pts(row.get("business_age"))
     employees_pt = has_employees_pts(row.get("has_employees"))
     participated_pt = participated_before_pts(row.get("participated_before"))
+
+    red_flags = detect_red_flags(
+        client,
+        row.get("business_description"),
+        row.get("growth_how"),
+        row.get("biggest_challenge"),
+    )
+
+    if disqual_reasons:
+        reason_text = "Disqualified: " + ", ".join(disqual_reasons)
+        return [
+            "NA",
+            row.get("full_name"),
+            row.get("whatsapp"),
+            row.get("email"),
+            row.get("cedula"),
+            row.get("country_residence"),
+            red_flags,
+            "no",
+            row.get("prior_mentoring"), "",
+            row.get("business_age"), "",
+            row.get("has_employees"), "",
+            row.get("participated_before"), "",
+            row.get("business_description"), "",
+            row.get("growth_how"), "",
+            row.get("biggest_challenge"), "",
+            row.get("additional_comments"),
+            reason_text,
+            "Disqualified before scoring. Total score set to NA.",
+        ]
 
     score_exp_lines = []
 
@@ -247,13 +283,6 @@ def grade_single_row(row: dict, client: OpenAI) -> list | None:
         gh_pt,
         bc_pt,
     ])
-
-    red_flags = detect_red_flags(
-        client,
-        row.get("business_description"),
-        row.get("growth_how"),
-        row.get("biggest_challenge"),
-    )
 
     return [
         total_score,
@@ -290,8 +319,7 @@ def grade_from_dataframe(df: pd.DataFrame, client: OpenAI, log_fn=None) -> pd.Da
             log_fn(f"→ Grading row {i}/{total}")
 
         out = grade_single_row(r.to_dict(), client)
-        if out is not None:
-            rows.append(out)
+        rows.append(out)
 
     out_df = pd.DataFrame(rows, columns=COLUMNS)
 

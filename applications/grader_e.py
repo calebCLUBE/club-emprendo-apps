@@ -58,6 +58,42 @@ def has_employees_pts(v):
     return 2 if yes(v) else 0
 
 
+def _normalized_identifier(row: dict | pd.Series, keys: list[str]) -> tuple[str, str] | None:
+    for key in keys:
+        value = str(row.get(key, "") or "").strip().lower()
+        if value:
+            return key, value
+    return None
+
+
+def _score_rank(value) -> float:
+    if value in (None, "", "NA"):
+        return float("-inf")
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return float("-inf")
+
+
+def _dedupe_scored_rows(df: pd.DataFrame, score_col: str, id_keys: list[str]) -> tuple[pd.DataFrame, int]:
+    if df.empty:
+        return df, 0
+
+    winners: dict[tuple[str, str] | tuple[str, int], tuple[float, int]] = {}
+    for idx, row in df.iterrows():
+        identifier = _normalized_identifier(row, id_keys)
+        if identifier is None:
+            identifier = ("row", idx)
+        candidate_rank = (_score_rank(row.get(score_col)), idx)
+        current_rank = winners.get(identifier)
+        if current_rank is None or candidate_rank > current_rank:
+            winners[identifier] = candidate_rank
+
+    keep_indexes = sorted(rank[1] for rank in winners.values())
+    removed = len(df) - len(keep_indexes)
+    return df.loc[keep_indexes].reset_index(drop=True), removed
+
+
 def _disqualification_reasons(row: dict) -> list[str]:
     reasons = []
     if row.get("internet_access") != "yes_ok":
@@ -322,6 +358,9 @@ def grade_from_dataframe(df: pd.DataFrame, client: OpenAI, log_fn=None) -> pd.Da
         rows.append(out)
 
     out_df = pd.DataFrame(rows, columns=COLUMNS)
+    out_df, removed = _dedupe_scored_rows(out_df, "total_score", ["email", "cedula"])
+    if removed and log_fn:
+        log_fn(f"→ Removed {removed} duplicate emprendedora rows, keeping the highest score per person")
 
     # CATEGORY ROW GOES ONCE, AT TOP
     return pd.concat(

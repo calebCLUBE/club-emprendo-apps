@@ -45,7 +45,8 @@ from applications.models import (
     Question,
     GradedFile,
     GradingJob,
-    PairingJob
+    PairingJob,
+    scheduled_group_open_state,
 )
 import logging
 
@@ -1157,20 +1158,23 @@ def _sync_group_open_close(group: FormGroup):
     if not group:
         return
 
-    now = timezone.now()
-    open_at = group.open_at
-    close_at = group.close_at
+    forms_qs = FormDefinition.objects.filter(group=group)
+    if _model_has_field(FormDefinition, "manual_open_override"):
+        forms_qs.filter(manual_open_override=True).update(
+            is_public=True,
+            accepting_responses=True,
+        )
+        forms_qs.filter(manual_open_override=False).update(
+            is_public=False,
+            accepting_responses=False,
+        )
+        forms_qs = forms_qs.filter(manual_open_override__isnull=True)
 
-    if not open_at and not close_at:
+    desired_open = scheduled_group_open_state(group)
+    if desired_open is None:
         return
 
-    desired_open = True
-    if open_at and now < open_at:
-        desired_open = False
-    if close_at and now >= close_at:
-        desired_open = False
-
-    FormDefinition.objects.filter(group=group).update(
+    forms_qs.update(
         is_public=desired_open,
         accepting_responses=desired_open,
     )
@@ -1672,8 +1676,22 @@ def toggle_form_open(request, form_slug: str):
     """
     fd = get_object_or_404(FormDefinition, slug=form_slug)
 
-    fd.is_public = not bool(fd.is_public)
-    fd.save(update_fields=["is_public"])
+    target_open = not bool(fd.is_public)
+    fd.is_public = target_open
+    fd.accepting_responses = target_open
+
+    update_fields = ["is_public", "accepting_responses"]
+    if _model_has_field(FormDefinition, "manual_open_override"):
+        scheduled_open = scheduled_group_open_state(getattr(fd, "group", None))
+        if scheduled_open is None:
+            fd.manual_open_override = None
+        elif scheduled_open == target_open:
+            fd.manual_open_override = None
+        else:
+            fd.manual_open_override = target_open
+        update_fields.append("manual_open_override")
+
+    fd.save(update_fields=update_fields)
 
     if fd.is_public:
         messages.success(request, f"{fd.slug} is now OPEN (accepting new submissions).")

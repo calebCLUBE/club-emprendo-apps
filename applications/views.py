@@ -9,7 +9,7 @@ from django.utils import timezone
 import json
 
 from .forms import build_application_form
-from .models import Application, Answer, FormDefinition, Question, Section
+from .models import Application, Answer, FormDefinition, Question, Section, scheduled_group_open_state
 from .emprendedora_a1_autograde import autograde_and_email_emprendedora_a1
 
 
@@ -483,15 +483,14 @@ def _sections_from_model(form_def: FormDefinition, form):
 def _handle_application_form(request, form_slug: str, second_stage: bool = False):
     form_def = get_object_or_404(FormDefinition, slug=form_slug)
 
-    # Auto open/close based on group schedule
-    grp = getattr(form_def, "group", None)
-    if grp and (grp.open_at or grp.close_at):
-        now = timezone.now()
-        desired_open = True
-        if grp.open_at and now < grp.open_at:
-            desired_open = False
-        if grp.close_at and now >= grp.close_at:
-            desired_open = False
+    manual_override = getattr(form_def, "manual_open_override", None)
+    desired_open = None
+    if manual_override is not None:
+        desired_open = bool(manual_override)
+    else:
+        desired_open = scheduled_group_open_state(getattr(form_def, "group", None))
+
+    if desired_open is not None:
         if desired_open != form_def.is_public or desired_open != getattr(form_def, "accepting_responses", desired_open):
             FormDefinition.objects.filter(id=form_def.id).update(
                 is_public=desired_open,

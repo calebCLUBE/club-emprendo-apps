@@ -1,5 +1,6 @@
 # applications/models.py
 from django.db import models
+from django.utils import timezone
 import uuid
 
 
@@ -22,6 +23,24 @@ class FormGroup(models.Model):
 
     def __str__(self):
         return f"Group {self.number} ({self.start_day} {self.start_month}–{self.end_month} {self.year})"
+
+
+def scheduled_group_open_state(group: "FormGroup", now=None) -> bool | None:
+    if not group:
+        return None
+
+    open_at = getattr(group, "open_at", None)
+    close_at = getattr(group, "close_at", None)
+    if not open_at and not close_at:
+        return None
+
+    now = now or timezone.now()
+    desired_open = True
+    if open_at and now < open_at:
+        desired_open = False
+    if close_at and now >= close_at:
+        desired_open = False
+    return desired_open
 
 class GradingJob(models.Model):
     STATUS_CHOICES = [
@@ -69,6 +88,12 @@ class FormDefinition(models.Model):
         ),
     )
     accepting_responses = models.BooleanField(default=True)
+    manual_open_override = models.BooleanField(
+        null=True,
+        blank=True,
+        default=None,
+        help_text="Optional manual override for open/closed state. Leave blank to follow the group schedule.",
+    )
     default_section_title = models.CharField(
         max_length=200,
         default="Preguntas generales",

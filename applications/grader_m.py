@@ -45,6 +45,42 @@ def business_years_pts(v, owned):
     return mapping.get(v, 0)
 
 
+def _normalized_identifier(row: dict | pd.Series, keys: list[str]) -> tuple[str, str] | None:
+    for key in keys:
+        value = str(row.get(key, "") or "").strip().lower()
+        if value:
+            return key, value
+    return None
+
+
+def _score_rank(value) -> float:
+    if value in (None, "", "NA"):
+        return float("-inf")
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return float("-inf")
+
+
+def _dedupe_scored_rows(df: pd.DataFrame, score_col: str, id_keys: list[str]) -> tuple[pd.DataFrame, int]:
+    if df.empty:
+        return df, 0
+
+    winners: dict[tuple[str, str] | tuple[str, int], tuple[float, int]] = {}
+    for idx, row in df.iterrows():
+        identifier = _normalized_identifier(row, id_keys)
+        if identifier is None:
+            identifier = ("row", idx)
+        candidate_rank = (_score_rank(row.get(score_col)), idx)
+        current_rank = winners.get(identifier)
+        if current_rank is None or candidate_rank > current_rank:
+            winners[identifier] = candidate_rank
+
+    keep_indexes = sorted(rank[1] for rank in winners.values())
+    removed = len(df) - len(keep_indexes)
+    return df.loc[keep_indexes].reset_index(drop=True), removed
+
+
 REQ_FIELDS = [
     "req_basic_woman",
     "req_basic_latam",
@@ -194,6 +230,7 @@ COLUMNS = [
     "mentoring_exp_detail_pt",
     "motivation",
     "motivation_pt",
+    "additional_comments",
     "professional_expertise",
     "professional_expertise_pt",
     "score_exp",
@@ -262,6 +299,7 @@ def grade_single_row(row: dict, client: OpenAI) -> dict:
             "mentoring_exp_detail_pt": "",
             "motivation": row.get("motivation"),
             "motivation_pt": "",
+            "additional_comments": row.get("additional_comments"),
             "score_exp": "Disqualified: " + ", ".join(disqual_reasons),
             "grading_rubric": "Disqualified before scoring. Total score set to NA.",
         }
@@ -321,6 +359,7 @@ def grade_single_row(row: dict, client: OpenAI) -> dict:
         "mentoring_exp_detail_pt": med_raw * W["mentoring_exp_detail"],
         "motivation": row.get("motivation"),
         "motivation_pt": mot_raw * W["motivation"],
+        "additional_comments": row.get("additional_comments"),
         "professional_expertise": row.get("professional_expertise"),
         "professional_expertise_pt": prof_raw * W["professional_expertise"],
         "score_exp": "\n".join(score_exp),
@@ -341,4 +380,8 @@ def grade_from_dataframe(df: pd.DataFrame, client: OpenAI, log_fn=None) -> pd.Da
 
         out.append(grade_single_row(row.to_dict(), client))
 
-    return pd.DataFrame(out, columns=COLUMNS)
+    out_df = pd.DataFrame(out, columns=COLUMNS)
+    out_df, removed = _dedupe_scored_rows(out_df, "total_pts", ["email", "id_number"])
+    if removed and log_fn:
+        log_fn(f"→ Removed {removed} duplicate mentora rows, keeping the highest score per person")
+    return out_df

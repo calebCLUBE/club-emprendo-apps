@@ -1,5 +1,6 @@
 # applications/views.py
 import re
+import logging
 
 from django.conf import settings
 from django.core.mail import EmailMultiAlternatives
@@ -14,6 +15,20 @@ from .emprendedora_a1_autograde import autograde_and_email_emprendedora_a1
 
 
 GROUP_SLUG_RE = re.compile(r"^G(?P<num>\d+)_")
+logger = logging.getLogger(__name__)
+
+MENTORA_A2_REQ_FIELDS = [
+    "req_basic_woman",
+    "req_basic_latam",
+    "req_basic_business_exp",
+    "req_basic_punctual",
+    "req_basic_internet_device",
+    "req_basic_training",
+    "req_basic_surveys",
+    "req_avail_period",
+    "req_avail_2hrs_week",
+    "req_avail_kickoff",
+]
 
 
 # -------------------------
@@ -45,6 +60,101 @@ def _send_html_email(to_email: str, subject: str, html_body: str):
     )
     msg.attach_alternative(html_body, "text/html")
     msg.send(fail_silently=False)
+
+
+def _norm(v) -> str:
+    return str(v or "").strip().lower()
+
+
+def _is_e_a2_na_candidate(answer_map: dict[str, str]) -> bool:
+    if _norm(answer_map.get("internet_access")) != "yes_ok":
+        return True
+    if _norm(answer_map.get("hours_per_week")) == "lt_2":
+        return True
+    if _norm(answer_map.get("commit_3_months")) != "yes":
+        return True
+    if _norm(answer_map.get("business_age")) == "idea":
+        return True
+    return False
+
+
+def _is_m_a2_na_candidate(answer_map: dict[str, str]) -> bool:
+    for field in MENTORA_A2_REQ_FIELDS:
+        if _norm(answer_map.get(field)) != "yes":
+            return True
+    return False
+
+
+def _is_a2_na_candidate(form_slug: str, answer_map: dict[str, str]) -> bool:
+    slug = form_slug or ""
+    if slug.endswith("E_A2"):
+        return _is_e_a2_na_candidate(answer_map)
+    if slug.endswith("M_A2"):
+        return _is_m_a2_na_candidate(answer_map)
+    return False
+
+
+def _send_a2_submission_email(app: Application, answer_map: dict[str, str]):
+    slug = app.form.slug or ""
+    if not (slug.endswith("E_A2") or slug.endswith("M_A2")):
+        return
+
+    to_email = (app.email or "").strip()
+    if not to_email:
+        return
+
+    send_disqualified_email = _is_a2_na_candidate(slug, answer_map)
+
+    subject_na = "Sobre tu aplicación al Programa de Mentorías"
+    html_na = (
+        '<div style="font-family:Arial,Helvetica,sans-serif;line-height:1.6;max-width:700px;margin:0 auto;word-break:break-word;white-space:normal;">'
+        "<p>Hola querida aplicante,</p>"
+        "<p>Gracias por tomarte el tiempo de completar la segunda aplicación para nuestro programa de mentorías. "
+        "Valoramos muchísimo tu interés en ser parte de Club Emprendo y el deseo que tienes de crecer y aprender.</p>"
+        "<p>Después de revisar cuidadosamente tu información, queremos contarte que en esta ocasión no pudimos seleccionarte para este grupo. "
+        "Esto se debe a que, según tu aplicación, actualmente se presenta al menos una de estas situaciones:</p>"
+        "<ul>"
+        "<li>Cuentas con menos de 2 horas de disponibilidad semanal para las mentorías.</li>"
+        "<li>Tienes dificultades con la conexión a internet, lo cual es clave para poder comunicarse con tu mentora.</li>"
+        "<li>Tu emprendimiento se encuentra aún en etapa de idea y no está en marcha. (si estás aplicando para recibir las mentorías)</li>"
+        "<li>No cumples con los requisitos o disponibilidad.</li>"
+        "</ul>"
+        "<p>Para que el proceso de mentoría sea realmente efectivo y beneficioso para ti, en este grupo necesitamos que las emprendedoras "
+        "cuenten con más de 2 horas de disponibilidad, buena conexión a internet y un emprendimiento ya en funcionamiento.</p>"
+        "<p>La buena noticia es que, si en el futuro estas condiciones cambian, puedes volver a aplicar sin ningún problema.</p>"
+        "<p>Gracias por confiar en Club Emprendo y por dar este primer paso. Te enviamos un abrazo grande y mucho ánimo en tu camino emprendedor.</p>"
+        "<p>Con cariño,<br><strong>Equipo Club Emprendo</strong></p>"
+        "</div>"
+    )
+
+    subject_ok = "Recibimos tu aplicación al Programa de Mentorías"
+    html_ok = (
+        '<div style="font-family:Arial,Helvetica,sans-serif;line-height:1.6;max-width:700px;margin:0 auto;word-break:break-word;white-space:normal;">'
+        "<p>Hola querida aplicante,</p>"
+        "<p>Gracias por completar la segunda aplicación para formar parte de nuestro Programa de Mentorías. "
+        "Hemos recibido tu información correctamente.</p>"
+        "<p>En la fecha indicada dentro de la aplicación, estarás recibiendo un correo electrónico donde te notificaremos "
+        "si fuiste seleccionada para el próximo grupo.</p>"
+        "<p>Agradecemos sinceramente tu interés en ser parte de esta comunidad y tu disposición.</p>"
+        "<p>Gracias por aplicar y por confiar en Club Emprendo.</p>"
+        "<p>Con gratitud,<br><strong>Equipo de Club Emprendo</strong></p>"
+        "</div>"
+    )
+
+    try:
+        _send_html_email(
+            to_email,
+            subject_na if send_disqualified_email else subject_ok,
+            html_na if send_disqualified_email else html_ok,
+        )
+    except Exception:
+        logger.exception(
+            "Failed sending A2 submit email (slug=%s, app_id=%s, email=%s, disqualified=%s)",
+            slug,
+            app.id,
+            to_email,
+            send_disqualified_email,
+        )
 
 
 def _apply_question_conditions(form):
@@ -611,16 +721,22 @@ def _handle_application_form(request, form_slug: str, second_stage: bool = False
             email=email,
         )
 
+        answer_map: dict[str, str] = {}
         for q in form_def.questions.filter(active=True).order_by("position", "id"):
             field_name = f"q_{q.slug}"
             value = form.cleaned_data.get(field_name)
             if isinstance(value, list):
                 value = ",".join(value)
+            stored_value = str(value or "")
             Answer.objects.create(
                 application=app,
                 question=q,
-                value=str(value or ""),
+                value=stored_value,
             )
+            answer_map[q.slug] = stored_value
+
+        if form_def.slug.endswith("E_A2") or form_def.slug.endswith("M_A2"):
+            _send_a2_submission_email(app, answer_map)
 
         # A1 autogrades
         if form_def.slug.endswith("M_A1"):

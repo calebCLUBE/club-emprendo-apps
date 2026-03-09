@@ -156,6 +156,8 @@ def _redirect_back_to_grading(request):
 def _job_log(job: GradingJob, line: str):
     job.log_text = (job.log_text or "") + line + "\n"
     job.save(update_fields=["log_text", "updated_at"])
+
+
 @staff_member_required
 def grading_job_status(request, job_id: int):
     job = get_object_or_404(GradingJob, id=job_id)
@@ -266,6 +268,7 @@ def _run_grade_job(job_id: int):
         )
 
         _job_log(job, f"📄 Saved graded file (id={gf.id}, bytes={len(csv_text)})")
+
         _job_log(job, "✅ Grading completed successfully")
 
         job.status = GradingJob.STATUS_DONE

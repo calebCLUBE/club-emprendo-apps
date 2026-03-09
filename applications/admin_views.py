@@ -58,6 +58,7 @@ TEST_M_A2_SLUG = "TEST_M_A2"
 A2_FORM_RE = re.compile(r"^(G\d+_)?(E_A2|M_A2)$")
 TEST_A2_FORM_RE = re.compile(r"^TEST_(E_A2|M_A2)$")
 REMINDER_LOCK_TTL_SECONDS = 60 * 60
+AUTO_REMINDER_CHECK_THROTTLE_SECONDS = 45
 
 
 def _reminder_lock_key(form_slug: str) -> str:
@@ -1061,6 +1062,7 @@ RESPOND_BY_MONTH_TO_NUM = {
     month_name: month_number
     for month_number, (month_name, _) in enumerate(MONTH_CHOICES_ES, start=1)
 }
+DT_LOCAL_INPUT_FORMATS = ["%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M"]
 
 
 class CreateGroupForm(forms.Form):
@@ -1076,8 +1078,41 @@ class CreateGroupForm(forms.Form):
         required=False,
         label="mes para responder",
     )
-    open_at = forms.DateTimeField(label="Abrir automáticamente en", required=False, help_text="YYYY-MM-DD HH:MM")
-    close_at = forms.DateTimeField(label="Cerrar automáticamente en", required=False, help_text="YYYY-MM-DD HH:MM")
+    open_at = forms.DateTimeField(
+        label="Abrir automáticamente en",
+        required=False,
+        help_text="YYYY-MM-DD HH:MM",
+        input_formats=DT_LOCAL_INPUT_FORMATS,
+        widget=forms.DateTimeInput(attrs={"type": "datetime-local"}, format="%Y-%m-%dT%H:%M"),
+    )
+    close_at = forms.DateTimeField(
+        label="Cerrar automáticamente en",
+        required=False,
+        help_text="YYYY-MM-DD HH:MM",
+        input_formats=DT_LOCAL_INPUT_FORMATS,
+        widget=forms.DateTimeInput(attrs={"type": "datetime-local"}, format="%Y-%m-%dT%H:%M"),
+    )
+    reminder_1_at = forms.DateTimeField(
+        label="Recordatorio automático #1",
+        required=False,
+        help_text="YYYY-MM-DD HH:MM",
+        input_formats=DT_LOCAL_INPUT_FORMATS,
+        widget=forms.DateTimeInput(attrs={"type": "datetime-local"}, format="%Y-%m-%dT%H:%M"),
+    )
+    reminder_2_at = forms.DateTimeField(
+        label="Recordatorio automático #2",
+        required=False,
+        help_text="YYYY-MM-DD HH:MM",
+        input_formats=DT_LOCAL_INPUT_FORMATS,
+        widget=forms.DateTimeInput(attrs={"type": "datetime-local"}, format="%Y-%m-%dT%H:%M"),
+    )
+    reminder_3_at = forms.DateTimeField(
+        label="Recordatorio automático #3",
+        required=False,
+        help_text="YYYY-MM-DD HH:MM",
+        input_formats=DT_LOCAL_INPUT_FORMATS,
+        widget=forms.DateTimeInput(attrs={"type": "datetime-local"}, format="%Y-%m-%dT%H:%M"),
+    )
 
     def clean(self):
         cleaned = super().clean()
@@ -1108,6 +1143,18 @@ class CreateGroupForm(forms.Form):
                 )
 
             cleaned["a2_deadline"] = derived_deadline
+
+        reminder_1_at = cleaned.get("reminder_1_at")
+        reminder_2_at = cleaned.get("reminder_2_at")
+        reminder_3_at = cleaned.get("reminder_3_at")
+        if reminder_1_at and reminder_2_at and reminder_2_at < reminder_1_at:
+            raise forms.ValidationError(
+                "Reminder #2 must be after Reminder #1."
+            )
+        if reminder_2_at and reminder_3_at and reminder_3_at < reminder_2_at:
+            raise forms.ValidationError(
+                "Reminder #3 must be after Reminder #2."
+            )
 
         return cleaned
 
@@ -1148,6 +1195,28 @@ def _model_has_field(model: type[Model], field_name: str) -> bool:
         return True
     except Exception:
         return False
+
+
+def _apply_group_reminder_schedule(
+    group: FormGroup,
+    reminder_1_at,
+    reminder_2_at,
+    reminder_3_at,
+) -> list[str]:
+    update_fields: list[str] = []
+    for idx, new_dt in enumerate((reminder_1_at, reminder_2_at, reminder_3_at), start=1):
+        at_field = f"reminder_{idx}_at"
+        sent_field = f"reminder_{idx}_sent_at"
+        current_dt = getattr(group, at_field, None)
+
+        if current_dt != new_dt:
+            setattr(group, at_field, new_dt)
+            update_fields.append(at_field)
+            if getattr(group, sent_field, None) is not None:
+                setattr(group, sent_field, None)
+                update_fields.append(sent_field)
+
+    return update_fields
 
 
 def _sync_group_open_close(group: FormGroup):
@@ -1752,6 +1821,8 @@ def _looks_like_file_value(value: str) -> bool:
 # ----------------------------
 @staff_member_required
 def apps_list(request):
+    _maybe_run_due_group_reminders()
+
     masters = list(FormDefinition.objects.filter(slug__in=MASTER_SLUGS).order_by("slug"))
 
     groups = list(FormGroup.objects.order_by("number"))
@@ -1802,6 +1873,9 @@ def create_group(request):
     a2_deadline = form.cleaned_data.get("a2_deadline")
     open_at = form.cleaned_data.get("open_at")
     close_at = form.cleaned_data.get("close_at")
+    reminder_1_at = form.cleaned_data.get("reminder_1_at")
+    reminder_2_at = form.cleaned_data.get("reminder_2_at")
+    reminder_3_at = form.cleaned_data.get("reminder_3_at")
 
     with transaction.atomic():
         group, _created = FormGroup.objects.get_or_create(
@@ -1814,6 +1888,9 @@ def create_group(request):
                 "a2_deadline": a2_deadline,
                 "open_at": open_at,
                 "close_at": close_at,
+                "reminder_1_at": reminder_1_at,
+                "reminder_2_at": reminder_2_at,
+                "reminder_3_at": reminder_3_at,
             },
         )
         group.start_month = start_month
@@ -1823,7 +1900,24 @@ def create_group(request):
         group.a2_deadline = a2_deadline
         group.open_at = open_at
         group.close_at = close_at
-        group.save()
+        update_fields = [
+            "start_month",
+            "end_month",
+            "year",
+            "start_day",
+            "a2_deadline",
+            "open_at",
+            "close_at",
+        ]
+        update_fields.extend(
+            _apply_group_reminder_schedule(
+                group,
+                reminder_1_at,
+                reminder_2_at,
+                reminder_3_at,
+            )
+        )
+        group.save(update_fields=list(dict.fromkeys(update_fields)))
 
         masters = FormDefinition.objects.filter(slug__in=MASTER_SLUGS).order_by("slug")
         for master_fd in masters:
@@ -1873,7 +1967,8 @@ def delete_group(request, group_num: int):
 @require_POST
 def update_group_dates(request, group_num: int):
     """
-    Update start_day, A2 deadline, and open/close schedule for a group without recloning forms.
+    Update start_day, A2 deadline, open/close schedule, and reminder schedule for
+    a group without recloning forms.
     """
     group = get_object_or_404(FormGroup, number=group_num)
 
@@ -1893,22 +1988,65 @@ def update_group_dates(request, group_num: int):
 
     raw_open = (request.POST.get("open_at") or "").strip()
     raw_close = (request.POST.get("close_at") or "").strip()
+    raw_reminder_1 = (request.POST.get("reminder_1_at") or "").strip()
+    raw_reminder_2 = (request.POST.get("reminder_2_at") or "").strip()
+    raw_reminder_3 = (request.POST.get("reminder_3_at") or "").strip()
     open_at = group.open_at
     close_at = group.close_at
+    reminder_1_at = getattr(group, "reminder_1_at", None)
+    reminder_2_at = getattr(group, "reminder_2_at", None)
+    reminder_3_at = getattr(group, "reminder_3_at", None)
     try:
         from django.utils import timezone
         if raw_open:
             open_at = timezone.make_aware(datetime.strptime(raw_open, "%Y-%m-%dT%H:%M"))
         if raw_close:
             close_at = timezone.make_aware(datetime.strptime(raw_close, "%Y-%m-%dT%H:%M"))
+        if "reminder_1_at" in request.POST:
+            reminder_1_at = (
+                timezone.make_aware(datetime.strptime(raw_reminder_1, "%Y-%m-%dT%H:%M"))
+                if raw_reminder_1
+                else None
+            )
+        if "reminder_2_at" in request.POST:
+            reminder_2_at = (
+                timezone.make_aware(datetime.strptime(raw_reminder_2, "%Y-%m-%dT%H:%M"))
+                if raw_reminder_2
+                else None
+            )
+        if "reminder_3_at" in request.POST:
+            reminder_3_at = (
+                timezone.make_aware(datetime.strptime(raw_reminder_3, "%Y-%m-%dT%H:%M"))
+                if raw_reminder_3
+                else None
+            )
     except Exception:
         pass
 
-    group.start_day = start_day
-    group.a2_deadline = deadline
-    group.open_at = open_at
-    group.close_at = close_at
-    group.save(update_fields=["start_day", "a2_deadline", "open_at", "close_at"])
+    update_fields: list[str] = []
+    if group.start_day != start_day:
+        group.start_day = start_day
+        update_fields.append("start_day")
+    if group.a2_deadline != deadline:
+        group.a2_deadline = deadline
+        update_fields.append("a2_deadline")
+    if group.open_at != open_at:
+        group.open_at = open_at
+        update_fields.append("open_at")
+    if group.close_at != close_at:
+        group.close_at = close_at
+        update_fields.append("close_at")
+
+    update_fields.extend(
+        _apply_group_reminder_schedule(
+            group,
+            reminder_1_at,
+            reminder_2_at,
+            reminder_3_at,
+        )
+    )
+    if update_fields:
+        group.save(update_fields=list(dict.fromkeys(update_fields)))
 
     _sync_group_open_close(group)
 
@@ -2777,73 +2915,65 @@ def _a1_slug_for_a2(form_slug: str) -> str | None:
 @staff_member_required
 @require_POST
 def send_second_stage_reminders(request, form_slug: str):
+    status, sent_count, detail = _start_second_stage_reminders(form_slug)
 
+    if status == "started":
+        messages.success(
+            request,
+            f"Reminders iniciados para {form_slug}: {sent_count} destinatarios. Se enviarán en segundo plano.",
+        )
+    elif status == "no_targets":
+        messages.info(request, detail)
+    elif status == "already_running":
+        messages.warning(request, detail)
+    else:
+        messages.error(request, detail)
+
+    return redirect("admin_apps_list")
+
+def _build_second_stage_reminder_payload(form_slug: str) -> tuple[dict | None, str | None]:
     """
-    Sends reminder emails to people in the same group who submitted A1
-    and have NOT completed A2 yet.
-    Expected form slugs:
-      - G6_E_A2 / G6_M_A2 (group-specific A2 forms)
-
-    Rules:
-    - Uses only submissions from the matching A1 form(s) in the same group
-    - Only sends 1 email per unique email address
-    - Skips anyone who already submitted this A2 form
-    - No max cap
-    - Uses one SMTP connection to avoid timeouts
+    Build reminder recipient list + rendered email payload for one A2 form.
+    Returns (payload, error). payload includes targets/subject/html_body.
     """
-
-    # Validate form_slug is A2
     if not (form_slug.endswith("E_A2") or form_slug.endswith("M_A2")):
-        messages.error(request, "Este botón solo funciona para formularios A2 (E_A2 o M_A2).")
-        return redirect("admin_apps_list")
+        return None, "Este botón solo funciona para formularios A2 (E_A2 o M_A2)."
 
-    # Ensure A2 form exists
-    _a2_form = get_object_or_404(FormDefinition, slug=form_slug)
+    a2_form = FormDefinition.objects.filter(slug=form_slug).select_related("group").first()
+    if not a2_form:
+        return None, f"No se encontró el formulario {form_slug}."
 
     is_emprendedora = form_slug.endswith("E_A2")
     track_word = "emprendedora" if is_emprendedora else "mentora"
 
-    # Strict same-group matching: reminders only for people in this group's A1.
-    group = getattr(_a2_form, "group", None)
+    group = getattr(a2_form, "group", None)
     if not group:
-        messages.error(
-            request,
-            (
-                f"No se pudo enviar reminders para {form_slug}: "
-                "el formulario A2 no está vinculado a un grupo."
-            ),
+        return None, (
+            f"No se pudo enviar reminders para {form_slug}: "
+            "el formulario A2 no está vinculado a un grupo."
         )
-        return redirect("admin_apps_list")
 
     a1_suffix = "_E_A1" if is_emprendedora else "_M_A1"
     a1_forms = list(
         FormDefinition.objects.filter(group=group, slug__endswith=a1_suffix).only("id", "slug")
     )
     if not a1_forms:
-        messages.error(
-            request,
-            (
-                f"No se pudo enviar reminders para {form_slug}: "
-                "no se encontró el formulario A1 correspondiente en este grupo."
-            ),
+        return None, (
+            f"No se pudo enviar reminders para {form_slug}: "
+            "no se encontró el formulario A1 correspondiente en este grupo."
         )
-        return redirect("admin_apps_list")
 
-    # ✅ Find everyone who submitted matching A1 in this specific group
     a1_apps_qs = (
-        Application.objects.filter(
-            form__in=a1_forms,
-        )
+        Application.objects.filter(form__in=a1_forms)
         .exclude(email__isnull=True)
         .exclude(email__exact="")
         .only("id", "email", "created_at")
         .order_by("-created_at", "-id")
     )
 
-    # ✅ Find who already completed THIS A2
     completed_emails = {
         (email or "").strip().lower()
-        for email in Application.objects.filter(form=_a2_form)
+        for email in Application.objects.filter(form=a2_form)
         .exclude(email__isnull=True)
         .exclude(email__exact="")
         .values_list("email", flat=True)
@@ -2851,39 +2981,21 @@ def send_second_stage_reminders(request, form_slug: str):
     }
     completed_emails.discard("")
 
-    # ✅ Build unique target list
-    targets = []
-    seen = set()
-
+    targets: list[str] = []
+    seen: set[str] = set()
     for app in a1_apps_qs:
         email = (app.email or "").strip().lower()
-        if not email:
-            continue
-        if email in seen:
-            continue
-        if email in completed_emails:
+        if not email or email in seen or email in completed_emails:
             continue
         seen.add(email)
         targets.append(email)
 
-    if not targets:
-        messages.info(request, f"No hay personas pendientes para {form_slug}.")
-        return redirect("admin_apps_list")
-
-    # ✅ Link for this group’s A2 form (public slug link)
-    a2_link = f"https://apply.clubemprendo.org/apply/{form_slug}/"
-
-    # ✅ Use the corresponding group's A2 deadline (required for reminders)
     deadline = getattr(group, "a2_deadline", None)
     if not deadline:
-        messages.error(
-            request,
-            (
-                f"No se pudo enviar reminders para {form_slug}: "
-                "este formulario no tiene fecha límite A2 configurada en su grupo."
-            ),
+        return None, (
+            f"No se pudo enviar reminders para {form_slug}: "
+            "este formulario no tiene fecha límite A2 configurada en su grupo."
         )
-        return redirect("admin_apps_list")
 
     deadline_month = MONTH_NUM_TO_ES.get(deadline.month, "")
     deadline_str = (
@@ -2891,9 +3003,9 @@ def send_second_stage_reminders(request, form_slug: str):
         if deadline_month
         else deadline.strftime("%d/%m/%Y")
     )
+    a2_link = f"https://apply.clubemprendo.org/apply/{form_slug}/"
 
     subject = "Últimos días para completar la segunda aplicación"
-
     html_body = f"""
     <div style="font-family:Arial,Helvetica,sans-serif;line-height:1.6;max-width:700px;margin:0 auto;">
       <p>Hola,</p>
@@ -2920,32 +3032,122 @@ def send_second_stage_reminders(request, form_slug: str):
     </div>
     """
 
+    return {
+        "form_slug": form_slug,
+        "targets": targets,
+        "subject": subject,
+        "html_body": html_body,
+    }, None
+
+
+def _start_second_stage_reminders(form_slug: str) -> tuple[str, int, str]:
+    payload, error = _build_second_stage_reminder_payload(form_slug)
+    if error:
+        return "error", 0, error
+    if not payload:
+        return "error", 0, f"No se pudo construir reminders para {form_slug}."
+
+    targets = payload["targets"]
+    if not targets:
+        return "no_targets", 0, f"No hay personas pendientes para {form_slug}."
+
     lock_key = _reminder_lock_key(form_slug)
     if not cache.add(lock_key, "1", timeout=REMINDER_LOCK_TTL_SECONDS):
-        messages.warning(
-            request,
+        return (
+            "already_running",
+            0,
             f"Ya hay un envío de reminders en progreso para {form_slug}. Espera a que termine antes de volver a enviarlo.",
         )
-        return redirect("admin_apps_list")
 
     try:
         threading.Thread(
             target=_send_reminders_worker,
-            args=(form_slug, targets, subject, html_body, lock_key),
+            args=(form_slug, targets, payload["subject"], payload["html_body"], lock_key),
             daemon=True,
         ).start()
     except Exception:
         cache.delete(lock_key)
         logger.exception("Failed to start reminder worker for %s", form_slug)
-        messages.error(request, f"No se pudo iniciar el envío de reminders para {form_slug}.")
-        return redirect("admin_apps_list")
+        return "error", 0, f"No se pudo iniciar el envío de reminders para {form_slug}."
 
-    messages.success(
-        request,
-        f"Reminders iniciados para {form_slug}: {len(targets)} destinatarios. Se enviarán en segundo plano.",
+    return "started", len(targets), f"Reminders started for {form_slug}"
+
+
+def _run_due_group_reminders():
+    now = timezone.now()
+    due_groups = (
+        FormGroup.objects.filter(
+            Q(reminder_1_at__isnull=False, reminder_1_at__lte=now, reminder_1_sent_at__isnull=True)
+            | Q(reminder_2_at__isnull=False, reminder_2_at__lte=now, reminder_2_sent_at__isnull=True)
+            | Q(reminder_3_at__isnull=False, reminder_3_at__lte=now, reminder_3_sent_at__isnull=True)
+        )
+        .order_by("number")
     )
 
-    return redirect("admin_apps_list")
+    for group in due_groups:
+        a2_slugs = list(
+            FormDefinition.objects.filter(group=group)
+            .filter(Q(slug__endswith="_E_A2") | Q(slug__endswith="_M_A2"))
+            .values_list("slug", flat=True)
+        )
+        if not a2_slugs:
+            continue
+
+        for idx in (1, 2, 3):
+            at_field = f"reminder_{idx}_at"
+            sent_field = f"reminder_{idx}_sent_at"
+            due_at = getattr(group, at_field, None)
+            sent_at = getattr(group, sent_field, None)
+            if not due_at or sent_at or due_at > now:
+                continue
+
+            claimed = FormGroup.objects.filter(
+                id=group.id,
+                **{
+                    f"{sent_field}__isnull": True,
+                    f"{at_field}__isnull": False,
+                    f"{at_field}__lte": now,
+                },
+            ).update(**{sent_field: now})
+            if not claimed:
+                continue
+
+            had_non_error = False
+            for form_slug in a2_slugs:
+                status, sent_count, detail = _start_second_stage_reminders(form_slug)
+                if status in {"started", "no_targets", "already_running"}:
+                    had_non_error = True
+                    logger.info(
+                        "Auto reminder slot #%s for Group %s on %s -> %s (%s recipients)",
+                        idx,
+                        group.number,
+                        form_slug,
+                        status,
+                        sent_count,
+                    )
+                else:
+                    logger.warning(
+                        "Auto reminder slot #%s for Group %s on %s failed: %s",
+                        idx,
+                        group.number,
+                        form_slug,
+                        detail,
+                    )
+
+            if not had_non_error:
+                FormGroup.objects.filter(id=group.id).update(**{sent_field: None})
+
+
+def _maybe_run_due_group_reminders():
+    gate_key = "admin:reminders:auto:check"
+    if not cache.add(gate_key, "1", timeout=AUTO_REMINDER_CHECK_THROTTLE_SECONDS):
+        return
+    try:
+        _run_due_group_reminders()
+    except Exception:
+        logger.exception("Auto reminder scheduler check failed.")
+
+
 @staff_member_required
 @require_POST
 def grade_one_emprendedora(request, app_id: int):

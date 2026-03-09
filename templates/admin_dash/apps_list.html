@@ -144,10 +144,23 @@
             <input type="datetime-local" name="close_at" value="{{ g.close_at|date:'Y-m-d\\TH:i' }}" class="vDateTimeField">
           </div>
           <div>
+            <label class="inline">Reminder #1</label><br>
+            <input type="datetime-local" name="reminder_1_at" value="{{ g.reminder_1_at|date:'Y-m-d\\TH:i' }}" class="vDateTimeField">
+          </div>
+          <div>
+            <label class="inline">Reminder #2</label><br>
+            <input type="datetime-local" name="reminder_2_at" value="{{ g.reminder_2_at|date:'Y-m-d\\TH:i' }}" class="vDateTimeField">
+          </div>
+          <div>
+            <label class="inline">Reminder #3</label><br>
+            <input type="datetime-local" name="reminder_3_at" value="{{ g.reminder_3_at|date:'Y-m-d\\TH:i' }}" class="vDateTimeField">
+          </div>
+          <div>
             <button type="submit" class="button default">Guardar fechas</button>
           </div>
           <div style="color:#555; font-size:12px;">
             Actualiza fechas; meses/año permanecen igual. Apertura/cierre cambian visibilidad automática.
+            Reminder #1/#2/#3 envían recordatorios A2 automáticamente cuando llega cada fecha/hora.
           </div>
         </form>
       </div>

@@ -16,6 +16,24 @@ class FormGroup(models.Model):
     a2_deadline = models.DateField(null=True, blank=True, help_text="Fecha límite para completar la aplicación 2.")
     open_at = models.DateTimeField(null=True, blank=True, help_text="Fecha/hora en la que las aplicaciones del grupo se abrirán automáticamente.")
     close_at = models.DateTimeField(null=True, blank=True, help_text="Fecha/hora en la que las aplicaciones del grupo se cerrarán automáticamente.")
+    reminder_1_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Fecha/hora para el recordatorio automático #1 de A2.",
+    )
+    reminder_2_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Fecha/hora para el recordatorio automático #2 de A2.",
+    )
+    reminder_3_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Fecha/hora para el recordatorio automático #3 de A2.",
+    )
+    reminder_1_sent_at = models.DateTimeField(null=True, blank=True, editable=False)
+    reminder_2_sent_at = models.DateTimeField(null=True, blank=True, editable=False)
+    reminder_3_sent_at = models.DateTimeField(null=True, blank=True, editable=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

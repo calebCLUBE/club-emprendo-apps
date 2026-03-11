@@ -2130,6 +2130,13 @@ def database_form_detail(request, form_slug: str):
         .prefetch_related("answers__question", "form")
         .order_by("-created_at", "-id")
     )
+    submission_count = apps.count()
+    is_first_application = (form_def.slug or "").endswith("E_A1") or (form_def.slug or "").endswith("M_A1")
+    second_stage_sent_count = (
+        apps.filter(invited_to_second_stage=True).count()
+        if is_first_application
+        else None
+    )
 
     headers, rows = _build_csv_for_form(form_def)
     preview_html = _csv_preview_html(headers, rows, max_rows=None)
@@ -2140,6 +2147,9 @@ def database_form_detail(request, form_slug: str):
         {
             "form_def": form_def,
             "apps": apps,
+            "submission_count": submission_count,
+            "is_first_application": is_first_application,
+            "second_stage_sent_count": second_stage_sent_count,
             "preview_html": preview_html,
         },
     )

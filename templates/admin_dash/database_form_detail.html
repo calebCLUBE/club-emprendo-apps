@@ -13,7 +13,12 @@
     </div>
   </details>
 
-  <h2 style="margin-top:18px;">Submissions ({{ apps|length }})</h2>
+  <h2 style="margin-top:18px;">Submissions ({{ submission_count }})</h2>
+  {% if is_first_application %}
+    <p style="margin:6px 0 12px; color:#333;">
+      Sent second application: <strong>{{ second_stage_sent_count }}</strong>
+    </p>
+  {% endif %}
   {% if apps %}
     <form method="post"
           action="{% url 'admin_bulk_delete_submissions' %}"

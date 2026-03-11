@@ -1825,6 +1825,11 @@ def _looks_like_file_value(value: str) -> bool:
 @staff_member_required
 def apps_list(request):
     _maybe_run_due_group_reminders()
+    try:
+        from applications.views import _maybe_run_due_a1_to_a2_reminders
+        _maybe_run_due_a1_to_a2_reminders()
+    except Exception:
+        logger.exception("A1->A2 auto reminder scheduler check failed.")
 
     masters = list(FormDefinition.objects.filter(slug__in=MASTER_SLUGS).order_by("slug"))
 
@@ -2978,6 +2983,7 @@ def _build_second_stage_reminder_payload(form_slug: str) -> tuple[dict | None, s
 
     a1_apps_qs = (
         Application.objects.filter(form__in=a1_forms)
+        .filter(invited_to_second_stage=True)
         .exclude(email__isnull=True)
         .exclude(email__exact="")
         .only("id", "email", "created_at")

@@ -303,6 +303,18 @@ class Application(models.Model):
     # For A1: token+flag to invite to A2
     invite_token = models.UUIDField(null=True, blank=True, unique=True)
     invited_to_second_stage = models.BooleanField(default=False)
+    second_stage_reminder_due_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="Automatic follow-up reminder due time for invited A1 applicants.",
+    )
+    second_stage_reminder_sent_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        editable=False,
+        help_text="When the automatic A1->A2 reminder was sent.",
+    )
 
     def generate_invite_token(self):
         if not self.invite_token:

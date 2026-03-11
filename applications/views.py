@@ -1,8 +1,11 @@
 # applications/views.py
 import re
 import logging
+import threading
+from datetime import timedelta
 
 from django.conf import settings
+from django.core.cache import cache
 from django.core.mail import EmailMultiAlternatives
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse
@@ -29,6 +32,23 @@ MENTORA_A2_REQ_FIELDS = [
     "req_avail_2hrs_week",
     "req_avail_kickoff",
 ]
+MONTH_NUM_TO_ES = {
+    1: "enero",
+    2: "febrero",
+    3: "marzo",
+    4: "abril",
+    5: "mayo",
+    6: "junio",
+    7: "julio",
+    8: "agosto",
+    9: "septiembre",
+    10: "octubre",
+    11: "noviembre",
+    12: "diciembre",
+}
+A1_TO_A2_REMINDER_DELAY_HOURS = 24
+A1_TO_A2_REMINDER_CHECK_THROTTLE_SECONDS = 45
+A1_TO_A2_REMINDER_RUN_LOCK_TTL_SECONDS = 60 * 15
 
 
 # -------------------------
@@ -60,6 +80,204 @@ def _send_html_email(to_email: str, subject: str, html_body: str):
     )
     msg.attach_alternative(html_body, "text/html")
     msg.send(fail_silently=False)
+
+
+def _is_a1_form_slug(slug: str) -> bool:
+    return (slug or "").endswith("E_A1") or (slug or "").endswith("M_A1")
+
+
+def _a2_candidate_slugs_for_a1_slug(a1_slug: str) -> list[str]:
+    slug = a1_slug or ""
+    if slug.endswith("E_A1"):
+        master = "E_A2"
+        grouped = slug.replace("_E_A1", "_E_A2") if slug.startswith("G") and "_E_A1" in slug else None
+    elif slug.endswith("M_A1"):
+        master = "M_A2"
+        grouped = slug.replace("_M_A1", "_M_A2") if slug.startswith("G") and "_M_A1" in slug else None
+    else:
+        return []
+
+    candidates: list[str] = []
+    if grouped:
+        candidates.append(grouped)
+    candidates.append(master)
+    return candidates
+
+
+def _a2_completed_for_a1_app(app: Application) -> bool:
+    email = (app.email or "").strip()
+    if not email:
+        return False
+
+    candidate_slugs = _a2_candidate_slugs_for_a1_slug(app.form.slug or "")
+    if not candidate_slugs:
+        return False
+
+    return Application.objects.filter(
+        form__slug__in=candidate_slugs,
+        email__iexact=email,
+    ).exists()
+
+
+def _second_stage_link_for_a1_app(app: Application) -> str:
+    if not app.invite_token:
+        app.generate_invite_token()
+        app.save(update_fields=["invite_token"])
+
+    if (app.form.slug or "").endswith("E_A1"):
+        path = reverse("apply_emprendedora_second", kwargs={"token": str(app.invite_token)})
+    else:
+        path = reverse("apply_mentora_second", kwargs={"token": str(app.invite_token)})
+
+    base_url = (getattr(settings, "SITE_URL", "") or "").strip().rstrip("/")
+    if not base_url:
+        base_url = "https://apply.clubemprendo.org"
+    return f"{base_url}{path}"
+
+
+def _build_a1_to_a2_reminder_email(app: Application) -> tuple[str, str]:
+    is_emprendedora = (app.form.slug or "").endswith("E_A1")
+    role_word = "emprendedora" if is_emprendedora else "mentora"
+
+    deadline_text = ""
+    group = getattr(app.form, "group", None)
+    deadline = getattr(group, "a2_deadline", None) if group else None
+    if deadline:
+        month = MONTH_NUM_TO_ES.get(deadline.month, "")
+        if month:
+            deadline_text = f"{deadline.day} de {month} de {deadline.year}"
+        else:
+            deadline_text = deadline.strftime("%d/%m/%Y")
+
+    a2_link = _second_stage_link_for_a1_app(app)
+    deadline_sentence = (
+        f"<p>Te recordamos que la fecha límite para completar tu aplicación es el <strong>{deadline_text}</strong>.</p>"
+        if deadline_text
+        else ""
+    )
+
+    subject = "Recordatorio: completa tu segunda aplicación"
+    html_body = f"""
+    <div style="font-family:Arial,Helvetica,sans-serif;line-height:1.6;max-width:700px;margin:0 auto;">
+      <p>Hola,</p>
+      <p>
+        Queremos recordarte que según tu primera aplicación fuiste invitada a continuar al segundo paso del
+        proceso para participar como <strong>{role_word}</strong> en Club Emprendo.
+      </p>
+      {deadline_sentence}
+      <p>
+        Si aún no has completado la segunda aplicación, puedes hacerlo aquí:
+        👉 <a href="{a2_link}">{a2_link}</a>
+      </p>
+      <p>Con cariño,<br><strong>Equipo Club Emprendo</strong></p>
+    </div>
+    """
+    return subject, html_body
+
+
+def _schedule_a1_to_a2_reminder(app: Application):
+    slug = app.form.slug or ""
+    if not _is_a1_form_slug(slug):
+        return
+
+    target_due_at = None
+    if app.invited_to_second_stage:
+        target_due_at = app.created_at + timedelta(hours=A1_TO_A2_REMINDER_DELAY_HOURS)
+
+    update_fields: list[str] = []
+    if app.second_stage_reminder_due_at != target_due_at:
+        app.second_stage_reminder_due_at = target_due_at
+        update_fields.append("second_stage_reminder_due_at")
+    if app.second_stage_reminder_sent_at is not None:
+        app.second_stage_reminder_sent_at = None
+        update_fields.append("second_stage_reminder_sent_at")
+
+    if update_fields:
+        app.save(update_fields=update_fields)
+
+
+def _mark_a1_reminder_sent(form_slug: str, email: str):
+    now = timezone.now()
+    Application.objects.filter(
+        form__slug=form_slug,
+        email__iexact=email,
+        invited_to_second_stage=True,
+        second_stage_reminder_sent_at__isnull=True,
+    ).update(second_stage_reminder_sent_at=now)
+
+
+def _run_due_a1_to_a2_reminders():
+    now = timezone.now()
+    due_apps = list(
+        Application.objects.select_related("form", "form__group")
+        .filter(
+            invited_to_second_stage=True,
+            second_stage_reminder_due_at__isnull=False,
+            second_stage_reminder_due_at__lte=now,
+            second_stage_reminder_sent_at__isnull=True,
+        )
+        .exclude(email__isnull=True)
+        .exclude(email__exact="")
+        .order_by("second_stage_reminder_due_at", "id")[:300]
+    )
+
+    processed_keys: set[tuple[str, str]] = set()
+    for app in due_apps:
+        email = (app.email or "").strip().lower()
+        if not email:
+            continue
+        key = (app.form.slug or "", email)
+        if key in processed_keys:
+            continue
+        processed_keys.add(key)
+
+        try:
+            fresh = (
+                Application.objects.select_related("form", "form__group")
+                .filter(
+                    id=app.id,
+                    invited_to_second_stage=True,
+                    second_stage_reminder_due_at__isnull=False,
+                    second_stage_reminder_due_at__lte=timezone.now(),
+                    second_stage_reminder_sent_at__isnull=True,
+                )
+                .first()
+            )
+            if not fresh:
+                continue
+
+            if _a2_completed_for_a1_app(fresh):
+                _mark_a1_reminder_sent(fresh.form.slug or "", fresh.email or "")
+                continue
+
+            subject, html_body = _build_a1_to_a2_reminder_email(fresh)
+            _send_html_email((fresh.email or "").strip(), subject, html_body)
+            _mark_a1_reminder_sent(fresh.form.slug or "", fresh.email or "")
+        except Exception:
+            logger.exception(
+                "Automatic A1->A2 reminder failed (app_id=%s, form=%s, email=%s)",
+                app.id,
+                app.form.slug,
+                app.email,
+            )
+
+
+def _maybe_run_due_a1_to_a2_reminders():
+    gate_key = "public:reminders:a1_to_a2:check"
+    if not cache.add(gate_key, "1", timeout=A1_TO_A2_REMINDER_CHECK_THROTTLE_SECONDS):
+        return
+
+    run_lock_key = "public:reminders:a1_to_a2:runlock"
+    if not cache.add(run_lock_key, "1", timeout=A1_TO_A2_REMINDER_RUN_LOCK_TTL_SECONDS):
+        return
+
+    def _runner():
+        try:
+            _run_due_a1_to_a2_reminders()
+        finally:
+            cache.delete(run_lock_key)
+
+    threading.Thread(target=_runner, daemon=True).start()
 
 
 def _norm(v) -> str:
@@ -591,6 +809,7 @@ def _sections_from_model(form_def: FormDefinition, form):
 
 
 def _handle_application_form(request, form_slug: str, second_stage: bool = False):
+    _maybe_run_due_a1_to_a2_reminders()
     form_def = get_object_or_404(FormDefinition, slug=form_slug)
 
     manual_override = getattr(form_def, "manual_open_override", None)
@@ -741,9 +960,13 @@ def _handle_application_form(request, form_slug: str, second_stage: bool = False
         # A1 autogrades
         if form_def.slug.endswith("M_A1"):
             _mentor_a1_autograde_and_email(request, app)
+            app.refresh_from_db()
+            _schedule_a1_to_a2_reminder(app)
 
         if form_def.slug.endswith("E_A1"):
             autograde_and_email_emprendedora_a1(request, app)
+            app.refresh_from_db()
+            _schedule_a1_to_a2_reminder(app)
 
         # group number (from slug like G5_M_A1)
         group_num = ""

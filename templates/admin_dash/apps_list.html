@@ -3,168 +3,216 @@
 
 {% block content %}
 <div class="ce-admin-wrap">
+  <style>
+    .ce-dd {
+      border: 1px solid #ddd;
+      border-radius: 10px;
+      background: #fff;
+      margin: 12px 0;
+      overflow: hidden;
+    }
+    .ce-dd > summary {
+      cursor: pointer;
+      padding: 12px 14px;
+      font-weight: 600;
+      background: #f7f7f7;
+      list-style: none;
+    }
+    .ce-dd > summary::-webkit-details-marker {
+      display: none;
+    }
+    .ce-dd > summary::before {
+      content: "▸ ";
+      color: #666;
+    }
+    .ce-dd[open] > summary::before {
+      content: "▾ ";
+    }
+    .ce-dd-body {
+      padding: 12px 14px;
+    }
+    .ce-form-item {
+      border: 1px solid #eee;
+      border-radius: 8px;
+      margin: 8px 0;
+      background: #fafafa;
+    }
+    .ce-form-item summary {
+      background: #fff;
+      padding: 10px 12px;
+    }
+    .ce-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+      margin-top: 10px;
+    }
+    .ce-meta {
+      color: #666;
+      font-size: 12px;
+    }
+  </style>
 
-  <h1>Master Applications</h1>
+  <h1>Applications</h1>
 
-  <div style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:24px;">
-    {% for fd in masters %}
-      <a class="ce-admin-tile" href="/admin/applications/formdefinition/{{ fd.id }}/change/">
-        <div class="ce-admin-tile-title">{{ fd.slug }}</div>
-        <div class="ce-admin-tile-sub">{{ fd.name }}</div>
-      </a>
-    {% empty %}
-      <p>No master forms found yet.</p>
-    {% endfor %}
-  </div>
-
-  <hr style="margin:24px 0;" />
-
-  <h2>Groups</h2>
-
-  <div style="margin-bottom: 18px;">
-    <form method="post" action="{% url 'admin_create_group' %}">
-      {% csrf_token %}
-
-      {% if create_group_form.non_field_errors %}
-        <div class="errornote">
-          {{ create_group_form.non_field_errors }}
-        </div>
-      {% endif %}
-
-      {{ create_group_form.as_p }}
-
-      <button type="submit" class="default">Create group</button>
-    </form>
-  </div>
-
-
-  {% for g, forms in group_list %}
-    <div style="border:1px solid #ddd; border-radius:10px; padding:14px; margin:14px 0; background:#fff;">
-
-      <div style="display:flex; align-items:baseline; justify-content:space-between; gap:12px; flex-wrap:wrap;">
-        <div>
-          {% if g.number %}
-            <h3 style="margin:0;">
-              Group {{ g.number }}
-              <small style="color:#666; font-weight:normal;">
-                ({{ g.start_day }} {{ g.start_month }} – {{ g.end_month }} {{ g.year }})
-              </small>
-            </h3>
-          {% else %}
-            <h3 style="margin:0;">
-              Group {{ g }}
-              <small style="color:#b45309; font-weight:normal;">
-                (orphan group – missing FormGroup dates)
-              </small>
-            </h3>
-          {% endif %}
-        </div>
-
-        <div>
-            <form
-            method="post"
-            action="{% url 'admin_delete_group' group_num=g.number|default:g %}"
-            style="display:inline;"
-            onsubmit="return confirm('Delete Group {{ g.number|default:g }} and ALL its forms? This cannot be undone.');"
-          >
-            {% csrf_token %}
-            <button type="submit" class="deletelink">Delete group</button>
-          </form>
-        </div>
-      </div>
-
-      {% if forms %}
-        <ul style="margin-top:10px;">
-          {% for fd in forms %}
-            <li style="margin:10px 0;">
-              <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
-                <div>
-                  <strong>{{ fd.slug }}</strong>
-                  — {{ fd.name }}
-                  &nbsp;|&nbsp;
-                  <a href="/admin/applications/formdefinition/{{ fd.id }}/change/">Edit</a>
-                  &nbsp;|&nbsp;
-                  <a href="/apply/{{ fd.slug }}/" target="_blank" rel="noopener">Open link</a>
-                </div>
-
-                <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-                  {# Send reminders button (ONLY for A2) #}
-                  {% if fd.slug and "_A2" in fd.slug %}
-                    <form method="post" action="{% url 'admin_send_second_stage_reminders' fd.slug %}" style="display:inline;"
-                      onsubmit="if(!confirm('Send reminders for {{ fd.slug }}?')) return false; var b=this.querySelector('button[type=submit]'); if(b){b.disabled=true;b.textContent='Sending...';} return true;">
-                      {% csrf_token %}
-                      <button type="submit" class="button">
-                        Send reminders
-                      </button>
-                    </form>
-                  {% endif %}
-
-                  {# Close/Open applications (uses is_public as open flag) #}
-                  <form method="post" action="{% url 'admin_toggle_form_open' fd.slug %}" style="display:inline;">
-                    {% csrf_token %}
-                    {% if fd.is_public %}
-                      <button type="submit" class="button"
-                        onclick="return confirm('Close {{ fd.slug }} so it stops accepting submissions?');">
-                        Close
-                      </button>
-                    {% else %}
-                      <button type="submit" class="button default"
-                        onclick="return confirm('Open {{ fd.slug }} so it accepts submissions again?');">
-                        Open
-                      </button>
-                    {% endif %}
-                  </form>
-                </div>
-              </div>
-
-              {# ✅ Copy/paste line removed #}
-            </li>
-          {% endfor %}
-        </ul>
-      {% else %}
-        <p style="margin:10px 0 0;"><em>No forms in this group yet.</em></p>
-      {% endif %}
-      <div style="margin-top:10px; padding:10px; background:#f9f9f9; border-radius:8px;">
-        <form method="post" action="{% url 'admin_update_group' group_num=g.number %}" style="display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap;">
-          {% csrf_token %}
-          <div>
-            <label class="inline">Día de inicio</label><br>
-            <input type="number" min="1" max="31" name="start_day" value="{{ g.start_day }}" class="vTextField" style="width:90px;">
-          </div>
-          <div>
-            <label class="inline">Fecha límite A2</label><br>
-            <input type="date" name="a2_deadline" value="{{ g.a2_deadline|date:'Y-m-d' }}" class="vDateField">
-          </div>
-          <div>
-            <label class="inline">Abrir en</label><br>
-            <input type="datetime-local" name="open_at" value="{{ g.open_at|date:'Y-m-d\\TH:i' }}" class="vDateTimeField">
-          </div>
-          <div>
-            <label class="inline">Cerrar en</label><br>
-            <input type="datetime-local" name="close_at" value="{{ g.close_at|date:'Y-m-d\\TH:i' }}" class="vDateTimeField">
-          </div>
-          <div>
-            <label class="inline">Reminder #1</label><br>
-            <input type="datetime-local" name="reminder_1_at" value="{{ g.reminder_1_at|date:'Y-m-d\\TH:i' }}" class="vDateTimeField">
-          </div>
-          <div>
-            <label class="inline">Reminder #2</label><br>
-            <input type="datetime-local" name="reminder_2_at" value="{{ g.reminder_2_at|date:'Y-m-d\\TH:i' }}" class="vDateTimeField">
-          </div>
-          <div>
-            <label class="inline">Reminder #3</label><br>
-            <input type="datetime-local" name="reminder_3_at" value="{{ g.reminder_3_at|date:'Y-m-d\\TH:i' }}" class="vDateTimeField">
-          </div>
-          <div>
-            <button type="submit" class="button default">Guardar fechas</button>
-          </div>
-          <div style="color:#555; font-size:12px;">
-            Actualiza fechas; meses/año permanecen igual. Apertura/cierre cambian visibilidad automática.
-            Reminder #1/#2/#3 envían recordatorios A2 automáticamente cuando llega cada fecha/hora.
-          </div>
-        </form>
+  <details class="ce-dd" open>
+    <summary>Master applications</summary>
+    <div class="ce-dd-body">
+      <div style="display:flex; gap:12px; flex-wrap:wrap;">
+        {% for fd in masters %}
+          <a class="ce-admin-tile" href="/admin/applications/formdefinition/{{ fd.id }}/change/">
+            <div class="ce-admin-tile-title">{{ fd.slug }}</div>
+            <div class="ce-admin-tile-sub">{{ fd.name }}</div>
+          </a>
+        {% empty %}
+          <p>No master forms found yet.</p>
+        {% endfor %}
       </div>
     </div>
+  </details>
+
+  <details class="ce-dd">
+    <summary>Create group</summary>
+    <div class="ce-dd-body">
+      <form method="post" action="{% url 'admin_create_group' %}">
+        {% csrf_token %}
+
+        {% if create_group_form.non_field_errors %}
+          <div class="errornote">
+            {{ create_group_form.non_field_errors }}
+          </div>
+        {% endif %}
+
+        {{ create_group_form.as_p }}
+        <button type="submit" class="default">Create group</button>
+      </form>
+    </div>
+  </details>
+
+  <h2 style="margin-top:18px;">Groups</h2>
+
+  {% for g, forms in group_list %}
+    <details class="ce-dd" {% if forloop.first %}open{% endif %}>
+      <summary>
+        {% if g.number %}
+          Group {{ g.number }}
+          <small style="color:#666; font-weight:normal;">
+            ({{ g.start_day }} {{ g.start_month }} - {{ g.end_month }} {{ g.year }})
+          </small>
+        {% else %}
+          Group {{ g }}
+          <small style="color:#b45309; font-weight:normal;">
+            (orphan group - missing FormGroup dates)
+          </small>
+        {% endif %}
+      </summary>
+
+      <div class="ce-dd-body">
+        <form
+          method="post"
+          action="{% url 'admin_delete_group' group_num=g.number|default:g %}"
+          style="margin-bottom:10px;"
+          onsubmit="return confirm('Delete Group {{ g.number|default:g }} and ALL its forms? This cannot be undone.');"
+        >
+          {% csrf_token %}
+          <button type="submit" class="deletelink">Delete group</button>
+        </form>
+
+        <details class="ce-dd" open>
+          <summary>Forms ({{ forms|length }})</summary>
+          <div class="ce-dd-body">
+            {% if forms %}
+              {% for fd in forms %}
+                <details class="ce-form-item">
+                  <summary>
+                    <strong>{{ fd.slug }}</strong> - {{ fd.name }}
+                  </summary>
+                  <div class="ce-dd-body" style="padding-top:0;">
+                    <div>
+                      <a href="/admin/applications/formdefinition/{{ fd.id }}/change/">Edit</a>
+                      &nbsp;|&nbsp;
+                      <a href="/apply/{{ fd.slug }}/" target="_blank" rel="noopener">Open link</a>
+                    </div>
+
+                    <div class="ce-actions">
+                      {% if fd.slug and "_A2" in fd.slug %}
+                        <form method="post" action="{% url 'admin_send_second_stage_reminders' fd.slug %}" style="display:inline;"
+                          onsubmit="if(!confirm('Send reminders for {{ fd.slug }}?')) return false; var b=this.querySelector('button[type=submit]'); if(b){b.disabled=true;b.textContent='Sending...';} return true;">
+                          {% csrf_token %}
+                          <button type="submit" class="button">Send reminders</button>
+                        </form>
+                      {% endif %}
+
+                      <form method="post" action="{% url 'admin_toggle_form_open' fd.slug %}" style="display:inline;">
+                        {% csrf_token %}
+                        {% if fd.is_public %}
+                          <button type="submit" class="button"
+                            onclick="return confirm('Close {{ fd.slug }} so it stops accepting submissions?');">
+                            Close
+                          </button>
+                        {% else %}
+                          <button type="submit" class="button default"
+                            onclick="return confirm('Open {{ fd.slug }} so it accepts submissions again?');">
+                            Open
+                          </button>
+                        {% endif %}
+                      </form>
+                    </div>
+                  </div>
+                </details>
+              {% endfor %}
+            {% else %}
+              <p><em>No forms in this group yet.</em></p>
+            {% endif %}
+          </div>
+        </details>
+
+        <details class="ce-dd" style="margin-top:10px;">
+          <summary>Group schedule and reminders</summary>
+          <div class="ce-dd-body">
+            <form method="post" action="{% url 'admin_update_group' group_num=g.number %}" style="display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap;">
+              {% csrf_token %}
+              <div>
+                <label class="inline">Día de inicio</label><br>
+                <input type="number" min="1" max="31" name="start_day" value="{{ g.start_day }}" class="vTextField" style="width:90px;">
+              </div>
+              <div>
+                <label class="inline">Fecha límite A2</label><br>
+                <input type="date" name="a2_deadline" value="{{ g.a2_deadline|date:'Y-m-d' }}" class="vDateField">
+              </div>
+              <div>
+                <label class="inline">Abrir en</label><br>
+                <input type="datetime-local" name="open_at" value="{{ g.open_at|date:'Y-m-d\\TH:i' }}" class="vDateTimeField">
+              </div>
+              <div>
+                <label class="inline">Cerrar en</label><br>
+                <input type="datetime-local" name="close_at" value="{{ g.close_at|date:'Y-m-d\\TH:i' }}" class="vDateTimeField">
+              </div>
+              <div>
+                <label class="inline">Reminder #1</label><br>
+                <input type="datetime-local" name="reminder_1_at" value="{{ g.reminder_1_at|date:'Y-m-d\\TH:i' }}" class="vDateTimeField">
+              </div>
+              <div>
+                <label class="inline">Reminder #2</label><br>
+                <input type="datetime-local" name="reminder_2_at" value="{{ g.reminder_2_at|date:'Y-m-d\\TH:i' }}" class="vDateTimeField">
+              </div>
+              <div>
+                <label class="inline">Reminder #3</label><br>
+                <input type="datetime-local" name="reminder_3_at" value="{{ g.reminder_3_at|date:'Y-m-d\\TH:i' }}" class="vDateTimeField">
+              </div>
+              <div>
+                <button type="submit" class="button default">Guardar fechas</button>
+              </div>
+            </form>
+            <div class="ce-meta" style="margin-top:8px;">
+              Actualiza fechas; meses/año permanecen igual. Apertura/cierre cambian visibilidad automática.
+              Reminder #1/#2/#3 envían recordatorios A2 automáticamente cuando llega cada fecha/hora.
+            </div>
+          </div>
+        </details>
+      </div>
+    </details>
   {% empty %}
     <p>No groups yet.</p>
   {% endfor %}

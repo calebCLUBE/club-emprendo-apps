@@ -58,6 +58,24 @@ def has_employees_pts(v):
     return 2 if yes(v) else 0
 
 
+def status_from_participation(v, *, disqualified: bool) -> str:
+    if disqualified:
+        return "N/A"
+
+    text = str(v or "").strip().lower()
+    selected_tokens = (
+        "yes_entrepreneur",
+        "yes_mentor",
+        "as_entrepreneur",
+        "as_mentor",
+        "as_mentora",
+    )
+    if any(tok in text for tok in selected_tokens):
+        return "Seleccionada"
+
+    return "Aplicante anterios"
+
+
 def _normalized_identifier(row: dict | pd.Series, keys: list[str]) -> tuple[str, str] | None:
     for key in keys:
         value = str(row.get(key, "") or "").strip().lower()
@@ -213,6 +231,7 @@ Explanation: <2–3 sentences justifying the score>
 
 CATEGORY_ROW = [
     "TOTAL",
+    "",
     "", "", "", "", "",
     "FLAGS",
     "TABLESTAKES",
@@ -228,6 +247,7 @@ CATEGORY_ROW = [
 
 COLUMNS = [
     "total_score",
+    "status",
     "full_name",
     "whatsapp",
     "email",
@@ -260,6 +280,10 @@ COLUMNS = [
 
 def grade_single_row(row: dict, client: OpenAI) -> list:
     disqual_reasons = _disqualification_reasons(row)
+    status = status_from_participation(
+        row.get("participated_before"),
+        disqualified=bool(disqual_reasons),
+    )
 
     prior_pt = prior_mentoring_pts(row.get("prior_mentoring"))
     business_age_pt = business_age_pts(row.get("business_age"))
@@ -277,6 +301,7 @@ def grade_single_row(row: dict, client: OpenAI) -> list:
         reason_text = "Disqualified: " + ", ".join(disqual_reasons)
         return [
             "NA",
+            status,
             row.get("full_name"),
             row.get("whatsapp"),
             row.get("email"),
@@ -322,6 +347,7 @@ def grade_single_row(row: dict, client: OpenAI) -> list:
 
     return [
         total_score,
+        status,
         row.get("full_name"),
         row.get("whatsapp"),
         row.get("email"),

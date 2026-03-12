@@ -33,9 +33,14 @@ body {
 #header {
   background: #ffffff !important;
   border-bottom: 1px solid var(--ce-border);
-  padding: 12px 18px !important;
+  padding: 14px 18px 16px !important;
   height: auto !important;
-  min-height: 0 !important;
+  min-height: 72px !important;
+  box-sizing: border-box;
+  align-items: flex-start !important;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  overflow: visible !important;
 }
 
 /* Branding row */
@@ -43,6 +48,20 @@ body {
   display: flex;
   align-items: center;
   gap: 12px;
+  min-height: 48px;
+  overflow: visible !important;
+}
+
+#branding {
+  display: flex;
+  align-items: center;
+  overflow: visible !important;
+}
+
+.ce-admin-brand-link {
+  display: flex;
+  align-items: center;
+  overflow: visible !important;
 }
 
 /* Logo: clamp size so it can’t take over the screen */
@@ -69,6 +88,11 @@ body {
 /* Make header user tools readable (top-right links) */
 #user-tools, #user-tools a {
   color: var(--ce-text) !important;
+}
+#user-tools {
+  align-self: center;
+  line-height: 1.4 !important;
+  overflow: visible !important;
 }
 
 /* Your nice admin tiles */
@@ -112,6 +136,11 @@ body {
 @media (max-width: 900px) {
   .ce-admin-grid { grid-template-columns: 1fr; }
   .ce-admin-logo { height: 40px; max-width: 200px; }
+  #header {
+    min-height: 0 !important;
+    padding: 12px 14px 14px !important;
+    gap: 8px 10px;
+  }
 }
 /* Collapsible filters */
 .ce-filter {

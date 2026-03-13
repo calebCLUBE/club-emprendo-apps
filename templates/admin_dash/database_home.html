@@ -3,27 +3,6 @@
 
 <h1>Database</h1>
 
-{% if master_forms %}
-  <h2 style="margin-top:18px;">Master Forms</h2>
-  <ul style="margin: 8px 0 18px 0;">
-    {% for fd in master_forms %}
-      <li style="margin:6px 0;">
-        <a href="{% url 'admin_database_form_detail' fd.slug %}">
-          {{ fd.slug }} — {{ fd.name }} ({{ fd.submission_count|default:0 }})
-        </a>
-
-        &nbsp; — &nbsp;
-        <a href="{% url 'admin_export_form_csv' fd.slug %}">CSV</a>
-
-        {% if fd.admin_edit_url %}
-          &nbsp;|&nbsp;
-          <a class="button" href="{{ fd.admin_edit_url }}" target="_blank">Edit</a>
-        {% endif %}
-      </li>
-    {% endfor %}
-  </ul>
-{% endif %}
-
 <h2 style="margin-top:18px;">All Groups by Application Type</h2>
 <ul style="margin: 8px 0 18px 0;">
   <li style="margin:6px 0;">

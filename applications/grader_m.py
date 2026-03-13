@@ -8,7 +8,6 @@ logger = logging.getLogger(__name__)
 
 W = {
     "owned_business": 3,
-    "prior_participation": 4,
     "business_years": 4,
     "has_employees": 2,
     "professional_expertise_struct": 2,
@@ -27,17 +26,6 @@ W = {
 def yes(v):
     return str(v).strip().lower() == "yes"
 
-def prior_participation_pts(v):
-    if not isinstance(v, str):
-        return 0
-    if "first_time" in v:
-        return 0
-    if "as_entrepreneur" in v and "as_mentora" in v:
-        return 5
-    if "as_entrepreneur" in v or "as_mentora" in v:
-        return 4
-    return 0
-
 def business_years_pts(v, owned):
     mapping = {"0_1": 1, "1_5": 2, "5_10": 3, "10_plus": 4}
     if pd.isna(v) or v == "":
@@ -45,10 +33,7 @@ def business_years_pts(v, owned):
     return mapping.get(v, 0)
 
 
-def status_from_participation(v, *, disqualified: bool) -> str:
-    if disqualified:
-        return "N/A"
-
+def has_prior_participation(v) -> bool:
     text = str(v or "").strip().lower()
     selected_tokens = (
         "as_entrepreneur",
@@ -57,10 +42,25 @@ def status_from_participation(v, *, disqualified: bool) -> str:
         "yes_entrepreneur",
         "yes_mentor",
     )
-    if any(tok in text for tok in selected_tokens):
+    return any(tok in text for tok in selected_tokens)
+
+
+def status_from_participation(v, *, disqualified: bool) -> str:
+    if disqualified:
+        return "N/A"
+
+    if has_prior_participation(v):
         return "Seleccionada"
 
     return "Aplicante anterios"
+
+
+def red_flag_color(red_flag_text: str, prior_participation_value) -> str:
+    if str(red_flag_text or "").strip():
+        return "red"
+    if has_prior_participation(prior_participation_value):
+        return "green"
+    return ""
 
 
 def _normalized_identifier(row: dict | pd.Series, keys: list[str]) -> tuple[str, str] | None:
@@ -226,7 +226,7 @@ COLUMNS = [
     "whatsapp",
     "country_residence",
     "age_range",
-    "red_flags",
+    "flag_color",
     "meets_all_req",
     "req_explain",
     "owned_business",
@@ -269,7 +269,6 @@ def grade_single_row(row: dict, client: OpenAI) -> dict:
     )
 
     owned_pt = yes(row.get("owned_business")) * W["owned_business"]
-    prior_pt = prior_participation_pts(row.get("prior_participation"))
     years_pt = business_years_pts(row.get("business_years"), row.get("owned_business"))
     emp_pt = yes(row.get("has_employees")) * W["has_employees"]
     mentor_pt = yes(row.get("mentoring_exp_as_mentor")) * W["mentoring_exp_as_mentor"]
@@ -288,6 +287,7 @@ def grade_single_row(row: dict, client: OpenAI) -> dict:
         row.get("motivation"),
         row.get("professional_expertise"),
     )
+    flag_color = red_flag_color(red_flags, row.get("prior_participation"))
 
     if not meets_all:
         return {
@@ -300,7 +300,7 @@ def grade_single_row(row: dict, client: OpenAI) -> dict:
             "whatsapp": row.get("whatsapp"),
             "country_residence": row.get("country_residence"),
             "age_range": row.get("age_range"),
-            "red_flags": red_flags,
+            "flag_color": flag_color,
             "meets_all_req": "no",
             "req_explain": row.get("req_explain", ""),
             "owned_business": row.get("owned_business"),
@@ -343,7 +343,7 @@ def grade_single_row(row: dict, client: OpenAI) -> dict:
     ])
 
     total_pts = sum([
-        owned_pt, prior_pt, years_pt, emp_pt,
+        owned_pt, years_pt, emp_pt,
         prof_struct_pt, mentor_pt, student_pt,
         bd_raw * W["business_description"],
         med_raw * W["mentoring_exp_detail"],
@@ -361,13 +361,13 @@ def grade_single_row(row: dict, client: OpenAI) -> dict:
         "whatsapp": row.get("whatsapp"),
         "country_residence": row.get("country_residence"),
         "age_range": row.get("age_range"),
-        "red_flags": red_flags,
+        "flag_color": flag_color,
         "meets_all_req": "yes",
         "req_explain": row.get("req_explain", ""),
         "owned_business": row.get("owned_business"),
         "owned_business_pt": owned_pt,
         "prior_participation": row.get("prior_participation"),
-        "prior_participation_pt": prior_pt,
+        "prior_participation_pt": "",
         "business_years": row.get("business_years"),
         "business_years_pt": years_pt,
         "has_employees": row.get("has_employees"),

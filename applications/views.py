@@ -811,6 +811,11 @@ def _sections_from_model(form_def: FormDefinition, form):
 def _handle_application_form(request, form_slug: str, second_stage: bool = False):
     _maybe_run_due_a1_to_a2_reminders()
     form_def = get_object_or_404(FormDefinition, slug=form_slug)
+    is_admin_preview = (
+        request.method == "GET"
+        and bool(getattr(request.user, "is_staff", False))
+        and (request.GET.get("preview") or "").strip().lower() in {"1", "true", "yes"}
+    )
 
     manual_override = getattr(form_def, "manual_open_override", None)
     desired_open = None
@@ -829,7 +834,7 @@ def _handle_application_form(request, form_slug: str, second_stage: bool = False
             form_def.accepting_responses = desired_open
 
     # Block new submissions when closed (we use is_public as "open" flag)
-    if not form_def.is_public:
+    if not is_admin_preview and not form_def.is_public:
         return render(
             request,
             "applications/closed.html",

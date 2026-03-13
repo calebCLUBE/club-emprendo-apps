@@ -439,22 +439,12 @@ class FormDefinitionAdmin(admin.ModelAdmin):
         if not slug:
             return "-"
 
-        if slug == "E_A1":
-            url_name = "apply_emprendedora_first"
-        elif slug == "E_A2":
-            url_name = "preview_emprendedora_second"
-        elif slug == "M_A1":
-            url_name = "apply_mentora_first"
-        elif slug == "M_A2":
-            url_name = "preview_mentora_second"
-        else:
-            return "-"
-
         try:
-            url = reverse(url_name)
+            url = reverse("apply_by_slug", kwargs={"form_slug": slug})
         except Exception:
             return "-"
 
+        url = f"{url}?preview=1"
         return format_html('<a href="{}" target="_blank" class="button">Preview</a>', url)
 
     preview_link.short_description = "Preview"

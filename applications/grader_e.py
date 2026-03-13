@@ -14,7 +14,6 @@ W = {
     "prior_mentoring": 2,
     "business_age": 3,
     "has_employees": 2,
-    "participated_before": 4,
     "business_description": 3,
     "growth_how": 4,
     "biggest_challenge": 4,
@@ -44,24 +43,11 @@ def business_age_pts(v):
     return mapping.get(str(v), 0)
 
 
-def participated_before_pts(v):
-    if not isinstance(v, str):
-        return 0
-    if "yes_mentor" in v and "yes_entrepreneur" in v:
-        return 5
-    if "yes_mentor" in v or "yes_entrepreneur" in v:
-        return 4
-    return 0
-
-
 def has_employees_pts(v):
     return 2 if yes(v) else 0
 
 
-def status_from_participation(v, *, disqualified: bool) -> str:
-    if disqualified:
-        return "N/A"
-
+def has_prior_participation(v) -> bool:
     text = str(v or "").strip().lower()
     selected_tokens = (
         "yes_entrepreneur",
@@ -70,10 +56,25 @@ def status_from_participation(v, *, disqualified: bool) -> str:
         "as_mentor",
         "as_mentora",
     )
-    if any(tok in text for tok in selected_tokens):
+    return any(tok in text for tok in selected_tokens)
+
+
+def status_from_participation(v, *, disqualified: bool) -> str:
+    if disqualified:
+        return "N/A"
+
+    if has_prior_participation(v):
         return "Seleccionada"
 
     return "Aplicante anterios"
+
+
+def red_flag_color(red_flag_text: str, participated_before_value) -> str:
+    if str(red_flag_text or "").strip():
+        return "red"
+    if has_prior_participation(participated_before_value):
+        return "green"
+    return ""
 
 
 def _normalized_identifier(row: dict | pd.Series, keys: list[str]) -> tuple[str, str] | None:
@@ -253,7 +254,7 @@ COLUMNS = [
     "email",
     "cedula",
     "country_residence",
-    "red_flags",
+    "flag_color",
     "meets_all_req",
     "prior_mentoring",
     "prior_mentoring_pt",
@@ -288,7 +289,6 @@ def grade_single_row(row: dict, client: OpenAI) -> list:
     prior_pt = prior_mentoring_pts(row.get("prior_mentoring"))
     business_age_pt = business_age_pts(row.get("business_age"))
     employees_pt = has_employees_pts(row.get("has_employees"))
-    participated_pt = participated_before_pts(row.get("participated_before"))
 
     red_flags = detect_red_flags(
         client,
@@ -296,6 +296,7 @@ def grade_single_row(row: dict, client: OpenAI) -> list:
         row.get("growth_how"),
         row.get("biggest_challenge"),
     )
+    flag_color = red_flag_color(red_flags, row.get("participated_before"))
 
     if disqual_reasons:
         reason_text = "Disqualified: " + ", ".join(disqual_reasons)
@@ -307,7 +308,7 @@ def grade_single_row(row: dict, client: OpenAI) -> list:
             row.get("email"),
             row.get("cedula"),
             row.get("country_residence"),
-            red_flags,
+            flag_color,
             "no",
             row.get("prior_mentoring"), "",
             row.get("business_age"), "",
@@ -339,7 +340,6 @@ def grade_single_row(row: dict, client: OpenAI) -> list:
         prior_pt,
         business_age_pt,
         employees_pt,
-        participated_pt,
         bd_pt,
         gh_pt,
         bc_pt,
@@ -353,12 +353,12 @@ def grade_single_row(row: dict, client: OpenAI) -> list:
         row.get("email"),
         row.get("cedula"),
         row.get("country_residence"),
-        red_flags,
+        flag_color,
         "yes",
         row.get("prior_mentoring"), prior_pt,
         row.get("business_age"), business_age_pt,
         row.get("has_employees"), employees_pt,
-        row.get("participated_before"), participated_pt,
+        row.get("participated_before"), "",
         row.get("business_description"), bd_pt,
         row.get("growth_how"), gh_pt,
         row.get("biggest_challenge"), bc_pt,

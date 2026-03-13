@@ -143,25 +143,5 @@
     Batch grading updates the database directly. Live grading creates downloadable graded files and shows progress.
   </p>
 
-  <!-- ===================== -->
-  <!-- Graded Files -->
-  <!-- ===================== -->
-  <h3 style="margin-top:20px;">Graded files</h3>
-
-  <ul>
-    {% for f in graded_files %}
-      <li>
-        {{ f.created_at }} —
-        {{ f.form_slug }} —
-        app {{ f.application_id }} —
-        <a href="{% url 'admin_grading_download_csv' f.id %}">
-          Download CSV
-        </a>
-      </li>
-    {% empty %}
-      <li>No graded files yet.</li>
-    {% endfor %}
-  </ul>
-
 </div>
 {% endblock %}

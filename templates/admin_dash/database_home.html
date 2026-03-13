@@ -3,6 +3,27 @@
 
 <h1>Database</h1>
 
+<details style="margin: 10px 0 18px; padding: 10px; border: 1px solid #ddd; border-radius: 10px;">
+  <summary style="cursor:pointer; font-weight:600;">
+    Graded Files
+  </summary>
+
+  {% if graded_files %}
+    <ul style="margin:10px 0 0 0;">
+      {% for f in graded_files %}
+        <li style="margin:6px 0;">
+          {{ f.created_at|date:"Y-m-d H:i" }} — {{ f.form_slug }}
+          {% if f.application_id %} — app {{ f.application_id }}{% endif %}
+          &nbsp; — &nbsp;
+          <a href="{% url 'admin_grading_download_csv' f.id %}">Download CSV</a>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p style="margin-top:10px;"><em>No graded files yet.</em></p>
+  {% endif %}
+</details>
+
 <h2 style="margin-top:18px;">All Groups by Application Type</h2>
 <ul style="margin: 8px 0 18px 0;">
   <li style="margin:6px 0;">

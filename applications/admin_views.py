@@ -1833,7 +1833,7 @@ def apps_list(request):
 
     masters = list(FormDefinition.objects.filter(slug__in=MASTER_SLUGS).order_by("slug"))
 
-    groups = list(FormGroup.objects.order_by("number"))
+    groups = list(FormGroup.objects.order_by("-number"))
     group_list = []
     for g in groups:
         _sync_group_open_close(g)
@@ -1857,7 +1857,7 @@ def create_group(request):
     form = CreateGroupForm(request.POST)
     if not form.is_valid():
         masters = list(FormDefinition.objects.filter(slug__in=MASTER_SLUGS).order_by("slug"))
-        groups = list(FormGroup.objects.order_by("number"))
+        groups = list(FormGroup.objects.order_by("-number"))
         group_list = []
         for g in groups:
             forms_for_group = list(FormDefinition.objects.filter(group=g).order_by("slug"))
@@ -2111,6 +2111,8 @@ def database_home(request):
         s.submission_count = counts.get(s.slug, 0)
         s.admin_edit_url = reverse("admin:applications_formdefinition_change", args=[s.id])
 
+    graded_files = GradedFile.objects.order_by("-created_at")[:100]
+
     return render(
         request,
         "admin_dash/database_home.html",
@@ -2122,6 +2124,7 @@ def database_home(request):
             "surveys_e": surveys_e,
             "surveys_m": surveys_m,
             "combined_type_counts": combined_type_counts,
+            "graded_files": graded_files,
         },
     )
 
@@ -2507,17 +2510,12 @@ def grading_home(request):
             "pending": pending.get(fd.slug, 0),
         })
 
-    # ✅ ADD THIS
-    graded_files = GradedFile.objects.order_by("-created_at")[:50]
-
     return render(
         request,
         "admin_dash/grading_home.html",
         {
             "group": group,
             "forms": rows,
-            # ✅ ADD THIS
-            "graded_files": graded_files,
         },
     )
 

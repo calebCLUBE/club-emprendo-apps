@@ -348,8 +348,17 @@ TIME_MAP_ES_TO_EN = {
 def _norm_email_list(s: str) -> list[str]:
     if not s:
         return []
-    parts = [p.strip().lower() for p in s.split(",")]
-    return [p for p in parts if p]
+    # Accept one email per line (paste from docs/sheets), commas, or semicolons.
+    raw_parts = re.split(r"[\n\r,;]+", s)
+    out: list[str] = []
+    seen: set[str] = set()
+    for part in raw_parts:
+        email = (part or "").strip().lower()
+        if not email or email in seen:
+            continue
+        seen.add(email)
+        out.append(email)
+    return out
 
 
 def _parse_emp_availability(cell: str) -> set[str]:

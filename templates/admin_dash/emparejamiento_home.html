@@ -31,15 +31,15 @@
       {% csrf_token %}
 
       <div>
-        <label style="font-weight:600;">Mentoras emails (comma-separated)</label>
+        <label style="font-weight:600;">Mentoras emails (one per line or comma-separated)</label>
         <textarea name="mentoras_emails" rows="4" style="width:100%; padding:10px; border:1px solid #ccc; border-radius:8px;"
-          placeholder="mentora1@email.com, mentora2@email.com, ...">{{ mentoras_emails|default:"" }}</textarea>
+          placeholder="mentora1@email.com&#10;mentora2@email.com&#10;...">{{ mentoras_emails|default:"" }}</textarea>
       </div>
 
       <div>
-        <label style="font-weight:600;">Emprendedoras emails (comma-separated)</label>
+        <label style="font-weight:600;">Emprendedoras emails (one per line or comma-separated)</label>
         <textarea name="emprendedoras_emails" rows="4" style="width:100%; padding:10px; border:1px solid #ccc; border-radius:8px;"
-          placeholder="emp1@email.com, emp2@email.com, ...">{{ emprendedoras_emails|default:"" }}</textarea>
+          placeholder="emp1@email.com&#10;emp2@email.com&#10;...">{{ emprendedoras_emails|default:"" }}</textarea>
       </div>
 
       <button class="button" type="submit" style="background:#2563eb;color:white;">

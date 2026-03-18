@@ -1,147 +1,237 @@
-{# templates/admin_dash/grading_home.html #}
 {% extends "admin/base_site.html" %}
 
 {% block content %}
 <div class="ce-admin-wrap">
+  <style>
+    .ce-grade-shell {
+      max-width: 1180px;
+      display: grid;
+      gap: 14px;
+    }
+    .ce-grade-card {
+      background: #fff;
+      border: 1px solid #ddd;
+      border-radius: 12px;
+      padding: 14px;
+    }
+    .ce-grade-title {
+      margin: 0;
+      font-size: 24px;
+      line-height: 1.2;
+    }
+    .ce-grade-sub {
+      margin: 6px 0 0;
+      color: #666;
+      font-size: 13px;
+    }
+    .ce-grade-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }
+    .ce-grade-input,
+    .ce-grade-select {
+      height: 38px;
+      min-width: 120px;
+      padding: 0 10px;
+      border: 1px solid #cfcfcf;
+      border-radius: 8px;
+      background: #fff;
+      box-sizing: border-box;
+    }
+    .ce-grade-file {
+      height: 38px;
+      display: flex;
+      align-items: center;
+    }
+    .ce-btn {
+      height: 38px;
+      padding: 0 14px;
+      border: 1px solid #d0d0d0;
+      border-radius: 8px;
+      background: #fff;
+      color: #111;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      box-sizing: border-box;
+    }
+    .ce-btn:hover {
+      background: #f7f7f7;
+    }
+    .ce-btn-primary {
+      border-color: #2563eb;
+      background: #2563eb;
+      color: #fff;
+    }
+    .ce-btn-primary:hover {
+      background: #1f56cf;
+      border-color: #1f56cf;
+    }
+    .ce-grade-table-wrap {
+      overflow: auto;
+      border: 1px solid #ddd;
+      border-radius: 12px;
+      background: #fff;
+    }
+    .ce-grade-table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 760px;
+    }
+    .ce-grade-table th,
+    .ce-grade-table td {
+      padding: 12px;
+      border-bottom: 1px solid #eee;
+      text-align: left;
+      vertical-align: middle;
+    }
+    .ce-grade-table th {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      color: #666;
+      background: #fafafa;
+    }
+    .ce-grade-table tr:last-child td {
+      border-bottom: 0;
+    }
+    .ce-grade-form-title {
+      font-weight: 700;
+      margin: 0;
+      line-height: 1.2;
+    }
+    .ce-grade-form-sub {
+      color: #666;
+      font-size: 12px;
+      margin-top: 4px;
+      line-height: 1.3;
+    }
+    .ce-grade-muted {
+      color: #777;
+      font-size: 12px;
+    }
+    .ce-grade-drop {
+      border: 1px solid #e7e7e7;
+      border-radius: 10px;
+      background: #fafafa;
+      overflow: hidden;
+    }
+    .ce-grade-drop > summary {
+      cursor: pointer;
+      padding: 11px 12px;
+      font-weight: 700;
+      list-style: none;
+      background: #fff;
+      border-bottom: 1px solid #eee;
+    }
+    .ce-grade-drop > summary::-webkit-details-marker {
+      display: none;
+    }
+    .ce-grade-drop > summary::before {
+      content: "▸ ";
+      color: #666;
+    }
+    .ce-grade-drop[open] > summary::before {
+      content: "▾ ";
+    }
+    .ce-grade-drop-body {
+      padding: 12px;
+    }
+  </style>
 
-  <h1 style="margin:0 0 14px 0;">Grading – Application 2</h1>
+  <div class="ce-grade-shell">
+    <div class="ce-grade-card">
+      <h1 class="ce-grade-title">Grading - Application 2</h1>
+      <p class="ce-grade-sub">Run live grading jobs for A2 forms.</p>
+    </div>
 
-  <!-- ===================== -->
-  <!-- Group Filter -->
-  <!-- ===================== -->
-  <div style="margin-bottom:14px; display:flex; gap:14px; align-items:center; flex-wrap:wrap;">
-    <form method="get" action="" style="display:flex; gap:10px; align-items:center;">
-      <label for="group" style="font-weight:600;">Group</label>
-      <input
-        id="group"
-        name="group"
-        type="text"
-        value="{{ group }}"
-        placeholder="e.g. 6"
-        style="padding:6px 10px; border:1px solid #ccc; border-radius:6px; width:120px;"
-      />
-      <button class="button" type="submit">Filter</button>
+    <div class="ce-grade-card">
+      <form method="get" action="" class="ce-grade-row">
+        <label for="group" style="font-weight:600;">Group</label>
+        <input
+          id="group"
+          name="group"
+          type="text"
+          value="{{ group }}"
+          placeholder="e.g. 6"
+          class="ce-grade-input"
+        />
+        <button class="ce-btn" type="submit">Filter</button>
+        {% if group %}
+          <a class="ce-btn" href="/admin/grading/">Clear</a>
+        {% endif %}
+      </form>
+    </div>
 
-      {% if group %}
-        <a class="button" href="/admin/grading/" style="text-decoration:none;">Clear</a>
-      {% endif %}
-    </form>
-  </div>
+    <div class="ce-grade-card">
+      <details class="ce-grade-drop">
+        <summary>Test upload CSV (sandbox)</summary>
+        <div class="ce-grade-drop-body">
+          <form
+            method="post"
+            enctype="multipart/form-data"
+            action="{% url 'admin_grading_upload_test_csv' %}{% if group %}?group={{ group }}{% endif %}"
+            class="ce-grade-row"
+          >
+            {% csrf_token %}
+            <label style="font-weight:600;">Role</label>
+            <select name="role" class="ce-grade-select">
+              <option value="E">Emprendedora (TEST_E_A2)</option>
+              <option value="M">Mentora (TEST_M_A2)</option>
+            </select>
+            <input type="file" name="csv_file" accept=".csv" class="ce-grade-file" />
+            <button class="ce-btn" type="submit">Upload CSV</button>
+            <span class="ce-grade-muted">Imports only into sandbox forms.</span>
+          </form>
+        </div>
+      </details>
+    </div>
 
-  <!-- ===================== -->
-  <!-- Sandbox CSV Upload -->
-  <!-- ===================== -->
-  <div style="margin: 0 0 14px 0; padding:12px; border:1px solid #ddd; border-radius:10px; background:#fff;">
-    <div style="font-weight:700; margin-bottom:8px;">Test Upload CSV (Sandbox)</div>
-
-    <form
-      method="post"
-      enctype="multipart/form-data"
-      action="{% url 'admin_grading_upload_test_csv' %}{% if group %}?group={{ group }}{% endif %}"
-      style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;"
-    >
-      {% csrf_token %}
-
-      <label style="font-weight:600;">Role:</label>
-      <select name="role" style="padding:6px 10px; border:1px solid #ccc; border-radius:6px;">
-        <option value="E">Emprendedora (TEST_E_A2)</option>
-        <option value="M">Mentora (TEST_M_A2)</option>
-      </select>
-
-      <input type="file" name="csv_file" accept=".csv" style="display:inline; width:260px;" />
-      <button class="button" type="submit">Upload CSV</button>
-
-      <div style="color:#666; font-size:12px;">
-        Imports into sandbox forms only. Real group applications are untouched.
-      </div>
-    </form>
-  </div>
-
-  <!-- ===================== -->
-  <!-- Forms Table -->
-  <!-- ===================== -->
-  <div style="overflow:auto; border:1px solid #ddd; border-radius:10px; background:#fff;">
-    <table style="border-collapse:collapse; width:100%; font-size:13px;">
-      <thead>
-        <tr>
-          <th style="padding:10px; border-bottom:1px solid #eee; text-align:left;">Form</th>
-          <th style="padding:10px; border-bottom:1px solid #eee; text-align:left;">Total</th>
-          <th style="padding:10px; border-bottom:1px solid #eee; text-align:left;">Pending</th>
-          <th style="padding:10px; border-bottom:1px solid #eee; text-align:left;">Actions</th>
-        </tr>
-      </thead>
-
-      <tbody>
-        {% for f in forms %}
+    <div class="ce-grade-table-wrap">
+      <table class="ce-grade-table">
+        <thead>
           <tr>
-            <td style="padding:10px; border-bottom:1px solid #f0f0f0;">
-              <div style="font-weight:700;">{{ f.slug }}</div>
-              <div style="color:#666; font-size:12px;">{{ f.name }}</div>
-            </td>
-
-            <td style="padding:10px; border-bottom:1px solid #f0f0f0;">
-              {{ f.total }}
-            </td>
-
-            <td style="padding:10px; border-bottom:1px solid #f0f0f0;">
-              {% if f.pending %}
-                <strong>{{ f.pending }}</strong>
-              {% else %}
-                <span style="color:#999;">0</span>
-              {% endif %}
-            </td>
-
-            <td style="padding:10px; border-bottom:1px solid #f0f0f0; white-space:nowrap;">
-
-              <!-- Download Master CSV -->
-              <a
-                class="button"
-                style="text-decoration:none;"
-                href="{% url 'admin_grading_master_csv' f.slug %}"
-              >
-                Download Master CSV
-              </a>
-
-              <!-- Batch grade -->
-              <form
-                method="post"
-                action="{% url 'admin_grade_form_batch' f.slug %}{% if group %}?group={{ group }}{% endif %}"
-                style="display:inline;"
-              >
-                {% csrf_token %}
-                <button class="button" type="submit">
-                  Grade (batch)
-                </button>
-              </form>
-
-              <!-- Live grading (background job) -->
-              <form
-                method="post"
-                action="{% url 'admin_start_grading_job' f.slug %}"
-                style="display:inline;"
-              >
-                {% csrf_token %}
-                <button class="button" style="background:#2563eb;color:white;">
-                  Grade (live)
-                </button>
-              </form>
-
-            </td>
+            <th>Form</th>
+            <th>Total</th>
+            <th>Pending</th>
+            <th>Action</th>
           </tr>
-        {% empty %}
-          <tr>
-            <td colspan="4" style="padding:16px; text-align:center; color:#666;">
-              No A2 forms found.
-            </td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {% for f in forms %}
+            <tr>
+              <td>
+                <div class="ce-grade-form-title">{{ f.slug }}</div>
+                <div class="ce-grade-form-sub">{{ f.name }}</div>
+              </td>
+              <td>{{ f.total }}</td>
+              <td>
+                {% if f.pending %}
+                  <strong>{{ f.pending }}</strong>
+                {% else %}
+                  <span style="color:#999;">0</span>
+                {% endif %}
+              </td>
+              <td>
+                <form method="post" action="{% url 'admin_start_grading_job' f.slug %}">
+                  {% csrf_token %}
+                  <button class="ce-btn ce-btn-primary" type="submit">Grade (live)</button>
+                </form>
+              </td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="4" style="text-align:center; color:#666;">No A2 forms found.</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
   </div>
-
-  <p style="margin-top:10px; color:#666; font-size:12px;">
-    Batch grading updates the database directly. Live grading creates downloadable graded files and shows progress.
-  </p>
-
 </div>
 {% endblock %}

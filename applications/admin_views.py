@@ -2112,6 +2112,9 @@ def database_home(request):
         s.admin_edit_url = reverse("admin:applications_formdefinition_change", args=[s.id])
 
     graded_files = GradedFile.objects.order_by("-created_at")[:100]
+    pairing_files = GradedFile.objects.filter(
+        form_slug__startswith="PAIR_G"
+    ).order_by("-created_at")[:100]
 
     return render(
         request,
@@ -2125,6 +2128,7 @@ def database_home(request):
             "surveys_m": surveys_m,
             "combined_type_counts": combined_type_counts,
             "graded_files": graded_files,
+            "pairing_files": pairing_files,
         },
     )
 

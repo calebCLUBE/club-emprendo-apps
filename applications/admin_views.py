@@ -53,6 +53,7 @@ import logging
 logger = logging.getLogger(__name__)
 MASTER_SLUGS = ["E_A1", "E_A2", "M_A1", "M_A2"]
 GROUP_SLUG_RE = re.compile(r"^G(?P<num>\d+)_(?P<master>E_A1|E_A2|M_A1|M_A2)$")
+GRADED_GROUP_RE = re.compile(r"^G(?P<num>\d+)_")
 TEST_E_A2_SLUG = "TEST_E_A2"
 TEST_M_A2_SLUG = "TEST_M_A2"
 A2_FORM_RE = re.compile(r"^(G\d+_)?(E_A2|M_A2)$")
@@ -256,11 +257,9 @@ def _run_grade_job(job_id: int):
             raise RuntimeError("Grader returned empty output")
 
         # ----------------------------------
-        # STORE ONE GRADED FILE
+        # STORE GRADED FILE (keep all runs)
         # ----------------------------------
         csv_text = graded_df.to_csv(index=False)
-
-        GradedFile.objects.filter(form_slug=job.form_slug).delete()
 
         gf = GradedFile.objects.create(
             form_slug=job.form_slug,
@@ -2111,7 +2110,24 @@ def database_home(request):
         s.submission_count = counts.get(s.slug, 0)
         s.admin_edit_url = reverse("admin:applications_formdefinition_change", args=[s.id])
 
-    graded_files = GradedFile.objects.order_by("-created_at")[:100]
+    graded_files = list(
+        GradedFile.objects.exclude(form_slug__startswith="PAIR_G").order_by("-created_at")[:200]
+    )
+    graded_files_by_group_map = {}
+    graded_files_other = []
+    for gf in graded_files:
+        m = GRADED_GROUP_RE.match((gf.form_slug or "").strip())
+        if not m:
+            graded_files_other.append(gf)
+            continue
+        group_num = int(m.group("num"))
+        graded_files_by_group_map.setdefault(group_num, []).append(gf)
+
+    graded_files_by_group = [
+        {"group_num": group_num, "files": graded_files_by_group_map[group_num]}
+        for group_num in sorted(graded_files_by_group_map.keys(), reverse=True)
+    ]
+
     pairing_files = GradedFile.objects.filter(
         form_slug__startswith="PAIR_G"
     ).order_by("-created_at")[:100]
@@ -2128,7 +2144,10 @@ def database_home(request):
             "surveys_m": surveys_m,
             "combined_type_counts": combined_type_counts,
             "graded_files": graded_files,
+            "graded_files_by_group": graded_files_by_group,
+            "graded_files_other": graded_files_other,
             "pairing_files": pairing_files,
+            "database_next": request.get_full_path(),
         },
     )
 
@@ -2368,8 +2387,18 @@ def bulk_delete_submissions(request):
 
 
 # ----------------------------
-# Delete file(s) actions (admin database)
+# Delete graded/file actions (admin database)
 # ----------------------------
+@staff_member_required
+@require_POST
+def delete_graded_file(request, graded_file_id: int):
+    gf = get_object_or_404(GradedFile, id=graded_file_id)
+    form_slug = gf.form_slug
+    gf.delete()
+    messages.success(request, f"Archivo calificado eliminado: {form_slug}.")
+    return _database_next_redirect(request)
+
+
 @staff_member_required
 @require_POST
 def delete_answer_file_value(request, answer_id: int):

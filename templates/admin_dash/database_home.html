@@ -8,17 +8,62 @@
     Graded Files
   </summary>
 
-  {% if graded_files %}
-    <ul style="margin:10px 0 0 0;">
-      {% for f in graded_files %}
-        <li style="margin:6px 0;">
-          {{ f.created_at|date:"Y-m-d H:i" }} — {{ f.form_slug }}
-          {% if f.application_id %} — app {{ f.application_id }}{% endif %}
-          &nbsp; — &nbsp;
-          <a href="{% url 'admin_grading_download_csv' f.id %}">Download CSV</a>
-        </li>
-      {% endfor %}
-    </ul>
+  {% if graded_files_by_group or graded_files_other %}
+    {% for bucket in graded_files_by_group %}
+      <details style="margin:10px 0 0 0; padding:8px; border:1px solid #eee; border-radius:8px;">
+        <summary style="cursor:pointer; font-weight:600;">
+          Group {{ bucket.group_num }} ({{ bucket.files|length }})
+        </summary>
+        <ul style="margin:10px 0 0 0;">
+          {% for f in bucket.files %}
+            <li style="margin:6px 0; display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+              <span>{{ f.created_at|date:"Y-m-d H:i" }} — {{ f.form_slug }}</span>
+              <a href="{% url 'admin_grading_download_csv' f.id %}">Download CSV</a>
+              <form method="post" action="{% url 'admin_delete_graded_file' f.id %}" style="display:inline;">
+                {% csrf_token %}
+                <input type="hidden" name="next" value="{{ database_next }}">
+                <button
+                  type="submit"
+                  class="button"
+                  onclick="return confirm('Delete this graded file?');"
+                  style="padding:2px 8px;"
+                >
+                  Delete
+                </button>
+              </form>
+            </li>
+          {% endfor %}
+        </ul>
+      </details>
+    {% endfor %}
+
+    {% if graded_files_other %}
+      <details style="margin:10px 0 0 0; padding:8px; border:1px solid #eee; border-radius:8px;">
+        <summary style="cursor:pointer; font-weight:600;">
+          Other Graded Files ({{ graded_files_other|length }})
+        </summary>
+        <ul style="margin:10px 0 0 0;">
+          {% for f in graded_files_other %}
+            <li style="margin:6px 0; display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+              <span>{{ f.created_at|date:"Y-m-d H:i" }} — {{ f.form_slug }}</span>
+              <a href="{% url 'admin_grading_download_csv' f.id %}">Download CSV</a>
+              <form method="post" action="{% url 'admin_delete_graded_file' f.id %}" style="display:inline;">
+                {% csrf_token %}
+                <input type="hidden" name="next" value="{{ database_next }}">
+                <button
+                  type="submit"
+                  class="button"
+                  onclick="return confirm('Delete this graded file?');"
+                  style="padding:2px 8px;"
+                >
+                  Delete
+                </button>
+              </form>
+            </li>
+          {% endfor %}
+        </ul>
+      </details>
+    {% endif %}
   {% else %}
     <p style="margin-top:10px;"><em>No graded files yet.</em></p>
   {% endif %}

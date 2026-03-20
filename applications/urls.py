@@ -9,6 +9,8 @@ urlpatterns = [
     # ---------- PUBLIC FIRST-STAGE FORMS ----------
     path("apply/emprendedora/", views.apply_emprendedora_first, name="apply_emprendedora_first"),
     path("apply/mentora/", views.apply_mentora_first, name="apply_mentora_first"),
+    path("apply/emprendedora/combinada/", views.apply_emprendedora_combined, name="apply_emprendedora_combined"),
+    path("apply/mentora/combinada/", views.apply_mentora_combined, name="apply_mentora_combined"),
 
     # ---------- SECOND-STAGE (TOKEN REQUIRED) ----------
     path("apply/emprendedora/continue/<str:token>/", views.apply_emprendedora_second, name="apply_emprendedora_second"),

@@ -14,7 +14,10 @@ import json
 
 from .forms import build_application_form
 from .models import Application, Answer, FormDefinition, Question, Section, scheduled_group_open_state
-from .emprendedora_a1_autograde import autograde_and_email_emprendedora_a1
+from .emprendedora_a1_autograde import (
+    autograde_and_email_emprendedora_a1,
+    emprendedora_a1_passes,
+)
 
 
 GROUP_SLUG_RE = re.compile(r"^G(?P<num>\d+)_")
@@ -456,30 +459,8 @@ def _mentor_a1_autograde_and_email(request, app: Application):
         for a in app.answers.select_related("question").all()
     }
 
-    def yesish(v: str) -> bool:
-        t = (v or "").strip().lower()
-        return ("si" in t) or ("sí" in t) or ("yes" in t) or (t == "true") or (t == "1") or (t == "yes")
-
-    requisitos = (
-        answers.get("meets_requirements")
-        or answers.get("m1_meet_requirements")
-        or answers.get("m1_meets_requirements")
-        or answers.get("m1_requirements_ok")
-        or ""
-    )
-    disponibilidad = (
-        answers.get("available_period")
-        or answers.get("availability_ok")
-        or answers.get("m1_availability_ok")
-        or answers.get("m1_available_period")
-        or answers.get("m1_available")
-        or ""
-    )
-
-    passes_requisitos = yesish(requisitos)
-    passes_disponibilidad = yesish(disponibilidad)
-
-    if passes_requisitos and passes_disponibilidad:
+    is_eligible = _mentor_a1_is_eligible(answers)
+    if is_eligible:
         app.generate_invite_token()
         app.invited_to_second_stage = True
         app.save(update_fields=["invite_token", "invited_to_second_stage"])
@@ -526,6 +507,35 @@ def _mentor_a1_autograde_and_email(request, app: Application):
         "</div>"
     )
     _send_html_email(app.email, subject, html_body)
+
+
+def _mentor_a1_is_eligible(answers: dict[str, str]) -> bool:
+    answers = {
+        k: (v or "")
+        for k, v in (answers or {}).items()
+    }
+
+    def yesish(v: str) -> bool:
+        t = (v or "").strip().lower()
+        return ("si" in t) or ("sí" in t) or ("yes" in t) or (t == "true") or (t == "1") or (t == "yes")
+
+    requisitos = (
+        answers.get("meets_requirements")
+        or answers.get("m1_meet_requirements")
+        or answers.get("m1_meets_requirements")
+        or answers.get("m1_requirements_ok")
+        or ""
+    )
+    disponibilidad = (
+        answers.get("available_period")
+        or answers.get("availability_ok")
+        or answers.get("m1_availability_ok")
+        or answers.get("m1_available_period")
+        or answers.get("m1_available")
+        or ""
+    )
+
+    return yesish(requisitos) and yesish(disponibilidad)
 
 
 def _m2_sections(form_def: FormDefinition):
@@ -808,7 +818,25 @@ def _sections_from_model(form_def: FormDefinition, form):
     return ordered
 
 
-def _handle_application_form(request, form_slug: str, second_stage: bool = False):
+def _group_num_from_slug(slug: str) -> str:
+    m = GROUP_SLUG_RE.match(slug or "")
+    return m.group("num") if m else ""
+
+
+def _a1_track_from_slug(slug: str) -> str:
+    if (slug or "").endswith("M_A1"):
+        return "mentoras"
+    if (slug or "").endswith("E_A1"):
+        return "emprendedoras"
+    return ""
+
+
+def _handle_application_form(
+    request,
+    form_slug: str,
+    second_stage: bool = False,
+    combined_flow: bool = False,
+):
     _maybe_run_due_a1_to_a2_reminders()
     form_def = get_object_or_404(FormDefinition, slug=form_slug)
     is_admin_preview = (
@@ -962,6 +990,34 @@ def _handle_application_form(request, form_slug: str, second_stage: bool = False
         if form_def.slug.endswith("E_A2") or form_def.slug.endswith("M_A2"):
             _send_a2_submission_email(app, answer_map)
 
+        if combined_flow and (form_def.slug.endswith("M_A1") or form_def.slug.endswith("E_A1")):
+            if form_def.slug.endswith("M_A1"):
+                passed = _mentor_a1_is_eligible(answer_map)
+                second_view = "apply_mentora_second"
+            else:
+                passed = emprendedora_a1_passes(answer_map)
+                second_view = "apply_emprendedora_second"
+
+            if passed:
+                app.generate_invite_token()
+                app.invited_to_second_stage = True
+                app.save(update_fields=["invite_token", "invited_to_second_stage"])
+                app.refresh_from_db()
+                _schedule_a1_to_a2_reminder(app)
+                return redirect(second_view, token=app.invite_token)
+
+            app.invited_to_second_stage = False
+            app.save(update_fields=["invited_to_second_stage"])
+            app.refresh_from_db()
+            _schedule_a1_to_a2_reminder(app)
+            request.session["ce_thanks_payload"] = {
+                "kind": "a1",
+                "approved": False,
+                "group_num": _group_num_from_slug(form_def.slug or ""),
+                "track": _a1_track_from_slug(form_def.slug or ""),
+            }
+            return redirect("application_thanks")
+
         # A1 autogrades
         if form_def.slug.endswith("M_A1"):
             _mentor_a1_autograde_and_email(request, app)
@@ -974,17 +1030,10 @@ def _handle_application_form(request, form_slug: str, second_stage: bool = False
             _schedule_a1_to_a2_reminder(app)
 
         # group number (from slug like G5_M_A1)
-        group_num = ""
-        m = GROUP_SLUG_RE.match(form_def.slug or "")
-        if m:
-            group_num = m.group("num")
+        group_num = _group_num_from_slug(form_def.slug or "")
 
         # Track for rejection message
-        track = ""
-        if form_def.slug.endswith("M_A1"):
-            track = "mentoras"
-        elif form_def.slug.endswith("E_A1"):
-            track = "emprendedoras"
+        track = _a1_track_from_slug(form_def.slug or "")
 
         # ✅ Thank-you routing
         if form_def.slug.endswith("M_A2"):
@@ -1029,6 +1078,26 @@ def apply_emprendedora_first(request):
 def apply_mentora_first(request):
     latest = _latest_group_form_slug("M_A1")
     return _handle_application_form(request, latest or "M_A1", second_stage=False)
+
+
+def apply_emprendedora_combined(request):
+    latest = _latest_group_form_slug("E_A1")
+    return _handle_application_form(
+        request,
+        latest or "E_A1",
+        second_stage=False,
+        combined_flow=True,
+    )
+
+
+def apply_mentora_combined(request):
+    latest = _latest_group_form_slug("M_A1")
+    return _handle_application_form(
+        request,
+        latest or "M_A1",
+        second_stage=False,
+        combined_flow=True,
+    )
 
 
 def apply_emprendedora_second(request, token):

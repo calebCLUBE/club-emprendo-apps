@@ -42,6 +42,32 @@ def _is_yes_value(v: str) -> bool:
     return vv == "yes" or yesish(v)
 
 
+def emprendedora_a1_passes(answers: dict[str, str]) -> bool:
+    requisitos = (
+        answers.get("meets_requirements")
+        or answers.get("e1_meet_requirements")
+        or ""
+    )
+
+    disponibilidad = (
+        answers.get("available_period")
+        or answers.get("e1_available_period")
+        or answers.get("availability_ok")
+        or ""
+    )
+
+    emprendimiento = (
+        answers.get("business_active")
+        or answers.get("e1_has_running_business")
+        or ""
+    )
+
+    passes_requisitos = _is_yes_value(requisitos)
+    passes_disponibilidad = _is_yes_value(disponibilidad)
+    has_emprendimiento = _is_yes_value(emprendimiento)
+    return passes_requisitos and passes_disponibilidad and has_emprendimiento
+
+
 def autograde_and_email_emprendedora_a1(request, app: Application):
     """
     Emprendedora A1 autograde + email.
@@ -61,30 +87,7 @@ def autograde_and_email_emprendedora_a1(request, app: Application):
         for a in app.answers.select_related("question").all()
     }
 
-    requisitos = (
-        answers.get("meets_requirements")
-        or answers.get("e1_meet_requirements")
-        or ""
-    )
-
-    disponibilidad = (
-        answers.get("available_period")          # ✅ FIX: this is your real slug
-        or answers.get("e1_available_period")
-        or answers.get("availability_ok")        # legacy
-        or ""
-    )
-
-    emprendimiento = (
-        answers.get("business_active")           # ✅ correct in your DB
-        or answers.get("e1_has_running_business")
-        or ""
-    )
-
-    passes_requisitos = _is_yes_value(requisitos)
-    passes_disponibilidad = _is_yes_value(disponibilidad)
-    has_emprendimiento = _is_yes_value(emprendimiento)
-
-    if passes_requisitos and passes_disponibilidad and has_emprendimiento:
+    if emprendedora_a1_passes(answers):
         # ✅ Eligible
         app.generate_invite_token()
         app.invited_to_second_stage = True

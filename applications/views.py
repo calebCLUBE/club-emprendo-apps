@@ -1140,7 +1140,13 @@ def apply_mentora_second_preview(request):
 
 def apply_by_slug(request, form_slug):
     second_stage = str(form_slug).endswith("_A2")
-    return _handle_application_form(request, form_slug, second_stage=second_stage)
+    combined_flow = (request.GET.get("combined") or "").strip().lower() in {"1", "true", "yes"}
+    return _handle_application_form(
+        request,
+        form_slug,
+        second_stage=second_stage,
+        combined_flow=combined_flow,
+    )
 
 
 def application_thanks(request):

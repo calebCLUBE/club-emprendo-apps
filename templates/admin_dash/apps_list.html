@@ -57,6 +57,20 @@
   <h1>Applications</h1>
 
   <details class="ce-dd" open>
+    <summary>Combined application links (new)</summary>
+    <div class="ce-dd-body">
+      <div class="ce-actions">
+        <a class="button default" href="{% url 'apply_emprendedora_combined' %}" target="_blank" rel="noopener">
+          Open Emprendedora Combinada (latest group)
+        </a>
+        <a class="button default" href="{% url 'apply_mentora_combined' %}" target="_blank" rel="noopener">
+          Open Mentora Combinada (latest group)
+        </a>
+      </div>
+    </div>
+  </details>
+
+  <details class="ce-dd" open>
     <summary>Master applications</summary>
     <div class="ce-dd-body">
       <div style="display:flex; gap:12px; flex-wrap:wrap;">
@@ -133,6 +147,10 @@
                       <a href="/admin/applications/formdefinition/{{ fd.id }}/change/">Edit</a>
                       &nbsp;|&nbsp;
                       <a href="/apply/{{ fd.slug }}/" target="_blank" rel="noopener">Open link</a>
+                      {% if "_A1" in fd.slug %}
+                        &nbsp;|&nbsp;
+                        <a href="/apply/{{ fd.slug }}/?combined=1" target="_blank" rel="noopener">Open combined link</a>
+                      {% endif %}
                     </div>
 
                     <div class="ce-actions">

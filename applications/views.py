@@ -7,6 +7,7 @@ from datetime import timedelta
 from django.conf import settings
 from django.core.cache import cache
 from django.core.mail import EmailMultiAlternatives
+from django.db import transaction
 from django.http import Http404
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse
@@ -866,6 +867,7 @@ def _handle_application_form(
     form_slug: str,
     second_stage: bool = False,
     combined_flow: bool = False,
+    invite_token: str | None = None,
 ):
     _maybe_run_due_a1_to_a2_reminders()
     form_def = get_object_or_404(FormDefinition, slug=form_slug)
@@ -997,25 +999,65 @@ def _handle_application_form(
                         full_name = s
                         break
 
-        app = Application.objects.create(
-            form=form_def,
-            name=full_name,
-            email=email,
-        )
-
-        answer_map: dict[str, str] = {}
-        for q in form_def.questions.filter(active=True).order_by("position", "id"):
-            field_name = f"q_{q.slug}"
-            value = form.cleaned_data.get(field_name)
-            if isinstance(value, list):
-                value = ",".join(value)
-            stored_value = str(value or "")
-            Answer.objects.create(
-                application=app,
-                question=q,
-                value=stored_value,
+        reuse_token = (invite_token or request.GET.get("token") or "").strip()
+        existing_app = None
+        if reuse_token and (form_def.slug.endswith("E_A2") or form_def.slug.endswith("M_A2")):
+            existing_app = (
+                Application.objects.select_related("form")
+                .filter(invite_token=reuse_token)
+                .first()
             )
-            answer_map[q.slug] = stored_value
+            if not existing_app:
+                raise Http404("Invalid invite token.")
+
+            existing_slug = existing_app.form.slug or ""
+            if form_def.slug.endswith("E_A2"):
+                valid_source = existing_slug.endswith("E_A1") or existing_slug.endswith("E_A2")
+            else:
+                valid_source = existing_slug.endswith("M_A1") or existing_slug.endswith("M_A2")
+            if not valid_source:
+                raise Http404("Invite token does not match this application type.")
+
+        with transaction.atomic():
+            if existing_app is not None:
+                app = existing_app
+                app.form = form_def
+                app.name = full_name
+                app.email = email
+                app.invited_to_second_stage = True
+                app.second_stage_reminder_due_at = None
+                app.second_stage_reminder_sent_at = timezone.now()
+                app.save(
+                    update_fields=[
+                        "form",
+                        "name",
+                        "email",
+                        "invited_to_second_stage",
+                        "second_stage_reminder_due_at",
+                        "second_stage_reminder_sent_at",
+                    ]
+                )
+                Answer.objects.filter(application=app).delete()
+            else:
+                app = Application.objects.create(
+                    form=form_def,
+                    name=full_name,
+                    email=email,
+                )
+
+            answer_map: dict[str, str] = {}
+            for q in form_def.questions.filter(active=True).order_by("position", "id"):
+                field_name = f"q_{q.slug}"
+                value = form.cleaned_data.get(field_name)
+                if isinstance(value, list):
+                    value = ",".join(value)
+                stored_value = str(value or "")
+                Answer.objects.create(
+                    application=app,
+                    question=q,
+                    value=stored_value,
+                )
+                answer_map[q.slug] = stored_value
 
         if form_def.slug.endswith("E_A2") or form_def.slug.endswith("M_A2"):
             _send_a2_submission_email(app, answer_map)
@@ -1113,6 +1155,7 @@ def apply_emprendedora_first(request):
             a2_slug,
             second_stage=False,
             combined_flow=True,
+            invite_token=token,
         )
 
     latest = _latest_group_form_slug("E_A1")
@@ -1136,6 +1179,7 @@ def apply_mentora_first(request):
             a2_slug,
             second_stage=False,
             combined_flow=True,
+            invite_token=token,
         )
 
     latest = _latest_group_form_slug("M_A1")
@@ -1159,6 +1203,7 @@ def apply_emprendedora_combined(request):
             a2_slug,
             second_stage=False,
             combined_flow=True,
+            invite_token=token,
         )
 
     latest = _latest_group_form_slug("E_A1")
@@ -1182,6 +1227,7 @@ def apply_mentora_combined(request):
             a2_slug,
             second_stage=False,
             combined_flow=True,
+            invite_token=token,
         )
 
     latest = _latest_group_form_slug("M_A1")
@@ -1210,6 +1256,7 @@ def apply_emprendedora_second(request, token):
         form_slug,
         second_stage=not combined_flow,
         combined_flow=combined_flow,
+        invite_token=token,
     )
 
 
@@ -1230,6 +1277,7 @@ def apply_mentora_second(request, token):
         form_slug,
         second_stage=not combined_flow,
         combined_flow=combined_flow,
+        invite_token=token,
     )
 
 
@@ -1276,6 +1324,7 @@ def apply_by_slug(request, form_slug):
         form_slug,
         second_stage=second_stage,
         combined_flow=combined_flow,
+        invite_token=token or None,
     )
 
 

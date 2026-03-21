@@ -1072,12 +1072,22 @@ def _handle_application_form(
 
 def apply_emprendedora_first(request):
     latest = _latest_group_form_slug("E_A1")
-    return _handle_application_form(request, latest or "E_A1", second_stage=False)
+    return _handle_application_form(
+        request,
+        latest or "E_A1",
+        second_stage=False,
+        combined_flow=bool(latest),
+    )
 
 
 def apply_mentora_first(request):
     latest = _latest_group_form_slug("M_A1")
-    return _handle_application_form(request, latest or "M_A1", second_stage=False)
+    return _handle_application_form(
+        request,
+        latest or "M_A1",
+        second_stage=False,
+        combined_flow=bool(latest),
+    )
 
 
 def apply_emprendedora_combined(request):
@@ -1140,7 +1150,17 @@ def apply_mentora_second_preview(request):
 
 def apply_by_slug(request, form_slug):
     second_stage = str(form_slug).endswith("_A2")
-    combined_flow = (request.GET.get("combined") or "").strip().lower() in {"1", "true", "yes"}
+    raw_combined = (request.GET.get("combined") or "").strip().lower()
+    if raw_combined in {"1", "true", "yes"}:
+        combined_flow = True
+    elif raw_combined in {"0", "false", "no"}:
+        combined_flow = False
+    else:
+        is_group_a1 = bool(GROUP_SLUG_RE.match(form_slug or "")) and (
+            (form_slug or "").endswith("E_A1") or (form_slug or "").endswith("M_A1")
+        )
+        combined_flow = is_group_a1
+
     return _handle_application_form(
         request,
         form_slug,

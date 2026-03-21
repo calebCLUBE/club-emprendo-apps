@@ -146,10 +146,14 @@
                     <div>
                       <a href="/admin/applications/formdefinition/{{ fd.id }}/change/">Edit</a>
                       &nbsp;|&nbsp;
-                      <a href="/apply/{{ fd.slug }}/" target="_blank" rel="noopener">Open link</a>
+                      {% if "_A1" in fd.slug %}
+                        <a href="/apply/{{ fd.slug }}/?combined=1" target="_blank" rel="noopener">Open combined link</a>
+                      {% else %}
+                        <a href="/apply/{{ fd.slug }}/" target="_blank" rel="noopener">Open link</a>
+                      {% endif %}
                       {% if "_A1" in fd.slug %}
                         &nbsp;|&nbsp;
-                        <a href="/apply/{{ fd.slug }}/?combined=1" target="_blank" rel="noopener">Open combined link</a>
+                        <a href="/apply/{{ fd.slug }}/?combined=0" target="_blank" rel="noopener">Open classic link</a>
                       {% endif %}
                     </div>
 

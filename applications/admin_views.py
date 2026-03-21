@@ -1556,6 +1556,94 @@ def _build_csv_for_app_type(
     return headers, rows, forms
 
 
+def _group_forms_for_track(track: str) -> list[FormDefinition]:
+    track = (track or "").upper().strip()
+    if track not in {"E", "M"}:
+        raise ValueError(f"Unsupported track: {track}")
+
+    app_types = [f"{track}_A1", f"{track}_A2"]
+    forms: list[FormDefinition] = []
+    seen_ids: set[int] = set()
+    for app_type in app_types:
+        for fd in _group_forms_for_app_type(app_type):
+            if fd.id in seen_ids:
+                continue
+            seen_ids.add(fd.id)
+            forms.append(fd)
+
+    def _sort_key(fd: FormDefinition):
+        gnum = getattr(getattr(fd, "group", None), "number", None)
+        if gnum is None:
+            gnum = _group_number_from_slug(fd.slug or "") or 0
+        return (gnum, fd.slug or "")
+
+    forms.sort(key=_sort_key)
+    return forms
+
+
+def _build_csv_for_track(
+    track: str,
+    group_number: int | None = None,
+) -> Tuple[List[str], List[List[str]], list[FormDefinition]]:
+    track = (track or "").upper().strip()
+    forms = _group_forms_for_track(track)
+    if group_number is not None:
+        filtered_forms: list[FormDefinition] = []
+        for fd in forms:
+            gnum = getattr(getattr(fd, "group", None), "number", None)
+            if gnum is None:
+                gnum = _group_number_from_slug(fd.slug or "")
+            if gnum == group_number:
+                filtered_forms.append(fd)
+        forms = filtered_forms
+
+    if not forms:
+        headers = ["created_at", "application_id", "group_number", "name", "email"]
+        return headers, [], forms
+
+    question_slugs: list[str] = []
+    seen_slugs: set[str] = set()
+    for fd in forms:
+        for q in fd.questions.filter(active=True).order_by("position", "id"):
+            if q.slug in seen_slugs:
+                continue
+            seen_slugs.add(q.slug)
+            question_slugs.append(q.slug)
+
+    headers = [
+        "created_at",
+        "application_id",
+        "group_number",
+        "name",
+        "email",
+    ] + question_slugs
+
+    apps = (
+        Application.objects.filter(form__in=forms)
+        .select_related("form", "form__group")
+        .prefetch_related("answers__question")
+        .order_by("created_at", "id")
+    )
+
+    rows: List[List[str]] = []
+    for app in apps:
+        amap = {a.question.slug: (a.value or "") for a in app.answers.all() if getattr(a, "question_id", None)}
+        gnum = getattr(getattr(app.form, "group", None), "number", None)
+        if gnum is None:
+            gnum = _group_number_from_slug(getattr(app.form, "slug", "") or "")
+
+        row = [
+            app.created_at.isoformat(),
+            str(app.id),
+            str(gnum or ""),
+            app.name,
+            app.email,
+        ] + [amap.get(slug, "") for slug in question_slugs]
+        rows.append(row)
+
+    return headers, rows, forms
+
+
 def _csv_http_response(filename: str, headers: List[str], rows: List[List[str]]) -> HttpResponse:
     resp = HttpResponse(content_type="text/csv; charset=utf-8")
     resp["Content-Disposition"] = f'attachment; filename="{filename}"'
@@ -2082,21 +2170,30 @@ def update_group_dates(request, group_num: int):
 def database_home(request):
     masters = list(FormDefinition.objects.filter(slug__in=MASTER_SLUGS).order_by("slug"))
 
+    counts = {
+        row["form__slug"]: row["c"]
+        for row in Application.objects.values("form__slug").annotate(c=Count("id"))
+    }
+
     groups = list(FormGroup.objects.order_by("number"))
     group_blocks = []
     for g in groups:
         forms_for_group = list(FormDefinition.objects.filter(group=g).order_by("slug"))
-        group_blocks.append((g, forms_for_group))
+        track_counts = {"E": 0, "M": 0}
+        for fd in forms_for_group:
+            slug = (fd.slug or "").strip()
+            c = counts.get(slug, 0)
+            if slug.endswith("E_A1") or slug.endswith("E_A2"):
+                track_counts["E"] += c
+            elif slug.endswith("M_A1") or slug.endswith("M_A2"):
+                track_counts["M"] += c
+        group_blocks.append((g, track_counts))
 
     SURVEY_SLUGS = ["PRIMER_E", "FINAL_E", "PRIMER_M", "FINAL_M"]
     surveys = list(FormDefinition.objects.filter(slug__in=SURVEY_SLUGS).order_by("slug"))
     surveys_e = [s for s in surveys if s.slug.endswith("_E")]
     surveys_m = [s for s in surveys if s.slug.endswith("_M")]
 
-    counts = {
-        row["form__slug"]: row["c"]
-        for row in Application.objects.values("form__slug").annotate(c=Count("id"))
-    }
     combined_type_counts = {k: 0 for k in MASTER_SLUGS}
     for slug, c in counts.items():
         m = GROUP_SLUG_RE.match((slug or "").strip())
@@ -2105,15 +2202,14 @@ def database_home(request):
         master = m.group("master")
         if master in combined_type_counts:
             combined_type_counts[master] += c
+    combined_track_counts = {
+        "E": combined_type_counts.get("E_A1", 0) + combined_type_counts.get("E_A2", 0),
+        "M": combined_type_counts.get("M_A1", 0) + combined_type_counts.get("M_A2", 0),
+    }
 
     for fd in masters:
         fd.submission_count = counts.get(fd.slug, 0)
         fd.admin_edit_url = reverse("admin:applications_formdefinition_change", args=[fd.id])
-
-    for _g, forms_for_group in group_blocks:
-        for fd in forms_for_group:
-            fd.submission_count = counts.get(fd.slug, 0)
-            fd.admin_edit_url = reverse("admin:applications_formdefinition_change", args=[fd.id])
 
     for s in surveys:
         s.submission_count = counts.get(s.slug, 0)
@@ -2152,6 +2248,7 @@ def database_home(request):
             "surveys_e": surveys_e,
             "surveys_m": surveys_m,
             "combined_type_counts": combined_type_counts,
+            "combined_track_counts": combined_track_counts,
             "graded_files": graded_files,
             "graded_files_by_group": graded_files_by_group,
             "graded_files_other": graded_files_other,
@@ -2259,6 +2356,69 @@ def database_type_master_csv(request, app_type: str):
         f"{app_type}_ALL_GROUPS.csv"
         if selected_group is None
         else f"{app_type}_G{selected_group}.csv"
+    )
+    return _csv_http_response(filename, headers, rows)
+
+
+@staff_member_required
+def database_track_detail(request, track: str):
+    track = (track or "").upper().strip()
+    if track not in {"E", "M"}:
+        raise Http404("Unsupported combined track")
+
+    group_raw = (request.GET.get("group") or "").strip()
+    selected_group: int | None = int(group_raw) if group_raw.isdigit() else None
+
+    headers, rows, forms = _build_csv_for_track(track, selected_group)
+    preview_html = _csv_preview_html(headers, rows, max_rows=None)
+
+    all_forms = _group_forms_for_track(track)
+    group_options = sorted(
+        g
+        for g in {
+            getattr(getattr(fd, "group", None), "number", None)
+            or _group_number_from_slug(fd.slug or "")
+            for fd in all_forms
+        }
+        if g is not None
+    )
+
+    apps = (
+        Application.objects.filter(form__in=forms)
+        .select_related("form", "form__group")
+        .order_by("-created_at", "-id")
+    ) if forms else []
+
+    track_label = "Emprendedoras" if track == "E" else "Mentoras"
+    return render(
+        request,
+        "admin_dash/database_track_detail.html",
+        {
+            "track": track,
+            "track_label": track_label,
+            "selected_group": selected_group,
+            "group_options": group_options,
+            "apps": apps,
+            "preview_html": preview_html,
+            "rows_count": len(rows),
+        },
+    )
+
+
+@staff_member_required
+def database_track_master_csv(request, track: str):
+    track = (track or "").upper().strip()
+    if track not in {"E", "M"}:
+        raise Http404("Unsupported combined track")
+
+    group_raw = (request.GET.get("group") or "").strip()
+    selected_group: int | None = int(group_raw) if group_raw.isdigit() else None
+
+    headers, rows, _forms = _build_csv_for_track(track, selected_group)
+    filename = (
+        f"{track}_COMBINED_ALL_GROUPS.csv"
+        if selected_group is None
+        else f"{track}_COMBINED_G{selected_group}.csv"
     )
     return _csv_http_response(filename, headers, rows)
 

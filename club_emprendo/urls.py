@@ -25,6 +25,8 @@ urlpatterns = [
     path("admin/database/form/<slug:form_slug>/master.csv", admin_views.database_form_master_csv, name="admin_database_form_master_csv"),
     path("admin/database/type/<slug:app_type>/", admin_views.database_type_detail, name="admin_database_type_detail"),
     path("admin/database/type/<slug:app_type>/master.csv", admin_views.database_type_master_csv, name="admin_database_type_master_csv"),
+    path("admin/database/combined/<slug:track>/", admin_views.database_track_detail, name="admin_database_track_detail"),
+    path("admin/database/combined/<slug:track>/master.csv", admin_views.database_track_master_csv, name="admin_database_track_master_csv"),
     path("admin/database/submission/<int:app_id>/", admin_views.database_submission_detail, name="admin_database_submission_detail"),
     path("admin/database/export/<slug:form_slug>.csv", admin_views.export_form_csv, name="admin_export_form_csv"),
 

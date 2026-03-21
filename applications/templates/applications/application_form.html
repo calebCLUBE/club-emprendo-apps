@@ -12,17 +12,21 @@
   {% endif %}
 
   <div class="ce-form-header">
-    <span class="ce-form-pill">
-      {% if second_stage %}Paso 2{% else %}Paso 1{% endif %}
-    </span>
+    {% if combined_flow %}
+      <span class="ce-form-pill">Formulario</span>
+    {% else %}
+      <span class="ce-form-pill">
+        {% if second_stage %}Paso 2{% else %}Paso 1{% endif %}
+      </span>
+    {% endif %}
 
-    <h1 class="ce-form-title ce-heading">{{ form_def.name }}</h1>
-    {% if form_def.description %}
+    <h1 class="ce-form-title ce-heading">{{ display_form_name|default:form_def.name }}</h1>
+    {% if form_def.description and not combined_flow %}
       <p class="ce-form-subtitle">{{ form_def.description|linebreaks }}</p>
     {% endif %}
   </div>
 
-  {% if second_stage %}
+  {% if second_stage and not combined_flow %}
     <div class="ce-alert">
       ✅ Recuerda hacer clic en “Enviar / Submit” al final para registrar tu respuesta.
     </div>

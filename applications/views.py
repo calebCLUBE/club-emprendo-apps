@@ -7,6 +7,7 @@ from datetime import timedelta
 from django.conf import settings
 from django.core.cache import cache
 from django.core.mail import EmailMultiAlternatives
+from django.http import Http404
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse
 from django.utils import timezone
@@ -831,6 +832,35 @@ def _a1_track_from_slug(slug: str) -> str:
     return ""
 
 
+def _combined_display_name_from_slug(slug: str) -> str | None:
+    s = slug or ""
+    if s.endswith("E_A1") or s.endswith("E_A2"):
+        return "Formulario de Emprendedoras"
+    if s.endswith("M_A1") or s.endswith("M_A2"):
+        return "Formulario de Mentoras"
+    return None
+
+
+def _resolve_a2_slug_from_first_app(first_app: Application, role: str) -> str:
+    """
+    role: "E" or "M"
+    """
+    if role == "E":
+        form_slug = "E_A2"
+        candidate_suffix = "_E_A2"
+    else:
+        form_slug = "M_A2"
+        candidate_suffix = "_M_A2"
+
+    m = GROUP_SLUG_RE.match(first_app.form.slug or "")
+    if m:
+        gnum = m.group("num")
+        candidate = f"G{gnum}{candidate_suffix}"
+        if FormDefinition.objects.filter(slug=candidate).exists():
+            form_slug = candidate
+    return form_slug
+
+
 def _handle_application_form(
     request,
     form_slug: str,
@@ -993,10 +1023,8 @@ def _handle_application_form(
         if combined_flow and (form_def.slug.endswith("M_A1") or form_def.slug.endswith("E_A1")):
             if form_def.slug.endswith("M_A1"):
                 passed = _mentor_a1_is_eligible(answer_map)
-                second_view = "apply_mentora_second"
             else:
                 passed = emprendedora_a1_passes(answer_map)
-                second_view = "apply_emprendedora_second"
 
             if passed:
                 app.generate_invite_token()
@@ -1004,7 +1032,8 @@ def _handle_application_form(
                 app.save(update_fields=["invite_token", "invited_to_second_stage"])
                 app.refresh_from_db()
                 _schedule_a1_to_a2_reminder(app)
-                return redirect(second_view, token=app.invite_token)
+                continue_url = f"{request.path}?combined=1&token={app.invite_token}"
+                return redirect(continue_url)
 
             app.invited_to_second_stage = False
             app.save(update_fields=["invited_to_second_stage"])
@@ -1063,6 +1092,8 @@ def _handle_application_form(
             "form": form,
             "form_def": form_def,
             "second_stage": second_stage,
+            "combined_flow": combined_flow,
+            "display_form_name": _combined_display_name_from_slug(form_def.slug) if combined_flow else None,
             "rendered_description": rendered_description,
             "sections": sections,
             "m2_gate_field": m2_gate_field,
@@ -1071,6 +1102,19 @@ def _handle_application_form(
 
 
 def apply_emprendedora_first(request):
+    token = (request.GET.get("token") or "").strip()
+    if token:
+        first_app = get_object_or_404(Application, invite_token=token)
+        if not (first_app.form.slug or "").endswith("E_A1"):
+            raise Http404("Invalid combined token for emprendedora flow.")
+        a2_slug = _resolve_a2_slug_from_first_app(first_app, role="E")
+        return _handle_application_form(
+            request,
+            a2_slug,
+            second_stage=False,
+            combined_flow=True,
+        )
+
     latest = _latest_group_form_slug("E_A1")
     return _handle_application_form(
         request,
@@ -1081,6 +1125,19 @@ def apply_emprendedora_first(request):
 
 
 def apply_mentora_first(request):
+    token = (request.GET.get("token") or "").strip()
+    if token:
+        first_app = get_object_or_404(Application, invite_token=token)
+        if not (first_app.form.slug or "").endswith("M_A1"):
+            raise Http404("Invalid combined token for mentora flow.")
+        a2_slug = _resolve_a2_slug_from_first_app(first_app, role="M")
+        return _handle_application_form(
+            request,
+            a2_slug,
+            second_stage=False,
+            combined_flow=True,
+        )
+
     latest = _latest_group_form_slug("M_A1")
     return _handle_application_form(
         request,
@@ -1091,6 +1148,19 @@ def apply_mentora_first(request):
 
 
 def apply_emprendedora_combined(request):
+    token = (request.GET.get("token") or "").strip()
+    if token:
+        first_app = get_object_or_404(Application, invite_token=token)
+        if not (first_app.form.slug or "").endswith("E_A1"):
+            raise Http404("Invalid combined token for emprendedora flow.")
+        a2_slug = _resolve_a2_slug_from_first_app(first_app, role="E")
+        return _handle_application_form(
+            request,
+            a2_slug,
+            second_stage=False,
+            combined_flow=True,
+        )
+
     latest = _latest_group_form_slug("E_A1")
     return _handle_application_form(
         request,
@@ -1101,6 +1171,19 @@ def apply_emprendedora_combined(request):
 
 
 def apply_mentora_combined(request):
+    token = (request.GET.get("token") or "").strip()
+    if token:
+        first_app = get_object_or_404(Application, invite_token=token)
+        if not (first_app.form.slug or "").endswith("M_A1"):
+            raise Http404("Invalid combined token for mentora flow.")
+        a2_slug = _resolve_a2_slug_from_first_app(first_app, role="M")
+        return _handle_application_form(
+            request,
+            a2_slug,
+            second_stage=False,
+            combined_flow=True,
+        )
+
     latest = _latest_group_form_slug("M_A1")
     return _handle_application_form(
         request,
@@ -1121,7 +1204,13 @@ def apply_emprendedora_second(request, token):
         if FormDefinition.objects.filter(slug=candidate).exists():
             form_slug = candidate
 
-    return _handle_application_form(request, form_slug, second_stage=True)
+    combined_flow = (request.GET.get("combined") or "").strip().lower() in {"1", "true", "yes"}
+    return _handle_application_form(
+        request,
+        form_slug,
+        second_stage=not combined_flow,
+        combined_flow=combined_flow,
+    )
 
 
 def apply_mentora_second(request, token):
@@ -1135,7 +1224,13 @@ def apply_mentora_second(request, token):
         if FormDefinition.objects.filter(slug=candidate).exists():
             form_slug = candidate
 
-    return _handle_application_form(request, form_slug, second_stage=True)
+    combined_flow = (request.GET.get("combined") or "").strip().lower() in {"1", "true", "yes"}
+    return _handle_application_form(
+        request,
+        form_slug,
+        second_stage=not combined_flow,
+        combined_flow=combined_flow,
+    )
 
 
 def apply_emprendedora_second_preview(request):
@@ -1151,6 +1246,7 @@ def apply_mentora_second_preview(request):
 def apply_by_slug(request, form_slug):
     second_stage = str(form_slug).endswith("_A2")
     raw_combined = (request.GET.get("combined") or "").strip().lower()
+    token = (request.GET.get("token") or "").strip()
     if raw_combined in {"1", "true", "yes"}:
         combined_flow = True
     elif raw_combined in {"0", "false", "no"}:
@@ -1160,6 +1256,20 @@ def apply_by_slug(request, form_slug):
             (form_slug or "").endswith("E_A1") or (form_slug or "").endswith("M_A1")
         )
         combined_flow = is_group_a1
+
+    if combined_flow and token and not second_stage and (
+        (form_slug or "").endswith("E_A1") or (form_slug or "").endswith("M_A1")
+    ):
+        first_app = get_object_or_404(Application, invite_token=token)
+        if (form_slug or "").endswith("E_A1"):
+            if not (first_app.form.slug or "").endswith("E_A1"):
+                raise Http404("Invalid combined token.")
+            form_slug = _resolve_a2_slug_from_first_app(first_app, role="E")
+        else:
+            if not (first_app.form.slug or "").endswith("M_A1"):
+                raise Http404("Invalid combined token.")
+            form_slug = _resolve_a2_slug_from_first_app(first_app, role="M")
+        second_stage = False
 
     return _handle_application_form(
         request,

@@ -1461,7 +1461,10 @@ def _group_number_from_slug(slug: str) -> int | None:
         return None
 
 
-def _group_forms_for_app_type(app_type: str) -> list[FormDefinition]:
+def _group_forms_for_app_type(
+    app_type: str,
+    include_combined_groups: bool | None = None,
+) -> list[FormDefinition]:
     app_type = (app_type or "").upper().strip()
     if app_type not in MASTER_SLUGS:
         raise ValueError(f"Unsupported app type: {app_type}")
@@ -1480,6 +1483,12 @@ def _group_forms_for_app_type(app_type: str) -> list[FormDefinition]:
             continue
         if m.group("master") != app_type:
             continue
+        if include_combined_groups is not None:
+            use_combined = bool(getattr(getattr(fd, "group", None), "use_combined_application", False))
+            if include_combined_groups and not use_combined:
+                continue
+            if not include_combined_groups and use_combined:
+                continue
         forms.append(fd)
 
     def _sort_key(fd: FormDefinition):
@@ -1495,8 +1504,9 @@ def _group_forms_for_app_type(app_type: str) -> list[FormDefinition]:
 def _build_csv_for_app_type(
     app_type: str,
     group_number: int | None = None,
+    include_combined_groups: bool | None = None,
 ) -> Tuple[List[str], List[List[str]], list[FormDefinition]]:
-    forms = _group_forms_for_app_type(app_type)
+    forms = _group_forms_for_app_type(app_type, include_combined_groups=include_combined_groups)
     if group_number is not None:
         filtered_forms: list[FormDefinition] = []
         for fd in forms:
@@ -1565,7 +1575,7 @@ def _group_forms_for_track(track: str) -> list[FormDefinition]:
     forms: list[FormDefinition] = []
     seen_ids: set[int] = set()
     for app_type in app_types:
-        for fd in _group_forms_for_app_type(app_type):
+        for fd in _group_forms_for_app_type(app_type, include_combined_groups=True):
             if fd.id in seen_ids:
                 continue
             seen_ids.add(fd.id)
@@ -1930,6 +1940,7 @@ def apps_list(request):
     masters = list(FormDefinition.objects.filter(slug__in=MASTER_SLUGS).order_by("slug"))
 
     groups = list(FormGroup.objects.order_by("-number"))
+    has_combined_groups = FormGroup.objects.filter(use_combined_application=True).exists()
     group_list = []
     for g in groups:
         _sync_group_open_close(g)
@@ -1943,6 +1954,7 @@ def apps_list(request):
             "masters": masters,
             "create_group_form": CreateGroupForm(),
             "group_list": group_list,
+            "has_combined_groups": has_combined_groups,
         },
     )
 
@@ -1954,6 +1966,7 @@ def create_group(request):
     if not form.is_valid():
         masters = list(FormDefinition.objects.filter(slug__in=MASTER_SLUGS).order_by("slug"))
         groups = list(FormGroup.objects.order_by("-number"))
+        has_combined_groups = FormGroup.objects.filter(use_combined_application=True).exists()
         group_list = []
         for g in groups:
             forms_for_group = list(FormDefinition.objects.filter(group=g).order_by("slug"))
@@ -1966,6 +1979,7 @@ def create_group(request):
                 "masters": masters,
                 "create_group_form": form,
                 "group_list": group_list,
+                "has_combined_groups": has_combined_groups,
             },
         )
 
@@ -1995,6 +2009,7 @@ def create_group(request):
                 "reminder_1_at": reminder_1_at,
                 "reminder_2_at": reminder_2_at,
                 "reminder_3_at": reminder_3_at,
+                "use_combined_application": True,
             },
         )
         group.start_month = start_month
@@ -2176,36 +2191,52 @@ def database_home(request):
     }
 
     groups = list(FormGroup.objects.order_by("number"))
-    group_blocks = []
+    group_blocks: list[dict] = []
+    combined_track_counts = {"E": 0, "M": 0}
+    legacy_type_counts = {k: 0 for k in MASTER_SLUGS}
+
     for g in groups:
         forms_for_group = list(FormDefinition.objects.filter(group=g).order_by("slug"))
-        track_counts = {"E": 0, "M": 0}
+        use_combined = bool(getattr(g, "use_combined_application", False))
+
+        if use_combined:
+            track_counts = {"E": 0, "M": 0}
+            for fd in forms_for_group:
+                slug = (fd.slug or "").strip()
+                c = counts.get(slug, 0)
+                if slug.endswith("E_A1") or slug.endswith("E_A2"):
+                    track_counts["E"] += c
+                elif slug.endswith("M_A1") or slug.endswith("M_A2"):
+                    track_counts["M"] += c
+            combined_track_counts["E"] += track_counts["E"]
+            combined_track_counts["M"] += track_counts["M"]
+            group_blocks.append({
+                "group": g,
+                "mode": "combined",
+                "track_counts": track_counts,
+            })
+            continue
+
         for fd in forms_for_group:
-            slug = (fd.slug or "").strip()
-            c = counts.get(slug, 0)
-            if slug.endswith("E_A1") or slug.endswith("E_A2"):
-                track_counts["E"] += c
-            elif slug.endswith("M_A1") or slug.endswith("M_A2"):
-                track_counts["M"] += c
-        group_blocks.append((g, track_counts))
+            fd.submission_count = counts.get(fd.slug, 0)
+            fd.admin_edit_url = reverse("admin:applications_formdefinition_change", args=[fd.id])
+            m = GROUP_SLUG_RE.match((fd.slug or "").strip())
+            if not m:
+                continue
+            master = m.group("master")
+            if master in legacy_type_counts:
+                legacy_type_counts[master] += fd.submission_count
+
+        group_blocks.append({
+            "group": g,
+            "mode": "legacy",
+            "forms": forms_for_group,
+        })
 
     SURVEY_SLUGS = ["PRIMER_E", "FINAL_E", "PRIMER_M", "FINAL_M"]
     surveys = list(FormDefinition.objects.filter(slug__in=SURVEY_SLUGS).order_by("slug"))
     surveys_e = [s for s in surveys if s.slug.endswith("_E")]
     surveys_m = [s for s in surveys if s.slug.endswith("_M")]
-
-    combined_type_counts = {k: 0 for k in MASTER_SLUGS}
-    for slug, c in counts.items():
-        m = GROUP_SLUG_RE.match((slug or "").strip())
-        if not m:
-            continue
-        master = m.group("master")
-        if master in combined_type_counts:
-            combined_type_counts[master] += c
-    combined_track_counts = {
-        "E": combined_type_counts.get("E_A1", 0) + combined_type_counts.get("E_A2", 0),
-        "M": combined_type_counts.get("M_A1", 0) + combined_type_counts.get("M_A2", 0),
-    }
 
     for fd in masters:
         fd.submission_count = counts.get(fd.slug, 0)
@@ -2247,7 +2278,7 @@ def database_home(request):
             "surveys": surveys,
             "surveys_e": surveys_e,
             "surveys_m": surveys_m,
-            "combined_type_counts": combined_type_counts,
+            "legacy_type_counts": legacy_type_counts,
             "combined_track_counts": combined_track_counts,
             "graded_files": graded_files,
             "graded_files_by_group": graded_files_by_group,
@@ -2308,10 +2339,14 @@ def database_type_detail(request, app_type: str):
     group_raw = (request.GET.get("group") or "").strip()
     selected_group: int | None = int(group_raw) if group_raw.isdigit() else None
 
-    headers, rows, forms = _build_csv_for_app_type(app_type, selected_group)
+    headers, rows, forms = _build_csv_for_app_type(
+        app_type,
+        selected_group,
+        include_combined_groups=False,
+    )
     preview_html = _csv_preview_html(headers, rows, max_rows=None)
 
-    all_forms = _group_forms_for_app_type(app_type)
+    all_forms = _group_forms_for_app_type(app_type, include_combined_groups=False)
     group_options = sorted(
         g
         for g in {
@@ -2351,7 +2386,11 @@ def database_type_master_csv(request, app_type: str):
     group_raw = (request.GET.get("group") or "").strip()
     selected_group: int | None = int(group_raw) if group_raw.isdigit() else None
 
-    headers, rows, _forms = _build_csv_for_app_type(app_type, selected_group)
+    headers, rows, _forms = _build_csv_for_app_type(
+        app_type,
+        selected_group,
+        include_combined_groups=False,
+    )
     filename = (
         f"{app_type}_ALL_GROUPS.csv"
         if selected_group is None

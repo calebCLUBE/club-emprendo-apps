@@ -34,6 +34,10 @@ class FormGroup(models.Model):
     reminder_1_sent_at = models.DateTimeField(null=True, blank=True, editable=False)
     reminder_2_sent_at = models.DateTimeField(null=True, blank=True, editable=False)
     reminder_3_sent_at = models.DateTimeField(null=True, blank=True, editable=False)
+    use_combined_application = models.BooleanField(
+        default=False,
+        help_text="If enabled, this group uses the combined application flow/database view.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

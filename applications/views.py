@@ -59,15 +59,21 @@ A1_TO_A2_REMINDER_RUN_LOCK_TTL_SECONDS = 60 * 15
 # -------------------------
 # Utilities
 # -------------------------
-def _latest_group_form_slug(suffix: str) -> str | None:
+def _latest_group_form_slug(suffix: str, combined_only: bool | None = None) -> str | None:
     pattern = re.compile(rf"^G(?P<num>\d+)_{re.escape(suffix)}$")
     best = None
     best_num = -1
 
-    for fd in FormDefinition.objects.filter(slug__endswith=suffix):
+    for fd in FormDefinition.objects.filter(slug__endswith=suffix).select_related("group"):
         m = pattern.match(fd.slug or "")
         if not m:
             continue
+        if combined_only is not None:
+            use_combined = bool(getattr(getattr(fd, "group", None), "use_combined_application", False))
+            if combined_only and not use_combined:
+                continue
+            if not combined_only and use_combined:
+                continue
         n = int(m.group("num"))
         if n > best_num: 
             best_num = n
@@ -842,6 +848,17 @@ def _combined_display_name_from_slug(slug: str) -> str | None:
     return None
 
 
+def _slug_uses_combined_flow(slug: str) -> bool:
+    fd = (
+        FormDefinition.objects.select_related("group")
+        .filter(slug=slug)
+        .first()
+    )
+    if not fd:
+        return False
+    return bool(getattr(getattr(fd, "group", None), "use_combined_application", False))
+
+
 def _resolve_a2_slug_from_first_app(first_app: Application, role: str) -> str:
     """
     role: "E" or "M"
@@ -1159,11 +1176,12 @@ def apply_emprendedora_first(request):
         )
 
     latest = _latest_group_form_slug("E_A1")
+    target_slug = latest or "E_A1"
     return _handle_application_form(
         request,
-        latest or "E_A1",
+        target_slug,
         second_stage=False,
-        combined_flow=bool(latest),
+        combined_flow=_slug_uses_combined_flow(target_slug),
     )
 
 
@@ -1183,11 +1201,12 @@ def apply_mentora_first(request):
         )
 
     latest = _latest_group_form_slug("M_A1")
+    target_slug = latest or "M_A1"
     return _handle_application_form(
         request,
-        latest or "M_A1",
+        target_slug,
         second_stage=False,
-        combined_flow=bool(latest),
+        combined_flow=_slug_uses_combined_flow(target_slug),
     )
 
 
@@ -1206,7 +1225,7 @@ def apply_emprendedora_combined(request):
             invite_token=token,
         )
 
-    latest = _latest_group_form_slug("E_A1")
+    latest = _latest_group_form_slug("E_A1", combined_only=True)
     return _handle_application_form(
         request,
         latest or "E_A1",
@@ -1230,7 +1249,7 @@ def apply_mentora_combined(request):
             invite_token=token,
         )
 
-    latest = _latest_group_form_slug("M_A1")
+    latest = _latest_group_form_slug("M_A1", combined_only=True)
     return _handle_application_form(
         request,
         latest or "M_A1",
@@ -1300,10 +1319,8 @@ def apply_by_slug(request, form_slug):
     elif raw_combined in {"0", "false", "no"}:
         combined_flow = False
     else:
-        is_group_a1 = bool(GROUP_SLUG_RE.match(form_slug or "")) and (
-            (form_slug or "").endswith("E_A1") or (form_slug or "").endswith("M_A1")
-        )
-        combined_flow = is_group_a1
+        is_a1 = (form_slug or "").endswith("E_A1") or (form_slug or "").endswith("M_A1")
+        combined_flow = _slug_uses_combined_flow(form_slug) if is_a1 else False
 
     if combined_flow and token and not second_stage and (
         (form_slug or "").endswith("E_A1") or (form_slug or "").endswith("M_A1")

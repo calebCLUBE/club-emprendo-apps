@@ -33,7 +33,11 @@ from applications.grader_e import grade_single_row, grade_from_dataframe
 from django.db import connection
 from applications.grader_e import grade_from_dataframe as grade_e_df
 from applications.grader_m import grade_from_dataframe as grade_m_df
-from applications.drive_sync import ensure_group_drive_tree
+from applications.drive_sync import (
+    ensure_group_drive_tree,
+    sync_generated_csv_artifact,
+    sync_group_track_responses_csv,
+)
 import math
 from django.db import connection
 from applications.models import (
@@ -266,6 +270,9 @@ def _run_grade_job(job_id: int):
             form_slug=job.form_slug,
             csv_text=csv_text,
         )
+
+        drive_sync = sync_generated_csv_artifact(job.form_slug, csv_text)
+        _job_log(job, f"☁️ Drive sync: {drive_sync.status} - {drive_sync.detail}")
 
         _job_log(job, f"📄 Saved graded file (id={gf.id}, bytes={len(csv_text)})")
 
@@ -1828,6 +1835,9 @@ def _run_pair_job(job_id: int, group_num: int, emp_list: list[str], mentor_list:
         GradedFile.objects.filter(form_slug=form_slug).delete()
         gf = GradedFile.objects.create(form_slug=form_slug, csv_text=csv_text)
 
+        drive_sync = sync_generated_csv_artifact(form_slug, csv_text)
+        _pair_log(job, f"☁️ Drive sync: {drive_sync.status} - {drive_sync.detail}")
+
         _pair_log(job, f"📄 CSV saved (GradedFile id={gf.id})")
 
         job.status = PairingJob.STATUS_DONE
@@ -2322,6 +2332,73 @@ def database_home(request):
             "database_next": request.get_full_path(),
         },
     )
+
+
+def _sync_drive_for_group_number(group_num: int) -> list[tuple[str, str, str]]:
+    """
+    Returns list of tuples:
+      (status, label, detail)
+    """
+    out: list[tuple[str, str, str]] = []
+
+    for track in ("E", "M"):
+        res = sync_group_track_responses_csv(group_num, track)
+        out.append((res.status, f"G{group_num}_{track} Respuestas.csv", res.detail))
+
+    for slug in (f"G{group_num}_E_A2", f"G{group_num}_M_A2", f"PAIR_G{group_num}"):
+        gf = GradedFile.objects.filter(form_slug=slug).order_by("-created_at").first()
+        if not gf:
+            out.append(("skipped", slug, "No CSV found in database yet."))
+            continue
+        res = sync_generated_csv_artifact(slug, gf.csv_text)
+        out.append((res.status, slug, res.detail))
+
+    return out
+
+
+@staff_member_required
+@require_POST
+def database_sync_drive(request):
+    raw_group = (request.POST.get("group_num") or "").strip()
+    group_numbers: list[int]
+
+    if raw_group:
+        try:
+            group_numbers = [int(raw_group)]
+        except ValueError:
+            messages.error(request, f"Invalid group number: {raw_group}")
+            return _database_next_redirect(request, fallback_name="admin_database")
+    else:
+        group_numbers = list(
+            FormGroup.objects.order_by("number").values_list("number", flat=True)
+        )
+
+    if not group_numbers:
+        messages.info(request, "No groups found to sync.")
+        return _database_next_redirect(request, fallback_name="admin_database")
+
+    updated = 0
+    skipped = 0
+    details: list[str] = []
+
+    for gnum in group_numbers:
+        for status, label, detail in _sync_drive_for_group_number(gnum):
+            if status == "updated":
+                updated += 1
+            else:
+                skipped += 1
+                if len(details) < 8:
+                    details.append(f"{label}: {detail}")
+
+    scope = f"group {group_numbers[0]}" if len(group_numbers) == 1 else "all groups"
+    messages.success(
+        request,
+        f"Drive manual sync completed for {scope}: {updated} updated, {skipped} skipped.",
+    )
+    if details:
+        messages.info(request, " | ".join(details))
+
+    return _database_next_redirect(request, fallback_name="admin_database")
 
 
 @staff_member_required
@@ -3477,8 +3554,15 @@ def grade_one_emprendedora(request, app_id: int):
             application=app,
             csv_text=csv_text,
         )
+        drive_sync = sync_generated_csv_artifact(app.form.slug, csv_text)
 
-        messages.success(request, f"✅ Graded app #{app.id}. CSV stored in database (id={gf.id}).")
+        messages.success(
+            request,
+            (
+                f"✅ Graded app #{app.id}. CSV stored in database (id={gf.id}). "
+                f"Drive sync: {drive_sync.status}."
+            ),
+        )
 
     except Exception as e:
         messages.error(request, f"Grading failed: {e}")

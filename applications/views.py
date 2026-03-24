@@ -16,6 +16,7 @@ import json
 
 from .forms import build_application_form
 from .models import Application, Answer, FormDefinition, Question, Section, scheduled_group_open_state
+from .drive_sync import schedule_group_track_responses_sync
 from .emprendedora_a1_autograde import (
     autograde_and_email_emprendedora_a1,
     emprendedora_a1_passes,
@@ -1075,6 +1076,14 @@ def _handle_application_form(
                     value=stored_value,
                 )
                 answer_map[q.slug] = stored_value
+
+        try:
+            gnum_raw = _group_num_from_slug(form_def.slug or "")
+            if gnum_raw:
+                track = "M" if (form_def.slug or "").endswith("M_A1") or (form_def.slug or "").endswith("M_A2") else "E"
+                schedule_group_track_responses_sync(int(gnum_raw), track)
+        except Exception:
+            logger.exception("Drive response CSV sync trigger failed for form %s", form_def.slug)
 
         if form_def.slug.endswith("E_A2") or form_def.slug.endswith("M_A2"):
             _send_a2_submission_email(app, answer_map)

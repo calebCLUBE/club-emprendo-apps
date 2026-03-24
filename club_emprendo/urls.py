@@ -32,6 +32,7 @@ urlpatterns = [
 
     # ✅ Delete submission + file actions
     path("admin/database/delete-submissions/", admin_views.bulk_delete_submissions, name="admin_bulk_delete_submissions"),
+    path("admin/database/sync-drive/", admin_views.database_sync_drive, name="admin_database_sync_drive"),
     path("admin/database/delete-submission/<int:app_id>/", admin_views.delete_submission, name="admin_delete_submission"),
     path("admin/database/delete-graded-file/<int:graded_file_id>/", admin_views.delete_graded_file, name="admin_delete_graded_file"),
     path("admin/database/delete-answer-file/<int:answer_id>/", admin_views.delete_answer_file_value, name="admin_delete_answer_file_value"),

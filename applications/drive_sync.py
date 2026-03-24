@@ -4,6 +4,9 @@ import os
 import re
 import ast
 import base64
+import csv
+import io
+import threading
 from dataclasses import dataclass
 
 
@@ -12,6 +15,8 @@ logger = logging.getLogger(__name__)
 FOLDER_MIMETYPE = "application/vnd.google-apps.folder"
 GROUP_PREFIX_RE = re.compile(r"^\s*2\.(?P<num>\d+)\b", re.IGNORECASE)
 FOLDER_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+GROUP_TRACK_FORM_RE = re.compile(r"^G(?P<num>\d+)_(?P<track>E|M)_A[12]$", re.IGNORECASE)
+PAIR_FORM_RE = re.compile(r"^PAIR_G(?P<num>\d+)$", re.IGNORECASE)
 
 
 @dataclass
@@ -20,6 +25,14 @@ class DriveGroupSyncResult:
     detail: str
     folder_name: str = ""
     folder_id: str = ""
+
+
+@dataclass
+class DriveCsvSyncResult:
+    status: str  # updated | skipped | error
+    detail: str
+    file_name: str = ""
+    file_id: str = ""
 
 
 def _month_label(value: str) -> str:
@@ -194,6 +207,273 @@ def _create_folder(service, name: str, parent_id: str) -> dict:
             supportsAllDrives=True,
         )
         .execute()
+    )
+
+
+def _list_children(service, parent_id: str) -> list[dict]:
+    query = f"'{parent_id}' in parents and trashed=false"
+    out: list[dict] = []
+    page_token = None
+    while True:
+        resp = (
+            service.files()
+            .list(
+                q=query,
+                fields="nextPageToken, files(id,name,mimeType)",
+                pageSize=200,
+                pageToken=page_token,
+                includeItemsFromAllDrives=True,
+                supportsAllDrives=True,
+            )
+            .execute()
+        )
+        out.extend(resp.get("files", []))
+        page_token = resp.get("nextPageToken")
+        if not page_token:
+            break
+    return out
+
+
+def _find_child_folder_by_name(service, parent_id: str, name: str) -> dict | None:
+    target = (name or "").strip().lower()
+    for item in _list_child_folders(service, parent_id):
+        if (item.get("name") or "").strip().lower() == target:
+            return item
+    return None
+
+
+def _find_child_item_by_name(service, parent_id: str, name: str) -> dict | None:
+    target = (name or "").strip().lower()
+    for item in _list_children(service, parent_id):
+        if (item.get("name") or "").strip().lower() == target:
+            return item
+    return None
+
+
+def _upsert_csv_file(service, parent_id: str, filename: str, csv_text: str) -> dict:
+    from googleapiclient.http import MediaIoBaseUpload
+
+    data = (csv_text or "").encode("utf-8")
+    media = MediaIoBaseUpload(io.BytesIO(data), mimetype="text/csv", resumable=False)
+    existing = _find_child_item_by_name(service, parent_id, filename)
+    if existing and existing.get("id"):
+        return (
+            service.files()
+            .update(
+                fileId=existing["id"],
+                media_body=media,
+                fields="id,name",
+                supportsAllDrives=True,
+            )
+            .execute()
+        )
+    return (
+        service.files()
+        .create(
+            body={"name": filename, "parents": [parent_id]},
+            media_body=media,
+            fields="id,name",
+            supportsAllDrives=True,
+        )
+        .execute()
+    )
+
+
+def _resolve_group_folder(service, root_folder_id: str, group_num: int) -> dict | None:
+    return _find_existing_group_folder(service, root_folder_id, group_num)
+
+
+def _resolve_track_target_folder_id(service, root_folder_id: str, group_num: int, track: str) -> str | None:
+    group_folder = _resolve_group_folder(service, root_folder_id, group_num)
+    if not group_folder or not group_folder.get("id"):
+        return None
+    apps_folder = _find_child_folder_by_name(service, group_folder["id"], f"G{group_num} Aplicaciones")
+    if not apps_folder or not apps_folder.get("id"):
+        return None
+    role_folder_name = "Mentoras" if (track or "").upper() == "M" else "Emprendedoras"
+    role_folder = _find_child_folder_by_name(service, apps_folder["id"], role_folder_name)
+    return role_folder.get("id") if role_folder else None
+
+
+def _resolve_pairing_target_folder_id(service, root_folder_id: str, group_num: int) -> str | None:
+    group_folder = _resolve_group_folder(service, root_folder_id, group_num)
+    if not group_folder or not group_folder.get("id"):
+        return None
+    pairing_folder = _find_child_folder_by_name(service, group_folder["id"], f"G{group_num} Emparejamiento")
+    return pairing_folder.get("id") if pairing_folder else None
+
+
+def _service_and_root() -> tuple[object, str]:
+    raw_root = (
+        os.getenv("GOOGLE_DRIVE_GROUPS_ROOT_FOLDER_ID", "").strip()
+        or os.getenv("DRIVE_GROUPS_ROOT_FOLDER_ID", "").strip()
+        or os.getenv("DRIVE_FOLDER_ID", "").strip()
+    )
+    key_path, key_json, root_folder_id = _load_config()
+    if (not key_path and not key_json) or not root_folder_id:
+        raise RuntimeError(
+            "Missing Drive config. Set GOOGLE_DRIVE_GROUPS_ROOT_FOLDER_ID and "
+            "GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON_CONTENT_B64 (or JSON/path variants)."
+        )
+    if raw_root and not root_folder_id:
+        raise RuntimeError(
+            "Drive root folder value could not be parsed. Use a folder ID or valid Drive folder URL."
+        )
+    if key_path and not os.path.exists(key_path):
+        raise RuntimeError(f"Drive key file not found at {key_path}.")
+    return _build_service(key_path, key_json), root_folder_id
+
+
+def _build_group_track_rows(group_num: int, track: str) -> tuple[list[str], list[list[str]]]:
+    from applications.models import Application, FormDefinition
+
+    t = (track or "").upper().strip()
+    if t not in {"E", "M"}:
+        return [], []
+
+    suffixes = [f"_{t}_A1", f"_{t}_A2"]
+    forms = [
+        fd
+        for fd in FormDefinition.objects.filter(group__number=group_num)
+        if (fd.slug or "").endswith(suffixes[0]) or (fd.slug or "").endswith(suffixes[1])
+    ]
+    if not forms:
+        return [], []
+
+    question_slugs: list[str] = []
+    seen: set[str] = set()
+    for fd in forms:
+        for q in fd.questions.filter(active=True).order_by("position", "id"):
+            if q.slug in seen:
+                continue
+            seen.add(q.slug)
+            question_slugs.append(q.slug)
+
+    headers = ["created_at", "application_id", "group_number", "name", "email"] + question_slugs
+
+    apps = (
+        Application.objects.filter(form__in=forms)
+        .select_related("form", "form__group")
+        .prefetch_related("answers__question")
+        .order_by("created_at", "id")
+    )
+    rows: list[list[str]] = []
+    for app in apps:
+        amap = {a.question.slug: (a.value or "") for a in app.answers.all() if getattr(a, "question_id", None)}
+        rows.append(
+            [
+                app.created_at.isoformat(),
+                str(app.id),
+                str(group_num),
+                app.name or "",
+                app.email or "",
+            ]
+            + [amap.get(slug, "") for slug in question_slugs]
+        )
+    return headers, rows
+
+
+def _rows_to_csv_text(headers: list[str], rows: list[list[str]]) -> str:
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(headers)
+    writer.writerows(rows)
+    return buf.getvalue()
+
+
+def sync_group_track_responses_csv(group_num: int, track: str) -> DriveCsvSyncResult:
+    try:
+        service, root_folder_id = _service_and_root()
+    except Exception as exc:
+        return DriveCsvSyncResult(status="skipped", detail=str(exc))
+
+    target_folder_id = _resolve_track_target_folder_id(service, root_folder_id, group_num, track)
+    if not target_folder_id:
+        return DriveCsvSyncResult(
+            status="skipped",
+            detail=f"Target folder not found for G{group_num} track {track}.",
+        )
+
+    headers, rows = _build_group_track_rows(group_num, track)
+    if not headers:
+        return DriveCsvSyncResult(
+            status="skipped",
+            detail=f"No forms found for G{group_num} track {track}.",
+        )
+
+    csv_text = _rows_to_csv_text(headers, rows)
+    filename = f"G{group_num}_{track.upper()} Respuestas.csv"
+    uploaded = _upsert_csv_file(service, target_folder_id, filename, csv_text)
+    return DriveCsvSyncResult(
+        status="updated",
+        detail=f"Synced {filename}",
+        file_name=filename,
+        file_id=(uploaded.get("id") or ""),
+    )
+
+
+def _sync_group_track_responses_csv_safe(group_num: int, track: str) -> None:
+    try:
+        res = sync_group_track_responses_csv(group_num, track)
+        logger.info("Drive responses sync: %s", res.detail)
+    except Exception:
+        logger.exception("Drive responses sync failed for G%s track %s", group_num, track)
+
+
+def schedule_group_track_responses_sync(group_num: int, track: str) -> None:
+    t = threading.Thread(
+        target=_sync_group_track_responses_csv_safe,
+        args=(int(group_num), (track or "").upper()),
+        daemon=True,
+    )
+    t.start()
+
+
+def sync_generated_csv_artifact(form_slug: str, csv_text: str) -> DriveCsvSyncResult:
+    slug = (form_slug or "").strip()
+    m_track = GROUP_TRACK_FORM_RE.match(slug)
+    m_pair = PAIR_FORM_RE.match(slug)
+
+    if not m_track and not m_pair:
+        return DriveCsvSyncResult(status="skipped", detail=f"Unsupported artifact slug: {slug}")
+
+    try:
+        service, root_folder_id = _service_and_root()
+    except Exception as exc:
+        return DriveCsvSyncResult(status="skipped", detail=str(exc))
+
+    if m_track:
+        group_num = int(m_track.group("num"))
+        track = m_track.group("track").upper()
+        target_folder_id = _resolve_track_target_folder_id(service, root_folder_id, group_num, track)
+        if not target_folder_id:
+            return DriveCsvSyncResult(
+                status="skipped",
+                detail=f"Target folder not found for graded file {slug}.",
+            )
+        filename = f"G{group_num}_{track} Graded.csv"
+        uploaded = _upsert_csv_file(service, target_folder_id, filename, csv_text or "")
+        return DriveCsvSyncResult(
+            status="updated",
+            detail=f"Synced {filename}",
+            file_name=filename,
+            file_id=(uploaded.get("id") or ""),
+        )
+
+    group_num = int(m_pair.group("num"))
+    target_folder_id = _resolve_pairing_target_folder_id(service, root_folder_id, group_num)
+    if not target_folder_id:
+        return DriveCsvSyncResult(
+            status="skipped",
+            detail=f"Target pairing folder not found for {slug}.",
+        )
+    filename = f"G{group_num} Emparejamiento.csv"
+    uploaded = _upsert_csv_file(service, target_folder_id, filename, csv_text or "")
+    return DriveCsvSyncResult(
+        status="updated",
+        detail=f"Synced {filename}",
+        file_name=filename,
+        file_id=(uploaded.get("id") or ""),
     )
 
 

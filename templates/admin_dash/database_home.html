@@ -3,6 +3,12 @@
 
 <h1>Database</h1>
 
+<form method="post" action="{% url 'admin_database_sync_drive' %}" style="margin: 10px 0 16px 0;">
+  {% csrf_token %}
+  <input type="hidden" name="next" value="{{ database_next }}">
+  <button type="submit" class="button">Sync All Database CSVs To Drive</button>
+</form>
+
 <details style="margin: 10px 0 18px; padding: 10px; border: 1px solid #ddd; border-radius: 10px;">
   <summary style="cursor:pointer; font-weight:600;">
     Graded Files
@@ -152,6 +158,13 @@
         <strong>Group {{ block.group.number }}</strong>
         — {{ block.group.start_month }} to {{ block.group.end_month }} {{ block.group.year }}
       </summary>
+
+      <form method="post" action="{% url 'admin_database_sync_drive' %}" style="margin-top:10px;">
+        {% csrf_token %}
+        <input type="hidden" name="group_num" value="{{ block.group.number }}">
+        <input type="hidden" name="next" value="{{ database_next }}">
+        <button type="submit" class="button">Sync Group {{ block.group.number }} To Drive</button>
+      </form>
 
       {% if block.mode == "combined" %}
         <ul style="margin-top:10px;">

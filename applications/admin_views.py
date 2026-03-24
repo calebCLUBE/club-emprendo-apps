@@ -33,6 +33,7 @@ from applications.grader_e import grade_single_row, grade_from_dataframe
 from django.db import connection
 from applications.grader_e import grade_from_dataframe as grade_e_df
 from applications.grader_m import grade_from_dataframe as grade_m_df
+from applications.drive_sync import ensure_group_drive_tree
 import math
 from django.db import connection
 from applications.models import (
@@ -2042,7 +2043,41 @@ def create_group(request):
         for master_fd in masters:
             _clone_form(master_fd, group)
 
+    drive_result = None
+    try:
+        drive_result = ensure_group_drive_tree(
+            group_num=group.number,
+            start_month=group.start_month,
+            end_month=group.end_month,
+            year=group.year,
+        )
+    except Exception as exc:
+        logger.exception("Drive folder sync failed for group %s", group.number)
+        detail = str(exc).strip()
+        if len(detail) > 220:
+            detail = detail[:220] + "..."
+        messages.warning(
+            request,
+            (
+                f"Grupo {group_num} creado/actualizado, pero falló la creación de carpetas en Drive."
+                + (f" Error: {detail}" if detail else "")
+            ),
+        )
+
     messages.success(request, f"Grupo {group_num} creado/actualizado y formularios clonados.")
+    if drive_result:
+        if drive_result.status == "created":
+            messages.success(
+                request,
+                f"Drive: estructura creada para G{group_num} ({drive_result.folder_name}).",
+            )
+        elif drive_result.status == "exists":
+            messages.info(
+                request,
+                f"Drive: G{group_num} ya existe ({drive_result.folder_name}). No se hicieron cambios.",
+            )
+        elif drive_result.status == "skipped":
+            messages.warning(request, f"Drive: {drive_result.detail}")
     _sync_group_open_close(group)
     return redirect("admin_apps_list")
 
@@ -3436,20 +3471,14 @@ def grade_one_emprendedora(request, app_id: int):
     try:
         graded_df = grade_single_row(row, client)
 
-        # write CSV in-memory
-        buf = io.StringIO()
-        graded_df.to_csv(buf, index=False)
-        csv_bytes = buf.getvalue().encode("utf-8")
-
-        filename = f"{app.form.slug}_app_{app.id}_graded.csv"
-
+        csv_text = graded_df.to_csv(index=False)
         gf = GradedFile.objects.create(
             form_slug=app.form.slug,
             application=app,
+            csv_text=csv_text,
         )
-        gf.file.save(filename, ContentFile(csv_bytes), save=True)
 
-        messages.success(request, f"✅ Graded app #{app.id}. File saved: {filename}")
+        messages.success(request, f"✅ Graded app #{app.id}. CSV stored in database (id={gf.id}).")
 
     except Exception as e:
         messages.error(request, f"Grading failed: {e}")

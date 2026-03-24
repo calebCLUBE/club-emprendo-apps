@@ -2,6 +2,8 @@ import json
 import logging
 import os
 import re
+import ast
+import base64
 from dataclasses import dataclass
 
 
@@ -36,6 +38,13 @@ def _load_config() -> tuple[str, str, str]:
         os.getenv("GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON_CONTENT", "").strip()
         or os.getenv("GOOGLE_DRIVE_SERVICE_ACCOUNT_INFO", "").strip()
     )
+    key_json_b64 = os.getenv("GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON_CONTENT_B64", "").strip()
+    if key_json_b64:
+        try:
+            key_json = base64.b64decode(key_json_b64).decode("utf-8")
+        except Exception:
+            # Leave as-is; validation in parser will provide a clean error.
+            key_json = key_json_b64
     raw_root_folder = (
         os.getenv("GOOGLE_DRIVE_GROUPS_ROOT_FOLDER_ID", "").strip()
         or os.getenv("DRIVE_GROUPS_ROOT_FOLDER_ID", "").strip()
@@ -72,10 +81,12 @@ def _build_service(key_path: str, key_json: str = ""):
 
     if key_json:
         try:
-            info = json.loads(key_json)
+            info = _parse_service_account_info(key_json)
         except Exception as exc:
             raise ValueError(
-                "GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON_CONTENT is not valid JSON."
+                "GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON_CONTENT is not valid JSON. "
+                "Use full JSON object text (with double quotes), or set "
+                "GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON_CONTENT_B64."
             ) from exc
         creds = Credentials.from_service_account_info(
             info,
@@ -87,6 +98,43 @@ def _build_service(key_path: str, key_json: str = ""):
             scopes=["https://www.googleapis.com/auth/drive"],
         )
     return build("drive", "v3", credentials=creds, cache_discovery=False)
+
+
+def _parse_service_account_info(raw_text: str) -> dict:
+    """
+    Parse service account JSON from env with tolerance for common paste mistakes:
+    - Wrapped in extra single/double quotes
+    - JSON string that itself contains JSON
+    - Python dict literal with single quotes
+    """
+    text = (raw_text or "").strip()
+    if not text:
+        raise ValueError("empty service account JSON text")
+
+    candidates = [text]
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in ("'", '"'):
+        candidates.append(text[1:-1].strip())
+
+    for candidate in candidates:
+        # First try strict JSON.
+        try:
+            parsed = json.loads(candidate)
+            if isinstance(parsed, str):
+                parsed = json.loads(parsed)
+            if isinstance(parsed, dict):
+                return parsed
+        except Exception:
+            pass
+
+        # Fallback: tolerate Python dict style {'k': 'v'}.
+        try:
+            parsed = ast.literal_eval(candidate)
+            if isinstance(parsed, dict):
+                return parsed
+        except Exception:
+            pass
+
+    raise ValueError("unparseable JSON content")
 
 
 def _list_child_folders(service, parent_id: str) -> list[dict]:

@@ -331,11 +331,11 @@ def _build_group_track_rows(group_num: int, track: str) -> tuple[list[str], list
     if t not in {"E", "M"}:
         return [], []
 
-    suffixes = [f"_{t}_A1", f"_{t}_A2"]
+    # Include classic slugs (G#_E_A1/A2, G#_M_A1/A2) and combined variants (e.g. G#_E... / G#_M...).
     forms = [
         fd
-        for fd in FormDefinition.objects.filter(group__number=group_num)
-        if (fd.slug or "").endswith(suffixes[0]) or (fd.slug or "").endswith(suffixes[1])
+        for fd in FormDefinition.objects.filter(group__number=group_num, is_master=False)
+        if re.match(rf"^G{int(group_num)}_{t}(?:_|$)", (fd.slug or "").strip(), flags=re.IGNORECASE)
     ]
     if not forms:
         return [], []
@@ -403,7 +403,14 @@ def sync_group_track_responses_csv(group_num: int, track: str) -> DriveCsvSyncRe
 
     csv_text = _rows_to_csv_text(headers, rows)
     filename = f"G{group_num}_{track.upper()} Respuestas.csv"
-    uploaded = _upsert_csv_file(service, target_folder_id, filename, csv_text)
+    try:
+        uploaded = _upsert_csv_file(service, target_folder_id, filename, csv_text)
+    except Exception as exc:
+        return DriveCsvSyncResult(
+            status="error",
+            detail=f"Upload failed for {filename}: {exc}",
+            file_name=filename,
+        )
     return DriveCsvSyncResult(
         status="updated",
         detail=f"Synced {filename}",
@@ -452,7 +459,14 @@ def sync_generated_csv_artifact(form_slug: str, csv_text: str) -> DriveCsvSyncRe
                 detail=f"Target folder not found for graded file {slug}.",
             )
         filename = f"G{group_num}_{track} Graded.csv"
-        uploaded = _upsert_csv_file(service, target_folder_id, filename, csv_text or "")
+        try:
+            uploaded = _upsert_csv_file(service, target_folder_id, filename, csv_text or "")
+        except Exception as exc:
+            return DriveCsvSyncResult(
+                status="error",
+                detail=f"Upload failed for {filename}: {exc}",
+                file_name=filename,
+            )
         return DriveCsvSyncResult(
             status="updated",
             detail=f"Synced {filename}",
@@ -468,7 +482,14 @@ def sync_generated_csv_artifact(form_slug: str, csv_text: str) -> DriveCsvSyncRe
             detail=f"Target pairing folder not found for {slug}.",
         )
     filename = f"G{group_num} Emparejamiento.csv"
-    uploaded = _upsert_csv_file(service, target_folder_id, filename, csv_text or "")
+    try:
+        uploaded = _upsert_csv_file(service, target_folder_id, filename, csv_text or "")
+    except Exception as exc:
+        return DriveCsvSyncResult(
+            status="error",
+            detail=f"Upload failed for {filename}: {exc}",
+            file_name=filename,
+        )
     return DriveCsvSyncResult(
         status="updated",
         detail=f"Synced {filename}",

@@ -2342,18 +2342,42 @@ def _sync_drive_for_group_number(group_num: int) -> list[tuple[str, str, str]]:
     out: list[tuple[str, str, str]] = []
 
     for track in ("E", "M"):
-        res = sync_group_track_responses_csv(group_num, track)
-        out.append((res.status, f"G{group_num}_{track} Respuestas.csv", res.detail))
+        label = f"G{group_num}_{track} Respuestas.csv"
+        try:
+            res = sync_group_track_responses_csv(group_num, track)
+            out.append((res.status, label, res.detail))
+        except Exception as exc:
+            logger.exception("Drive manual sync failed for %s", label)
+            out.append(("error", label, str(exc)))
 
     for slug in (f"G{group_num}_E_A2", f"G{group_num}_M_A2", f"PAIR_G{group_num}"):
         gf = GradedFile.objects.filter(form_slug=slug).order_by("-created_at").first()
         if not gf:
             out.append(("skipped", slug, "No CSV found in database yet."))
             continue
-        res = sync_generated_csv_artifact(slug, gf.csv_text)
-        out.append((res.status, slug, res.detail))
+        try:
+            res = sync_generated_csv_artifact(slug, gf.csv_text)
+            out.append((res.status, slug, res.detail))
+        except Exception as exc:
+            logger.exception("Drive manual sync failed for artifact %s", slug)
+            out.append(("error", slug, str(exc)))
 
     return out
+
+
+def _run_database_drive_sync_background(group_numbers: list[int]) -> None:
+    try:
+        for gnum in group_numbers:
+            results = _sync_drive_for_group_number(gnum)
+            for status, label, detail in results:
+                if status == "updated":
+                    logger.info("Drive background sync updated: %s (%s)", label, detail)
+                elif status == "error":
+                    logger.error("Drive background sync error: %s (%s)", label, detail)
+                else:
+                    logger.info("Drive background sync skipped: %s (%s)", label, detail)
+    except Exception:
+        logger.exception("Drive background sync crashed")
 
 
 @staff_member_required
@@ -2377,14 +2401,32 @@ def database_sync_drive(request):
         messages.info(request, "No groups found to sync.")
         return _database_next_redirect(request, fallback_name="admin_database")
 
+    # Full sync can exceed HTTP timeout on production; run asynchronously.
+    if not raw_group:
+        threading.Thread(
+            target=_run_database_drive_sync_background,
+            args=(group_numbers,),
+            daemon=True,
+        ).start()
+        messages.success(
+            request,
+            f"Started background Drive sync for {len(group_numbers)} groups. Refresh in a minute to verify files in Drive.",
+        )
+        return _database_next_redirect(request, fallback_name="admin_database")
+
     updated = 0
     skipped = 0
+    errors = 0
     details: list[str] = []
 
     for gnum in group_numbers:
         for status, label, detail in _sync_drive_for_group_number(gnum):
             if status == "updated":
                 updated += 1
+            elif status == "error":
+                errors += 1
+                if len(details) < 8:
+                    details.append(f"{label}: {detail}")
             else:
                 skipped += 1
                 if len(details) < 8:
@@ -2393,7 +2435,7 @@ def database_sync_drive(request):
     scope = f"group {group_numbers[0]}" if len(group_numbers) == 1 else "all groups"
     messages.success(
         request,
-        f"Drive manual sync completed for {scope}: {updated} updated, {skipped} skipped.",
+        f"Drive manual sync completed for {scope}: {updated} updated, {skipped} skipped, {errors} errors.",
     )
     if details:
         messages.info(request, " | ".join(details))

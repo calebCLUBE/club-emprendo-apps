@@ -394,15 +394,15 @@ def sync_group_track_responses_csv(group_num: int, track: str) -> DriveCsvSyncRe
             detail=f"Target folder not found for G{group_num} track {track}.",
         )
 
+    filename = f"G{group_num}_{track.upper()} Respuestas.csv"
     headers, rows = _build_group_track_rows(group_num, track)
-    if not headers:
-        return DriveCsvSyncResult(
-            status="skipped",
-            detail=f"No forms found for G{group_num} track {track}.",
-        )
+    no_forms = not headers
+    if no_forms:
+        # Ensure a placeholder CSV exists for brand-new groups even before submissions/forms are present.
+        headers = ["created_at", "application_id", "group_number", "name", "email"]
+        rows = []
 
     csv_text = _rows_to_csv_text(headers, rows)
-    filename = f"G{group_num}_{track.upper()} Respuestas.csv"
     try:
         uploaded = _upsert_csv_file(service, target_folder_id, filename, csv_text)
     except Exception as exc:
@@ -413,7 +413,11 @@ def sync_group_track_responses_csv(group_num: int, track: str) -> DriveCsvSyncRe
         )
     return DriveCsvSyncResult(
         status="updated",
-        detail=f"Synced {filename}",
+        detail=(
+            f"Synced {filename} (placeholder; no forms found yet)."
+            if no_forms
+            else f"Synced {filename}"
+        ),
         file_name=filename,
         file_id=(uploaded.get("id") or ""),
     )

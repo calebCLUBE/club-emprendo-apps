@@ -2085,9 +2085,22 @@ def create_group(request):
             messages.info(
                 request,
                 f"Drive: G{group_num} ya existe ({drive_result.folder_name}). No se hicieron cambios.",
-            )
+                )
         elif drive_result.status == "skipped":
             messages.warning(request, f"Drive: {drive_result.detail}")
+
+        # Seed/update application response CSV files right after group creation, even with 0 submissions.
+        if drive_result.status in {"created", "exists"}:
+            seed_results = []
+            for track in ("E", "M"):
+                try:
+                    res = sync_group_track_responses_csv(group.number, track)
+                    seed_results.append(f"{track}: {res.status} ({res.detail})")
+                except Exception as exc:
+                    logger.exception("Drive seed CSV sync failed for G%s track %s", group.number, track)
+                    seed_results.append(f"{track}: error ({exc})")
+            if seed_results:
+                messages.info(request, "Drive CSV seed -> " + " | ".join(seed_results))
     _sync_group_open_close(group)
     return redirect("admin_apps_list")
 

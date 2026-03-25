@@ -67,6 +67,17 @@ def _load_config() -> tuple[str, str, str]:
     return key_path, key_json, root_folder_id
 
 
+def _oauth_env_config() -> tuple[str, str, str]:
+    client_id = (os.getenv("GOOGLE_DRIVE_OAUTH_CLIENT_ID", "") or os.getenv("DRIVE_OAUTH_CLIENT_ID", "")).strip()
+    client_secret = (os.getenv("GOOGLE_DRIVE_OAUTH_CLIENT_SECRET", "") or os.getenv("DRIVE_OAUTH_CLIENT_SECRET", "")).strip()
+    refresh_token = (os.getenv("GOOGLE_DRIVE_OAUTH_REFRESH_TOKEN", "") or os.getenv("DRIVE_OAUTH_REFRESH_TOKEN", "")).strip()
+    return client_id, client_secret, refresh_token
+
+
+def _has_oauth_config(client_id: str, client_secret: str, refresh_token: str) -> bool:
+    return bool(client_id and client_secret and refresh_token)
+
+
 def _normalize_folder_id(value: str) -> str:
     v = (value or "").strip()
     if not v:
@@ -88,11 +99,29 @@ def _normalize_folder_id(value: str) -> str:
     return ""
 
 
-def _build_service(key_path: str, key_json: str = ""):
+def _build_service(
+    key_path: str,
+    key_json: str = "",
+    oauth_client_id: str = "",
+    oauth_client_secret: str = "",
+    oauth_refresh_token: str = "",
+):
     from google.oauth2.service_account import Credentials
+    from google.oauth2.credentials import Credentials as UserCredentials
     from googleapiclient.discovery import build
 
-    if key_json:
+    scopes = ["https://www.googleapis.com/auth/drive"]
+
+    if _has_oauth_config(oauth_client_id, oauth_client_secret, oauth_refresh_token):
+        creds = UserCredentials(
+            token=None,
+            refresh_token=oauth_refresh_token,
+            token_uri="https://oauth2.googleapis.com/token",
+            client_id=oauth_client_id,
+            client_secret=oauth_client_secret,
+            scopes=scopes,
+        )
+    elif key_json:
         try:
             info = _parse_service_account_info(key_json)
         except Exception as exc:
@@ -103,14 +132,25 @@ def _build_service(key_path: str, key_json: str = ""):
             ) from exc
         creds = Credentials.from_service_account_info(
             info,
-            scopes=["https://www.googleapis.com/auth/drive"],
+            scopes=scopes,
         )
     else:
         creds = Credentials.from_service_account_file(
             key_path,
-            scopes=["https://www.googleapis.com/auth/drive"],
+            scopes=scopes,
         )
     return build("drive", "v3", credentials=creds, cache_discovery=False)
+
+
+def _friendly_upload_error(exc: Exception) -> str:
+    text = str(exc or "").strip()
+    if "storageQuotaExceeded" in text or "Service Accounts do not have storage quota" in text:
+        return (
+            "Google Drive blocked upload because service accounts have no personal storage quota. "
+            "Use a Shared Drive root folder or set OAuth user credentials "
+            "(GOOGLE_DRIVE_OAUTH_CLIENT_ID / GOOGLE_DRIVE_OAUTH_CLIENT_SECRET / GOOGLE_DRIVE_OAUTH_REFRESH_TOKEN)."
+        )
+    return text or repr(exc)
 
 
 def _parse_service_account_info(raw_text: str) -> dict:
@@ -310,18 +350,31 @@ def _service_and_root() -> tuple[object, str]:
         or os.getenv("DRIVE_FOLDER_ID", "").strip()
     )
     key_path, key_json, root_folder_id = _load_config()
-    if (not key_path and not key_json) or not root_folder_id:
+    oauth_client_id, oauth_client_secret, oauth_refresh_token = _oauth_env_config()
+    has_oauth = _has_oauth_config(oauth_client_id, oauth_client_secret, oauth_refresh_token)
+    if (not key_path and not key_json and not has_oauth) or not root_folder_id:
         raise RuntimeError(
             "Missing Drive config. Set GOOGLE_DRIVE_GROUPS_ROOT_FOLDER_ID and "
-            "GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON_CONTENT_B64 (or JSON/path variants)."
+            "either service-account credentials (GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON_CONTENT_B64 "
+            "or JSON/path variants) or OAuth credentials "
+            "(GOOGLE_DRIVE_OAUTH_CLIENT_ID/SECRET/REFRESH_TOKEN)."
         )
     if raw_root and not root_folder_id:
         raise RuntimeError(
             "Drive root folder value could not be parsed. Use a folder ID or valid Drive folder URL."
         )
-    if key_path and not os.path.exists(key_path):
+    if key_path and not key_json and not has_oauth and not os.path.exists(key_path):
         raise RuntimeError(f"Drive key file not found at {key_path}.")
-    return _build_service(key_path, key_json), root_folder_id
+    return (
+        _build_service(
+            key_path,
+            key_json,
+            oauth_client_id=oauth_client_id,
+            oauth_client_secret=oauth_client_secret,
+            oauth_refresh_token=oauth_refresh_token,
+        ),
+        root_folder_id,
+    )
 
 
 def _build_group_track_rows(group_num: int, track: str) -> tuple[list[str], list[list[str]]]:
@@ -408,7 +461,7 @@ def sync_group_track_responses_csv(group_num: int, track: str) -> DriveCsvSyncRe
     except Exception as exc:
         return DriveCsvSyncResult(
             status="error",
-            detail=f"Upload failed for {filename}: {exc}",
+            detail=f"Upload failed for {filename}: {_friendly_upload_error(exc)}",
             file_name=filename,
         )
     return DriveCsvSyncResult(
@@ -468,7 +521,7 @@ def sync_generated_csv_artifact(form_slug: str, csv_text: str) -> DriveCsvSyncRe
         except Exception as exc:
             return DriveCsvSyncResult(
                 status="error",
-                detail=f"Upload failed for {filename}: {exc}",
+                detail=f"Upload failed for {filename}: {_friendly_upload_error(exc)}",
                 file_name=filename,
             )
         return DriveCsvSyncResult(
@@ -491,7 +544,7 @@ def sync_generated_csv_artifact(form_slug: str, csv_text: str) -> DriveCsvSyncRe
     except Exception as exc:
         return DriveCsvSyncResult(
             status="error",
-            detail=f"Upload failed for {filename}: {exc}",
+            detail=f"Upload failed for {filename}: {_friendly_upload_error(exc)}",
             file_name=filename,
         )
     return DriveCsvSyncResult(
@@ -515,13 +568,16 @@ def ensure_group_drive_tree(
         or os.getenv("DRIVE_FOLDER_ID", "").strip()
     )
     key_path, key_json, root_folder_id = _load_config()
-    if (not key_path and not key_json) or not root_folder_id:
+    oauth_client_id, oauth_client_secret, oauth_refresh_token = _oauth_env_config()
+    has_oauth = _has_oauth_config(oauth_client_id, oauth_client_secret, oauth_refresh_token)
+    if (not key_path and not key_json and not has_oauth) or not root_folder_id:
         return DriveGroupSyncResult(
             status="skipped",
             detail=(
                 "Drive sync skipped: set GOOGLE_DRIVE_GROUPS_ROOT_FOLDER_ID and either "
                 "GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON (path) or "
-                "GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON_CONTENT (JSON text)."
+                "GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON_CONTENT (JSON text), or set OAuth envs "
+                "(GOOGLE_DRIVE_OAUTH_CLIENT_ID/SECRET/REFRESH_TOKEN)."
             ),
         )
 
@@ -534,13 +590,19 @@ def ensure_group_drive_tree(
             ),
         )
 
-    if key_path and not os.path.exists(key_path):
+    if key_path and not key_json and not has_oauth and not os.path.exists(key_path):
         return DriveGroupSyncResult(
             status="skipped",
             detail=f"Drive sync skipped: key file not found at {key_path}.",
         )
 
-    service = _build_service(key_path, key_json)
+    service = _build_service(
+        key_path,
+        key_json,
+        oauth_client_id=oauth_client_id,
+        oauth_client_secret=oauth_client_secret,
+        oauth_refresh_token=oauth_refresh_token,
+    )
     existing = _find_existing_group_folder(service, root_folder_id, group_num)
     if existing:
         return DriveGroupSyncResult(

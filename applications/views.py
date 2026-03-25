@@ -302,11 +302,11 @@ def _is_a2_na_candidate(form_slug: str, answer_map: dict[str, str]) -> bool:
 def _send_a2_submission_email(app: Application, answer_map: dict[str, str]):
     slug = app.form.slug or ""
     if not (slug.endswith("E_A2") or slug.endswith("M_A2")):
-        return
+        return False
 
     to_email = (app.email or "").strip()
     if not to_email:
-        return
+        return False
 
     send_disqualified_email = _is_a2_na_candidate(slug, answer_map)
 
@@ -332,7 +332,7 @@ def _send_a2_submission_email(app: Application, answer_map: dict[str, str]):
         "</div>"
     )
 
-    subject_ok = "Recibimos tu aplicación al Programa de Mentorías"
+    subject_ok = "Hemos recibido tu aplicación – Programa de Mentorías"
     html_ok = (
         '<div style="font-family:Arial,Helvetica,sans-serif;line-height:1.6;max-width:700px;margin:0 auto;word-break:break-word;white-space:normal;">'
         "<p>Hola querida aplicante :sparkles:</p>"
@@ -366,6 +366,8 @@ def _send_a2_submission_email(app: Application, answer_map: dict[str, str]):
             to_email,
             send_disqualified_email,
         )
+
+    return send_disqualified_email
 
 
 def _apply_question_conditions(form):
@@ -1066,7 +1068,9 @@ def _handle_application_form(
         except Exception:
             logger.exception("Drive response CSV sync trigger failed for form %s", form_def.slug)
 
+        a2_disqualified = False
         if form_def.slug.endswith("E_A2") or form_def.slug.endswith("M_A2"):
+            a2_disqualified = _is_a2_na_candidate(form_def.slug or "", answer_map)
             _send_a2_submission_email(app, answer_map)
 
         if combined_flow and (form_def.slug.endswith("M_A1") or form_def.slug.endswith("E_A1")):
@@ -1118,11 +1122,13 @@ def _handle_application_form(
             request.session["ce_thanks_payload"] = {
                 "kind": "mentor_final",
                 "group_num": group_num,
+                "disqualified": a2_disqualified,
             }
         elif form_def.slug.endswith("E_A2"):
             request.session["ce_thanks_payload"] = {
                 "kind": "emprendedora_final",
                 "group_num": group_num,
+                "disqualified": a2_disqualified,
             }
         else:
             request.session["ce_thanks_payload"] = {

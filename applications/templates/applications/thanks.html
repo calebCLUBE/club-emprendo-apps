@@ -12,23 +12,37 @@
     </div>
 
     <div class="form-intro" style="margin-top:12px;">
-      <p>¡Gracias por completar esta última aplicación y brindarnos toda esta información tan valiosa!</p>
+      {% if disqualified %}
+        <p>
+          Lamentamos que en esta ocasión no puedas ser parte del
+          {% if group_num %}Grupo {{ group_num }}{% else %}Grupo #{% endif %}
+          de mentoras, ya que en tu aplicación indicaste que no cumples con alguno de los requisitos o la disponibilidad de tiempo necesaria para el programa.
+        </p>
+        <p>
+          Seguiremos abriendo más grupos en el futuro, y nos encantaría que puedas aplicar nuevamente cuando tu situación lo permita :sparkles:
+        </p>
+        <p>
+          ¡Seguimos en contacto y te mandamos un abrazo grande!
+        </p>
+      {% else %}
+        <p>¡Gracias por completar esta última aplicación y brindarnos toda esta información tan valiosa!</p>
 
-      <p>
-        🗓 En un plazo máximo de dos semanas te informaremos por correo electrónico si has sido seleccionada
-        para participar como mentora
-        {% if group_num %} en el Grupo {{ group_num }}{% endif %}
-        de Club Emprendo.
-      </p>
+        <p>
+          🗓 En un plazo máximo de dos semanas te informaremos por correo electrónico si has sido seleccionada
+          para participar como mentora
+          {% if group_num %} en el Grupo {{ group_num }}{% endif %}
+          de Club Emprendo.
+        </p>
 
-      <p>
-        💌 Te invitamos a estar muy atenta a tu bandeja de entrada (y no olvides revisar la carpeta de spam, por si acaso).
-      </p>
+        <p>
+          💌 Te invitamos a estar muy atenta a tu bandeja de entrada (y no olvides revisar la carpeta de spam, por si acaso).
+        </p>
 
-      <p>
-        Agradecemos mucho tu tiempo, tu disposición y tu entusiasmo por ser parte de esta comunidad.
-        ¡Estamos muy emocionadas de tenerte cerca!
-      </p>
+        <p>
+          Agradecemos mucho tu tiempo, tu disposición y tu entusiasmo por ser parte de esta comunidad.
+          ¡Estamos muy emocionadas de tenerte cerca!
+        </p>
+      {% endif %}
     </div>
 
 
@@ -41,19 +55,33 @@
     </div>
 
     <div class="form-intro" style="margin-top:12px;">
-      <p>¡Gracias por completar esta última encuesta y brindarnos toda esta información tan valiosa!</p>
+      {% if disqualified %}
+        <p>
+          Lamentamos que en esta ocasión no puedas ser parte del
+          {% if group_num %}Grupo {{ group_num }}{% else %}Grupo #{% endif %}
+          de emprendedoras, ya que en tu aplicación indicaste que no cumples con alguno de los requisitos o la disponibilidad de tiempo necesaria para el programa.
+        </p>
+        <p>
+          Seguiremos abriendo más grupos en el futuro, y nos encantaría que puedas aplicar nuevamente cuando tu situación lo permita :sparkles:
+        </p>
+        <p>
+          ¡Seguimos en contacto y te mandamos un abrazo grande!
+        </p>
+      {% else %}
+        <p>¡Gracias por completar esta última encuesta y brindarnos toda esta información tan valiosa!</p>
 
-      <p>
-        🗓 En unas semanas te estaremos enviando un correo del estatus de tu aplicación junto con más detalles
-        sobre los siguientes pasos para formar parte del
-        {% if group_num %}Grupo {{ group_num }}{% else %}Grupo{% endif %}
-        de mentorías.
-      </p>
+        <p>
+          🗓 En unas semanas te estaremos enviando un correo del estatus de tu aplicación junto con más detalles
+          sobre los siguientes pasos para formar parte del
+          {% if group_num %}Grupo {{ group_num }}{% else %}Grupo{% endif %}
+          de mentorías.
+        </p>
 
-      <p>
-        Agradecemos mucho tu tiempo, tu disposición y tu entusiasmo por ser parte de esta comunidad.
-        ¡Estamos muy emocionadas de tenerte cerca!
-      </p>
+        <p>
+          Agradecemos mucho tu tiempo, tu disposición y tu entusiasmo por ser parte de esta comunidad.
+          ¡Estamos muy emocionadas de tenerte cerca!
+        </p>
+      {% endif %}
     </div>
 
 

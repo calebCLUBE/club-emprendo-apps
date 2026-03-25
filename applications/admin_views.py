@@ -2326,6 +2326,24 @@ def database_home(request):
         form_slug__startswith="PAIR_G"
     ).order_by("-created_at")[:100]
 
+    transfer_form_options: list[dict] = []
+    transfer_forms = list(
+        FormDefinition.objects.filter(is_master=False, group__isnull=False).select_related("group")
+    )
+    for fd in transfer_forms:
+        slug = (fd.slug or "").strip()
+        if not GROUP_SLUG_RE.match(slug):
+            continue
+        gnum = getattr(getattr(fd, "group", None), "number", None) or _group_number_from_slug(slug) or 0
+        transfer_form_options.append(
+            {
+                "slug": slug,
+                "group_num": int(gnum),
+                "label": f"G{gnum} — {slug} — {fd.name}",
+            }
+        )
+    transfer_form_options.sort(key=lambda x: (-x["group_num"], x["slug"]))
+
     return render(
         request,
         "admin_dash/database_home.html",
@@ -2342,6 +2360,7 @@ def database_home(request):
             "graded_files_by_group": graded_files_by_group,
             "graded_files_other": graded_files_other,
             "pairing_files": pairing_files,
+            "transfer_form_options": transfer_form_options,
             "database_next": request.get_full_path(),
         },
     )
@@ -2376,6 +2395,128 @@ def _sync_drive_for_group_number(group_num: int) -> list[tuple[str, str, str]]:
             out.append(("error", slug, str(exc)))
 
     return out
+
+
+@staff_member_required
+@require_POST
+def database_copy_application(request):
+    email = (request.POST.get("email") or "").strip().lower()
+    source_form_slug = (request.POST.get("source_form_slug") or "").strip()
+    target_form_slug = (request.POST.get("target_form_slug") or "").strip()
+    raw_source_app_id = (request.POST.get("source_app_id") or "").strip()
+
+    if not email:
+        messages.error(request, "Email is required.")
+        return _database_next_redirect(request, fallback_name="admin_database")
+    if not source_form_slug or not target_form_slug:
+        messages.error(request, "Select both source and target applications.")
+        return _database_next_redirect(request, fallback_name="admin_database")
+    if source_form_slug == target_form_slug:
+        messages.error(request, "Source and target applications must be different.")
+        return _database_next_redirect(request, fallback_name="admin_database")
+
+    source_form = FormDefinition.objects.filter(slug=source_form_slug, is_master=False).first()
+    target_form = FormDefinition.objects.filter(slug=target_form_slug, is_master=False).first()
+    if not source_form or not target_form:
+        messages.error(request, "Source or target application form was not found.")
+        return _database_next_redirect(request, fallback_name="admin_database")
+
+    source_candidates = (
+        Application.objects.filter(form=source_form, email__iexact=email)
+        .prefetch_related("answers__question")
+        .order_by("-created_at", "-id")
+    )
+    if not source_candidates.exists():
+        messages.error(
+            request,
+            f"No submissions found for {email} in {source_form.slug}.",
+        )
+        return _database_next_redirect(request, fallback_name="admin_database")
+
+    source_app = None
+    if raw_source_app_id:
+        try:
+            source_app_id = int(raw_source_app_id)
+        except ValueError:
+            messages.error(request, "Source submission ID must be a number.")
+            return _database_next_redirect(request, fallback_name="admin_database")
+        source_app = source_candidates.filter(id=source_app_id).first()
+        if not source_app:
+            messages.error(
+                request,
+                f"Submission #{source_app_id} was not found for {email} in {source_form.slug}.",
+            )
+            return _database_next_redirect(request, fallback_name="admin_database")
+    else:
+        source_app = source_candidates.first()
+        if source_candidates.count() > 1:
+            messages.info(
+                request,
+                (
+                    f"Multiple source submissions found for {email} in {source_form.slug}. "
+                    f"Using the latest one (#{source_app.id})."
+                ),
+            )
+
+    target_questions = {
+        q.slug: q
+        for q in target_form.questions.filter(active=True).order_by("position", "id")
+    }
+    source_answers = list(source_app.answers.select_related("question"))
+
+    copied_answers = 0
+    skipped_answers = 0
+    try:
+        with transaction.atomic():
+            new_app = Application.objects.create(
+                form=target_form,
+                name=source_app.name,
+                email=source_app.email,
+                tablestakes_score=source_app.tablestakes_score,
+                commitment_score=source_app.commitment_score,
+                nice_to_have_score=source_app.nice_to_have_score,
+                overall_score=source_app.overall_score,
+                recommendation=source_app.recommendation,
+                invite_token=None,
+                invited_to_second_stage=source_app.invited_to_second_stage,
+                second_stage_reminder_due_at=source_app.second_stage_reminder_due_at,
+                second_stage_reminder_sent_at=source_app.second_stage_reminder_sent_at,
+            )
+
+            for ans in source_answers:
+                src_slug = getattr(getattr(ans, "question", None), "slug", "")
+                if not src_slug:
+                    continue
+                tgt_q = target_questions.get(src_slug)
+                if not tgt_q:
+                    skipped_answers += 1
+                    continue
+                Answer.objects.create(
+                    application=new_app,
+                    question=tgt_q,
+                    value=ans.value or "",
+                )
+                copied_answers += 1
+
+            if copied_answers == 0:
+                raise ValueError("No matching questions were found between source and target forms.")
+    except Exception as exc:
+        messages.error(request, f"Could not copy application: {exc}")
+        return _database_next_redirect(request, fallback_name="admin_database")
+
+    messages.success(
+        request,
+        (
+            f"Copied submission #{source_app.id} ({source_form.slug}) to #{new_app.id} ({target_form.slug}) "
+            f"for {email}. Copied {copied_answers} answers."
+        ),
+    )
+    if skipped_answers:
+        messages.info(
+            request,
+            f"Skipped {skipped_answers} answers because those question slugs do not exist in {target_form.slug}.",
+        )
+    return _database_next_redirect(request, fallback_name="admin_database")
 
 
 def _run_database_drive_sync_background(group_numbers: list[int]) -> None:

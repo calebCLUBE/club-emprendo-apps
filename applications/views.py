@@ -21,23 +21,13 @@ from .emprendedora_a1_autograde import (
     autograde_and_email_emprendedora_a1,
     emprendedora_a1_passes,
 )
+from .grader_e import _disqualification_reasons as _e_a2_disqualification_reasons
+from .grader_m import _disqualification_reasons as _m_a2_disqualification_reasons
 
 
 GROUP_SLUG_RE = re.compile(r"^G(?P<num>\d+)_")
 logger = logging.getLogger(__name__)
 
-MENTORA_A2_REQ_FIELDS = [
-    "req_basic_woman",
-    "req_basic_latam",
-    "req_basic_business_exp",
-    "req_basic_punctual",
-    "req_basic_internet_device",
-    "req_basic_training",
-    "req_basic_surveys",
-    "req_avail_period",
-    "req_avail_2hrs_week",
-    "req_avail_kickoff",
-]
 MONTH_NUM_TO_ES = {
     1: "enero",
     2: "febrero",
@@ -292,27 +282,12 @@ def _maybe_run_due_a1_to_a2_reminders():
     threading.Thread(target=_runner, daemon=True).start()
 
 
-def _norm(v) -> str:
-    return str(v or "").strip().lower()
-
-
 def _is_e_a2_na_candidate(answer_map: dict[str, str]) -> bool:
-    if _norm(answer_map.get("internet_access")) != "yes_ok":
-        return True
-    if _norm(answer_map.get("hours_per_week")) == "lt_2":
-        return True
-    if _norm(answer_map.get("commit_3_months")) != "yes":
-        return True
-    if _norm(answer_map.get("business_age")) == "idea":
-        return True
-    return False
+    return bool(_e_a2_disqualification_reasons(answer_map))
 
 
 def _is_m_a2_na_candidate(answer_map: dict[str, str]) -> bool:
-    for field in MENTORA_A2_REQ_FIELDS:
-        if _norm(answer_map.get(field)) != "yes":
-            return True
-    return False
+    return bool(_m_a2_disqualification_reasons(answer_map))
 
 
 def _is_a2_na_candidate(form_slug: str, answer_map: dict[str, str]) -> bool:
@@ -360,13 +335,19 @@ def _send_a2_submission_email(app: Application, answer_map: dict[str, str]):
     subject_ok = "Recibimos tu aplicación al Programa de Mentorías"
     html_ok = (
         '<div style="font-family:Arial,Helvetica,sans-serif;line-height:1.6;max-width:700px;margin:0 auto;word-break:break-word;white-space:normal;">'
-        "<p>Hola querida aplicante,</p>"
-        "<p>Gracias por completar la segunda aplicación para formar parte de nuestro Programa de Mentorías. "
-        "Hemos recibido tu información correctamente.</p>"
-        "<p>En la fecha indicada dentro de la aplicación, estarás recibiendo un correo electrónico donde te notificaremos "
-        "si fuiste seleccionada para el próximo grupo.</p>"
-        "<p>Agradecemos sinceramente tu interés en ser parte de esta comunidad y tu disposición.</p>"
-        "<p>Gracias por aplicar y por confiar en Club Emprendo.</p>"
+        "<p>Hola querida aplicante :sparkles:</p>"
+        "<p>Gracias por completar tu aplicación para recibir mentoría en nuestro Programa de Mentorías.</p>"
+        "<p>Tu aplicación ha sido enviada correctamente y no necesitas realizar ninguna acción adicional por ahora.</p>"
+        "<p>En la fecha indicada dentro de la aplicación, recibirás un correo electrónico en esta misma dirección únicamente si eres seleccionada, "
+        "con los siguientes pasos a seguir.</p>"
+        "<p>Te recomendamos estar pendiente de tu correo, incluyendo la bandeja de spam o promociones, para no perder esta información importante.</p>"
+        "<p>Si eres seleccionada, deberás completar dentro de la fecha límite que se te indicará:</p>"
+        "<ul>"
+        "<li>:heavy_check_mark: Firmar el Acta de Compromiso</li>"
+        "<li>:heavy_check_mark: Completar la capacitación</li>"
+        "</ul>"
+        "<p>Estos pasos son necesarios para poder asignarte una mentora y participar en la reunión de lanzamiento e inicio de mentorías.</p>"
+        "<p>Gracias por tu interés en ser parte de esta comunidad :heartpulse:</p>"
         "<p>Con gratitud,<br><strong>Equipo de Club Emprendo</strong></p>"
         "</div>"
     )

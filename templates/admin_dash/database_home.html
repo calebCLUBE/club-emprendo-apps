@@ -11,6 +11,55 @@
 
 <details style="margin: 10px 0 18px; padding: 10px; border: 1px solid #ddd; border-radius: 10px;">
   <summary style="cursor:pointer; font-weight:600;">
+    Copy Application Between Groups
+  </summary>
+
+  <form method="post" action="{% url 'admin_database_copy_application' %}" style="margin-top:12px; display:grid; gap:10px; max-width:900px;">
+    {% csrf_token %}
+    <input type="hidden" name="next" value="{{ database_next }}">
+
+    <label>
+      Email
+      <input type="email" name="email" required style="width:100%; max-width:520px;" placeholder="person@example.com">
+    </label>
+
+    <label>
+      Source Application (Group + Form)
+      <select name="source_form_slug" required style="width:100%; max-width:720px;">
+        <option value="">Select source...</option>
+        {% for opt in transfer_form_options %}
+          <option value="{{ opt.slug }}">{{ opt.label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+
+    <label>
+      Target Application (Group + Form)
+      <select name="target_form_slug" required style="width:100%; max-width:720px;">
+        <option value="">Select target...</option>
+        {% for opt in transfer_form_options %}
+          <option value="{{ opt.slug }}">{{ opt.label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+
+    <label>
+      Source Submission ID (optional)
+      <input type="number" name="source_app_id" min="1" style="width:100%; max-width:220px;" placeholder="latest by default">
+    </label>
+
+    <button type="submit" class="button" style="width:max-content;">
+      Copy Application
+    </button>
+
+    <p style="margin:0; color:#666;">
+      This copies the selected person's submission into the target group/form and matches answers by question slug.
+    </p>
+  </form>
+</details>
+
+<details style="margin: 10px 0 18px; padding: 10px; border: 1px solid #ddd; border-radius: 10px;">
+  <summary style="cursor:pointer; font-weight:600;">
     Graded Files
   </summary>
 

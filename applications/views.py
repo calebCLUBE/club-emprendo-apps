@@ -335,7 +335,7 @@ def _send_a2_submission_email(app: Application, answer_map: dict[str, str]):
     subject_ok = "Hemos recibido tu aplicación – Programa de Mentorías"
     html_ok = (
         '<div style="font-family:Arial,Helvetica,sans-serif;line-height:1.6;max-width:700px;margin:0 auto;word-break:break-word;white-space:normal;">'
-        "<p>Hola querida aplicante :sparkles:</p>"
+        "<p>Hola querida aplicante ✨</p>"
         "<p>Gracias por completar tu aplicación para recibir mentoría en nuestro Programa de Mentorías.</p>"
         "<p>Tu aplicación ha sido enviada correctamente y no necesitas realizar ninguna acción adicional por ahora.</p>"
         "<p>En la fecha indicada dentro de la aplicación, recibirás un correo electrónico en esta misma dirección únicamente si eres seleccionada, "
@@ -343,11 +343,11 @@ def _send_a2_submission_email(app: Application, answer_map: dict[str, str]):
         "<p>Te recomendamos estar pendiente de tu correo, incluyendo la bandeja de spam o promociones, para no perder esta información importante.</p>"
         "<p>Si eres seleccionada, deberás completar dentro de la fecha límite que se te indicará:</p>"
         "<ul>"
-        "<li>:heavy_check_mark: Firmar el Acta de Compromiso</li>"
-        "<li>:heavy_check_mark: Completar la capacitación</li>"
+        "<li>✅ Firmar el Acta de Compromiso</li>"
+        "<li>✅ Completar la capacitación</li>"
         "</ul>"
         "<p>Estos pasos son necesarios para poder asignarte una mentora y participar en la reunión de lanzamiento e inicio de mentorías.</p>"
-        "<p>Gracias por tu interés en ser parte de esta comunidad :heartpulse:</p>"
+        "<p>Gracias por tu interés en ser parte de esta comunidad 💗</p>"
         "<p>Con gratitud,<br><strong>Equipo de Club Emprendo</strong></p>"
         "</div>"
     )
@@ -1088,8 +1088,11 @@ def _handle_application_form(
                 continue_url = f"{request.path}?combined=1&token={app.invite_token}"
                 return redirect(continue_url)
 
-            app.invited_to_second_stage = False
-            app.save(update_fields=["invited_to_second_stage"])
+            # Reuse the original A1 rejection-email path for combined flow too.
+            if form_def.slug.endswith("M_A1"):
+                _mentor_a1_autograde_and_email(request, app)
+            else:
+                autograde_and_email_emprendedora_a1(request, app)
             app.refresh_from_db()
             _schedule_a1_to_a2_reminder(app)
             request.session["ce_thanks_payload"] = {

@@ -333,10 +333,15 @@ def _send_a2_submission_email(app: Application, answer_map: dict[str, str]):
     )
 
     subject_ok = "Hemos recibido tu aplicación – Programa de Mentorías"
+    intro_ok = (
+        "Gracias por completar tu aplicación para ser mentora en nuestro Programa de Mentorías."
+        if slug.endswith("M_A2")
+        else "Gracias por completar tu aplicación para recibir mentoría en nuestro Programa de Mentorías."
+    )
     html_ok = (
         '<div style="font-family:Arial,Helvetica,sans-serif;line-height:1.6;max-width:700px;margin:0 auto;word-break:break-word;white-space:normal;">'
         "<p>Hola querida aplicante ✨</p>"
-        "<p>Gracias por completar tu aplicación para recibir mentoría en nuestro Programa de Mentorías.</p>"
+        f"<p>{intro_ok}</p>"
         "<p>Tu aplicación ha sido enviada correctamente y no necesitas realizar ninguna acción adicional por ahora.</p>"
         "<p>En la fecha indicada dentro de la aplicación, recibirás un correo electrónico en esta misma dirección únicamente si eres seleccionada, "
         "con los siguientes pasos a seguir.</p>"

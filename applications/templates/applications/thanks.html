@@ -108,16 +108,29 @@
     {% else %}
 
       <div class="form-intro" style="margin-top:12px;">
-        <p>
-          Lamentamos que no puedas ser parte del
-          {% if group_num %}Grupo {{ group_num }}{% else %}grupo{% endif %}
-          de {% if track %}{{ track }}{% else %}Club Emprendo{% endif %}
-          en esta ocasión, pero seguiremos abriendo más grupos en el futuro.
-        </p>
-
-        <p>
-          ¡Nos encantaría que puedas aplicar más adelante! Seguimos en contacto y te mandamos un abrazo grande.
-        </p>
+        {% if track == "emprendedoras" %}
+          <p>
+            Lamentamos que en esta ocasión no puedas ser parte del
+            {% if group_num %}Grupo {{ group_num }}{% else %}Grupo #{% endif %}
+            de emprendedoras, ya que en tu aplicación indicaste que no cumples con alguno de los requisitos o la disponibilidad de tiempo necesaria para el programa.
+          </p>
+          <p>
+            Seguiremos abriendo más grupos en el futuro, y nos encantaría que puedas aplicar nuevamente cuando tu situación lo permita :sparkles:
+          </p>
+          <p>
+            ¡Seguimos en contacto y te mandamos un abrazo grande!
+          </p>
+        {% else %}
+          <p>
+            Lamentamos que no puedas ser parte del
+            {% if group_num %}Grupo {{ group_num }}{% else %}grupo{% endif %}
+            de {% if track %}{{ track }}{% else %}Club Emprendo{% endif %}
+            en esta ocasión, pero seguiremos abriendo más grupos en el futuro.
+          </p>
+          <p>
+            ¡Nos encantaría que puedas aplicar más adelante! Seguimos en contacto y te mandamos un abrazo grande.
+          </p>
+        {% endif %}
       </div>
 
 

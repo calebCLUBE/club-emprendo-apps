@@ -1091,7 +1091,11 @@ class CreateGroupForm(forms.Form):
     end_month = forms.ChoiceField(choices=MONTH_CHOICES_ES, label="mes de fin")
     year = forms.IntegerField(min_value=2020, max_value=2100, label="Year")
     a2_deadline = forms.DateField(label="Fecha límite A2", required=False, help_text="YYYY-MM-DD")
-    respond_by_day = forms.IntegerField(min_value=1, max_value=31, required=False, label="Respond by day")
+    respond_by_day = forms.CharField(
+        required=False,
+        label="Respond by day",
+        widget=forms.TextInput(attrs={"placeholder": "ej. 15"}),
+    )
     respond_by_month = forms.ChoiceField(
         choices=RESPOND_BY_MONTH_CHOICES,
         required=False,
@@ -1137,10 +1141,10 @@ class CreateGroupForm(forms.Form):
         cleaned = super().clean()
         year = cleaned.get("year")
         a2_deadline = cleaned.get("a2_deadline")
-        respond_by_day = cleaned.get("respond_by_day")
+        respond_by_day = (cleaned.get("respond_by_day") or "").strip()
         respond_by_month = (cleaned.get("respond_by_month") or "").strip().lower()
 
-        has_day = respond_by_day is not None
+        has_day = bool(respond_by_day)
         has_month = bool(respond_by_month)
 
         if has_day != has_month:
@@ -1152,9 +1156,18 @@ class CreateGroupForm(forms.Form):
             month_num = RESPOND_BY_MONTH_TO_NUM.get(respond_by_month)
             if not month_num:
                 raise forms.ValidationError("Respond by month is invalid.")
+            if not respond_by_day.isdigit():
+                raise forms.ValidationError(
+                    "Respond by day must be a number from 1 to 31."
+                )
+            respond_by_day_num = int(respond_by_day)
+            if respond_by_day_num < 1 or respond_by_day_num > 31:
+                raise forms.ValidationError(
+                    "Respond by day must be a number from 1 to 31."
+                )
             try:
                 derived_deadline = datetime(
-                    int(year), int(month_num), int(respond_by_day)
+                    int(year), int(month_num), respond_by_day_num
                 ).date()
             except Exception:
                 raise forms.ValidationError(

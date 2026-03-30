@@ -1095,12 +1095,15 @@ def _handle_application_form(
                 autograde_and_email_emprendedora_a1(request, app)
             app.refresh_from_db()
             _schedule_a1_to_a2_reminder(app)
-            request.session["ce_thanks_payload"] = {
+            thanks_payload = {
                 "kind": "a1",
                 "approved": False,
                 "group_num": _group_num_from_slug(form_def.slug or ""),
                 "track": _a1_track_from_slug(form_def.slug or ""),
             }
+            if combined_flow:
+                return render(request, "applications/thanks.html", thanks_payload)
+            request.session["ce_thanks_payload"] = thanks_payload
             return redirect("application_thanks")
 
         # A1 autogrades
@@ -1122,25 +1125,28 @@ def _handle_application_form(
 
         # ✅ Thank-you routing
         if form_def.slug.endswith("M_A2"):
-            request.session["ce_thanks_payload"] = {
+            thanks_payload = {
                 "kind": "mentor_final",
                 "group_num": group_num,
                 "disqualified": a2_disqualified,
             }
         elif form_def.slug.endswith("E_A2"):
-            request.session["ce_thanks_payload"] = {
+            thanks_payload = {
                 "kind": "emprendedora_final",
                 "group_num": group_num,
                 "disqualified": a2_disqualified,
             }
         else:
-            request.session["ce_thanks_payload"] = {
+            thanks_payload = {
                 "kind": "a1",
                 "approved": bool(app.invited_to_second_stage),
                 "group_num": group_num,
                 "track": track,
             }
 
+        if combined_flow:
+            return render(request, "applications/thanks.html", thanks_payload)
+        request.session["ce_thanks_payload"] = thanks_payload
         return redirect("application_thanks")
 
     return render(

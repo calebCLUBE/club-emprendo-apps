@@ -195,13 +195,26 @@
         });
       }
 
+      function rowIsRequired(row) {
+        if (!row) return false;
+        if (row.querySelector("label.required")) return true;
+
+        const controls = Array.from(row.querySelectorAll("input, select, textarea"))
+          .filter((el) => isVisible(el))
+          .filter((el) => !el.disabled)
+          .filter((el) => (el.type || "").toLowerCase() !== "hidden");
+
+        return controls.some((el) => !!el.required);
+      }
+
       function validatePanel(panel) {
         let ok = true;
         let firstInvalidRow = null;
 
         const requiredRows = Array.from(panel.querySelectorAll(".form-row"))
           .filter((row) => isVisible(row))
-          .filter((row) => row.querySelector("input, select, textarea"));
+          .filter((row) => row.querySelector("input, select, textarea"))
+          .filter((row) => rowIsRequired(row));
 
         requiredRows.forEach((row) => {
           if (rowHasValue(row)) {

@@ -6,6 +6,12 @@
     <a href="{% url 'admin_database' %}">← Back to database</a>
   </p>
 
+  <p style="margin:8px 0 12px 0; padding:8px 10px; border:1px solid #ddd; border-radius:8px; background:#fafafa;">
+    <strong>Completaron la segunda parte (A2):</strong>
+    {{ second_part_completed_count|default:0 }}
+    {% if selected_group %}en Group {{ selected_group }}{% endif %}
+  </p>
+
   <form method="get" style="margin:10px 0; padding:10px; border:1px solid #ddd; border-radius:10px; display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap;">
     <div>
       <label for="group_filter"><strong>Filter by group</strong></label><br>

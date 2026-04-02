@@ -2732,6 +2732,16 @@ def database_track_detail(request, track: str):
     headers, rows, forms = _build_csv_for_track(track, selected_group)
     preview_html = _csv_preview_html(headers, rows, max_rows=None)
 
+    second_part_forms = [
+        fd for fd in forms
+        if (fd.slug or "").strip().upper().endswith(f"{track}_A2")
+    ]
+    second_part_completed_count = (
+        Application.objects.filter(form__in=second_part_forms).count()
+        if second_part_forms
+        else 0
+    )
+
     all_forms = _group_forms_for_track(track)
     group_options = sorted(
         g
@@ -2759,6 +2769,7 @@ def database_track_detail(request, track: str):
             "selected_group": selected_group,
             "group_options": group_options,
             "apps": apps,
+            "second_part_completed_count": second_part_completed_count,
             "preview_html": preview_html,
             "rows_count": len(rows),
         },

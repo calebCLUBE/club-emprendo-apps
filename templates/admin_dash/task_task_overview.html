@@ -1,0 +1,103 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+<div class="ce-admin-wrap">
+  <div class="ce-admin-card ce-admin-card--wide">
+    <style>
+      .ce-actions {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin: 12px 0 16px;
+      }
+      .ce-btn {
+        display: inline-block;
+        padding: 8px 12px;
+        border-radius: 8px;
+        border: 1px solid #223413;
+        background: #223413;
+        color: #fff !important;
+        text-decoration: none;
+        font-weight: 600;
+      }
+      .ce-btn--ghost {
+        background: #fff;
+        color: #223413 !important;
+      }
+      .ce-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(220px, 1fr));
+        gap: 10px 16px;
+      }
+      .ce-k {
+        color: #666;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+      .ce-v {
+        margin-top: 2px;
+        font-size: 14px;
+      }
+      .ce-section {
+        margin-top: 14px;
+        border-top: 1px solid #eee;
+        padding-top: 12px;
+      }
+    </style>
+
+    <h1 style="margin: 0;">Task</h1>
+    <div class="ce-actions">
+      <a class="ce-btn ce-btn--ghost" href="{% url 'admin_task_manager_overview' %}">Back to task overview</a>
+      <a class="ce-btn ce-btn--ghost" href="{% url 'admin_task_manager_my_tasks' %}">My tasks</a>
+      <a class="ce-btn ce-btn--ghost" href="{% url 'admin_task_manager_home' %}">Task manager</a>
+      <a class="ce-btn" href="{% url 'admin_task_manager_edit' task.id %}">Edit task</a>
+    </div>
+
+    <div class="ce-grid">
+      <div>
+        <div class="ce-k">Title</div>
+        <div class="ce-v"><strong>{{ task.title }}</strong></div>
+      </div>
+      <div>
+        <div class="ce-k">Status</div>
+        <div class="ce-v">{{ task.get_status_display }}</div>
+      </div>
+      <div>
+        <div class="ce-k">Requested by</div>
+        <div class="ce-v">{{ task.requested_by|default:"—" }}</div>
+      </div>
+      <div>
+        <div class="ce-k">Assigned to</div>
+        <div class="ce-v">{{ task.assigned_to }}</div>
+      </div>
+      <div>
+        <div class="ce-k">Task type</div>
+        <div class="ce-v">{{ task.task_type_name }}</div>
+      </div>
+      <div>
+        <div class="ce-k">Priority</div>
+        <div class="ce-v">{{ task.get_priority_display }}</div>
+      </div>
+      <div>
+        <div class="ce-k">Due date</div>
+        <div class="ce-v">{{ task.due_date|default:"—" }}</div>
+      </div>
+      <div>
+        <div class="ce-k">Created</div>
+        <div class="ce-v">{{ task.created_at }}</div>
+      </div>
+    </div>
+
+    <div class="ce-section">
+      <div class="ce-k">Description</div>
+      <div class="ce-v">{{ task.description|default:"—"|linebreaksbr }}</div>
+    </div>
+
+    <div class="ce-section">
+      <div class="ce-k">Impact</div>
+      <div class="ce-v">{{ task.impact|default:"—"|linebreaksbr }}</div>
+    </div>
+  </div>
+</div>
+{% endblock %}

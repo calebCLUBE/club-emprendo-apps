@@ -173,6 +173,23 @@ def task_manager_overview(request):
 
 
 @staff_member_required
+def task_manager_task_overview(request, task_id: int):
+    ensure_default_task_types()
+    task = get_object_or_404(
+        UserTask.objects.select_related("assigned_to", "requested_by", "task_type_ref"),
+        id=task_id,
+    )
+    return render(
+        request,
+        "admin_dash/task_task_overview.html",
+        {
+            "task": task,
+            "task_type_admin_url": _task_type_link(),
+        },
+    )
+
+
+@staff_member_required
 def task_manager_user_tasks(request, user_id: int):
     ensure_default_task_types()
     user_model = get_user_model()
@@ -228,6 +245,7 @@ def task_manager_edit(request, task_id: int):
         form = UserTaskEditForm(request.POST, instance=task)
         if form.is_valid():
             task = form.save(commit=False)
+            task.created_by = task.requested_by
             if task.task_type_ref_id:
                 task.task_type = task.task_type_ref.slug
             task.save()
@@ -257,16 +275,43 @@ def task_manager_assign(request):
     if request.method == "POST":
         form = UserTaskAssignForm(request.POST)
         if form.is_valid():
-            task = form.save(commit=False)
-            task.created_by = form.cleaned_data.get("created_by") or request.user
-            if task.task_type_ref_id:
-                task.task_type = task.task_type_ref.slug
-            task.save()
-            _send_assignment_email(request, task)
-            messages.success(request, "Task assigned successfully.")
-            return redirect("admin_task_manager_user_tasks", user_id=task.assigned_to_id)
+            requester = form.cleaned_data.get("requested_by") or request.user
+            assignees = list(form.cleaned_data.get("assignees") or [])
+            task_type_ref = form.cleaned_data.get("task_type_ref")
+            task_type_slug = task_type_ref.slug if task_type_ref else UserTask.TYPE_GENERAL
+
+            created_tasks = []
+            for assignee in assignees:
+                task = UserTask.objects.create(
+                    assigned_to=assignee,
+                    requested_by=requester,
+                    created_by=requester,
+                    title=form.cleaned_data["title"],
+                    description=form.cleaned_data.get("description", ""),
+                    task_type_ref=task_type_ref,
+                    task_type=task_type_slug,
+                    priority=form.cleaned_data["priority"],
+                    impact=form.cleaned_data.get("impact", ""),
+                    status=form.cleaned_data["status"],
+                    due_date=form.cleaned_data.get("due_date"),
+                )
+                created_tasks.append(task)
+                _send_assignment_email(request, task)
+
+            if len(created_tasks) == 1:
+                messages.success(request, "Task assigned successfully.")
+                return redirect(
+                    "admin_task_manager_user_tasks",
+                    user_id=created_tasks[0].assigned_to_id,
+                )
+
+            messages.success(
+                request,
+                f"Task assigned to {len(created_tasks)} people successfully.",
+            )
+            return redirect("admin_task_manager_overview")
     else:
-        form = UserTaskAssignForm(initial={"created_by": request.user})
+        form = UserTaskAssignForm(initial={"requested_by": request.user})
 
     return render(
         request,

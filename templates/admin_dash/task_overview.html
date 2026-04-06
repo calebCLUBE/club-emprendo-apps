@@ -124,7 +124,7 @@
             <td>{{ t.due_date|default:"—" }}</td>
             <td>{{ t.created_at }}</td>
             <td>
-              <a href="{% url 'admin_task_manager_user_tasks' t.assigned_to_id %}">View tasks</a>
+              <a href="{% url 'admin_task_manager_task_overview' t.id %}">View task</a>
             </td>
           </tr>
         {% empty %}

@@ -13,11 +13,19 @@ class InviteUserForm(forms.Form):
 
 
 class UserTaskAssignForm(forms.ModelForm):
+    assignees = forms.ModelMultipleChoiceField(
+        queryset=get_user_model().objects.none(),
+        label="Assign to",
+        required=True,
+        help_text="Choose one or more users.",
+        widget=forms.SelectMultiple(attrs={"size": 8}),
+    )
+
     class Meta:
         model = UserTask
         fields = [
-            "created_by",
-            "assigned_to",
+            "requested_by",
+            "assignees",
             "title",
             "description",
             "task_type_ref",
@@ -37,10 +45,10 @@ class UserTaskAssignForm(forms.ModelForm):
         ensure_default_task_types()
         user_model = get_user_model()
         ordered_users = user_model.objects.order_by("email")
-        self.fields["created_by"].queryset = ordered_users
-        self.fields["created_by"].label = "Assigned by"
-        self.fields["created_by"].required = True
-        self.fields["assigned_to"].queryset = ordered_users
+        self.fields["requested_by"].queryset = ordered_users
+        self.fields["requested_by"].label = "Requested by"
+        self.fields["requested_by"].required = True
+        self.fields["assignees"].queryset = ordered_users
         self.fields["task_type_ref"].queryset = TaskType.objects.filter(is_active=True).order_by("position", "name")
         self.fields["task_type_ref"].label = "Task type"
         self.fields["task_type_ref"].required = True

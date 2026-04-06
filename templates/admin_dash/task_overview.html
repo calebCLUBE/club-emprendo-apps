@@ -117,14 +117,6 @@
           <tr>
             <td>
               <strong>{{ t.title }}</strong>
-              {% if t.description %}
-                <div style="margin-top: 4px; color: #444;">{{ t.description|linebreaksbr }}</div>
-              {% endif %}
-              {% if t.impact %}
-                <div style="margin-top: 6px; color: #444;">
-                  <strong>Impact:</strong> {{ t.impact|linebreaksbr }}
-                </div>
-              {% endif %}
             </td>
             <td>{{ t.assigned_to }}</td>
             <td>{{ t.task_type_name }}</td>
@@ -134,9 +126,7 @@
             <td>{% if t.follow_up_requested %}Yes{% else %}No{% endif %}</td>
             <td>{{ t.created_at }}</td>
             <td>
-              <a href="{% url 'admin_task_manager_edit' t.id %}">Edit</a>
-              <br>
-              <a href="{% url 'admin_task_manager_user_tasks' t.assigned_to_id %}">View person tasks</a>
+              <a href="{% url 'admin_task_manager_user_tasks' t.assigned_to_id %}">View tasks</a>
             </td>
           </tr>
         {% empty %}

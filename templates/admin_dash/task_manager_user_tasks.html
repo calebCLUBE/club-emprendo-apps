@@ -78,6 +78,7 @@
           <th>Due</th>
           <th>Impact</th>
           <th>Created</th>
+          <th>Mark done</th>
           <th>Actions</th>
         </tr>
       </thead>
@@ -101,8 +102,6 @@
             <td>{{ t.impact|default:"—"|linebreaksbr }}</td>
             <td>{{ t.created_at }}</td>
             <td>
-              <a href="{% url 'admin_task_manager_edit' t.id %}">Edit</a>
-              <br>
               {% if t.status != "done" %}
                 <form method="post" class="ce-inline-form">
                   {% csrf_token %}
@@ -119,10 +118,13 @@
                 </form>
               {% endif %}
             </td>
+            <td>
+              <a href="{% url 'admin_task_manager_edit' t.id %}">Edit</a>
+            </td>
           </tr>
         {% empty %}
           <tr>
-            <td colspan="9">No tasks assigned yet.</td>
+            <td colspan="10">No tasks assigned yet.</td>
           </tr>
         {% endfor %}
       </tbody>

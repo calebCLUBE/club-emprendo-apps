@@ -4,6 +4,7 @@ from django.urls import path, include
 from django.shortcuts import redirect
 
 from applications import admin_views
+from applications import admin_task_views
 
 urlpatterns = [
     # ============================
@@ -16,6 +17,15 @@ urlpatterns = [
     path("admin/apps/toggle-form/<slug:form_slug>/", admin_views.toggle_form_open, name="admin_toggle_form_open"),
     path("admin/apps/toggle-accepting/<slug:form_slug>/", admin_views.toggle_form_accepting, name="admin_toggle_form_accepting"),
     path("admin/apps/send-a2-reminders/<slug:form_slug>/", admin_views.send_second_stage_reminders, name="admin_send_second_stage_reminders"),
+
+    # ============================
+    # TASK MANAGER
+    # ============================
+    path("admin/task-manager/", admin_task_views.task_manager_home, name="admin_task_manager_home"),
+    path("admin/task-manager/assign/", admin_task_views.task_manager_assign, name="admin_task_manager_assign"),
+    path("admin/task-manager/follow-up/", admin_task_views.task_manager_follow_up, name="admin_task_manager_follow_up"),
+    path("admin/task-manager/website-revisions/", admin_task_views.task_manager_website_revisions, name="admin_task_manager_website_revisions"),
+    path("admin/task-manager/user/<int:user_id>/", admin_task_views.task_manager_user_tasks, name="admin_task_manager_user_tasks"),
 
     # ============================
     # DATABASE

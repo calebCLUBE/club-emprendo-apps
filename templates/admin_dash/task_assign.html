@@ -1,0 +1,63 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+<div class="ce-admin-wrap">
+  <div class="ce-admin-card">
+    <style>
+      .ce-actions {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin: 12px 0 16px;
+      }
+      .ce-btn {
+        display: inline-block;
+        padding: 8px 12px;
+        border-radius: 8px;
+        border: 1px solid #223413;
+        background: #223413;
+        color: #fff !important;
+        text-decoration: none;
+        font-weight: 600;
+      }
+      .ce-btn--ghost {
+        background: #fff;
+        color: #223413 !important;
+      }
+      .ce-form p {
+        margin-bottom: 12px;
+      }
+      .ce-form input,
+      .ce-form select,
+      .ce-form textarea {
+        width: 100%;
+        max-width: 680px;
+        box-sizing: border-box;
+        padding: 8px;
+      }
+      .ce-submit {
+        border: 1px solid #223413;
+        background: #223413;
+        color: #fff;
+        border-radius: 8px;
+        padding: 8px 12px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+    </style>
+
+    <h1 style="margin: 0;">Assign New Task</h1>
+    <div class="ce-actions">
+      <a class="ce-btn ce-btn--ghost" href="{% url 'admin_task_manager_home' %}">Back to task manager</a>
+      <a class="ce-btn ce-btn--ghost" href="{% url 'admin_task_manager_follow_up' %}">Follow up on requested tasks</a>
+      <a class="ce-btn ce-btn--ghost" href="{% url 'admin_task_manager_website_revisions' %}">Website revisions</a>
+    </div>
+
+    <form method="post" class="ce-form">
+      {% csrf_token %}
+      {{ form.as_p }}
+      <button class="ce-submit" type="submit">Assign task</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

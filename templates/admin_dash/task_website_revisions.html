@@ -1,0 +1,113 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+<div class="ce-admin-wrap">
+  <div class="ce-admin-card">
+    <style>
+      .ce-actions {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin: 12px 0 16px;
+      }
+      .ce-btn {
+        display: inline-block;
+        padding: 8px 12px;
+        border-radius: 8px;
+        border: 1px solid #223413;
+        background: #223413;
+        color: #fff !important;
+        text-decoration: none;
+        font-weight: 600;
+      }
+      .ce-btn--ghost {
+        background: #fff;
+        color: #223413 !important;
+      }
+      .ce-form p {
+        margin-bottom: 12px;
+      }
+      .ce-form input,
+      .ce-form select,
+      .ce-form textarea {
+        width: 100%;
+        max-width: 680px;
+        box-sizing: border-box;
+        padding: 8px;
+      }
+      .ce-submit {
+        border: 1px solid #223413;
+        background: #223413;
+        color: #fff;
+        border-radius: 8px;
+        padding: 8px 12px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .ce-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 18px;
+      }
+      .ce-table th,
+      .ce-table td {
+        border-bottom: 1px solid #eee;
+        padding: 10px 8px;
+        text-align: left;
+        vertical-align: top;
+      }
+    </style>
+
+    <h1 style="margin: 0;">Website Revisions</h1>
+    <div class="ce-actions">
+      <a class="ce-btn ce-btn--ghost" href="{% url 'admin_task_manager_home' %}">Back to task manager</a>
+      <a class="ce-btn" href="{% url 'admin_task_manager_assign' %}">Assign new task</a>
+      <a class="ce-btn ce-btn--ghost" href="{% url 'admin_task_manager_follow_up' %}">Follow up on requested tasks</a>
+    </div>
+
+    <h2 style="margin-bottom: 8px;">Request a website revision</h2>
+    <form method="post" class="ce-form">
+      {% csrf_token %}
+      {{ form.as_p }}
+      <button class="ce-submit" type="submit">Create website revision request</button>
+    </form>
+
+    <h2 style="margin: 24px 0 10px;">Existing website revision requests</h2>
+    <table class="ce-table">
+      <thead>
+        <tr>
+          <th>Title</th>
+          <th>Requested by</th>
+          <th>Assigned to</th>
+          <th>Status</th>
+          <th>Due</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for t in revisions %}
+          <tr>
+            <td>
+              <strong>{{ t.title }}</strong>
+              {% if t.description %}
+                <div style="margin-top: 4px; color: #444;">{{ t.description|linebreaksbr }}</div>
+              {% endif %}
+            </td>
+            <td>{{ t.requested_by|default:"—" }}</td>
+            <td>{{ t.assigned_to }}</td>
+            <td>{{ t.get_status_display }}</td>
+            <td>{{ t.due_date|default:"—" }}</td>
+            <td>
+              <a href="{% url 'admin_task_manager_user_tasks' t.assigned_to_id %}">View assignee tasks</a>
+            </td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="6">No website revision requests yet.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

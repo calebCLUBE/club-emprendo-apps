@@ -1,0 +1,124 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+<div class="ce-admin-wrap">
+  <div class="ce-admin-card">
+    <style>
+      .ce-actions {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin: 12px 0 16px;
+      }
+      .ce-btn {
+        display: inline-block;
+        padding: 8px 12px;
+        border-radius: 8px;
+        border: 1px solid #223413;
+        background: #223413;
+        color: #fff !important;
+        text-decoration: none;
+        font-weight: 600;
+      }
+      .ce-btn:hover {
+        opacity: 0.9;
+      }
+      .ce-btn--ghost {
+        background: #fff;
+        color: #223413 !important;
+      }
+      .ce-table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      .ce-table th,
+      .ce-table td {
+        border-bottom: 1px solid #eee;
+        padding: 10px 8px;
+        text-align: left;
+        vertical-align: top;
+      }
+      .ce-badge {
+        display: inline-block;
+        padding: 3px 8px;
+        border-radius: 999px;
+        border: 1px solid #ddd;
+        font-size: 12px;
+      }
+      .ce-inline-form {
+        display: inline;
+      }
+      .ce-inline-btn {
+        border: 1px solid #cfd8c7;
+        background: #fff;
+        border-radius: 6px;
+        padding: 4px 8px;
+        cursor: pointer;
+      }
+    </style>
+
+    <h1 style="margin: 0;">Tasks for {{ target_user.email }}</h1>
+    <div class="ce-actions">
+      <a class="ce-btn ce-btn--ghost" href="{% url 'admin_task_manager_home' %}">Back to task manager</a>
+      <a class="ce-btn" href="{% url 'admin_task_manager_assign' %}">Assign new task</a>
+      <a class="ce-btn ce-btn--ghost" href="{% url 'admin_task_manager_follow_up' %}">Follow up on requested tasks</a>
+      <a class="ce-btn ce-btn--ghost" href="{% url 'admin_task_manager_website_revisions' %}">Website revisions</a>
+    </div>
+
+    <table class="ce-table">
+      <thead>
+        <tr>
+          <th>Task</th>
+          <th>Type</th>
+          <th>Status</th>
+          <th>Follow-up</th>
+          <th>Due</th>
+          <th>Created</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for t in tasks %}
+          <tr>
+            <td>
+              <strong>{{ t.title }}</strong>
+              {% if t.description %}
+                <div style="margin-top: 4px; color: #444;">{{ t.description|linebreaksbr }}</div>
+              {% endif %}
+              <div style="margin-top: 6px; color: #666; font-size: 12px;">
+                Created by: {{ t.created_by|default:"—" }} | Requested by: {{ t.requested_by|default:"—" }}
+              </div>
+            </td>
+            <td><span class="ce-badge">{{ t.get_task_type_display }}</span></td>
+            <td><span class="ce-badge">{{ t.get_status_display }}</span></td>
+            <td>{% if t.follow_up_requested %}Yes{% else %}No{% endif %}</td>
+            <td>{{ t.due_date|default:"—" }}</td>
+            <td>{{ t.created_at }}</td>
+            <td>
+              {% if t.status != "done" %}
+                <form method="post" class="ce-inline-form">
+                  {% csrf_token %}
+                  <input type="hidden" name="task_id" value="{{ t.id }}">
+                  <input type="hidden" name="action" value="mark_done">
+                  <button class="ce-inline-btn" type="submit">Mark done</button>
+                </form>
+              {% else %}
+                <form method="post" class="ce-inline-form">
+                  {% csrf_token %}
+                  <input type="hidden" name="task_id" value="{{ t.id }}">
+                  <input type="hidden" name="action" value="reopen">
+                  <button class="ce-inline-btn" type="submit">Reopen</button>
+                </form>
+              {% endif %}
+            </td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="7">No tasks assigned yet.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

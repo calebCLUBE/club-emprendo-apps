@@ -1,4 +1,5 @@
 # applications/models.py
+from django.conf import settings
 from django.db import models
 from django.utils import timezone
 import uuid
@@ -464,3 +465,71 @@ class PairingJob(models.Model):
     def append_log(self, msg: str):
         self.log_text += msg.rstrip() + "\n"
         self.save(update_fields=["log_text", "updated_at"])
+
+
+class UserTask(models.Model):
+    TYPE_GENERAL = "general"
+    TYPE_FOLLOW_UP = "follow_up"
+    TYPE_WEBSITE_REVISION = "website_revision"
+    TASK_TYPE_CHOICES = [
+        (TYPE_GENERAL, "General"),
+        (TYPE_FOLLOW_UP, "Follow up"),
+        (TYPE_WEBSITE_REVISION, "Website revision"),
+    ]
+
+    STATUS_OPEN = "open"
+    STATUS_IN_PROGRESS = "in_progress"
+    STATUS_DONE = "done"
+    STATUS_CHOICES = [
+        (STATUS_OPEN, "Open"),
+        (STATUS_IN_PROGRESS, "In progress"),
+        (STATUS_DONE, "Done"),
+    ]
+
+    assigned_to = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="assigned_tasks",
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="created_tasks",
+    )
+    requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="requested_tasks",
+    )
+    title = models.CharField(max_length=200)
+    description = models.TextField(blank=True)
+    task_type = models.CharField(
+        max_length=20,
+        choices=TASK_TYPE_CHOICES,
+        default=TYPE_GENERAL,
+        db_index=True,
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default=STATUS_OPEN,
+        db_index=True,
+    )
+    follow_up_requested = models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text="Mark tasks that need follow-up from the team.",
+    )
+    due_date = models.DateField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+
+    def __str__(self) -> str:
+        return f"{self.assigned_to} — {self.title}"

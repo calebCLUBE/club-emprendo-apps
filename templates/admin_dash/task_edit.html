@@ -54,21 +54,25 @@
         font-weight: 600;
         cursor: pointer;
       }
+      .ce-muted {
+        color: #666;
+        font-size: 13px;
+      }
     </style>
 
-    <h1 style="margin: 0;">Assign New Task</h1>
+    <h1 style="margin: 0;">Edit Task</h1>
+    <p class="ce-muted" style="margin: 8px 0 0;">{{ task.title }}</p>
     <div class="ce-actions">
-      <a class="ce-btn ce-btn--ghost" href="{% url 'admin_task_manager_home' %}">Back to task manager</a>
+      <a class="ce-btn ce-btn--ghost" href="{% url 'admin_task_manager_user_tasks' task.assigned_to_id %}">Back to user tasks</a>
       <a class="ce-btn ce-btn--ghost" href="{% url 'admin_task_manager_overview' %}">Task overview</a>
-      <a class="ce-btn ce-btn--ghost" href="{% url 'admin_task_manager_follow_up' %}">Follow up on requested tasks</a>
-      <a class="ce-btn ce-btn--ghost" href="{% url 'admin_task_manager_website_revisions' %}">Website revisions</a>
+      <a class="ce-btn ce-btn--ghost" href="{% url 'admin_task_manager_home' %}">Task manager</a>
       <a class="ce-btn ce-btn--ghost" href="{{ task_type_admin_url }}">Edit task types</a>
     </div>
 
     <form method="post" class="ce-form">
       {% csrf_token %}
       {{ form.as_p }}
-      <button class="ce-submit" type="submit">Assign task</button>
+      <button class="ce-submit" type="submit">Save changes</button>
     </form>
   </div>
 </div>

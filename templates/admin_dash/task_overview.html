@@ -20,12 +20,29 @@
         text-decoration: none;
         font-weight: 600;
       }
-      .ce-btn:hover {
-        opacity: 0.9;
-      }
       .ce-btn--ghost {
         background: #fff;
         color: #223413 !important;
+      }
+      .ce-filter {
+        display: flex;
+        align-items: flex-end;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin: 12px 0 16px;
+      }
+      .ce-filter label {
+        display: block;
+        font-weight: 600;
+        margin-bottom: 4px;
+      }
+      .ce-filter select {
+        min-width: 260px;
+        max-width: 420px;
+        width: 100%;
+        padding: 8px;
+        min-height: 42px;
+        line-height: 1.45;
       }
       .ce-table {
         width: 100%;
@@ -38,45 +55,59 @@
         text-align: left;
         vertical-align: top;
       }
-      .ce-badge {
-        display: inline-block;
-        padding: 3px 8px;
-        border-radius: 999px;
-        border: 1px solid #ddd;
-        font-size: 12px;
-      }
-      .ce-inline-form {
-        display: inline;
-      }
-      .ce-inline-btn {
-        border: 1px solid #cfd8c7;
-        background: #fff;
-        border-radius: 6px;
-        padding: 4px 8px;
-        cursor: pointer;
+      .ce-muted {
+        color: #666;
+        font-size: 13px;
       }
     </style>
 
-    <h1 style="margin: 0;">Tasks for {{ target_user.email }}</h1>
+    <h1 style="margin: 0;">Task Overview</h1>
     <div class="ce-actions">
       <a class="ce-btn ce-btn--ghost" href="{% url 'admin_task_manager_home' %}">Back to task manager</a>
-      <a class="ce-btn ce-btn--ghost" href="{% url 'admin_task_manager_overview' %}">Task overview</a>
       <a class="ce-btn" href="{% url 'admin_task_manager_assign' %}">Assign new task</a>
       <a class="ce-btn ce-btn--ghost" href="{% url 'admin_task_manager_follow_up' %}">Follow up on requested tasks</a>
       <a class="ce-btn ce-btn--ghost" href="{% url 'admin_task_manager_website_revisions' %}">Website revisions</a>
       <a class="ce-btn ce-btn--ghost" href="{{ task_type_admin_url }}">Edit task types</a>
     </div>
 
+    <form method="get" class="ce-filter">
+      <div>
+        <label for="assignee">Filter by person</label>
+        <select id="assignee" name="assignee">
+          <option value="">All people</option>
+          {% for u in users %}
+            <option value="{{ u.id }}" {% if selected_user_id == u.id|stringformat:"s" %}selected{% endif %}>
+              {{ u.email }}{% if u.first_name or u.last_name %} — {{ u.first_name }} {{ u.last_name }}{% endif %}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <button class="ce-btn" type="submit">Apply filter</button>
+      </div>
+      <div>
+        <a class="ce-btn ce-btn--ghost" href="{% url 'admin_task_manager_overview' %}">Clear</a>
+      </div>
+    </form>
+
+    {% if selected_user %}
+      <p class="ce-muted">
+        Showing tasks assigned to <strong>{{ selected_user.email }}</strong>.
+      </p>
+    {% else %}
+      <p class="ce-muted">Showing tasks for all people.</p>
+    {% endif %}
+
     <table class="ce-table">
       <thead>
         <tr>
           <th>Task</th>
+          <th>Assigned to</th>
           <th>Type</th>
-          <th>Status</th>
-          <th>Follow-up</th>
           <th>Priority</th>
+          <th>Status</th>
           <th>Due</th>
-          <th>Impact</th>
+          <th>Follow-up</th>
           <th>Created</th>
           <th>Actions</th>
         </tr>
@@ -89,40 +120,28 @@
               {% if t.description %}
                 <div style="margin-top: 4px; color: #444;">{{ t.description|linebreaksbr }}</div>
               {% endif %}
-              <div style="margin-top: 6px; color: #666; font-size: 12px;">
-                Created by: {{ t.created_by|default:"—" }} | Requested by: {{ t.requested_by|default:"—" }}
-              </div>
+              {% if t.impact %}
+                <div style="margin-top: 6px; color: #444;">
+                  <strong>Impact:</strong> {{ t.impact|linebreaksbr }}
+                </div>
+              {% endif %}
             </td>
-            <td><span class="ce-badge">{{ t.task_type_name }}</span></td>
-            <td><span class="ce-badge">{{ t.get_status_display }}</span></td>
-            <td>{% if t.follow_up_requested %}Yes{% else %}No{% endif %}</td>
+            <td>{{ t.assigned_to }}</td>
+            <td>{{ t.task_type_name }}</td>
             <td>{{ t.get_priority_display }}</td>
+            <td>{{ t.get_status_display }}</td>
             <td>{{ t.due_date|default:"—" }}</td>
-            <td>{{ t.impact|default:"—"|linebreaksbr }}</td>
+            <td>{% if t.follow_up_requested %}Yes{% else %}No{% endif %}</td>
             <td>{{ t.created_at }}</td>
             <td>
               <a href="{% url 'admin_task_manager_edit' t.id %}">Edit</a>
               <br>
-              {% if t.status != "done" %}
-                <form method="post" class="ce-inline-form">
-                  {% csrf_token %}
-                  <input type="hidden" name="task_id" value="{{ t.id }}">
-                  <input type="hidden" name="action" value="mark_done">
-                  <button class="ce-inline-btn" type="submit">Mark done</button>
-                </form>
-              {% else %}
-                <form method="post" class="ce-inline-form">
-                  {% csrf_token %}
-                  <input type="hidden" name="task_id" value="{{ t.id }}">
-                  <input type="hidden" name="action" value="reopen">
-                  <button class="ce-inline-btn" type="submit">Reopen</button>
-                </form>
-              {% endif %}
+              <a href="{% url 'admin_task_manager_user_tasks' t.assigned_to_id %}">View person tasks</a>
             </td>
           </tr>
         {% empty %}
           <tr>
-            <td colspan="9">No tasks assigned yet.</td>
+            <td colspan="9">No tasks found for this filter.</td>
           </tr>
         {% endfor %}
       </tbody>

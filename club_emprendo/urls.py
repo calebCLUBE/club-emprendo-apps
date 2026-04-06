@@ -22,7 +22,9 @@ urlpatterns = [
     # TASK MANAGER
     # ============================
     path("admin/task-manager/", admin_task_views.task_manager_home, name="admin_task_manager_home"),
+    path("admin/task-manager/overview/", admin_task_views.task_manager_overview, name="admin_task_manager_overview"),
     path("admin/task-manager/assign/", admin_task_views.task_manager_assign, name="admin_task_manager_assign"),
+    path("admin/task-manager/edit/<int:task_id>/", admin_task_views.task_manager_edit, name="admin_task_manager_edit"),
     path("admin/task-manager/follow-up/", admin_task_views.task_manager_follow_up, name="admin_task_manager_follow_up"),
     path("admin/task-manager/website-revisions/", admin_task_views.task_manager_website_revisions, name="admin_task_manager_website_revisions"),
     path("admin/task-manager/user/<int:user_id>/", admin_task_views.task_manager_user_tasks, name="admin_task_manager_user_tasks"),

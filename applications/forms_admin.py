@@ -47,6 +47,45 @@ class UserTaskAssignForm(forms.ModelForm):
                 self.fields["task_type_ref"].initial = default_type
 
 
+class UserTaskEditForm(forms.ModelForm):
+    class Meta:
+        model = UserTask
+        fields = [
+            "requested_by",
+            "assigned_to",
+            "title",
+            "description",
+            "task_type_ref",
+            "priority",
+            "impact",
+            "status",
+            "follow_up_requested",
+            "due_date",
+        ]
+        widgets = {
+            "description": forms.Textarea(attrs={"rows": 4}),
+            "impact": forms.Textarea(attrs={"rows": 3}),
+            "due_date": forms.DateInput(attrs={"type": "date"}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        ensure_default_task_types()
+        user_model = get_user_model()
+        ordered_users = user_model.objects.order_by("email")
+        self.fields["requested_by"].queryset = ordered_users
+        self.fields["requested_by"].required = False
+        self.fields["assigned_to"].queryset = ordered_users
+        self.fields["task_type_ref"].queryset = TaskType.objects.filter(is_active=True).order_by("position", "name")
+        self.fields["task_type_ref"].label = "Task type"
+        self.fields["task_type_ref"].required = True
+        self.fields["impact"].label = "Impact"
+        if not self.instance.task_type_ref_id and self.instance.task_type:
+            self.initial["task_type_ref"] = (
+                TaskType.objects.filter(slug=self.instance.task_type).values_list("id", flat=True).first()
+            )
+
+
 class WebsiteRevisionRequestForm(forms.ModelForm):
     class Meta:
         model = UserTask

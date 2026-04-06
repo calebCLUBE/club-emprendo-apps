@@ -9,7 +9,7 @@ from django.conf import settings
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 
-from .forms_admin import UserTaskAssignForm, WebsiteRevisionRequestForm
+from .forms_admin import UserTaskAssignForm, UserTaskEditForm, WebsiteRevisionRequestForm
 from .models import TaskType, UserTask, ensure_default_task_types
 
 logger = logging.getLogger(__name__)
@@ -69,6 +69,50 @@ def _send_assignment_email(request, task: UserTask) -> None:
         )
 
 
+def _send_requester_completion_email(request, task: UserTask) -> None:
+    requester = task.requested_by
+    requester_email = (getattr(requester, "email", "") or "").strip()
+    if not requester_email:
+        return
+
+    task_url = request.build_absolute_uri(
+        reverse("admin_task_manager_edit", kwargs={"task_id": task.id})
+    )
+
+    subject = f"Task completed: {task.title}"
+    body = (
+        f"Hi,\n\n"
+        f"The task you requested has been marked as completed.\n\n"
+        f"Title: {task.title}\n"
+        f"Assigned to: {task.assigned_to}\n"
+        f"Type: {task.task_type_name}\n"
+        f"Priority: {task.get_priority_display()}\n"
+        f"Completed status: {task.get_status_display()}\n\n"
+        f"Impact:\n{task.impact or 'Not specified'}\n\n"
+        f"Description:\n{task.description or 'No description provided'}\n\n"
+        f"View/edit task: {task_url}\n"
+    )
+
+    try:
+        send_mail(
+            subject=subject,
+            message=body,
+            from_email=getattr(settings, "DEFAULT_FROM_EMAIL", None),
+            recipient_list=[requester_email],
+            fail_silently=False,
+        )
+    except Exception:
+        logger.exception(
+            "Requester completion email failed for task_id=%s requester_id=%s",
+            task.id,
+            getattr(requester, "id", None),
+        )
+        messages.warning(
+            request,
+            "Task was completed, but the requester notification email could not be sent.",
+        )
+
+
 @staff_member_required
 def task_manager_home(request):
     ensure_default_task_types()
@@ -96,6 +140,39 @@ def task_manager_home(request):
 
 
 @staff_member_required
+def task_manager_overview(request):
+    ensure_default_task_types()
+    user_model = get_user_model()
+    users = user_model.objects.order_by("email")
+
+    selected_user_id = (request.GET.get("assignee") or "").strip()
+    selected_user = None
+    tasks = UserTask.objects.all()
+    if selected_user_id:
+        try:
+            selected_user = users.get(id=int(selected_user_id))
+            tasks = tasks.filter(assigned_to_id=selected_user.id)
+        except (ValueError, user_model.DoesNotExist):
+            selected_user_id = ""
+
+    tasks = (
+        tasks.select_related("assigned_to", "created_by", "requested_by", "task_type_ref")
+        .order_by("-created_at")
+    )
+    return render(
+        request,
+        "admin_dash/task_overview.html",
+        {
+            "tasks": tasks,
+            "users": users,
+            "selected_user_id": selected_user_id,
+            "selected_user": selected_user,
+            "task_type_admin_url": _task_type_link(),
+        },
+    )
+
+
+@staff_member_required
 def task_manager_user_tasks(request, user_id: int):
     ensure_default_task_types()
     user_model = get_user_model()
@@ -107,9 +184,14 @@ def task_manager_user_tasks(request, user_id: int):
         task = get_object_or_404(UserTask, id=task_id, assigned_to=user_obj)
 
         if action == "mark_done":
+            was_done = task.status == UserTask.STATUS_DONE
             task.status = UserTask.STATUS_DONE
             task.save(update_fields=["status", "updated_at"])
-            messages.success(request, "Task marked as done.")
+            if not was_done:
+                _send_requester_completion_email(request, task)
+                messages.success(request, "Task marked as done and requester notified.")
+            else:
+                messages.success(request, "Task is already done.")
         elif action == "reopen":
             task.status = UserTask.STATUS_OPEN
             task.save(update_fields=["status", "updated_at"])
@@ -128,6 +210,42 @@ def task_manager_user_tasks(request, user_id: int):
         {
             "target_user": user_obj,
             "tasks": tasks,
+            "task_type_admin_url": _task_type_link(),
+        },
+    )
+
+
+@staff_member_required
+def task_manager_edit(request, task_id: int):
+    ensure_default_task_types()
+    task = get_object_or_404(
+        UserTask.objects.select_related("assigned_to", "requested_by", "task_type_ref"),
+        id=task_id,
+    )
+
+    if request.method == "POST":
+        old_status = task.status
+        form = UserTaskEditForm(request.POST, instance=task)
+        if form.is_valid():
+            task = form.save(commit=False)
+            if task.task_type_ref_id:
+                task.task_type = task.task_type_ref.slug
+            task.save()
+            if old_status != UserTask.STATUS_DONE and task.status == UserTask.STATUS_DONE:
+                _send_requester_completion_email(request, task)
+                messages.success(request, "Task updated and requester notified of completion.")
+            else:
+                messages.success(request, "Task updated.")
+            return redirect("admin_task_manager_user_tasks", user_id=task.assigned_to_id)
+    else:
+        form = UserTaskEditForm(instance=task)
+
+    return render(
+        request,
+        "admin_dash/task_edit.html",
+        {
+            "task": task,
+            "form": form,
             "task_type_admin_url": _task_type_link(),
         },
     )

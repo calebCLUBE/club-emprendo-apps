@@ -35,6 +35,16 @@
         box-sizing: border-box;
         padding: 8px;
       }
+      .ce-form select {
+        height: auto !important;
+        min-height: 42px;
+        line-height: 1.45;
+        padding-top: 9px;
+        padding-bottom: 9px;
+      }
+      .ce-form option {
+        line-height: 1.45;
+      }
       .ce-submit {
         border: 1px solid #223413;
         background: #223413;
@@ -63,6 +73,7 @@
       <a class="ce-btn ce-btn--ghost" href="{% url 'admin_task_manager_home' %}">Back to task manager</a>
       <a class="ce-btn" href="{% url 'admin_task_manager_assign' %}">Assign new task</a>
       <a class="ce-btn ce-btn--ghost" href="{% url 'admin_task_manager_follow_up' %}">Follow up on requested tasks</a>
+      <a class="ce-btn ce-btn--ghost" href="{{ task_type_admin_url }}">Edit task types</a>
     </div>
 
     <h2 style="margin-bottom: 8px;">Request a website revision</h2>
@@ -79,6 +90,7 @@
           <th>Title</th>
           <th>Requested by</th>
           <th>Assigned to</th>
+          <th>Priority</th>
           <th>Status</th>
           <th>Due</th>
           <th>Actions</th>
@@ -95,15 +107,23 @@
             </td>
             <td>{{ t.requested_by|default:"—" }}</td>
             <td>{{ t.assigned_to }}</td>
+            <td>{{ t.get_priority_display }}</td>
             <td>{{ t.get_status_display }}</td>
             <td>{{ t.due_date|default:"—" }}</td>
             <td>
               <a href="{% url 'admin_task_manager_user_tasks' t.assigned_to_id %}">View assignee tasks</a>
             </td>
           </tr>
+          {% if t.impact %}
+            <tr>
+              <td colspan="7" style="background:#fcfcfc; color:#444;">
+                <strong>Impact:</strong> {{ t.impact|linebreaksbr }}
+              </td>
+            </tr>
+          {% endif %}
         {% empty %}
           <tr>
-            <td colspan="6">No website revision requests yet.</td>
+            <td colspan="7">No website revision requests yet.</td>
           </tr>
         {% endfor %}
       </tbody>

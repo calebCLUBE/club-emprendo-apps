@@ -35,6 +35,16 @@
         box-sizing: border-box;
         padding: 8px;
       }
+      .ce-form select {
+        height: auto !important;
+        min-height: 42px;
+        line-height: 1.45;
+        padding-top: 9px;
+        padding-bottom: 9px;
+      }
+      .ce-form option {
+        line-height: 1.45;
+      }
       .ce-submit {
         border: 1px solid #223413;
         background: #223413;
@@ -51,6 +61,7 @@
       <a class="ce-btn ce-btn--ghost" href="{% url 'admin_task_manager_home' %}">Back to task manager</a>
       <a class="ce-btn ce-btn--ghost" href="{% url 'admin_task_manager_follow_up' %}">Follow up on requested tasks</a>
       <a class="ce-btn ce-btn--ghost" href="{% url 'admin_task_manager_website_revisions' %}">Website revisions</a>
+      <a class="ce-btn ce-btn--ghost" href="{{ task_type_admin_url }}">Edit task types</a>
     </div>
 
     <form method="post" class="ce-form">

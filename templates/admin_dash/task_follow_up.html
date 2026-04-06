@@ -42,6 +42,7 @@
       <a class="ce-btn ce-btn--ghost" href="{% url 'admin_task_manager_home' %}">Back to task manager</a>
       <a class="ce-btn" href="{% url 'admin_task_manager_assign' %}">Assign new task</a>
       <a class="ce-btn ce-btn--ghost" href="{% url 'admin_task_manager_website_revisions' %}">Website revisions</a>
+      <a class="ce-btn ce-btn--ghost" href="{{ task_type_admin_url }}">Edit task types</a>
     </div>
 
     <table class="ce-table">
@@ -49,6 +50,8 @@
         <tr>
           <th>Task</th>
           <th>Assigned to</th>
+          <th>Type</th>
+          <th>Priority</th>
           <th>Requested by</th>
           <th>Status</th>
           <th>Due</th>
@@ -65,6 +68,8 @@
               {% endif %}
             </td>
             <td>{{ t.assigned_to }}</td>
+            <td>{{ t.task_type_name }}</td>
+            <td>{{ t.get_priority_display }}</td>
             <td>{{ t.requested_by|default:"—" }}</td>
             <td>{{ t.get_status_display }}</td>
             <td>{{ t.due_date|default:"—" }}</td>
@@ -72,9 +77,16 @@
               <a href="{% url 'admin_task_manager_user_tasks' t.assigned_to_id %}">View tasks</a>
             </td>
           </tr>
+          {% if t.impact %}
+            <tr>
+              <td colspan="8" style="background:#fcfcfc; color:#444;">
+                <strong>Impact:</strong> {{ t.impact|linebreaksbr }}
+              </td>
+            </tr>
+          {% endif %}
         {% empty %}
           <tr>
-            <td colspan="6">No pending follow-up tasks.</td>
+            <td colspan="8">No pending follow-up tasks.</td>
           </tr>
         {% endfor %}
       </tbody>

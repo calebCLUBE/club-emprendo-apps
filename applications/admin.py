@@ -7,7 +7,8 @@ from django import forms
 import json
 from django.http import HttpResponseRedirect
 
-from .models import FormDefinition, Question, Choice, Application, Section
+from .forms_admin import TaskTypeAdminForm
+from .models import FormDefinition, Question, Choice, Application, Section, TaskType
 
 
 # =========================
@@ -548,3 +549,12 @@ class ApplicationAdmin(admin.ModelAdmin):
     list_filter = ("form",)
     search_fields = ("id", "name", "email")
     ordering = ("-created_at",)
+
+
+@admin.register(TaskType)
+class TaskTypeAdmin(admin.ModelAdmin):
+    form = TaskTypeAdminForm
+    list_display = ("name", "slug", "position", "is_active", "is_revision_type")
+    list_filter = ("is_active", "is_revision_type")
+    search_fields = ("name", "slug")
+    ordering = ("position", "name", "id")

@@ -63,6 +63,7 @@
       <a class="ce-btn" href="{% url 'admin_task_manager_assign' %}">Assign new task</a>
       <a class="ce-btn ce-btn--ghost" href="{% url 'admin_task_manager_follow_up' %}">Follow up on requested tasks</a>
       <a class="ce-btn ce-btn--ghost" href="{% url 'admin_task_manager_website_revisions' %}">Website revisions</a>
+      <a class="ce-btn ce-btn--ghost" href="{{ task_type_admin_url }}">Edit task types</a>
     </div>
 
     <table class="ce-table">
@@ -72,7 +73,9 @@
           <th>Type</th>
           <th>Status</th>
           <th>Follow-up</th>
+          <th>Priority</th>
           <th>Due</th>
+          <th>Impact</th>
           <th>Created</th>
           <th>Actions</th>
         </tr>
@@ -89,10 +92,12 @@
                 Created by: {{ t.created_by|default:"—" }} | Requested by: {{ t.requested_by|default:"—" }}
               </div>
             </td>
-            <td><span class="ce-badge">{{ t.get_task_type_display }}</span></td>
+            <td><span class="ce-badge">{{ t.task_type_name }}</span></td>
             <td><span class="ce-badge">{{ t.get_status_display }}</span></td>
             <td>{% if t.follow_up_requested %}Yes{% else %}No{% endif %}</td>
+            <td>{{ t.get_priority_display }}</td>
             <td>{{ t.due_date|default:"—" }}</td>
+            <td>{{ t.impact|default:"—"|linebreaksbr }}</td>
             <td>{{ t.created_at }}</td>
             <td>
               {% if t.status != "done" %}
@@ -114,7 +119,7 @@
           </tr>
         {% empty %}
           <tr>
-            <td colspan="7">No tasks assigned yet.</td>
+            <td colspan="9">No tasks assigned yet.</td>
           </tr>
         {% endfor %}
       </tbody>

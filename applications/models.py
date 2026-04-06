@@ -467,15 +467,67 @@ class PairingJob(models.Model):
         self.save(update_fields=["log_text", "updated_at"])
 
 
+class TaskType(models.Model):
+    name = models.CharField(max_length=120)
+    slug = models.SlugField(unique=True)
+    is_active = models.BooleanField(default=True)
+    is_revision_type = models.BooleanField(
+        default=False,
+        help_text="Used by the Website Revisions page as its default task type.",
+    )
+    position = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ["position", "name", "id"]
+
+    def __str__(self) -> str:
+        return self.name
+
+
+DEFAULT_TASK_TYPES = [
+    {
+        "slug": "general",
+        "name": "General",
+        "position": 10,
+        "is_revision_type": False,
+    },
+    {
+        "slug": "follow_up",
+        "name": "Follow up",
+        "position": 20,
+        "is_revision_type": False,
+    },
+    {
+        "slug": "website_revision",
+        "name": "Website revision",
+        "position": 30,
+        "is_revision_type": True,
+    },
+]
+
+
+def ensure_default_task_types() -> None:
+    for cfg in DEFAULT_TASK_TYPES:
+        TaskType.objects.get_or_create(
+            slug=cfg["slug"],
+            defaults={
+                "name": cfg["name"],
+                "position": cfg["position"],
+                "is_revision_type": cfg["is_revision_type"],
+                "is_active": True,
+            },
+        )
+
+
 class UserTask(models.Model):
     TYPE_GENERAL = "general"
     TYPE_FOLLOW_UP = "follow_up"
     TYPE_WEBSITE_REVISION = "website_revision"
-    TASK_TYPE_CHOICES = [
-        (TYPE_GENERAL, "General"),
-        (TYPE_FOLLOW_UP, "Follow up"),
-        (TYPE_WEBSITE_REVISION, "Website revision"),
-    ]
+    LEGACY_TASK_TYPE_LABELS = {
+        TYPE_GENERAL: "General",
+        TYPE_FOLLOW_UP: "Follow up",
+        TYPE_WEBSITE_REVISION: "Website revision",
+    }
 
     STATUS_OPEN = "open"
     STATUS_IN_PROGRESS = "in_progress"
@@ -484,6 +536,16 @@ class UserTask(models.Model):
         (STATUS_OPEN, "Open"),
         (STATUS_IN_PROGRESS, "In progress"),
         (STATUS_DONE, "Done"),
+    ]
+    PRIORITY_LOW = "low"
+    PRIORITY_MEDIUM = "medium"
+    PRIORITY_HIGH = "high"
+    PRIORITY_URGENT = "urgent"
+    PRIORITY_CHOICES = [
+        (PRIORITY_LOW, "Low"),
+        (PRIORITY_MEDIUM, "Medium"),
+        (PRIORITY_HIGH, "High"),
+        (PRIORITY_URGENT, "Urgent"),
     ]
 
     assigned_to = models.ForeignKey(
@@ -509,9 +571,15 @@ class UserTask(models.Model):
     description = models.TextField(blank=True)
     task_type = models.CharField(
         max_length=20,
-        choices=TASK_TYPE_CHOICES,
         default=TYPE_GENERAL,
         db_index=True,
+    )
+    task_type_ref = models.ForeignKey(
+        "applications.TaskType",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="tasks",
     )
     status = models.CharField(
         max_length=20,
@@ -524,6 +592,16 @@ class UserTask(models.Model):
         db_index=True,
         help_text="Mark tasks that need follow-up from the team.",
     )
+    priority = models.CharField(
+        max_length=20,
+        choices=PRIORITY_CHOICES,
+        default=PRIORITY_MEDIUM,
+        db_index=True,
+    )
+    impact = models.TextField(
+        blank=True,
+        help_text="What impact this task has and why it matters.",
+    )
     due_date = models.DateField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -533,3 +611,9 @@ class UserTask(models.Model):
 
     def __str__(self) -> str:
         return f"{self.assigned_to} — {self.title}"
+
+    @property
+    def task_type_name(self) -> str:
+        if self.task_type_ref_id:
+            return self.task_type_ref.name
+        return self.LEGACY_TASK_TYPE_LABELS.get(self.task_type, self.task_type or "—")

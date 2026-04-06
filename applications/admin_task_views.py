@@ -135,6 +135,11 @@ def task_manager_home(request):
 
 
 @staff_member_required
+def task_manager_my_tasks(request):
+    return redirect("admin_task_manager_user_tasks", user_id=request.user.id)
+
+
+@staff_member_required
 def task_manager_overview(request):
     ensure_default_task_types()
     user_model = get_user_model()

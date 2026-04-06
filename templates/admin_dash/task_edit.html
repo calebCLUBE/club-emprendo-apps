@@ -64,6 +64,7 @@
     <p class="ce-muted" style="margin: 8px 0 0;">{{ task.title }}</p>
     <div class="ce-actions">
       <a class="ce-btn ce-btn--ghost" href="{% url 'admin_task_manager_user_tasks' task.assigned_to_id %}">Back to user tasks</a>
+      <a class="ce-btn ce-btn--ghost" href="{% url 'admin_task_manager_my_tasks' %}">My tasks</a>
       <a class="ce-btn ce-btn--ghost" href="{% url 'admin_task_manager_overview' %}">Task overview</a>
       <a class="ce-btn ce-btn--ghost" href="{% url 'admin_task_manager_home' %}">Task manager</a>
       <a class="ce-btn ce-btn--ghost" href="{{ task_type_admin_url }}">Edit task types</a>

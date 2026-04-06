@@ -60,6 +60,7 @@
     <h1 style="margin: 0;">Tasks for {{ target_user.email }}</h1>
     <div class="ce-actions">
       <a class="ce-btn ce-btn--ghost" href="{% url 'admin_task_manager_home' %}">Back to task manager</a>
+      <a class="ce-btn ce-btn--ghost" href="{% url 'admin_task_manager_my_tasks' %}">My tasks</a>
       <a class="ce-btn ce-btn--ghost" href="{% url 'admin_task_manager_overview' %}">Task overview</a>
       <a class="ce-btn" href="{% url 'admin_task_manager_assign' %}">Assign new task</a>
       <a class="ce-btn ce-btn--ghost" href="{% url 'admin_task_manager_website_revisions' %}">Website revisions</a>

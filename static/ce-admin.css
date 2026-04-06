@@ -98,8 +98,12 @@ body {
 /* Your nice admin tiles */
 .ce-admin-wrap {
   padding: 22px;
+  box-sizing: border-box;
+  display: flex;
+  justify-content: center;
 }
 .ce-admin-card {
+  width: 100%;
   max-width: 980px;
   background: #fff;
   border: 1px solid var(--ce-border);
@@ -107,8 +111,10 @@ body {
   padding: 18px;
 }
 .ce-admin-card--wide {
-  max-width: none;
-  width: 100%;
+  max-width: min(1800px, calc(100vw - 44px));
+  width: min(1800px, calc(100vw - 44px));
+  margin-left: auto;
+  margin-right: auto;
 }
 .ce-admin-grid {
   display: grid;

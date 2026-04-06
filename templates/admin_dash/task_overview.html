@@ -65,7 +65,6 @@
     <div class="ce-actions">
       <a class="ce-btn ce-btn--ghost" href="{% url 'admin_task_manager_home' %}">Back to task manager</a>
       <a class="ce-btn" href="{% url 'admin_task_manager_assign' %}">Assign new task</a>
-      <a class="ce-btn ce-btn--ghost" href="{% url 'admin_task_manager_follow_up' %}">Follow up on requested tasks</a>
       <a class="ce-btn ce-btn--ghost" href="{% url 'admin_task_manager_website_revisions' %}">Website revisions</a>
       <a class="ce-btn ce-btn--ghost" href="{{ task_type_admin_url }}">Edit task types</a>
     </div>
@@ -107,7 +106,6 @@
           <th>Priority</th>
           <th>Status</th>
           <th>Due</th>
-          <th>Follow-up</th>
           <th>Created</th>
           <th>Actions</th>
         </tr>
@@ -123,7 +121,6 @@
             <td>{{ t.get_priority_display }}</td>
             <td>{{ t.get_status_display }}</td>
             <td>{{ t.due_date|default:"—" }}</td>
-            <td>{% if t.follow_up_requested %}Yes{% else %}No{% endif %}</td>
             <td>{{ t.created_at }}</td>
             <td>
               <a href="{% url 'admin_task_manager_user_tasks' t.assigned_to_id %}">View tasks</a>
@@ -131,7 +128,7 @@
           </tr>
         {% empty %}
           <tr>
-            <td colspan="9">No tasks found for this filter.</td>
+            <td colspan="8">No tasks found for this filter.</td>
           </tr>
         {% endfor %}
       </tbody>

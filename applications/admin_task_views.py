@@ -123,11 +123,6 @@ def task_manager_home(request):
             "assigned_tasks",
             filter=~Q(assigned_tasks__status=UserTask.STATUS_DONE),
         ),
-        follow_up_tasks=Count(
-            "assigned_tasks",
-            filter=Q(assigned_tasks__follow_up_requested=True)
-            & ~Q(assigned_tasks__status=UserTask.STATUS_DONE),
-        ),
     )
     return render(
         request,
@@ -273,25 +268,6 @@ def task_manager_assign(request):
         "admin_dash/task_assign.html",
         {
             "form": form,
-            "task_type_admin_url": _task_type_link(),
-        },
-    )
-
-
-@staff_member_required
-def task_manager_follow_up(request):
-    ensure_default_task_types()
-    tasks = (
-        UserTask.objects.filter(follow_up_requested=True)
-        .exclude(status=UserTask.STATUS_DONE)
-        .select_related("assigned_to", "created_by", "requested_by", "task_type_ref")
-        .order_by("due_date", "-created_at")
-    )
-    return render(
-        request,
-        "admin_dash/task_follow_up.html",
-        {
-            "tasks": tasks,
             "task_type_admin_url": _task_type_link(),
         },
     )

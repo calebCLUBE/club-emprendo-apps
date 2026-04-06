@@ -23,7 +23,6 @@ class UserTaskAssignForm(forms.ModelForm):
             "priority",
             "impact",
             "status",
-            "follow_up_requested",
             "due_date",
         ]
         widgets = {
@@ -59,7 +58,6 @@ class UserTaskEditForm(forms.ModelForm):
             "priority",
             "impact",
             "status",
-            "follow_up_requested",
             "due_date",
         ]
         widgets = {

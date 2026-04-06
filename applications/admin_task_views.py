@@ -9,7 +9,7 @@ from django.conf import settings
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 
-from .forms_admin import UserTaskAssignForm, UserTaskEditForm, WebsiteRevisionRequestForm
+from .forms_admin import UserTaskAssignForm, UserTaskEditForm
 from .models import TaskType, UserTask, ensure_default_task_types
 
 logger = logging.getLogger(__name__)
@@ -300,34 +300,6 @@ def task_manager_follow_up(request):
 @staff_member_required
 def task_manager_website_revisions(request):
     ensure_default_task_types()
-    revision_type = _website_revision_task_type()
-
-    if request.method == "POST":
-        form = WebsiteRevisionRequestForm(request.POST)
-        if form.is_valid():
-            task = form.save(commit=False)
-            if revision_type:
-                task.task_type_ref = revision_type
-                task.task_type = revision_type.slug
-            else:
-                task.task_type = UserTask.TYPE_WEBSITE_REVISION
-            task.status = UserTask.STATUS_OPEN
-            task.follow_up_requested = True
-            task.created_by = request.user
-            if not task.assigned_to:
-                task.assigned_to = task.requested_by or request.user
-            task.save()
-            _send_assignment_email(request, task)
-            messages.success(request, "Website revision request created.")
-            return redirect("admin_task_manager_website_revisions")
-    else:
-        form = WebsiteRevisionRequestForm(
-            initial={
-                "requested_by": request.user,
-                "assigned_to": request.user,
-                "priority": UserTask.PRIORITY_MEDIUM,
-            }
-        )
 
     revisions = (
         UserTask.objects.filter(
@@ -341,7 +313,6 @@ def task_manager_website_revisions(request):
         request,
         "admin_dash/task_website_revisions.html",
         {
-            "form": form,
             "revisions": revisions,
             "task_type_admin_url": _task_type_link(),
         },

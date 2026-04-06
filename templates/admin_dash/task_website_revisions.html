@@ -24,40 +24,10 @@
         background: #fff;
         color: #223413 !important;
       }
-      .ce-form p {
-        margin-bottom: 12px;
-      }
-      .ce-form input,
-      .ce-form select,
-      .ce-form textarea {
-        width: 100%;
-        max-width: 680px;
-        box-sizing: border-box;
-        padding: 8px;
-      }
-      .ce-form select {
-        height: auto !important;
-        min-height: 42px;
-        line-height: 1.45;
-        padding-top: 9px;
-        padding-bottom: 9px;
-      }
-      .ce-form option {
-        line-height: 1.45;
-      }
-      .ce-submit {
-        border: 1px solid #223413;
-        background: #223413;
-        color: #fff;
-        border-radius: 8px;
-        padding: 8px 12px;
-        font-weight: 600;
-        cursor: pointer;
-      }
       .ce-table {
         width: 100%;
         border-collapse: collapse;
-        margin-top: 18px;
+        margin-top: 14px;
       }
       .ce-table th,
       .ce-table td {
@@ -77,14 +47,7 @@
       <a class="ce-btn ce-btn--ghost" href="{{ task_type_admin_url }}">Edit task types</a>
     </div>
 
-    <h2 style="margin-bottom: 8px;">Request a website revision</h2>
-    <form method="post" class="ce-form">
-      {% csrf_token %}
-      {{ form.as_p }}
-      <button class="ce-submit" type="submit">Create website revision request</button>
-    </form>
-
-    <h2 style="margin: 24px 0 10px;">Existing website revision requests</h2>
+    <h2 style="margin: 10px 0 10px;">Website revision tasks</h2>
     <table class="ce-table">
       <thead>
         <tr>
@@ -126,7 +89,7 @@
           {% endif %}
         {% empty %}
           <tr>
-            <td colspan="7">No website revision requests yet.</td>
+            <td colspan="7">No website revision tasks yet.</td>
           </tr>
         {% endfor %}
       </tbody>

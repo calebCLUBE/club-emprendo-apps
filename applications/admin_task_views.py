@@ -253,7 +253,7 @@ def task_manager_assign(request):
         form = UserTaskAssignForm(request.POST)
         if form.is_valid():
             task = form.save(commit=False)
-            task.created_by = request.user
+            task.created_by = form.cleaned_data.get("created_by") or request.user
             if task.task_type_ref_id:
                 task.task_type = task.task_type_ref.slug
             task.save()
@@ -261,7 +261,7 @@ def task_manager_assign(request):
             messages.success(request, "Task assigned successfully.")
             return redirect("admin_task_manager_user_tasks", user_id=task.assigned_to_id)
     else:
-        form = UserTaskAssignForm()
+        form = UserTaskAssignForm(initial={"created_by": request.user})
 
     return render(
         request,

@@ -16,6 +16,7 @@ class UserTaskAssignForm(forms.ModelForm):
     class Meta:
         model = UserTask
         fields = [
+            "created_by",
             "assigned_to",
             "title",
             "description",
@@ -35,11 +36,16 @@ class UserTaskAssignForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         ensure_default_task_types()
         user_model = get_user_model()
-        self.fields["assigned_to"].queryset = user_model.objects.order_by("email")
+        ordered_users = user_model.objects.order_by("email")
+        self.fields["created_by"].queryset = ordered_users
+        self.fields["created_by"].label = "Assigned by"
+        self.fields["created_by"].required = True
+        self.fields["assigned_to"].queryset = ordered_users
         self.fields["task_type_ref"].queryset = TaskType.objects.filter(is_active=True).order_by("position", "name")
         self.fields["task_type_ref"].label = "Task type"
         self.fields["task_type_ref"].required = True
         self.fields["impact"].label = "Impact"
+        self.fields["impact"].help_text = ""
         if not self.instance.pk and not self.initial.get("task_type_ref"):
             default_type = self.fields["task_type_ref"].queryset.first()
             if default_type:

@@ -106,6 +106,10 @@ body {
   border-radius: 16px;
   padding: 18px;
 }
+.ce-admin-card--wide {
+  max-width: none;
+  width: 100%;
+}
 .ce-admin-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0,1fr));

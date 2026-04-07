@@ -531,10 +531,12 @@ class UserTask(models.Model):
 
     STATUS_OPEN = "open"
     STATUS_IN_PROGRESS = "in_progress"
+    STATUS_REVISION_NEEDED = "revision_needed"
     STATUS_DONE = "done"
     STATUS_CHOICES = [
         (STATUS_OPEN, "Open"),
         (STATUS_IN_PROGRESS, "In progress"),
+        (STATUS_REVISION_NEEDED, "Revision Needed"),
         (STATUS_DONE, "Done"),
     ]
     PRIORITY_LOW = "low"

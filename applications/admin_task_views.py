@@ -113,6 +113,53 @@ def _send_requester_completion_email(request, task: UserTask) -> None:
         )
 
 
+def _send_requester_revision_needed_email(request, task: UserTask) -> None:
+    requester = task.requested_by
+    requester_email = (getattr(requester, "email", "") or "").strip()
+    if not requester_email:
+        return
+
+    task_url = request.build_absolute_uri(
+        reverse("admin_task_manager_edit", kwargs={"task_id": task.id})
+    )
+
+    subject = f"Revision needed: {task.title}"
+    body = (
+        f"Hi,\n\n"
+        f"The task you requested has been updated to Revision Needed.\n\n"
+        f"Title: {task.title}\n"
+        f"Assigned to: {task.assigned_to}\n"
+        f"Type: {task.task_type_name}\n"
+        f"Priority: {task.get_priority_display()}\n"
+        f"Current status: {task.get_status_display()}\n\n"
+        f"Please review this task and either:\n"
+        f"- change it back to In progress, or\n"
+        f"- mark it as Done.\n\n"
+        f"Impact:\n{task.impact or 'Not specified'}\n\n"
+        f"Description:\n{task.description or 'No description provided'}\n\n"
+        f"View/edit task: {task_url}\n"
+    )
+
+    try:
+        send_mail(
+            subject=subject,
+            message=body,
+            from_email=getattr(settings, "DEFAULT_FROM_EMAIL", None),
+            recipient_list=[requester_email],
+            fail_silently=False,
+        )
+    except Exception:
+        logger.exception(
+            "Requester revision-needed email failed for task_id=%s requester_id=%s",
+            task.id,
+            getattr(requester, "id", None),
+        )
+        messages.warning(
+            request,
+            "Task status was updated, but the requester revision-needed email could not be sent.",
+        )
+
+
 @staff_member_required
 def task_manager_home(request):
     ensure_default_task_types()
@@ -252,6 +299,12 @@ def task_manager_edit(request, task_id: int):
             if old_status != UserTask.STATUS_DONE and task.status == UserTask.STATUS_DONE:
                 _send_requester_completion_email(request, task)
                 messages.success(request, "Task updated and requester notified of completion.")
+            elif (
+                old_status != UserTask.STATUS_REVISION_NEEDED
+                and task.status == UserTask.STATUS_REVISION_NEEDED
+            ):
+                _send_requester_revision_needed_email(request, task)
+                messages.success(request, "Task updated and requester notified that revision is needed.")
             else:
                 messages.success(request, "Task updated.")
             return redirect("admin_task_manager_user_tasks", user_id=task.assigned_to_id)
@@ -297,6 +350,8 @@ def task_manager_assign(request):
                 )
                 created_tasks.append(task)
                 _send_assignment_email(request, task)
+                if task.status == UserTask.STATUS_REVISION_NEEDED:
+                    _send_requester_revision_needed_email(request, task)
 
             if len(created_tasks) == 1:
                 messages.success(request, "Task assigned successfully.")

@@ -4,394 +4,755 @@
 <div class="ce-admin-wrap">
   <div class="ce-admin-card ce-admin-card--wide">
     <style>
+      .ce-db-shell {
+        --ce-bg-soft: #f5f8fc;
+        --ce-surface: #ffffff;
+        --ce-border: #e3e9f2;
+        --ce-text: #1f2937;
+        --ce-muted: #667085;
+        --ce-accent: #2f6fed;
+        --ce-accent-2: #00a5a8;
+        --ce-accent-3: #a855f7;
+        --ce-accent-4: #f97316;
+      }
+      .ce-db-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin-bottom: 14px;
+      }
+      .ce-db-title {
+        margin: 0;
+        font-size: 28px;
+        line-height: 1.15;
+        color: var(--ce-text);
+      }
+      .ce-db-subtitle {
+        margin-top: 5px;
+        color: var(--ce-muted);
+        font-size: 14px;
+      }
       .ce-actions {
         display: flex;
         gap: 8px;
         flex-wrap: wrap;
-        margin: 12px 0 16px;
+        margin: 0;
       }
       .ce-btn {
         display: inline-block;
         padding: 8px 12px;
         border-radius: 8px;
-        border: 1px solid #223413;
-        background: #223413;
+        border: 1px solid #2c3f66;
+        background: #2c3f66;
         color: #fff !important;
         text-decoration: none;
         font-weight: 600;
       }
       .ce-btn--ghost {
         background: #fff;
-        color: #223413 !important;
+        color: #2c3f66 !important;
+      }
+      .ce-panel {
+        background: var(--ce-surface);
+        border: 1px solid var(--ce-border);
+        border-radius: 14px;
+        padding: 14px;
+        margin-top: 14px;
+      }
+      .ce-panel-title {
+        margin: 0;
+        font-size: 18px;
+        color: var(--ce-text);
+      }
+      .ce-panel-subtitle {
+        margin-top: 4px;
+        color: var(--ce-muted);
+        font-size: 13px;
+      }
+      .ce-filter-wrap summary {
+        cursor: pointer;
+        font-weight: 700;
+        color: #223413;
       }
       .ce-filter-grid {
         display: grid;
         gap: 10px;
         grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-        margin: 12px 0 16px;
-        align-items: end;
+        margin: 12px 0 14px;
       }
       .ce-filter-grid label {
         display: block;
-        font-weight: 600;
-        margin-bottom: 4px;
+        font-size: 12px;
+        font-weight: 700;
+        color: #344054;
+        margin-bottom: 5px;
       }
       .ce-filter-grid input,
       .ce-filter-grid select {
         width: 100%;
         box-sizing: border-box;
-        padding: 8px;
+        padding: 9px;
+        border: 1px solid #d4dce8;
+        border-radius: 8px;
+        background: #fff;
       }
       .ce-filter-sections {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
         gap: 8px;
-        padding: 10px;
-        border: 1px solid #e5e5e5;
+        grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+        border: 1px solid #e2e8f0;
         border-radius: 10px;
-        background: #fbfbfb;
+        background: var(--ce-bg-soft);
+        padding: 10px;
       }
       .ce-filter-sections label {
-        font-weight: 500;
         display: flex;
-        align-items: center;
         gap: 8px;
+        align-items: center;
+        color: #334155;
+        font-size: 13px;
       }
-      .ce-cards {
+      .ce-filter-actions {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-top: 12px;
+      }
+      .ce-kpi-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
         gap: 10px;
+        margin-top: 12px;
       }
-      .ce-card {
-        border: 1px solid #e7ece2;
-        border-radius: 10px;
-        padding: 10px;
+      .ce-kpi {
+        border: 1px solid #dde6f1;
+        border-radius: 12px;
+        padding: 12px;
         background: #fff;
+        box-shadow: 0 1px 0 rgba(16, 24, 40, 0.03);
       }
-      .ce-card-k {
-        color: #677160;
+      .ce-kpi--blue { border-top: 4px solid #3b82f6; }
+      .ce-kpi--teal { border-top: 4px solid #14b8a6; }
+      .ce-kpi--purple { border-top: 4px solid #8b5cf6; }
+      .ce-kpi--orange { border-top: 4px solid #f59e0b; }
+      .ce-kpi--green { border-top: 4px solid #22c55e; }
+      .ce-kpi--indigo { border-top: 4px solid #6366f1; }
+      .ce-kpi-k {
         font-size: 12px;
+        color: #64748b;
       }
-      .ce-card-v {
+      .ce-kpi-v {
         margin-top: 6px;
-        font-size: 24px;
-        font-weight: 700;
-        color: #223413;
+        font-size: 26px;
+        line-height: 1.05;
+        color: #111827;
+        font-weight: 800;
       }
-      .ce-sub {
+      .ce-kpi-note {
         font-size: 12px;
-        color: #666;
+        color: #6b7280;
+        margin-top: 4px;
+      }
+      .ce-visual-grid {
+        display: grid;
+        grid-template-columns: 2fr 1fr;
+        gap: 12px;
+      }
+      .ce-line-holder {
+        margin-top: 12px;
+        border: 1px solid #e1e8f4;
+        border-radius: 12px;
+        background: #fff;
+        padding: 8px;
+      }
+      .ce-line-canvas {
+        width: 100%;
+        min-height: 280px;
+      }
+      .ce-pie-stack {
+        display: grid;
+        gap: 12px;
+      }
+      .ce-pie-card {
+        border: 1px solid #e1e8f4;
+        border-radius: 12px;
+        background: #fff;
+        padding: 12px;
+      }
+      .ce-pie-title {
+        margin: 0;
+        font-size: 14px;
+        color: #1f2937;
+      }
+      .ce-donut-wrap {
+        margin-top: 10px;
+        display: grid;
+        justify-content: center;
+      }
+      .ce-donut {
+        width: 168px;
+        height: 168px;
+        border-radius: 50%;
+        background: #e5e7eb;
+        position: relative;
+        display: grid;
+        place-items: center;
+      }
+      .ce-donut-hole {
+        width: 92px;
+        height: 92px;
+        border-radius: 50%;
+        background: #fff;
+        box-shadow: inset 0 0 0 1px #e5e7eb;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+      }
+      .ce-donut-total {
+        font-size: 22px;
+        color: #0f172a;
+        line-height: 1;
+      }
+      .ce-donut-sub {
+        font-size: 11px;
+        color: #64748b;
         margin-top: 3px;
       }
-      .ce-section {
-        margin-top: 16px;
-        border-top: 1px solid #efefef;
-        padding-top: 12px;
+      .ce-legend {
+        list-style: none;
+        margin: 10px 0 0;
+        padding: 0;
+        display: grid;
+        gap: 7px;
       }
-      .ce-table {
-        width: 100%;
-        border-collapse: collapse;
+      .ce-legend li {
+        display: grid;
+        grid-template-columns: 14px 1fr auto;
+        gap: 8px;
+        align-items: center;
+        font-size: 12px;
+        color: #334155;
       }
-      .ce-table th,
-      .ce-table td {
-        border-bottom: 1px solid #eee;
-        padding: 9px 8px;
-        text-align: left;
-        vertical-align: top;
+      .ce-legend-dot {
+        width: 11px;
+        height: 11px;
+        border-radius: 999px;
       }
-      .ce-chart {
-        border: 1px solid #ececec;
-        border-radius: 10px;
-        padding: 10px;
-        background: #fff;
+      .ce-bars {
+        margin-top: 12px;
       }
       .ce-bar-row {
         display: grid;
-        grid-template-columns: minmax(110px, 170px) 1fr 56px;
+        grid-template-columns: minmax(130px, 200px) 1fr 56px;
         align-items: center;
         gap: 10px;
-        margin: 7px 0;
+        margin: 9px 0;
       }
       .ce-bar-label {
         font-size: 12px;
-        color: #556150;
+        color: #334155;
         overflow: hidden;
-        text-overflow: ellipsis;
         white-space: nowrap;
+        text-overflow: ellipsis;
       }
       .ce-bar-track {
         height: 12px;
-        background: #edf2e8;
         border-radius: 999px;
+        background: #e8edf4;
         overflow: hidden;
       }
       .ce-bar-fill {
         height: 100%;
-        background: #223413;
+        border-radius: 999px;
       }
       .ce-bar-val {
         text-align: right;
         font-size: 12px;
-        color: #44553a;
+        color: #475569;
+      }
+      .ce-table-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+        gap: 12px;
+      }
+      .ce-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 10px;
+      }
+      .ce-table th,
+      .ce-table td {
+        border-bottom: 1px solid #edf2f7;
+        padding: 9px 8px;
+        text-align: left;
+        vertical-align: top;
+      }
+      .ce-table th {
+        color: #334155;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+      .ce-sub {
+        margin-top: 2px;
+        color: #6b7280;
+        font-size: 12px;
       }
       .ce-empty {
-        color: #6f6f6f;
+        color: #6b7280;
         font-style: italic;
+      }
+      @media (max-width: 980px) {
+        .ce-visual-grid {
+          grid-template-columns: 1fr;
+        }
       }
     </style>
 
-    <h1 style="margin: 0;">Applications Dashboard</h1>
-
-    <div class="ce-actions">
-      <a class="ce-btn ce-btn--ghost" href="{% url 'admin_apps_list' %}">Applications</a>
-      <a class="ce-btn ce-btn--ghost" href="{% url 'admin_database' %}">Database</a>
-      <a class="ce-btn ce-btn--ghost" href="/admin/">Admin home</a>
-    </div>
-
-    <form method="get">
-      <input type="hidden" name="customize" value="1">
-      <div class="ce-filter-grid">
+    <div class="ce-db-shell">
+      <div class="ce-db-header">
         <div>
-          <label for="date_from">From date</label>
-          <input id="date_from" type="date" name="date_from" value="{{ date_from }}">
+          <h1 class="ce-db-title">Applications Intelligence Dashboard</h1>
+          <div class="ce-db-subtitle">Power-BI style view with configurable sections, filters, and visuals.</div>
         </div>
-        <div>
-          <label for="date_to">To date</label>
-          <input id="date_to" type="date" name="date_to" value="{{ date_to }}">
-        </div>
-        <div>
-          <label for="group">Group</label>
-          <select id="group" name="group">
-            <option value="">All groups</option>
-            {% for option in group_options %}
-              <option value="{{ option.value }}" {% if group_filter == option.value %}selected{% endif %}>
-                {{ option.label }}
-              </option>
-            {% endfor %}
-          </select>
-        </div>
-        <div>
-          <label for="track">Track</label>
-          <select id="track" name="track">
-            <option value="all" {% if track_filter == "all" %}selected{% endif %}>All</option>
-            <option value="e" {% if track_filter == "e" %}selected{% endif %}>Emprendedoras (E)</option>
-            <option value="m" {% if track_filter == "m" %}selected{% endif %}>Mentoras (M)</option>
-          </select>
-        </div>
-        <div>
-          <label for="granularity">Timeline</label>
-          <select id="granularity" name="granularity">
-            <option value="day" {% if granularity == "day" %}selected{% endif %}>Daily</option>
-            <option value="week" {% if granularity == "week" %}selected{% endif %}>Weekly</option>
-            <option value="month" {% if granularity == "month" %}selected{% endif %}>Monthly</option>
-          </select>
-        </div>
-        <div>
-          <label for="top_n">Top forms</label>
-          <input id="top_n" type="number" min="3" max="30" name="top_n" value="{{ top_n }}">
-        </div>
-        <div>
-          <label for="recent_n">Recent rows</label>
-          <input id="recent_n" type="number" min="5" max="200" name="recent_n" value="{{ recent_n }}">
+        <div class="ce-actions">
+          <a class="ce-btn ce-btn--ghost" href="{% url 'admin_apps_list' %}">Applications</a>
+          <a class="ce-btn ce-btn--ghost" href="{% url 'admin_database' %}">Database</a>
+          <a class="ce-btn ce-btn--ghost" href="/admin/">Admin home</a>
         </div>
       </div>
 
-      <div class="ce-filter-sections">
-        <label><input type="checkbox" name="show_cards" value="1" {% if show_cards %}checked{% endif %}> Show summary stats</label>
-        <label><input type="checkbox" name="show_timeline" value="1" {% if show_timeline %}checked{% endif %}> Show timeline graph</label>
-        <label><input type="checkbox" name="show_form_chart" value="1" {% if show_form_chart %}checked{% endif %}> Show top-forms graph</label>
-        <label><input type="checkbox" name="show_form_table" value="1" {% if show_form_table %}checked{% endif %}> Show forms table</label>
-        <label><input type="checkbox" name="show_group_table" value="1" {% if show_group_table %}checked{% endif %}> Show group table</label>
-        <label><input type="checkbox" name="show_recent_table" value="1" {% if show_recent_table %}checked{% endif %}> Show recent applications</label>
-      </div>
+      <details class="ce-panel ce-filter-wrap" open>
+        <summary>Filters and Layout Controls</summary>
+        <form method="get">
+          <input type="hidden" name="customize" value="1">
+          <div class="ce-filter-grid">
+            <div>
+              <label for="date_from">From date</label>
+              <input id="date_from" type="date" name="date_from" value="{{ date_from }}">
+            </div>
+            <div>
+              <label for="date_to">To date</label>
+              <input id="date_to" type="date" name="date_to" value="{{ date_to }}">
+            </div>
+            <div>
+              <label for="group">Group</label>
+              <select id="group" name="group">
+                <option value="">All groups</option>
+                {% for option in group_options %}
+                  <option value="{{ option.value }}" {% if group_filter == option.value %}selected{% endif %}>
+                    {{ option.label }}
+                  </option>
+                {% endfor %}
+              </select>
+            </div>
+            <div>
+              <label for="track">Track</label>
+              <select id="track" name="track">
+                <option value="all" {% if track_filter == "all" %}selected{% endif %}>All</option>
+                <option value="e" {% if track_filter == "e" %}selected{% endif %}>Emprendedoras (E)</option>
+                <option value="m" {% if track_filter == "m" %}selected{% endif %}>Mentoras (M)</option>
+              </select>
+            </div>
+            <div>
+              <label for="granularity">Timeline granularity</label>
+              <select id="granularity" name="granularity">
+                <option value="day" {% if granularity == "day" %}selected{% endif %}>Daily</option>
+                <option value="week" {% if granularity == "week" %}selected{% endif %}>Weekly</option>
+                <option value="month" {% if granularity == "month" %}selected{% endif %}>Monthly</option>
+              </select>
+            </div>
+            <div>
+              <label for="top_n">Top forms shown</label>
+              <input id="top_n" type="number" min="3" max="30" name="top_n" value="{{ top_n }}">
+            </div>
+            <div>
+              <label for="recent_n">Recent rows shown</label>
+              <input id="recent_n" type="number" min="5" max="200" name="recent_n" value="{{ recent_n }}">
+            </div>
+          </div>
 
-      <div class="ce-actions" style="margin-top: 12px;">
-        <button class="ce-btn" type="submit">Apply dashboard settings</button>
-        <a class="ce-btn ce-btn--ghost" href="{% url 'admin_applications_dashboard' %}">Reset</a>
-      </div>
-    </form>
+          <div class="ce-filter-sections">
+            <label><input type="checkbox" name="show_cards" value="1" {% if show_cards %}checked{% endif %}> Summary KPI cards</label>
+            <label><input type="checkbox" name="show_timeline" value="1" {% if show_timeline %}checked{% endif %}> Line chart (submissions over time)</label>
+            <label><input type="checkbox" name="show_pie_charts" value="1" {% if show_pie_charts %}checked{% endif %}> Pie charts (mix views)</label>
+            <label><input type="checkbox" name="show_form_chart" value="1" {% if show_form_chart %}checked{% endif %}> Top forms chart</label>
+            <label><input type="checkbox" name="show_form_table" value="1" {% if show_form_table %}checked{% endif %}> Form details table</label>
+            <label><input type="checkbox" name="show_group_table" value="1" {% if show_group_table %}checked{% endif %}> Group details table</label>
+            <label><input type="checkbox" name="show_recent_table" value="1" {% if show_recent_table %}checked{% endif %}> Recent applications table</label>
+          </div>
 
-    {% if show_cards %}
-      <div class="ce-cards">
-        <div class="ce-card">
-          <div class="ce-card-k">Applications</div>
-          <div class="ce-card-v">{{ total_apps }}</div>
-          <div class="ce-sub">Filtered set</div>
-        </div>
-        <div class="ce-card">
-          <div class="ce-card-k">Unique emails</div>
-          <div class="ce-card-v">{{ unique_emails }}</div>
-          <div class="ce-sub">Distinct applicants</div>
-        </div>
-        <div class="ce-card">
-          <div class="ce-card-k">Invited to A2</div>
-          <div class="ce-card-v">{{ invited }}</div>
-          <div class="ce-sub">{{ invited_pct }}% of filtered applications</div>
-        </div>
-        <div class="ce-card">
-          <div class="ce-card-k">A2 graded</div>
-          <div class="ce-card-v">{{ a2_graded }}/{{ a2_total }}</div>
-          <div class="ce-sub">{{ a2_graded_pct }}% of A2 submissions</div>
-        </div>
-        <div class="ce-card">
-          <div class="ce-card-k">Last 30 days</div>
-          <div class="ce-card-v">{{ recent_30_days }}</div>
-          <div class="ce-sub">Within current filter</div>
-        </div>
-        <div class="ce-card">
-          <div class="ce-card-k">Avg overall score</div>
-          <div class="ce-card-v">
-            {% if avg_overall %}
-              {{ avg_overall|floatformat:2 }}
-            {% else %}
-              —
+          <div class="ce-filter-actions">
+            <button class="ce-btn" type="submit">Apply dashboard settings</button>
+            <a class="ce-btn ce-btn--ghost" href="{% url 'admin_applications_dashboard' %}">Reset</a>
+          </div>
+        </form>
+      </details>
+
+      {% if show_cards %}
+        <section class="ce-panel">
+          <h2 class="ce-panel-title">Executive Summary</h2>
+          <p class="ce-panel-subtitle">Quick status indicators for current filters.</p>
+          <div class="ce-kpi-grid">
+            <div class="ce-kpi ce-kpi--blue">
+              <div class="ce-kpi-k">Applications</div>
+              <div class="ce-kpi-v">{{ total_apps }}</div>
+              <div class="ce-kpi-note">Within selected filters</div>
+            </div>
+            <div class="ce-kpi ce-kpi--teal">
+              <div class="ce-kpi-k">Unique emails</div>
+              <div class="ce-kpi-v">{{ unique_emails }}</div>
+              <div class="ce-kpi-note">Distinct applicants</div>
+            </div>
+            <div class="ce-kpi ce-kpi--purple">
+              <div class="ce-kpi-k">Invited to A2</div>
+              <div class="ce-kpi-v">{{ invited }}</div>
+              <div class="ce-kpi-note">{{ invited_pct }}% invitation rate</div>
+            </div>
+            <div class="ce-kpi ce-kpi--orange">
+              <div class="ce-kpi-k">A2 Graded</div>
+              <div class="ce-kpi-v">{{ a2_graded }}/{{ a2_total }}</div>
+              <div class="ce-kpi-note">{{ a2_graded_pct }}% of A2 records</div>
+            </div>
+            <div class="ce-kpi ce-kpi--green">
+              <div class="ce-kpi-k">Last 30 days</div>
+              <div class="ce-kpi-v">{{ recent_30_days }}</div>
+              <div class="ce-kpi-note">Recent submission activity</div>
+            </div>
+            <div class="ce-kpi ce-kpi--indigo">
+              <div class="ce-kpi-k">Avg overall score</div>
+              <div class="ce-kpi-v">{% if avg_overall %}{{ avg_overall|floatformat:2 }}{% else %}—{% endif %}</div>
+              <div class="ce-kpi-note">Only rows with score > 0</div>
+            </div>
+          </div>
+        </section>
+      {% endif %}
+
+      {% if show_timeline or show_pie_charts %}
+        <section class="ce-panel">
+          <h2 class="ce-panel-title">Visual Insights</h2>
+          <p class="ce-panel-subtitle">Trend and composition charts arranged for fast reading.</p>
+          <div class="ce-visual-grid">
+            {% if show_timeline %}
+              <div>
+                <div class="ce-line-holder">
+                  <div id="ce-line-chart" class="ce-line-canvas"></div>
+                </div>
+              </div>
+            {% endif %}
+
+            {% if show_pie_charts %}
+              <div class="ce-pie-stack">
+                <div class="ce-pie-card">
+                  <h3 class="ce-pie-title">Track Mix</h3>
+                  <div class="ce-donut-wrap">
+                    <div class="ce-donut" id="ce-track-donut">
+                      <div class="ce-donut-hole">
+                        <strong class="ce-donut-total" id="ce-track-total">0</strong>
+                        <span class="ce-donut-sub">Total</span>
+                      </div>
+                    </div>
+                  </div>
+                  <ul class="ce-legend" id="ce-track-legend"></ul>
+                </div>
+
+                <div class="ce-pie-card">
+                  <h3 class="ce-pie-title">Stage Mix (A1 vs A2)</h3>
+                  <div class="ce-donut-wrap">
+                    <div class="ce-donut" id="ce-stage-donut">
+                      <div class="ce-donut-hole">
+                        <strong class="ce-donut-total" id="ce-stage-total">0</strong>
+                        <span class="ce-donut-sub">Total</span>
+                      </div>
+                    </div>
+                  </div>
+                  <ul class="ce-legend" id="ce-stage-legend"></ul>
+                </div>
+              </div>
             {% endif %}
           </div>
-          <div class="ce-sub">Only rows with score > 0</div>
-        </div>
-      </div>
-    {% endif %}
+        </section>
+      {% endif %}
 
-    {% if show_timeline %}
-      <div class="ce-section">
-        <h2 style="margin: 0 0 10px;">Timeline</h2>
-        <div class="ce-chart">
-          {% if timeline_points %}
-            {% for p in timeline_points %}
-              <div class="ce-bar-row">
-                <div class="ce-bar-label">{{ p.label }}</div>
-                <div class="ce-bar-track">
-                  <div class="ce-bar-fill" style="width: {{ p.pct }}%;"></div>
+      {% if show_form_chart %}
+        <section class="ce-panel">
+          <h2 class="ce-panel-title">Top Forms</h2>
+          <p class="ce-panel-subtitle">Color-ranked form volume distribution.</p>
+          <div class="ce-bars">
+            {% if form_chart_points %}
+              {% for p in form_chart_points %}
+                {% cycle '#3B82F6' '#14B8A6' '#8B5CF6' '#F59E0B' '#EF4444' '#22C55E' '#6366F1' '#EC4899' as bar_color silent %}
+                <div class="ce-bar-row">
+                  <div class="ce-bar-label">{{ p.label }}</div>
+                  <div class="ce-bar-track">
+                    <div class="ce-bar-fill" style="width: {{ p.pct }}%; background: {{ bar_color }};"></div>
+                  </div>
+                  <div class="ce-bar-val">{{ p.count }}</div>
                 </div>
-                <div class="ce-bar-val">{{ p.count }}</div>
+              {% endfor %}
+            {% else %}
+              <p class="ce-empty">No form data for this filter.</p>
+            {% endif %}
+          </div>
+        </section>
+      {% endif %}
+
+      {% if show_form_table or show_group_table %}
+        <section class="ce-panel">
+          <h2 class="ce-panel-title">Detailed Breakdown</h2>
+          <p class="ce-panel-subtitle">Organized tables for forms and groups.</p>
+
+          <div class="ce-table-grid">
+            {% if show_form_table %}
+              <div>
+                <h3 style="margin: 0;">By Form</h3>
+                <table class="ce-table">
+                  <thead>
+                    <tr>
+                      <th>Form</th>
+                      <th>Group</th>
+                      <th>Track</th>
+                      <th>Apps</th>
+                      <th>Invited</th>
+                      <th>Avg score</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for row in form_rows %}
+                      <tr>
+                        <td>
+                          <a href="{% url 'admin_database_form_detail' row.slug %}">{{ row.slug }}</a>
+                          <div class="ce-sub">{{ row.name }}</div>
+                        </td>
+                        <td>{% if row.group_num %}{{ row.group_num }}{% else %}—{% endif %}</td>
+                        <td>{{ row.track }}</td>
+                        <td>{{ row.total }}</td>
+                        <td>{{ row.invited }}</td>
+                        <td>{% if row.avg_overall %}{{ row.avg_overall|floatformat:2 }}{% else %}—{% endif %}</td>
+                      </tr>
+                    {% empty %}
+                      <tr><td colspan="6">No form rows for current filter.</td></tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
               </div>
-            {% endfor %}
-          {% else %}
-            <p class="ce-empty">No data for this timeline and filter.</p>
-          {% endif %}
-        </div>
-      </div>
-    {% endif %}
+            {% endif %}
 
-    {% if show_form_chart %}
-      <div class="ce-section">
-        <h2 style="margin: 0 0 10px;">Top Forms</h2>
-        <div class="ce-chart">
-          {% if form_chart_points %}
-            {% for p in form_chart_points %}
-              <div class="ce-bar-row">
-                <div class="ce-bar-label">{{ p.label }}</div>
-                <div class="ce-bar-track">
-                  <div class="ce-bar-fill" style="width: {{ p.pct }}%;"></div>
-                </div>
-                <div class="ce-bar-val">{{ p.count }}</div>
+            {% if show_group_table %}
+              <div>
+                <h3 style="margin: 0;">By Group</h3>
+                <table class="ce-table">
+                  <thead>
+                    <tr>
+                      <th>Group</th>
+                      <th>Total</th>
+                      <th>E</th>
+                      <th>M</th>
+                      <th>Other</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for row in group_summary_rows %}
+                      <tr>
+                        <td>{{ row.group_label }}</td>
+                        <td>{{ row.total }}</td>
+                        <td>{{ row.e_total }}</td>
+                        <td>{{ row.m_total }}</td>
+                        <td>{{ row.other_total }}</td>
+                      </tr>
+                    {% empty %}
+                      <tr><td colspan="5">No group data for current filter.</td></tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
               </div>
-            {% endfor %}
-          {% else %}
-            <p class="ce-empty">No form data for this filter.</p>
-          {% endif %}
-        </div>
-      </div>
-    {% endif %}
+            {% endif %}
+          </div>
+        </section>
+      {% endif %}
 
-    {% if show_form_table %}
-      <div class="ce-section">
-        <h2 style="margin: 0 0 10px;">By Form</h2>
-        <table class="ce-table">
-          <thead>
-            <tr>
-              <th>Form</th>
-              <th>Group</th>
-              <th>Track</th>
-              <th>Applications</th>
-              <th>Invited to A2</th>
-              <th>Avg score</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for row in form_rows %}
+      {% if show_recent_table %}
+        <section class="ce-panel">
+          <h2 class="ce-panel-title">Recent Applications</h2>
+          <p class="ce-panel-subtitle">Latest rows for quick operational review.</p>
+          <table class="ce-table">
+            <thead>
               <tr>
-                <td>
-                  <a href="{% url 'admin_database_form_detail' row.slug %}">{{ row.slug }}</a>
-                  <div class="ce-sub">{{ row.name }}</div>
-                </td>
-                <td>{% if row.group_num %}{{ row.group_num }}{% else %}—{% endif %}</td>
-                <td>{{ row.track }}</td>
-                <td>{{ row.total }}</td>
-                <td>{{ row.invited }}</td>
-                <td>{% if row.avg_overall %}{{ row.avg_overall|floatformat:2 }}{% else %}—{% endif %}</td>
+                <th>Created</th>
+                <th>Name</th>
+                <th>Email</th>
+                <th>Form</th>
+                <th>Recommendation</th>
+                <th>Score</th>
+                <th>View</th>
               </tr>
-            {% empty %}
-              <tr><td colspan="6">No form rows for current filter.</td></tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    {% endif %}
-
-    {% if show_group_table %}
-      <div class="ce-section">
-        <h2 style="margin: 0 0 10px;">By Group</h2>
-        <table class="ce-table">
-          <thead>
-            <tr>
-              <th>Group</th>
-              <th>Total</th>
-              <th>E</th>
-              <th>M</th>
-              <th>Other</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for row in group_summary_rows %}
-              <tr>
-                <td>{{ row.group_label }}</td>
-                <td>{{ row.total }}</td>
-                <td>{{ row.e_total }}</td>
-                <td>{{ row.m_total }}</td>
-                <td>{{ row.other_total }}</td>
-              </tr>
-            {% empty %}
-              <tr><td colspan="5">No group data for current filter.</td></tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    {% endif %}
-
-    {% if show_recent_table %}
-      <div class="ce-section">
-        <h2 style="margin: 0 0 10px;">Recent Applications</h2>
-        <table class="ce-table">
-          <thead>
-            <tr>
-              <th>Created</th>
-              <th>Name</th>
-              <th>Email</th>
-              <th>Form</th>
-              <th>Recommendation</th>
-              <th>Score</th>
-              <th>View</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for app in recent_apps %}
-              <tr>
-                <td>{{ app.created_at }}</td>
-                <td>{{ app.name|default:"—" }}</td>
-                <td>{{ app.email|default:"—" }}</td>
-                <td>{{ app.form.slug }}</td>
-                <td>{{ app.recommendation|default:"—" }}</td>
-                <td>{{ app.overall_score|floatformat:2 }}</td>
-                <td><a href="{% url 'admin_database_submission_detail' app.id %}">Open</a></td>
-              </tr>
-            {% empty %}
-              <tr><td colspan="7">No recent applications for this filter.</td></tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    {% endif %}
+            </thead>
+            <tbody>
+              {% for app in recent_apps %}
+                <tr>
+                  <td>{{ app.created_at }}</td>
+                  <td>{{ app.name|default:"—" }}</td>
+                  <td>{{ app.email|default:"—" }}</td>
+                  <td>{{ app.form.slug }}</td>
+                  <td>{{ app.recommendation|default:"—" }}</td>
+                  <td>{{ app.overall_score|floatformat:2 }}</td>
+                  <td><a href="{% url 'admin_database_submission_detail' app.id %}">Open</a></td>
+                </tr>
+              {% empty %}
+                <tr><td colspan="7">No recent applications for this filter.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </section>
+      {% endif %}
+    </div>
   </div>
 </div>
+
+{{ timeline_points|json_script:"ceTimelineData" }}
+{{ track_mix|json_script:"ceTrackMixData" }}
+{{ stage_mix|json_script:"ceStageMixData" }}
+
+<script>
+  (function () {
+    function byId(id) {
+      return document.getElementById(id);
+    }
+
+    function parseJsonScript(id) {
+      const node = byId(id);
+      if (!node) return [];
+      try {
+        return JSON.parse(node.textContent || "[]");
+      } catch (e) {
+        return [];
+      }
+    }
+
+    function escapeHtml(value) {
+      return String(value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+
+    function renderLineChart(containerId, points) {
+      const container = byId(containerId);
+      if (!container) return;
+
+      if (!Array.isArray(points) || !points.length) {
+        container.innerHTML = '<p class="ce-empty">No timeline data for this filter.</p>';
+        return;
+      }
+
+      const width = 920;
+      const height = 300;
+      const pad = { top: 20, right: 20, bottom: 42, left: 36 };
+      const chartW = width - pad.left - pad.right;
+      const chartH = height - pad.top - pad.bottom;
+      const values = points.map(function (p) { return Number(p.count || 0); });
+      const maxVal = Math.max.apply(null, values.concat([1]));
+      const count = points.length;
+      const stepX = count > 1 ? chartW / (count - 1) : 0;
+
+      const coords = points.map(function (p, i) {
+        const x = pad.left + (count > 1 ? i * stepX : chartW / 2);
+        const y = pad.top + chartH - ((Number(p.count || 0) / maxVal) * chartH);
+        return { x: x, y: y };
+      });
+
+      const linePoints = coords.map(function (c) { return c.x + "," + c.y; }).join(" ");
+      const areaPoints = pad.left + "," + (pad.top + chartH) + " " + linePoints + " " + (pad.left + chartW) + "," + (pad.top + chartH);
+      const labelEvery = Math.max(1, Math.ceil(points.length / 8));
+
+      let grid = "";
+      for (let i = 0; i <= 4; i += 1) {
+        const y = pad.top + (chartH / 4) * i;
+        const axisVal = Math.round(maxVal - (maxVal / 4) * i);
+        grid += '<line x1="' + pad.left + '" y1="' + y + '" x2="' + (pad.left + chartW) + '" y2="' + y + '" stroke="#e5ecf5" stroke-width="1" />';
+        grid += '<text x="' + (pad.left - 8) + '" y="' + (y + 4) + '" text-anchor="end" fill="#667085" font-size="11">' + axisVal + "</text>";
+      }
+
+      let labels = "";
+      for (let i = 0; i < coords.length; i += 1) {
+        if (i % labelEvery !== 0 && i !== coords.length - 1) continue;
+        labels += '<text x="' + coords[i].x + '" y="' + (height - 12) + '" text-anchor="middle" fill="#667085" font-size="11">' + escapeHtml(points[i].label) + "</text>";
+      }
+
+      const dots = coords.map(function (c) {
+        return '<circle cx="' + c.x + '" cy="' + c.y + '" r="3.6" fill="#3b82f6" />';
+      }).join("");
+
+      container.innerHTML =
+        '<svg viewBox="0 0 ' + width + " " + height + '" width="100%" height="300" role="img" aria-label="Submission trend line chart">' +
+          "<defs>" +
+            '<linearGradient id="ceTrendFill" x1="0" y1="0" x2="0" y2="1">' +
+              '<stop offset="0%" stop-color="#3b82f6" stop-opacity="0.34" />' +
+              '<stop offset="100%" stop-color="#3b82f6" stop-opacity="0.04" />' +
+            "</linearGradient>" +
+          "</defs>" +
+          grid +
+          '<polygon points="' + areaPoints + '" fill="url(#ceTrendFill)" />' +
+          '<polyline fill="none" stroke="#2563eb" stroke-width="3" points="' + linePoints + '" />' +
+          dots +
+          labels +
+        "</svg>";
+    }
+
+    function renderDonut(donutId, legendId, totalId, rawData) {
+      const donut = byId(donutId);
+      const legend = byId(legendId);
+      const totalNode = byId(totalId);
+      if (!donut || !legend || !totalNode) return;
+
+      const data = (Array.isArray(rawData) ? rawData : [])
+        .map(function (item) {
+          return {
+            label: item.label,
+            value: Number(item.value || 0),
+            color: item.color || "#94a3b8",
+          };
+        })
+        .filter(function (item) { return item.value > 0; });
+
+      const total = data.reduce(function (sum, item) { return sum + item.value; }, 0);
+      totalNode.textContent = String(total);
+
+      if (total <= 0) {
+        donut.style.background = "#e5e7eb";
+        legend.innerHTML = '<li><span class="ce-empty">No data for this filter.</span></li>';
+        return;
+      }
+
+      let current = 0;
+      const parts = data.map(function (item) {
+        const start = (current / total) * 360;
+        current += item.value;
+        const end = (current / total) * 360;
+        return item.color + " " + start + "deg " + end + "deg";
+      });
+      donut.style.background = "conic-gradient(" + parts.join(", ") + ")";
+
+      legend.innerHTML = data.map(function (item) {
+        const pct = ((item.value / total) * 100).toFixed(1);
+        return (
+          "<li>" +
+            '<span class="ce-legend-dot" style="background:' + item.color + ';"></span>' +
+            "<span>" + escapeHtml(item.label) + "</span>" +
+            "<strong>" + item.value + " (" + pct + "%)</strong>" +
+          "</li>"
+        );
+      }).join("");
+    }
+
+    renderLineChart("ce-line-chart", parseJsonScript("ceTimelineData"));
+    renderDonut("ce-track-donut", "ce-track-legend", "ce-track-total", parseJsonScript("ceTrackMixData"));
+    renderDonut("ce-stage-donut", "ce-stage-legend", "ce-stage-total", parseJsonScript("ceStageMixData"));
+  })();
+</script>
 {% endblock %}

@@ -99,8 +99,6 @@ body {
 .ce-admin-wrap {
   padding: 22px;
   box-sizing: border-box;
-  display: flex;
-  justify-content: center;
 }
 .ce-admin-card {
   width: 100%;
@@ -109,6 +107,8 @@ body {
   border: 1px solid var(--ce-border);
   border-radius: 16px;
   padding: 18px;
+  margin-left: auto;
+  margin-right: auto;
 }
 .ce-admin-card--wide {
   max-width: min(1800px, calc(100vw - 44px));

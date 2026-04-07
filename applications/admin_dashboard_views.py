@@ -83,6 +83,7 @@ def applications_dashboard(request):
     customize_mode = _is_truthy(request.GET.get("customize"))
     show_cards = _is_truthy(request.GET.get("show_cards")) if customize_mode else True
     show_timeline = _is_truthy(request.GET.get("show_timeline")) if customize_mode else True
+    show_pie_charts = _is_truthy(request.GET.get("show_pie_charts")) if customize_mode else True
     show_form_chart = _is_truthy(request.GET.get("show_form_chart")) if customize_mode else True
     show_form_table = _is_truthy(request.GET.get("show_form_table")) if customize_mode else True
     show_group_table = _is_truthy(request.GET.get("show_group_table")) if customize_mode else True
@@ -185,6 +186,28 @@ def applications_dashboard(request):
         for row in top_forms
     ]
 
+    track_totals = {"E": 0, "M": 0, "Other": 0}
+    for row in form_rows:
+        track = row["track"]
+        if track not in track_totals:
+            track = "Other"
+        track_totals[track] += row["total"] or 0
+
+    track_mix = [
+        {"label": "Emprendedoras (E)", "value": track_totals["E"], "color": "#3B82F6"},
+        {"label": "Mentoras (M)", "value": track_totals["M"], "color": "#22C55E"},
+        {"label": "Other", "value": track_totals["Other"], "color": "#F59E0B"},
+    ]
+
+    stage_a1_total = filtered_qs.filter(form__slug__contains="A1").count()
+    stage_a2_total = filtered_qs.filter(form__slug__contains="A2").count()
+    stage_other_total = max(total_apps - stage_a1_total - stage_a2_total, 0)
+    stage_mix = [
+        {"label": "A1", "value": stage_a1_total, "color": "#8B5CF6"},
+        {"label": "A2", "value": stage_a2_total, "color": "#14B8A6"},
+        {"label": "Other", "value": stage_other_total, "color": "#F97316"},
+    ]
+
     trunc_map = {
         "day": TruncDay,
         "week": TruncWeek,
@@ -267,6 +290,7 @@ def applications_dashboard(request):
         "group_options": group_options,
         "show_cards": show_cards,
         "show_timeline": show_timeline,
+        "show_pie_charts": show_pie_charts,
         "show_form_chart": show_form_chart,
         "show_form_table": show_form_table,
         "show_group_table": show_group_table,
@@ -282,6 +306,8 @@ def applications_dashboard(request):
         "avg_overall": avg_overall,
         "timeline_points": timeline_points,
         "form_chart_points": form_chart_points,
+        "track_mix": track_mix,
+        "stage_mix": stage_mix,
         "form_rows": form_rows,
         "group_summary_rows": group_summary_rows,
         "recent_apps": recent_apps,

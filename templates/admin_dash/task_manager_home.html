@@ -52,8 +52,8 @@
     <table class="ce-table">
       <thead>
         <tr>
-          <th>User</th>
           <th>Name</th>
+          <th>Email</th>
           <th>Open tasks</th>
           <th>Total tasks</th>
           <th>Actions</th>
@@ -62,8 +62,8 @@
       <tbody>
         {% for u in users %}
           <tr>
+            <td>{{ u }}</td>
             <td>{{ u.email }}</td>
-            <td>{{ u.first_name }} {{ u.last_name }}</td>
             <td>{{ u.open_tasks }}</td>
             <td>{{ u.total_tasks }}</td>
             <td>

@@ -14,12 +14,12 @@ class UserAdmin(DjangoUserAdmin):
     """
 
     model = User
-    list_display = ("id", "email", "is_staff", "is_superuser", "is_active")
+    list_display = ("id", "display_name", "email", "is_staff", "is_superuser", "is_active")
     list_filter = ("is_staff", "is_superuser", "is_active")
     ordering = ("email",)
 
     fieldsets = (
-        (None, {"fields": ("email", "password")}),
+        (None, {"fields": ("email", "password", "full_name", "first_name", "last_name")}),
         ("Permissions", {"fields": ("is_active", "is_staff", "is_superuser", "groups", "user_permissions")}),
         ("Important dates", {"fields": ("last_login",)}),
     )
@@ -27,8 +27,18 @@ class UserAdmin(DjangoUserAdmin):
     add_fieldsets = (
         (None, {
             "classes": ("wide",),
-            "fields": ("email", "password1", "password2", "is_staff", "is_superuser", "is_active"),
+            "fields": (
+                "email",
+                "full_name",
+                "first_name",
+                "last_name",
+                "password1",
+                "password2",
+                "is_staff",
+                "is_superuser",
+                "is_active",
+            ),
         }),
     )
 
-    search_fields = ("email",)
+    search_fields = ("email", "full_name", "first_name", "last_name")

@@ -77,7 +77,7 @@
           <option value="">All people</option>
           {% for u in users %}
             <option value="{{ u.id }}" {% if selected_user_id == u.id|stringformat:"s" %}selected{% endif %}>
-              {{ u.email }}{% if u.first_name or u.last_name %} — {{ u.first_name }} {{ u.last_name }}{% endif %}
+              {{ u }}
             </option>
           {% endfor %}
         </select>
@@ -92,7 +92,7 @@
 
     {% if selected_user %}
       <p class="ce-muted">
-        Showing tasks assigned to <strong>{{ selected_user.email }}</strong>.
+        Showing tasks assigned to <strong>{{ selected_user }}</strong>.
       </p>
     {% else %}
       <p class="ce-muted">Showing tasks for all people.</p>

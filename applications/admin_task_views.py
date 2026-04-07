@@ -15,6 +15,10 @@ from .models import TaskType, UserTask, ensure_default_task_types
 logger = logging.getLogger(__name__)
 
 
+def _ordered_users(user_model):
+    return user_model.objects.order_by("full_name", "first_name", "last_name", "email")
+
+
 def _task_type_link() -> str:
     return reverse("admin:applications_tasktype_changelist")
 
@@ -164,7 +168,7 @@ def _send_requester_revision_needed_email(request, task: UserTask) -> None:
 def task_manager_home(request):
     ensure_default_task_types()
     user_model = get_user_model()
-    users = user_model.objects.order_by("email").annotate(
+    users = _ordered_users(user_model).annotate(
         total_tasks=Count("assigned_tasks"),
         open_tasks=Count(
             "assigned_tasks",
@@ -190,7 +194,7 @@ def task_manager_my_tasks(request):
 def task_manager_overview(request):
     ensure_default_task_types()
     user_model = get_user_model()
-    users = user_model.objects.order_by("email")
+    users = _ordered_users(user_model)
 
     selected_user_id = (request.GET.get("assignee") or "").strip()
     selected_user = None

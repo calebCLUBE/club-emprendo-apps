@@ -4,6 +4,18 @@ from django.contrib.auth import get_user_model
 
 from .models import TaskType, UserTask, ensure_default_task_types
 
+
+def _user_label(user) -> str:
+    full_name = (getattr(user, "full_name", "") or "").strip()
+    if full_name:
+        return full_name
+    first_name = (getattr(user, "first_name", "") or "").strip()
+    last_name = (getattr(user, "last_name", "") or "").strip()
+    composed = f"{first_name} {last_name}".strip()
+    if composed:
+        return composed
+    return (getattr(user, "email", "") or "").strip() or str(user)
+
 class InviteUserForm(forms.Form):
     email = forms.EmailField(label="Email")
     first_name = forms.CharField(label="First name", required=False)
@@ -17,8 +29,8 @@ class UserTaskAssignForm(forms.ModelForm):
         queryset=get_user_model().objects.none(),
         label="Assign to",
         required=True,
-        help_text="Choose one or more users.",
-        widget=forms.CheckboxSelectMultiple(),
+        help_text="Choose one or more users (Cmd/Ctrl + click for multiple).",
+        widget=forms.SelectMultiple(attrs={"size": 10}),
     )
 
     class Meta:
@@ -44,11 +56,13 @@ class UserTaskAssignForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         ensure_default_task_types()
         user_model = get_user_model()
-        ordered_users = user_model.objects.order_by("email")
+        ordered_users = user_model.objects.order_by("full_name", "first_name", "last_name", "email")
         self.fields["requested_by"].queryset = ordered_users
         self.fields["requested_by"].label = "Requested by"
         self.fields["requested_by"].required = True
+        self.fields["requested_by"].label_from_instance = _user_label
         self.fields["assignees"].queryset = ordered_users
+        self.fields["assignees"].label_from_instance = _user_label
         self.fields["task_type_ref"].queryset = TaskType.objects.filter(is_active=True).order_by("position", "name")
         self.fields["task_type_ref"].label = "Task type"
         self.fields["task_type_ref"].required = True
@@ -84,10 +98,12 @@ class UserTaskEditForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         ensure_default_task_types()
         user_model = get_user_model()
-        ordered_users = user_model.objects.order_by("email")
+        ordered_users = user_model.objects.order_by("full_name", "first_name", "last_name", "email")
         self.fields["requested_by"].queryset = ordered_users
         self.fields["requested_by"].required = False
+        self.fields["requested_by"].label_from_instance = _user_label
         self.fields["assigned_to"].queryset = ordered_users
+        self.fields["assigned_to"].label_from_instance = _user_label
         self.fields["task_type_ref"].queryset = TaskType.objects.filter(is_active=True).order_by("position", "name")
         self.fields["task_type_ref"].label = "Task type"
         self.fields["task_type_ref"].required = True
@@ -120,10 +136,12 @@ class WebsiteRevisionRequestForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         ensure_default_task_types()
         user_model = get_user_model()
-        ordered_users = user_model.objects.order_by("email")
+        ordered_users = user_model.objects.order_by("full_name", "first_name", "last_name", "email")
         self.fields["requested_by"].queryset = ordered_users
+        self.fields["requested_by"].label_from_instance = _user_label
         self.fields["assigned_to"].queryset = ordered_users
         self.fields["assigned_to"].required = False
+        self.fields["assigned_to"].label_from_instance = _user_label
         self.fields["impact"].label = "Impact"
 
 

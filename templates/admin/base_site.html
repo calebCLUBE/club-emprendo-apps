@@ -1,6 +1,8 @@
 {# templates/admin/base_site.html #}
 {% extends "admin/base.html" %}
-{% load static %}
+{% load i18n static %}
+
+{% block dark-mode-vars %}{% endblock %}
 
 {% block extrahead %}
   {{ block.super }}
@@ -21,4 +23,23 @@
       <div class="ce-admin-subtitle">Admin</div>
     </div>
   </div>
+{% endblock %}
+
+{% block userlinks %}
+  {% if site_url %}
+    <a href="{{ site_url }}">{% translate 'View site' %}</a> /
+  {% endif %}
+  {% if user.is_active and user.is_staff %}
+    {% url 'django-admindocs-docroot' as docsroot %}
+    {% if docsroot %}
+      <a href="{{ docsroot }}">{% translate 'Documentation' %}</a> /
+    {% endif %}
+  {% endif %}
+  {% if user.has_usable_password %}
+    <a href="{% url 'admin:password_change' %}">{% translate 'Change password' %}</a> /
+  {% endif %}
+  <form id="logout-form" method="post" action="{% url 'admin:logout' %}">
+    {% csrf_token %}
+    <button type="submit">{% translate 'Log out' %}</button>
+  </form>
 {% endblock %}

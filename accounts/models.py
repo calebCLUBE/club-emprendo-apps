@@ -44,5 +44,15 @@ class User(AbstractUser):
 
     objects = UserManager()
 
-    def __str__(self):
+    @property
+    def display_name(self) -> str:
+        full_name = (self.full_name or "").strip()
+        if full_name:
+            return full_name
+        composed = f"{(self.first_name or '').strip()} {(self.last_name or '').strip()}".strip()
+        if composed:
+            return composed
         return self.email
+
+    def __str__(self):
+        return self.display_name

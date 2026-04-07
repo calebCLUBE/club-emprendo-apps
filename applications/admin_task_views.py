@@ -244,22 +244,32 @@ def task_manager_user_tasks(request, user_id: int):
 
     if request.method == "POST":
         task_id = request.POST.get("task_id")
-        action = (request.POST.get("action") or "").strip().lower()
+        new_status = (request.POST.get("status") or "").strip()
+        valid_statuses = {choice[0] for choice in UserTask.STATUS_CHOICES}
         task = get_object_or_404(UserTask, id=task_id, assigned_to=user_obj)
+        old_status = task.status
 
-        if action == "mark_done":
-            was_done = task.status == UserTask.STATUS_DONE
-            task.status = UserTask.STATUS_DONE
-            task.save(update_fields=["status", "updated_at"])
-            if not was_done:
-                _send_requester_completion_email(request, task)
-                messages.success(request, "Task marked as done and requester notified.")
-            else:
-                messages.success(request, "Task is already done.")
-        elif action == "reopen":
-            task.status = UserTask.STATUS_OPEN
-            task.save(update_fields=["status", "updated_at"])
-            messages.success(request, "Task reopened.")
+        if new_status not in valid_statuses:
+            messages.error(request, "Please choose a valid status.")
+            return redirect("admin_task_manager_user_tasks", user_id=user_obj.id)
+
+        if old_status == new_status:
+            messages.success(request, "Task status unchanged.")
+            return redirect("admin_task_manager_user_tasks", user_id=user_obj.id)
+
+        task.status = new_status
+        task.save(update_fields=["status", "updated_at"])
+        if old_status != UserTask.STATUS_DONE and task.status == UserTask.STATUS_DONE:
+            _send_requester_completion_email(request, task)
+            messages.success(request, "Task status updated and requester notified of completion.")
+        elif (
+            old_status != UserTask.STATUS_REVISION_NEEDED
+            and task.status == UserTask.STATUS_REVISION_NEEDED
+        ):
+            _send_requester_revision_needed_email(request, task)
+            messages.success(request, "Task status updated and requester notified that revision is needed.")
+        else:
+            messages.success(request, "Task status updated.")
 
         return redirect("admin_task_manager_user_tasks", user_id=user_obj.id)
 
@@ -274,6 +284,7 @@ def task_manager_user_tasks(request, user_id: int):
         {
             "target_user": user_obj,
             "tasks": tasks,
+            "status_choices": UserTask.STATUS_CHOICES,
             "task_type_admin_url": _task_type_link(),
         },
     )

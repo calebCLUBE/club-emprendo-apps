@@ -18,7 +18,7 @@ class UserTaskAssignForm(forms.ModelForm):
         label="Assign to",
         required=True,
         help_text="Choose one or more users.",
-        widget=forms.SelectMultiple(attrs={"size": 8}),
+        widget=forms.CheckboxSelectMultiple(),
     )
 
     class Meta:

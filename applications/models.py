@@ -537,7 +537,7 @@ class UserTask(models.Model):
         (STATUS_OPEN, "Open"),
         (STATUS_IN_PROGRESS, "In progress"),
         (STATUS_REVISION_NEEDED, "Revision Needed"),
-        (STATUS_DONE, "Done"),
+        (STATUS_DONE, "Completed"),
     ]
     PRIORITY_LOW = "low"
     PRIORITY_MEDIUM = "medium"

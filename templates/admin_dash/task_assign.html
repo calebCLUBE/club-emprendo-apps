@@ -27,13 +27,31 @@
       .ce-form p {
         margin-bottom: 12px;
       }
-      .ce-form input,
+      .ce-form input:not([type="checkbox"]):not([type="radio"]),
       .ce-form select,
       .ce-form textarea {
         width: 100%;
         max-width: 680px;
         box-sizing: border-box;
         padding: 8px;
+      }
+      .ce-form input[type="checkbox"] {
+        width: auto;
+        max-width: none;
+        padding: 0;
+        margin-right: 8px;
+      }
+      .ce-form #id_assignees {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 8px 14px;
+        max-width: 900px;
+      }
+      .ce-form #id_assignees > div label {
+        display: flex;
+        align-items: center;
+        margin: 0;
+        font-weight: 400;
       }
       .ce-form select {
         height: auto !important;

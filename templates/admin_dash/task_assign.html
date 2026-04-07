@@ -36,8 +36,61 @@
         padding: 8px;
       }
       .ce-form select#id_assignees {
+        position: absolute;
+        opacity: 0;
+        pointer-events: none;
+        width: 1px;
+        height: 1px;
+        max-width: 1px;
+        min-height: 1px;
+        padding: 0;
+        margin: 0;
+      }
+      .ce-multi {
         max-width: 680px;
-        min-height: 260px;
+      }
+      .ce-multi-toggle {
+        width: 100%;
+        border: 1px solid #cfd8c7;
+        background: #fff;
+        border-radius: 8px;
+        padding: 10px 12px;
+        text-align: left;
+        cursor: pointer;
+      }
+      .ce-multi-toggle:focus-visible {
+        outline: 2px solid #223413;
+        outline-offset: 2px;
+      }
+      .ce-multi-panel {
+        display: none;
+        margin-top: 6px;
+        border: 1px solid #d8e0d0;
+        border-radius: 8px;
+        background: #fff;
+        max-height: 260px;
+        overflow: auto;
+      }
+      .ce-multi.is-open .ce-multi-panel {
+        display: block;
+      }
+      .ce-multi-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 10px;
+        border-bottom: 1px solid #f0f0f0;
+      }
+      .ce-multi-row:last-child {
+        border-bottom: none;
+      }
+      .ce-multi-row input[type="checkbox"] {
+        width: 16px;
+        height: 16px;
+        margin: 0;
+      }
+      .ce-multi-row span {
+        line-height: 1.3;
       }
       .ce-form select {
         height: auto !important;
@@ -76,4 +129,95 @@
     </form>
   </div>
 </div>
+<script>
+  (function () {
+    const select = document.getElementById("id_assignees");
+    if (!select || select.dataset.dropdownEnhanced === "1") return;
+    select.dataset.dropdownEnhanced = "1";
+
+    const wrapper = document.createElement("div");
+    wrapper.className = "ce-multi";
+
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "ce-multi-toggle";
+
+    const panel = document.createElement("div");
+    panel.className = "ce-multi-panel";
+
+    const rows = [];
+    Array.from(select.options).forEach((option, index) => {
+      if (!option.value) return;
+      const row = document.createElement("label");
+      row.className = "ce-multi-row";
+
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.checked = !!option.selected;
+      checkbox.dataset.optionIndex = String(index);
+
+      const text = document.createElement("span");
+      text.textContent = option.text;
+
+      row.appendChild(checkbox);
+      row.appendChild(text);
+      panel.appendChild(row);
+      rows.push(checkbox);
+    });
+
+    function updateSelectFromChecks() {
+      rows.forEach((checkbox) => {
+        const optionIndex = Number(checkbox.dataset.optionIndex || "-1");
+        if (optionIndex >= 0 && select.options[optionIndex]) {
+          select.options[optionIndex].selected = checkbox.checked;
+        }
+      });
+      updateToggleLabel();
+    }
+
+    function updateToggleLabel() {
+      const selected = rows.filter((checkbox) => checkbox.checked);
+      if (!selected.length) {
+        toggle.textContent = "Select assignees";
+        return;
+      }
+      if (selected.length === 1) {
+        const row = selected[0].closest(".ce-multi-row");
+        const label = row ? row.querySelector("span") : null;
+        toggle.textContent = label ? label.textContent : "1 selected";
+        return;
+      }
+      toggle.textContent = selected.length + " selected";
+    }
+
+    function closePanel() {
+      wrapper.classList.remove("is-open");
+    }
+
+    toggle.addEventListener("click", function () {
+      wrapper.classList.toggle("is-open");
+    });
+
+    rows.forEach((checkbox) => {
+      checkbox.addEventListener("change", updateSelectFromChecks);
+    });
+
+    document.addEventListener("click", function (event) {
+      if (!wrapper.contains(event.target)) {
+        closePanel();
+      }
+    });
+
+    document.addEventListener("keydown", function (event) {
+      if (event.key === "Escape") {
+        closePanel();
+      }
+    });
+
+    select.insertAdjacentElement("afterend", wrapper);
+    wrapper.appendChild(toggle);
+    wrapper.appendChild(panel);
+    updateToggleLabel();
+  })();
+</script>
 {% endblock %}

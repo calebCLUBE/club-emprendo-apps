@@ -29,7 +29,7 @@ class UserTaskAssignForm(forms.ModelForm):
         queryset=get_user_model().objects.none(),
         label="Assign to",
         required=True,
-        help_text="Choose one or more users (Cmd/Ctrl + click for multiple).",
+        help_text="Choose one or more users.",
         widget=forms.SelectMultiple(attrs={"size": 10}),
     )
 

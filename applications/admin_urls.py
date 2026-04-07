@@ -1,9 +1,10 @@
 # applications/admin_urls.py
 from django.urls import path
-from . import admin_views
+from . import admin_views, admin_dashboard_views
 
 urlpatterns = [
     path("apps/", admin_views.apps_list, name="admin_apps_list"),
+    path("apps/dashboard/", admin_dashboard_views.applications_dashboard, name="admin_applications_dashboard"),
     path("apps/create-group/", admin_views.create_group, name="admin_create_group"),
     path("apps/update-group/<int:group_num>/", admin_views.update_group_dates, name="admin_update_group"),
     path("apps/delete-group/<int:group_num>/", admin_views.delete_group, name="admin_delete_group"),

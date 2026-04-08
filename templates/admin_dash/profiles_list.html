@@ -53,6 +53,35 @@
         align-items: end;
         margin: 12px 0 16px;
       }
+      .ce-bulk {
+        margin: 8px 0 16px;
+        padding: 12px;
+        border: 1px solid #e9e9e9;
+        border-radius: 10px;
+        background: #fafafa;
+      }
+      .ce-bulk-grid {
+        display: grid;
+        grid-template-columns: minmax(320px, 2fr) minmax(180px, 1fr) auto;
+        gap: 10px;
+        align-items: end;
+      }
+      .ce-bulk textarea,
+      .ce-bulk select {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 8px;
+        min-height: 42px;
+      }
+      .ce-bulk textarea {
+        min-height: 90px;
+        resize: vertical;
+      }
+      .ce-bulk label {
+        display: block;
+        font-weight: 600;
+        margin-bottom: 4px;
+      }
       .ce-filter label {
         display: block;
         font-weight: 600;
@@ -95,6 +124,9 @@
         .ce-filter {
           grid-template-columns: 1fr;
         }
+        .ce-bulk-grid {
+          grid-template-columns: 1fr;
+        }
       }
     </style>
 
@@ -118,7 +150,32 @@
         <div class="ce-summary-k">Graded profiles</div>
         <div class="ce-summary-v">{{ graded_profiles }}</div>
       </div>
+      <div class="ce-summary-card">
+        <div class="ce-summary-k">Participated (yes)</div>
+        <div class="ce-summary-v">{{ participated_profiles }}</div>
+      </div>
     </div>
+
+    <form method="post" class="ce-bulk">
+      {% csrf_token %}
+      <div class="ce-bulk-grid">
+        <div>
+          <label for="emails">Update participation by email</label>
+          <textarea id="emails" name="emails" placeholder="one email per line or comma-separated">{{ bulk_email_text }}</textarea>
+          <div class="ce-muted">Emails entered here will be saved and used in the Participated column.</div>
+        </div>
+        <div>
+          <label for="participated">Participated</label>
+          <select id="participated" name="participated">
+            <option value="yes" {% if bulk_participation_default == "yes" %}selected{% endif %}>Yes</option>
+            <option value="no" {% if bulk_participation_default == "no" %}selected{% endif %}>No</option>
+          </select>
+        </div>
+        <div>
+          <button class="ce-btn" type="submit">Save emails</button>
+        </div>
+      </div>
+    </form>
 
     <form method="get" class="ce-filter">
       <div>
@@ -155,6 +212,7 @@
           <th>Latest application</th>
           <th>Calificación status</th>
           <th>Score</th>
+          <th>Participated</th>
           <th>Actions</th>
         </tr>
       </thead>
@@ -182,13 +240,14 @@
               {% endif %}
             </td>
             <td>{{ p.overall_score|default:"—" }}</td>
+            <td>{% if p.participated %}Yes{% else %}No{% endif %}</td>
             <td>
               <a class="ce-btn ce-btn--ghost" href="{% url 'admin_profile_detail' p.profile_key %}">View profile</a>
             </td>
           </tr>
         {% empty %}
           <tr>
-            <td colspan="6">No profiles match this filter yet.</td>
+            <td colspan="7">No profiles match this filter yet.</td>
           </tr>
         {% endfor %}
       </tbody>

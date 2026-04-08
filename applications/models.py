@@ -484,6 +484,22 @@ class TaskType(models.Model):
         return self.name
 
 
+class ParticipantEmailStatus(models.Model):
+    email = models.EmailField(unique=True, db_index=True)
+    participated = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["email"]
+        verbose_name = "Participant Email Status"
+        verbose_name_plural = "Participant Email Statuses"
+
+    def __str__(self) -> str:
+        state = "yes" if self.participated else "no"
+        return f"{self.email} ({state})"
+
+
 DEFAULT_TASK_TYPES = [
     {
         "slug": "general",

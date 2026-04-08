@@ -3,11 +3,15 @@ import io
 import re
 from collections import defaultdict
 
+from django.contrib import messages
 from django.contrib.admin.views.decorators import staff_member_required
-from django.shortcuts import render
+from django.core.exceptions import ValidationError
+from django.core.validators import validate_email
+from django.shortcuts import redirect, render
+from django.urls import reverse
 from django.utils.dateparse import parse_datetime
 
-from .models import Answer, Application, GradedFile
+from .models import Answer, Application, GradedFile, ParticipantEmailStatus
 
 GROUP_SLUG_RE = re.compile(r"^G(?P<num>\d+)_")
 
@@ -27,6 +31,7 @@ CSV_OVERALL_SCORE_KEYS = ("overallscore", "totalscore", "score")
 CSV_TABLESTAKES_KEYS = ("tablestakesscore",)
 CSV_COMMITMENT_KEYS = ("commitmentscore",)
 CSV_NICE_TO_HAVE_KEYS = ("nicetohavescore",)
+EMAIL_SPLIT_RE = re.compile(r"[,\s;]+")
 
 PROFILE_OVERVIEW_FIELDS = [
     ("full_name", "Full name"),
@@ -55,6 +60,13 @@ def _normalize_email(value: str | None) -> str:
     if not raw:
         return ""
     return raw
+
+
+def _email_status_key(value: str | None) -> str:
+    normalized = _normalize_email(value)
+    if not normalized or "@" not in normalized:
+        return ""
+    return normalized
 
 
 def _normalize_header(value: str | None) -> str:
@@ -89,6 +101,26 @@ def _email_token(value: str | None) -> str:
 def _normalize_profile_key(value: str | None) -> str:
     raw = (value or "").strip().lower()
     return re.sub(r"[^a-z0-9_]+", "", raw)
+
+
+def _parse_email_list(raw_value: str) -> tuple[list[str], list[str]]:
+    seen = set()
+    valid: list[str] = []
+    invalid: list[str] = []
+    for part in EMAIL_SPLIT_RE.split(raw_value or ""):
+        candidate = _normalize_email(part)
+        if not candidate:
+            continue
+        try:
+            validate_email(candidate)
+        except ValidationError:
+            invalid.append(part.strip() or candidate)
+            continue
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        valid.append(candidate)
+    return valid, invalid
 
 
 def _build_profile_key(identity_norm: str, email_norm: str, app_id: int) -> str:
@@ -443,7 +475,64 @@ def _build_profiles():
 
 @staff_member_required
 def profiles_list(request):
+    if request.method == "POST":
+        raw_emails = (request.POST.get("emails") or "").strip()
+        participated_raw = (request.POST.get("participated") or "yes").strip().lower()
+        participated_flag = participated_raw in {"yes", "true", "1", "y"}
+        valid_emails, invalid_emails = _parse_email_list(raw_emails)
+
+        if not valid_emails:
+            messages.error(request, "Enter at least one valid email.")
+        else:
+            created_count = 0
+            updated_count = 0
+            unchanged_count = 0
+            for email in valid_emails:
+                obj, created = ParticipantEmailStatus.objects.get_or_create(
+                    email=email,
+                    defaults={"participated": participated_flag},
+                )
+                if created:
+                    created_count += 1
+                    continue
+                if obj.participated != participated_flag:
+                    obj.participated = participated_flag
+                    obj.save(update_fields=["participated", "updated_at"])
+                    updated_count += 1
+                else:
+                    unchanged_count += 1
+
+            state_label = "Yes" if participated_flag else "No"
+            messages.success(
+                request,
+                (
+                    f"Participation updated to {state_label}: "
+                    f"{created_count} new, {updated_count} changed, {unchanged_count} unchanged."
+                ),
+            )
+
+        if invalid_emails:
+            preview = ", ".join(invalid_emails[:8])
+            extra = "" if len(invalid_emails) <= 8 else ", ..."
+            messages.warning(
+                request,
+                f"Ignored invalid emails ({len(invalid_emails)}): {preview}{extra}",
+            )
+
+        redirect_url = reverse("admin_profiles_list")
+        query_string = (request.META.get("QUERY_STRING") or "").strip()
+        if query_string:
+            redirect_url = f"{redirect_url}?{query_string}"
+        return redirect(redirect_url)
+
     profiles = _build_profiles()
+    participation_map = {
+        _email_status_key(row.email): row.participated
+        for row in ParticipantEmailStatus.objects.only("email", "participated")
+    }
+    for profile in profiles:
+        profile_email_key = _email_status_key(profile.get("email"))
+        profile["participated"] = bool(participation_map.get(profile_email_key, False))
 
     query = (request.GET.get("q") or "").strip()
     query_lower = query.lower()
@@ -478,6 +567,9 @@ def profiles_list(request):
         "total_profiles": len(profiles),
         "visible_profiles": len(filtered),
         "graded_profiles": sum(1 for p in profiles if p["is_graded"]),
+        "participated_profiles": sum(1 for p in profiles if p["participated"]),
+        "bulk_participation_default": "yes",
+        "bulk_email_text": "",
     }
     return render(request, "admin_dash/profiles_list.html", context)
 
@@ -490,4 +582,14 @@ def profile_detail(request, identity_key: str):
 
     profiles = _build_profiles()
     profile = next((p for p in profiles if p["profile_key"] == requested_key), None)
+    if profile:
+        email_key = _email_status_key(profile.get("email"))
+        participation_value = None
+        if email_key:
+            participation_value = (
+                ParticipantEmailStatus.objects.filter(email=email_key)
+                .values_list("participated", flat=True)
+                .first()
+            )
+        profile["participated"] = bool(participation_value) if participation_value is not None else False
     return render(request, "admin_dash/profile_detail.html", {"profile": profile})

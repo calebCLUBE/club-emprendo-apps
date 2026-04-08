@@ -94,6 +94,9 @@
             <div class="ce-k">Email</div>
             <div class="ce-v">{{ profile.email }}</div>
 
+            <div class="ce-k">Participated</div>
+            <div class="ce-v">{% if profile.participated %}Yes{% else %}No{% endif %}</div>
+
             <div class="ce-k">Group</div>
             <div class="ce-v">{% if profile.group_num %}Group {{ profile.group_num }}{% else %}Ungrouped{% endif %}</div>
 

@@ -183,7 +183,7 @@
             </td>
             <td>{{ p.overall_score|default:"—" }}</td>
             <td>
-              <a class="ce-btn ce-btn--ghost" href="{% url 'admin_profile_detail' p.identity_key %}">View profile</a>
+              <a class="ce-btn ce-btn--ghost" href="{% url 'admin_profile_detail' p.profile_key %}">View profile</a>
             </td>
           </tr>
         {% empty %}

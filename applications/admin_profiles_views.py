@@ -12,6 +12,7 @@ from .models import Answer, Application, GradedFile
 GROUP_SLUG_RE = re.compile(r"^G(?P<num>\d+)_")
 
 IDENTITY_SLUGS = ("cedula", "id_number")
+EMAIL_SLUGS = ("email",)
 CSV_IDENTITY_KEYS = (
     "cedula",
     "idnumber",
@@ -20,6 +21,7 @@ CSV_IDENTITY_KEYS = (
     "numeroidentidad",
     "numerodedocumento",
 )
+CSV_EMAIL_KEYS = ("email", "correo", "correoelectronico", "correoelectrnico")
 CSV_RECOMMENDATION_KEYS = ("recommendation", "recomendacion", "calificacion", "status", "estado")
 CSV_OVERALL_SCORE_KEYS = ("overallscore", "totalscore", "score")
 CSV_TABLESTAKES_KEYS = ("tablestakesscore",)
@@ -48,6 +50,13 @@ def _normalize_identity(value: str | None) -> str:
     return re.sub(r"[^0-9A-Za-z]", "", raw).upper()
 
 
+def _normalize_email(value: str | None) -> str:
+    raw = (value or "").strip().lower()
+    if not raw:
+        return ""
+    return raw
+
+
 def _normalize_header(value: str | None) -> str:
     raw = (value or "").strip().lower()
     if not raw:
@@ -61,6 +70,35 @@ def _pick_value(row: dict[str, str], keys: tuple[str, ...]) -> str:
         if value:
             return value
     return ""
+
+
+def _id_token(value: str | None) -> str:
+    normalized = _normalize_identity(value)
+    if not normalized:
+        return ""
+    return f"id:{normalized}"
+
+
+def _email_token(value: str | None) -> str:
+    normalized = _normalize_email(value)
+    if not normalized:
+        return ""
+    return f"email:{normalized}"
+
+
+def _normalize_profile_key(value: str | None) -> str:
+    raw = (value or "").strip().lower()
+    return re.sub(r"[^a-z0-9_]+", "", raw)
+
+
+def _build_profile_key(identity_norm: str, email_norm: str, app_id: int) -> str:
+    if identity_norm:
+        return _normalize_profile_key(f"id_{identity_norm.lower()}")
+    if email_norm:
+        email_fragment = re.sub(r"[^a-z0-9]+", "", email_norm.lower())
+        if email_fragment:
+            return _normalize_profile_key(f"email_{email_fragment}")
+    return _normalize_profile_key(f"app_{app_id}")
 
 
 def _group_number_from_slug(slug: str | None) -> int | None:
@@ -104,17 +142,15 @@ def _parse_graded_file_rows(gf: GradedFile) -> dict[str, dict]:
             if col is not None
         }
         identity_raw = _pick_value(normalized, CSV_IDENTITY_KEYS)
-        identity_key = _normalize_identity(identity_raw)
-        if not identity_key:
+        email_raw = _pick_value(normalized, CSV_EMAIL_KEYS)
+        tokens = {token for token in (_id_token(identity_raw), _email_token(email_raw)) if token}
+        if not tokens:
             continue
 
         created_marker = _parse_created_at(normalized.get("createdat", ""))
-        current = out.get(identity_key)
-        if current and current["created_marker"] > created_marker:
-            continue
-
-        out[identity_key] = {
+        row_data = {
             "identity_raw": identity_raw,
+            "email_raw": email_raw,
             "created_marker": created_marker,
             "recommendation": _pick_value(normalized, CSV_RECOMMENDATION_KEYS),
             "overall_score": _pick_value(normalized, CSV_OVERALL_SCORE_KEYS),
@@ -122,6 +158,11 @@ def _parse_graded_file_rows(gf: GradedFile) -> dict[str, dict]:
             "commitment_score": _pick_value(normalized, CSV_COMMITMENT_KEYS),
             "nice_to_have_score": _pick_value(normalized, CSV_NICE_TO_HAVE_KEYS),
         }
+        for token in tokens:
+            current = out.get(token)
+            if current and current["created_marker"] > created_marker:
+                continue
+            out[token] = row_data
 
     return out
 
@@ -156,68 +197,122 @@ def _build_grading_lookup(target_groups: set[int]) -> tuple[dict[tuple[int, str]
 
 
 def _build_profiles():
-    identity_answers = (
-        Answer.objects.filter(question__slug__in=IDENTITY_SLUGS)
-        .select_related("application", "application__form", "application__form__group", "question")
-        .order_by("-application__created_at", "-application_id", "question__slug", "-id")
+    apps = list(
+        Application.objects.select_related("form", "form__group")
+        .prefetch_related("answers__question")
+        .order_by("-created_at", "-id")
     )
-
-    app_ids_by_identity: dict[str, set[int]] = defaultdict(set)
-    latest_app_id_by_identity: dict[str, int] = {}
-    display_id_by_identity: dict[str, str] = {}
-
-    for ans in identity_answers:
-        identity_key = _normalize_identity(ans.value)
-        if not identity_key:
-            continue
-        app_ids_by_identity[identity_key].add(ans.application_id)
-        if identity_key not in latest_app_id_by_identity:
-            latest_app_id_by_identity[identity_key] = ans.application_id
-            display_id_by_identity[identity_key] = (ans.value or "").strip()
-
-    if not latest_app_id_by_identity:
+    if not apps:
         return []
 
-    apps = (
-        Application.objects.filter(id__in=list(latest_app_id_by_identity.values()))
-        .select_related("form", "form__group")
-        .prefetch_related("answers__question")
-    )
-    app_by_id = {app.id: app for app in apps}
-
-    target_groups = set()
-    app_meta_by_identity = {}
-    for identity_key, app_id in latest_app_id_by_identity.items():
-        app = app_by_id.get(app_id)
-        if not app:
-            continue
-        group_num = getattr(getattr(app, "form", None), "group_id", None)
-        if group_num:
-            group_num = getattr(app.form.group, "number", None)
-        else:
-            group_num = _group_number_from_slug(getattr(app.form, "slug", ""))
-        if group_num:
-            target_groups.add(group_num)
-
-        app_meta_by_identity[identity_key] = {
-            "application": app,
-            "group_num": group_num,
-            "track": _track_from_slug(getattr(app.form, "slug", "")),
-        }
-
-    latest_by_group_track, latest_by_group, rows_by_file_id = _build_grading_lookup(target_groups)
-
-    profiles = []
-    for identity_key, meta in app_meta_by_identity.items():
-        app = meta["application"]
-        group_num = meta["group_num"]
-        track = meta["track"]
-
+    app_data_by_id: dict[int, dict] = {}
+    for app in apps:
         answer_map = {}
         for ans in app.answers.all():
             slug = getattr(ans.question, "slug", "")
             if slug:
                 answer_map[slug] = (ans.value or "").strip()
+
+        id_values = [answer_map.get(slug, "") for slug in IDENTITY_SLUGS]
+        email_values = [app.email or ""] + [answer_map.get(slug, "") for slug in EMAIL_SLUGS]
+
+        id_display = next((val for val in id_values if (val or "").strip()), "")
+        email_display = next((val for val in email_values if (val or "").strip()), "")
+
+        id_norm = _normalize_identity(id_display)
+        email_norm = _normalize_email(email_display)
+        tokens = {
+            token
+            for token in (
+                *(_id_token(value) for value in id_values),
+                *(_email_token(value) for value in email_values),
+            )
+            if token
+        }
+
+        app_data_by_id[app.id] = {
+            "app": app,
+            "answer_map": answer_map,
+            "id_display": id_display,
+            "email_display": email_display,
+            "id_norm": id_norm,
+            "email_norm": email_norm,
+            "tokens": tokens,
+        }
+
+    # Union applications by shared identity token (cedula or email).
+    parent = {app_id: app_id for app_id in app_data_by_id.keys()}
+
+    def _find(app_id: int) -> int:
+        while parent[app_id] != app_id:
+            parent[app_id] = parent[parent[app_id]]
+            app_id = parent[app_id]
+        return app_id
+
+    def _union(a: int, b: int) -> None:
+        ra = _find(a)
+        rb = _find(b)
+        if ra != rb:
+            parent[rb] = ra
+
+    token_owner: dict[str, int] = {}
+    for app_id, payload in app_data_by_id.items():
+        for token in payload["tokens"]:
+            owner = token_owner.get(token)
+            if owner is None:
+                token_owner[token] = app_id
+            else:
+                _union(app_id, owner)
+
+    clusters: dict[int, list[int]] = defaultdict(list)
+    for app_id in app_data_by_id.keys():
+        clusters[_find(app_id)].append(app_id)
+
+    latest_app_id_by_cluster: dict[int, int] = {}
+    target_groups: set[int] = set()
+    for root, app_ids in clusters.items():
+        latest_app_id = max(
+            app_ids,
+            key=lambda app_id: (
+                app_data_by_id[app_id]["app"].created_at,
+                app_id,
+            ),
+        )
+        latest_app_id_by_cluster[root] = latest_app_id
+        latest_app = app_data_by_id[latest_app_id]["app"]
+        group_num = getattr(getattr(latest_app, "form", None), "group_id", None)
+        if group_num:
+            group_num = getattr(latest_app.form.group, "number", None)
+        else:
+            group_num = _group_number_from_slug(getattr(latest_app.form, "slug", ""))
+        if group_num:
+            target_groups.add(group_num)
+
+    latest_by_group_track, latest_by_group, rows_by_file_id = _build_grading_lookup(target_groups)
+
+    profiles = []
+    for root, app_ids in clusters.items():
+        latest_payload = app_data_by_id[latest_app_id_by_cluster[root]]
+        app = latest_payload["app"]
+        answer_map = latest_payload["answer_map"]
+
+        group_num = getattr(getattr(app, "form", None), "group_id", None)
+        if group_num:
+            group_num = getattr(app.form.group, "number", None)
+        else:
+            group_num = _group_number_from_slug(getattr(app.form, "slug", ""))
+        track = _track_from_slug(getattr(app.form, "slug", ""))
+
+        cluster_tokens: set[str] = set()
+        cluster_id_values: list[str] = []
+        cluster_email_values: list[str] = []
+        for app_id in app_ids:
+            payload = app_data_by_id[app_id]
+            cluster_tokens.update(payload["tokens"])
+            if payload["id_display"]:
+                cluster_id_values.append(payload["id_display"])
+            if payload["email_display"]:
+                cluster_email_values.append(payload["email_display"])
 
         grade_file = None
         if group_num and track:
@@ -227,11 +322,23 @@ def _build_profiles():
 
         grade_row = {}
         if grade_file:
-            grade_row = rows_by_file_id.get(grade_file.id, {}).get(identity_key, {})
+            token_map = rows_by_file_id.get(grade_file.id, {})
+            for token in cluster_tokens:
+                row = token_map.get(token)
+                if not row:
+                    continue
+                if not grade_row or row["created_marker"] > grade_row["created_marker"]:
+                    grade_row = row
             if not grade_row and group_num:
                 fallback_file = latest_by_group.get(group_num)
-                if fallback_file:
-                    grade_row = rows_by_file_id.get(fallback_file.id, {}).get(identity_key, {})
+                if fallback_file and fallback_file.id != grade_file.id:
+                    token_map = rows_by_file_id.get(fallback_file.id, {})
+                    for token in cluster_tokens:
+                        row = token_map.get(token)
+                        if not row:
+                            continue
+                        if not grade_row or row["created_marker"] > grade_row["created_marker"]:
+                            grade_row = row
                     if grade_row:
                         grade_file = fallback_file
 
@@ -257,13 +364,33 @@ def _build_profiles():
         )
 
         calificacion_status = recommendation or ("Scored" if overall_score else "Not graded")
+
         display_identity = (
-            display_id_by_identity.get(identity_key)
-            or answer_map.get("cedula")
-            or answer_map.get("id_number")
-            or grade_row.get("identity_raw")
-            or identity_key
+            latest_payload["id_display"]
+            or (cluster_id_values[0] if cluster_id_values else "")
+            or (grade_row.get("identity_raw") or "").strip()
+            or latest_payload["email_display"]
+            or (cluster_email_values[0] if cluster_email_values else "")
+            or "—"
         )
+        display_email = (
+            latest_payload["email_display"]
+            or (cluster_email_values[0] if cluster_email_values else "")
+            or (grade_row.get("email_raw") or "").strip()
+            or "—"
+        )
+
+        identity_norm = (
+            latest_payload["id_norm"]
+            or _normalize_identity(cluster_id_values[0] if cluster_id_values else "")
+            or _normalize_identity(grade_row.get("identity_raw"))
+        )
+        email_norm = (
+            latest_payload["email_norm"]
+            or _normalize_email(cluster_email_values[0] if cluster_email_values else "")
+            or _normalize_email(grade_row.get("email_raw"))
+        )
+        profile_key = _build_profile_key(identity_norm, email_norm, app.id)
 
         overview_rows = []
         for slug, label in PROFILE_OVERVIEW_FIELDS:
@@ -272,17 +399,18 @@ def _build_profiles():
                 overview_rows.append({"label": label, "value": value})
 
         profile = {
-            "identity_key": identity_key,
+            "profile_key": profile_key,
+            "identity_key": identity_norm or email_norm or profile_key,
             "identity_display": display_identity,
             "applicant_name": answer_map.get("full_name") or app.name or "—",
-            "email": answer_map.get("email") or app.email or "—",
+            "email": display_email,
             "group_num": group_num,
             "track": track or "—",
             "form_slug": getattr(app.form, "slug", "—"),
             "form_name": getattr(app.form, "name", "—"),
             "applied_at": app.created_at,
             "application_id": app.id,
-            "application_count": len(app_ids_by_identity.get(identity_key, [])),
+            "application_count": len(app_ids),
             "calificacion_status": calificacion_status,
             "recommendation": recommendation,
             "overall_score": overall_score,
@@ -297,11 +425,14 @@ def _build_profiles():
         profile["search_text"] = " ".join(
             [
                 str(profile["identity_display"]),
+                str(profile["identity_key"]),
                 str(profile["applicant_name"]),
                 str(profile["email"]),
                 str(profile["form_slug"]),
                 str(profile["group_num"] or ""),
                 str(profile["calificacion_status"]),
+                " ".join(cluster_email_values),
+                " ".join(cluster_id_values),
             ]
         ).lower()
         profiles.append(profile)
@@ -353,10 +484,10 @@ def profiles_list(request):
 
 @staff_member_required
 def profile_detail(request, identity_key: str):
-    requested_key = _normalize_identity(identity_key)
+    requested_key = _normalize_profile_key(identity_key)
     if not requested_key:
         return render(request, "admin_dash/profile_detail.html", {"profile": None})
 
     profiles = _build_profiles()
-    profile = next((p for p in profiles if p["identity_key"] == requested_key), None)
+    profile = next((p for p in profiles if p["profile_key"] == requested_key), None)
     return render(request, "admin_dash/profile_detail.html", {"profile": profile})

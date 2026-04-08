@@ -1,6 +1,6 @@
 # applications/admin_urls.py
 from django.urls import path
-from . import admin_views, admin_dashboard_views
+from . import admin_views, admin_dashboard_views, admin_profiles_views
 
 urlpatterns = [
     path("apps/", admin_views.apps_list, name="admin_apps_list"),
@@ -10,4 +10,6 @@ urlpatterns = [
     path("apps/delete-group/<int:group_num>/", admin_views.delete_group, name="admin_delete_group"),
     path("apps/forms/<int:form_id>/", admin_views.app_form_detail, name="admin_app_form_detail"),
     path("database/", admin_views.database_home, name="admin_database"),
+    path("profiles/", admin_profiles_views.profiles_list, name="admin_profiles_list"),
+    path("profiles/<str:identity_key>/", admin_profiles_views.profile_detail, name="admin_profile_detail"),
 ]

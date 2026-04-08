@@ -1,0 +1,173 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+<div class="ce-admin-wrap">
+  <div class="ce-admin-card ce-admin-card--wide">
+    <style>
+      .ce-actions {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin: 12px 0 16px;
+      }
+      .ce-btn {
+        display: inline-block;
+        padding: 8px 12px;
+        border-radius: 8px;
+        border: 1px solid #223413;
+        background: #223413;
+        color: #fff !important;
+        text-decoration: none;
+        font-weight: 600;
+      }
+      .ce-btn--ghost {
+        background: #fff;
+        color: #223413 !important;
+      }
+      .ce-grid {
+        display: grid;
+        grid-template-columns: 1.2fr 1fr;
+        gap: 12px;
+      }
+      .ce-panel {
+        border: 1px solid #ececec;
+        border-radius: 12px;
+        padding: 12px;
+        background: #fff;
+      }
+      .ce-panel h2 {
+        margin: 0 0 8px;
+        font-size: 18px;
+      }
+      .ce-kv {
+        display: grid;
+        grid-template-columns: 150px 1fr;
+        gap: 6px 12px;
+      }
+      .ce-k {
+        color: #666;
+        font-size: 13px;
+      }
+      .ce-v {
+        font-size: 14px;
+      }
+      .ce-table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      .ce-table th,
+      .ce-table td {
+        border-bottom: 1px solid #eee;
+        padding: 8px 6px;
+        text-align: left;
+        vertical-align: top;
+      }
+      @media (max-width: 980px) {
+        .ce-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+
+    <h1 style="margin: 0;">Profile</h1>
+    <div class="ce-actions">
+      <a class="ce-btn ce-btn--ghost" href="{% url 'admin_profiles_list' %}">Back to profiles</a>
+      <a class="ce-btn ce-btn--ghost" href="{% url 'admin_database' %}">Database</a>
+      {% if profile %}
+        <a class="ce-btn ce-btn--ghost" href="{% url 'admin_database_submission_detail' profile.application_id %}">Open submission</a>
+      {% endif %}
+    </div>
+
+    {% if not profile %}
+      <p>Profile not found.</p>
+    {% else %}
+      <div class="ce-grid">
+        <section class="ce-panel">
+          <h2>General Overview</h2>
+          <div class="ce-kv">
+            <div class="ce-k">Cédula</div>
+            <div class="ce-v">{{ profile.identity_display }}</div>
+
+            <div class="ce-k">Name</div>
+            <div class="ce-v">{{ profile.applicant_name }}</div>
+
+            <div class="ce-k">Email</div>
+            <div class="ce-v">{{ profile.email }}</div>
+
+            <div class="ce-k">Group</div>
+            <div class="ce-v">{% if profile.group_num %}Group {{ profile.group_num }}{% else %}Ungrouped{% endif %}</div>
+
+            <div class="ce-k">Track</div>
+            <div class="ce-v">{{ profile.track }}</div>
+
+            <div class="ce-k">Form</div>
+            <div class="ce-v">{{ profile.form_name }} ({{ profile.form_slug }})</div>
+
+            <div class="ce-k">Latest application</div>
+            <div class="ce-v">{{ profile.applied_at }}</div>
+
+            <div class="ce-k">Total applications</div>
+            <div class="ce-v">{{ profile.application_count }}</div>
+          </div>
+        </section>
+
+        <section class="ce-panel">
+          <h2>Calificación</h2>
+          <div class="ce-kv">
+            <div class="ce-k">Status</div>
+            <div class="ce-v">{{ profile.calificacion_status }}</div>
+
+            <div class="ce-k">Recommendation</div>
+            <div class="ce-v">{{ profile.recommendation|default:"—" }}</div>
+
+            <div class="ce-k">Overall score</div>
+            <div class="ce-v">{{ profile.overall_score|default:"—" }}</div>
+
+            <div class="ce-k">Tablestakes</div>
+            <div class="ce-v">{{ profile.tablestakes_score|default:"—" }}</div>
+
+            <div class="ce-k">Commitment</div>
+            <div class="ce-v">{{ profile.commitment_score|default:"—" }}</div>
+
+            <div class="ce-k">Nice to have</div>
+            <div class="ce-v">{{ profile.nice_to_have_score|default:"—" }}</div>
+
+            <div class="ce-k">Source graded file</div>
+            <div class="ce-v">
+              {% if profile.graded_file_slug %}
+                {{ profile.graded_file_slug }}{% if profile.graded_file_created_at %} · {{ profile.graded_file_created_at }}{% endif %}
+              {% else %}
+                —
+              {% endif %}
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <section class="ce-panel" style="margin-top:12px;">
+        <h2>Latest Application Fields</h2>
+        <table class="ce-table">
+          <thead>
+            <tr>
+              <th>Field</th>
+              <th>Value</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in profile.overview_rows %}
+              <tr>
+                <td>{{ row.label }}</td>
+                <td>{{ row.value }}</td>
+              </tr>
+            {% empty %}
+              <tr>
+                <td colspan="2">No additional overview fields found in the latest application.</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </section>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

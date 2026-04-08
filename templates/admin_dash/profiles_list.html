@@ -1,0 +1,198 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+<div class="ce-admin-wrap">
+  <div class="ce-admin-card ce-admin-card--wide">
+    <style>
+      .ce-actions {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin: 12px 0 16px;
+      }
+      .ce-btn {
+        display: inline-block;
+        padding: 8px 12px;
+        border-radius: 8px;
+        border: 1px solid #223413;
+        background: #223413;
+        color: #fff !important;
+        text-decoration: none;
+        font-weight: 600;
+      }
+      .ce-btn--ghost {
+        background: #fff;
+        color: #223413 !important;
+      }
+      .ce-summary {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 10px;
+        margin: 12px 0 14px;
+      }
+      .ce-summary-card {
+        border: 1px solid #ebebeb;
+        border-radius: 10px;
+        padding: 10px;
+        background: #fff;
+      }
+      .ce-summary-k {
+        font-size: 12px;
+        color: #666;
+      }
+      .ce-summary-v {
+        margin-top: 4px;
+        font-size: 24px;
+        font-weight: 700;
+        line-height: 1.1;
+      }
+      .ce-filter {
+        display: grid;
+        grid-template-columns: minmax(240px, 1.5fr) minmax(160px, 1fr) minmax(180px, 1fr) auto;
+        gap: 10px;
+        align-items: end;
+        margin: 12px 0 16px;
+      }
+      .ce-filter label {
+        display: block;
+        font-weight: 600;
+        margin-bottom: 4px;
+      }
+      .ce-filter input,
+      .ce-filter select {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 8px;
+        min-height: 42px;
+        line-height: 1.45;
+      }
+      .ce-table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      .ce-table th,
+      .ce-table td {
+        border-bottom: 1px solid #eee;
+        padding: 10px 8px;
+        text-align: left;
+        vertical-align: top;
+      }
+      .ce-muted {
+        color: #666;
+        font-size: 12px;
+        margin-top: 2px;
+      }
+      .ce-pill {
+        display: inline-block;
+        padding: 4px 8px;
+        border-radius: 999px;
+        font-size: 12px;
+        border: 1px solid #dae3d2;
+        background: #f7fbf3;
+        color: #203213;
+      }
+      @media (max-width: 1024px) {
+        .ce-filter {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+
+    <h1 style="margin: 0;">Profiles</h1>
+    <div class="ce-actions">
+      <a class="ce-btn ce-btn--ghost" href="/admin/">Admin home</a>
+      <a class="ce-btn ce-btn--ghost" href="{% url 'admin_database' %}">Database</a>
+      <a class="ce-btn ce-btn--ghost" href="{% url 'admin_grading_home' %}">Grading</a>
+    </div>
+
+    <div class="ce-summary">
+      <div class="ce-summary-card">
+        <div class="ce-summary-k">Total profiles</div>
+        <div class="ce-summary-v">{{ total_profiles }}</div>
+      </div>
+      <div class="ce-summary-card">
+        <div class="ce-summary-k">Visible profiles</div>
+        <div class="ce-summary-v">{{ visible_profiles }}</div>
+      </div>
+      <div class="ce-summary-card">
+        <div class="ce-summary-k">Graded profiles</div>
+        <div class="ce-summary-v">{{ graded_profiles }}</div>
+      </div>
+    </div>
+
+    <form method="get" class="ce-filter">
+      <div>
+        <label for="q">Search (cédula, name, email)</label>
+        <input id="q" name="q" value="{{ query }}" placeholder="e.g. 123456789 or Ana">
+      </div>
+      <div>
+        <label for="group">Group</label>
+        <select id="group" name="group">
+          <option value="">All groups</option>
+          {% for g in group_options %}
+            <option value="{{ g }}" {% if group_filter == g|stringformat:"s" %}selected{% endif %}>Group {{ g }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label for="grading">Calificación</label>
+        <select id="grading" name="grading">
+          <option value="all" {% if status_filter == "all" %}selected{% endif %}>All</option>
+          <option value="graded" {% if status_filter == "graded" %}selected{% endif %}>Graded</option>
+          <option value="not_graded" {% if status_filter == "not_graded" %}selected{% endif %}>Not graded</option>
+        </select>
+      </div>
+      <div>
+        <button class="ce-btn" type="submit">Apply</button>
+      </div>
+    </form>
+
+    <table class="ce-table">
+      <thead>
+        <tr>
+          <th>Cédula</th>
+          <th>Applicant</th>
+          <th>Latest application</th>
+          <th>Calificación status</th>
+          <th>Score</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in profiles %}
+          <tr>
+            <td>
+              <strong>{{ p.identity_display }}</strong>
+              <div class="ce-muted">Profile key: {{ p.identity_key }}</div>
+            </td>
+            <td>
+              <strong>{{ p.applicant_name }}</strong>
+              <div class="ce-muted">{{ p.email }}</div>
+              <div class="ce-muted">{{ p.application_count }} application{{ p.application_count|pluralize }}</div>
+            </td>
+            <td>
+              {% if p.group_num %}<span class="ce-pill">Group {{ p.group_num }}</span>{% else %}<span class="ce-pill">Ungrouped</span>{% endif %}
+              <div class="ce-muted">{{ p.form_slug }}{% if p.track and p.track != "—" %} · {{ p.track }}{% endif %}</div>
+              <div class="ce-muted">{{ p.applied_at }}</div>
+            </td>
+            <td>
+              <strong>{{ p.calificacion_status }}</strong>
+              {% if p.recommendation and p.recommendation != p.calificacion_status %}
+                <div class="ce-muted">Recommendation: {{ p.recommendation }}</div>
+              {% endif %}
+            </td>
+            <td>{{ p.overall_score|default:"—" }}</td>
+            <td>
+              <a class="ce-btn ce-btn--ghost" href="{% url 'admin_profile_detail' p.identity_key %}">View profile</a>
+            </td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="6">No profiles match this filter yet.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

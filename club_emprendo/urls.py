@@ -6,6 +6,7 @@ from django.shortcuts import redirect
 from applications import admin_views
 from applications import admin_dashboard_views
 from applications import admin_task_views
+from applications import admin_profiles_views
 
 urlpatterns = [
     # ============================
@@ -35,6 +36,12 @@ urlpatterns = [
     path("admin/task-manager/edit/<int:task_id>/", admin_task_views.task_manager_edit, name="admin_task_manager_edit"),
     path("admin/task-manager/website-revisions/", admin_task_views.task_manager_website_revisions, name="admin_task_manager_website_revisions"),
     path("admin/task-manager/user/<int:user_id>/", admin_task_views.task_manager_user_tasks, name="admin_task_manager_user_tasks"),
+
+    # ============================
+    # PROFILES
+    # ============================
+    path("admin/profiles/", admin_profiles_views.profiles_list, name="admin_profiles_list"),
+    path("admin/profiles/<str:identity_key>/", admin_profiles_views.profile_detail, name="admin_profile_detail"),
 
     # ============================
     # DATABASE

@@ -59,6 +59,36 @@
         color: #666;
         font-size: 13px;
       }
+      .ce-bulk {
+        display: flex;
+        align-items: flex-end;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin: 12px 0 12px;
+        padding: 10px;
+        border: 1px solid #eee;
+        border-radius: 10px;
+        background: #fafafa;
+      }
+      .ce-bulk label {
+        display: block;
+        font-weight: 600;
+        margin-bottom: 4px;
+      }
+      .ce-bulk select {
+        min-width: 180px;
+        padding: 8px;
+        min-height: 42px;
+        line-height: 1.45;
+      }
+      .ce-check-col {
+        width: 36px;
+        text-align: center;
+      }
+      .ce-check-col input[type="checkbox"] {
+        width: 16px;
+        height: 16px;
+      }
     </style>
 
     <h1 style="margin: 0;">Task Overview</h1>
@@ -98,42 +128,97 @@
       <p class="ce-muted">Showing tasks for all people.</p>
     {% endif %}
 
-    <table class="ce-table">
-      <thead>
-        <tr>
-          <th>Task</th>
-          <th>Assigned to</th>
-          <th>Type</th>
-          <th>Priority</th>
-          <th>Status</th>
-          <th>Due</th>
-          <th>Created</th>
-          <th>Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for t in tasks %}
+    <form method="post">
+      {% csrf_token %}
+      <input type="hidden" name="assignee" value="{{ selected_user_id }}">
+      <div class="ce-bulk">
+        <div>
+          <label for="bulk_status">Change status</label>
+          <select id="bulk_status" name="bulk_status">
+            <option value="">No change</option>
+            {% for value, label in status_choices %}
+              <option value="{{ value }}">{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label for="bulk_priority">Change priority</label>
+          <select id="bulk_priority" name="bulk_priority">
+            <option value="">No change</option>
+            {% for value, label in priority_choices %}
+              <option value="{{ value }}">{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <button class="ce-btn" type="submit">Apply to selected</button>
+        </div>
+      </div>
+
+      <table class="ce-table">
+        <thead>
           <tr>
-            <td>
-              <strong>{{ t.title }}</strong>
-            </td>
-            <td>{{ t.assigned_to }}</td>
-            <td>{{ t.task_type_name }}</td>
-            <td>{{ t.get_priority_display }}</td>
-            <td>{{ t.get_status_display }}</td>
-            <td>{{ t.due_date|default:"—" }}</td>
-            <td>{{ t.created_at }}</td>
-            <td>
-              <a href="{% url 'admin_task_manager_task_overview' t.id %}">View task</a>
-            </td>
+            <th class="ce-check-col">
+              <input id="ce-select-all" type="checkbox" aria-label="Select all tasks">
+            </th>
+            <th>Task</th>
+            <th>Assigned to</th>
+            <th>Type</th>
+            <th>Priority</th>
+            <th>Status</th>
+            <th>Due</th>
+            <th>Created</th>
+            <th>Actions</th>
           </tr>
-        {% empty %}
-          <tr>
-            <td colspan="8">No tasks found for this filter.</td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {% for t in tasks %}
+            <tr>
+              <td class="ce-check-col">
+                <input class="ce-task-check" type="checkbox" name="task_ids" value="{{ t.id }}" aria-label="Select task {{ t.title }}">
+              </td>
+              <td>
+                <strong>{{ t.title }}</strong>
+              </td>
+              <td>{{ t.assigned_to }}</td>
+              <td>{{ t.task_type_name }}</td>
+              <td>{{ t.get_priority_display }}</td>
+              <td>{{ t.get_status_display }}</td>
+              <td>{{ t.due_date|default:"—" }}</td>
+              <td>{{ t.created_at }}</td>
+              <td>
+                <a href="{% url 'admin_task_manager_task_overview' t.id %}">View task</a>
+              </td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="9">No tasks found for this filter.</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </form>
   </div>
 </div>
+<script>
+  (function () {
+    const selectAll = document.getElementById("ce-select-all");
+    const checks = Array.from(document.querySelectorAll(".ce-task-check"));
+    if (!selectAll || !checks.length) {
+      return;
+    }
+    selectAll.addEventListener("change", function () {
+      checks.forEach(function (checkbox) {
+        checkbox.checked = selectAll.checked;
+      });
+    });
+    checks.forEach(function (checkbox) {
+      checkbox.addEventListener("change", function () {
+        selectAll.checked = checks.every(function (c) {
+          return c.checked;
+        });
+      });
+    });
+  })();
+</script>
 {% endblock %}

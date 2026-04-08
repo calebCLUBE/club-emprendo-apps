@@ -196,7 +196,100 @@ def task_manager_overview(request):
     user_model = get_user_model()
     users = _ordered_users(user_model)
 
-    selected_user_id = (request.GET.get("assignee") or "").strip()
+    selected_user_id = (request.GET.get("assignee") or request.POST.get("assignee") or "").strip()
+
+    if request.method == "POST":
+        task_ids = [task_id for task_id in request.POST.getlist("task_ids") if str(task_id).strip()]
+        bulk_status = (request.POST.get("bulk_status") or "").strip()
+        bulk_priority = (request.POST.get("bulk_priority") or "").strip()
+        valid_statuses = {choice[0] for choice in UserTask.STATUS_CHOICES}
+        valid_priorities = {choice[0] for choice in UserTask.PRIORITY_CHOICES}
+
+        if not task_ids:
+            messages.error(request, "Select at least one task.")
+        elif not bulk_status and not bulk_priority:
+            messages.error(request, "Choose a new status and/or priority before applying.")
+        elif bulk_status and bulk_status not in valid_statuses:
+            messages.error(request, "Please choose a valid status.")
+        elif bulk_priority and bulk_priority not in valid_priorities:
+            messages.error(request, "Please choose a valid priority.")
+        else:
+            selected_tasks = (
+                UserTask.objects.filter(id__in=task_ids)
+                .select_related("assigned_to", "requested_by", "task_type_ref")
+                .order_by("id")
+            )
+            updated_count = 0
+            completion_email_count = 0
+            revision_email_count = 0
+            for task in selected_tasks:
+                old_status = task.status
+                update_fields = []
+                status_changed = False
+
+                if bulk_status and task.status != bulk_status:
+                    task.status = bulk_status
+                    update_fields.append("status")
+                    status_changed = True
+
+                if bulk_priority and task.priority != bulk_priority:
+                    task.priority = bulk_priority
+                    update_fields.append("priority")
+
+                if not update_fields:
+                    continue
+
+                update_fields.append("updated_at")
+                task.save(update_fields=update_fields)
+                updated_count += 1
+
+                if status_changed and old_status != UserTask.STATUS_DONE and task.status == UserTask.STATUS_DONE:
+                    _send_requester_completion_email(request, task)
+                    completion_email_count += 1
+                elif (
+                    status_changed
+                    and old_status != UserTask.STATUS_REVISION_NEEDED
+                    and task.status == UserTask.STATUS_REVISION_NEEDED
+                ):
+                    _send_requester_revision_needed_email(request, task)
+                    revision_email_count += 1
+
+            if updated_count == 0:
+                messages.info(request, "No changes were needed for the selected tasks.")
+            else:
+                extra_parts = []
+                if completion_email_count:
+                    extra_parts.append(
+                        f"{completion_email_count} completion notification"
+                        + ("s" if completion_email_count != 1 else "")
+                    )
+                if revision_email_count:
+                    extra_parts.append(
+                        f"{revision_email_count} revision-needed notification"
+                        + ("s" if revision_email_count != 1 else "")
+                    )
+                if extra_parts:
+                    messages.success(
+                        request,
+                        f"Updated {updated_count} task"
+                        + ("s" if updated_count != 1 else "")
+                        + ". Sent "
+                        + " and ".join(extra_parts)
+                        + ".",
+                    )
+                else:
+                    messages.success(
+                        request,
+                        f"Updated {updated_count} task"
+                        + ("s" if updated_count != 1 else "")
+                        + ".",
+                    )
+
+        redirect_url = reverse("admin_task_manager_overview")
+        if selected_user_id:
+            redirect_url = f"{redirect_url}?assignee={selected_user_id}"
+        return redirect(redirect_url)
+
     selected_user = None
     tasks = UserTask.objects.all()
     if selected_user_id:
@@ -218,6 +311,8 @@ def task_manager_overview(request):
             "users": users,
             "selected_user_id": selected_user_id,
             "selected_user": selected_user,
+            "status_choices": UserTask.STATUS_CHOICES,
+            "priority_choices": UserTask.PRIORITY_CHOICES,
             "task_type_admin_url": _task_type_link(),
         },
     )

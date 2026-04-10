@@ -45,6 +45,28 @@
       display: flex;
       align-items: center;
     }
+    .ce-grade-priority-form {
+      display: grid;
+      gap: 8px;
+      min-width: 280px;
+    }
+    .ce-grade-priority-label {
+      font-size: 12px;
+      line-height: 1.25;
+      color: #555;
+      font-weight: 600;
+    }
+    .ce-grade-priority-input {
+      width: 100%;
+      min-height: 78px;
+      padding: 8px 10px;
+      border: 1px solid #cfcfcf;
+      border-radius: 8px;
+      resize: vertical;
+      box-sizing: border-box;
+      font-family: inherit;
+      font-size: 13px;
+    }
     .ce-btn {
       height: 38px;
       padding: 0 14px;
@@ -218,8 +240,17 @@
                 {% endif %}
               </td>
               <td>
-                <form method="post" action="{% url 'admin_start_grading_job' f.slug %}">
+                <form method="post" action="{% url 'admin_start_grading_job' f.slug %}" class="ce-grade-priority-form">
                   {% csrf_token %}
+                  <label class="ce-grade-priority-label" for="priority_emails_{{ forloop.counter }}">
+                    Priority status emails (optional)
+                  </label>
+                  <textarea
+                    id="priority_emails_{{ forloop.counter }}"
+                    name="priority_emails"
+                    class="ce-grade-priority-input"
+                    placeholder="one@email.com&#10;two@email.com"
+                  ></textarea>
                   <button class="ce-btn ce-btn-primary" type="submit">Grade (live)</button>
                 </form>
               </td>

@@ -9,6 +9,7 @@ import logging
 MODEL = "gpt-5.2"
 TIMEOUT = 60
 logger = logging.getLogger(__name__)
+PRIORITY_STATUS = "Priority"
 
 W = {
     "prior_mentoring": 2,
@@ -124,6 +125,13 @@ def _disqualification_reasons(row: dict) -> list[str]:
     if str(row.get("business_age", "")).strip().lower() == "idea":
         reasons.append("business_age=idea")
     return reasons
+
+
+def _is_priority_email(row: dict, priority_emails: set[str] | None) -> bool:
+    if not priority_emails:
+        return False
+    email = str(row.get("email", "") or "").strip().lower()
+    return bool(email and email in priority_emails)
 
 
 # ==================================================
@@ -279,12 +287,14 @@ COLUMNS = [
 # Grade ONE row (NO category row here)
 # ==================================================
 
-def grade_single_row(row: dict, client: OpenAI) -> list:
+def grade_single_row(row: dict, client: OpenAI, priority_emails: set[str] | None = None) -> list:
     disqual_reasons = _disqualification_reasons(row)
     status = status_from_participation(
         row.get("participated_before"),
         disqualified=bool(disqual_reasons),
     )
+    if _is_priority_email(row, priority_emails):
+        status = PRIORITY_STATUS
 
     prior_pt = prior_mentoring_pts(row.get("prior_mentoring"))
     business_age_pt = business_age_pts(row.get("business_age"))
@@ -372,15 +382,25 @@ def grade_single_row(row: dict, client: OpenAI) -> list:
 # Grade FULL dataframe (MASTER CSV)
 # ==================================================
 
-def grade_from_dataframe(df: pd.DataFrame, client: OpenAI, log_fn=None) -> pd.DataFrame:
+def grade_from_dataframe(
+    df: pd.DataFrame,
+    client: OpenAI,
+    log_fn=None,
+    priority_emails: set[str] | list[str] | tuple[str, ...] | None = None,
+) -> pd.DataFrame:
     rows = []
     total = len(df)
+    normalized_priority_emails = {str(e).strip().lower() for e in (priority_emails or []) if str(e).strip()}
 
     for i, (_, r) in enumerate(df.iterrows(), start=1):
         if log_fn:
             log_fn(f"→ Grading row {i}/{total}")
 
-        out = grade_single_row(r.to_dict(), client)
+        out = grade_single_row(
+            r.to_dict(),
+            client,
+            priority_emails=normalized_priority_emails,
+        )
         rows.append(out)
 
     out_df = pd.DataFrame(rows, columns=COLUMNS)

@@ -177,6 +177,12 @@ def _run_grade_job(job_id: int):
 
     try:
         _job_log(job, "✅ Starting grading job...")
+        priority_emails = set(_norm_email_list(job.priority_emails_text))
+        if priority_emails:
+            _job_log(
+                job,
+                f"⭐ Priority status override enabled for {len(priority_emails)} email(s).",
+            )
 
         # ----------------------------------
         # Validate form type
@@ -247,7 +253,8 @@ def _run_grade_job(job_id: int):
             graded_df = grade_from_dataframe(
                 master_df,
                 client,
-                log_fn=lambda msg: _job_log(job, msg)
+                log_fn=lambda msg: _job_log(job, msg),
+                priority_emails=priority_emails,
             )
 
         else:  # M_A2
@@ -255,7 +262,8 @@ def _run_grade_job(job_id: int):
             graded_df = grade_from_dataframe(
                 master_df,
                 client,
-                log_fn=lambda msg: _job_log(job, msg)
+                log_fn=lambda msg: _job_log(job, msg),
+                priority_emails=priority_emails,
             )
 
         if graded_df is None or graded_df.empty:
@@ -304,10 +312,12 @@ def download_graded_csv(request, graded_file_id: int):
 @staff_member_required
 @require_POST
 def start_grading_job(request, form_slug: str):
+    priority_emails = _norm_email_list(request.POST.get("priority_emails", ""))
     job = GradingJob.objects.create(
         form_slug=form_slug,
         status=GradingJob.STATUS_PENDING,
         log_text="Queued...\n",
+        priority_emails_text="\n".join(priority_emails),
     )
 
     t = threading.Thread(target=_run_grade_job, args=(job.id,), daemon=True)

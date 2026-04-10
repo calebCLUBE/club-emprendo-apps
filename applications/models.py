@@ -423,6 +423,11 @@ class GradingJob(models.Model):
         default="",
         help_text="Append-only job log (progress, errors, tracebacks).",
     )
+    priority_emails_text = models.TextField(
+        blank=True,
+        default="",
+        help_text="Normalized newline-separated emails to force into Priority status during grading.",
+    )
 
     # --------------------
     # Timestamps

@@ -6,25 +6,27 @@
       display: block;
     }
     .ce-admin-home-card {
-      max-width: min(1800px, calc(100vw - 44px));
-      width: min(1800px, calc(100vw - 44px));
+      width: 100%;
+      max-width: none;
+      box-sizing: border-box;
       margin-left: auto;
       margin-right: auto;
     }
     .ce-admin-home-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      grid-template-columns: repeat(3, minmax(0, 1fr));
       gap: 16px;
     }
     .ce-admin-home-grid .ce-admin-tile {
-      min-height: 116px;
-      padding: 18px 16px;
+      min-height: 104px;
+      padding: 16px 14px;
       text-align: center;
       display: flex;
       flex-direction: column;
       justify-content: center;
       align-items: center;
       border-radius: 16px;
+      box-sizing: border-box;
     }
     .ce-admin-home-grid .ce-admin-tile-title {
       font-size: 19px;
@@ -35,6 +37,16 @@
       font-size: 13px;
       line-height: 1.35;
       max-width: 260px;
+    }
+    @media (max-width: 1100px) {
+      .ce-admin-home-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+    @media (max-width: 720px) {
+      .ce-admin-home-grid {
+        grid-template-columns: 1fr;
+      }
     }
   </style>
   <div class="ce-admin-wrap ce-admin-home-wrap">

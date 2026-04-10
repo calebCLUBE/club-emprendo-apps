@@ -208,6 +208,7 @@
       <thead>
         <tr>
           <th>Cédula</th>
+          <th>Email</th>
           <th>Applicant</th>
           <th>Latest application</th>
           <th>Calificación status</th>
@@ -221,11 +222,10 @@
           <tr>
             <td>
               <strong>{{ p.identity_display }}</strong>
-              <div class="ce-muted">Profile key: {{ p.identity_key }}</div>
             </td>
+            <td>{{ p.email }}</td>
             <td>
               <strong>{{ p.applicant_name }}</strong>
-              <div class="ce-muted">{{ p.email }}</div>
               <div class="ce-muted">{{ p.application_count }} application{{ p.application_count|pluralize }}</div>
             </td>
             <td>
@@ -247,7 +247,7 @@
           </tr>
         {% empty %}
           <tr>
-            <td colspan="7">No profiles match this filter yet.</td>
+            <td colspan="8">No profiles match this filter yet.</td>
           </tr>
         {% endfor %}
       </tbody>

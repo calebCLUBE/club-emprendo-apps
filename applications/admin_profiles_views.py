@@ -401,8 +401,6 @@ def _build_profiles():
             latest_payload["id_display"]
             or (cluster_id_values[0] if cluster_id_values else "")
             or (grade_row.get("identity_raw") or "").strip()
-            or latest_payload["email_display"]
-            or (cluster_email_values[0] if cluster_email_values else "")
             or "—"
         )
         display_email = (

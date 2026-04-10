@@ -14,7 +14,8 @@
     }
     .ce-admin-home-grid {
       display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-columns: repeat(3, minmax(220px, 340px));
+      justify-content: center;
       gap: 16px;
     }
     .ce-admin-home-grid .ce-admin-tile {
@@ -40,7 +41,7 @@
     }
     @media (max-width: 1100px) {
       .ce-admin-home-grid {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-template-columns: repeat(2, minmax(220px, 340px));
       }
     }
     @media (max-width: 720px) {

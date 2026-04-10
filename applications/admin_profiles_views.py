@@ -1,17 +1,28 @@
 import csv
 import io
 import re
+import zipfile
 from collections import defaultdict
+from io import BytesIO
+from xml.sax.saxutils import escape
 
 from django.contrib import messages
 from django.contrib.admin.views.decorators import staff_member_required
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
+from django.http import HttpResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils.dateparse import parse_datetime
 
-from .models import Answer, Application, GradedFile, ParticipantEmailStatus
+from .models import (
+    Answer,
+    Application,
+    FormGroup,
+    GradedFile,
+    GroupParticipantList,
+    ParticipantEmailStatus,
+)
 
 GROUP_SLUG_RE = re.compile(r"^G(?P<num>\d+)_")
 
@@ -46,6 +57,46 @@ PROFILE_OVERVIEW_FIELDS = [
     ("industry", "Industry"),
     ("professional_expertise", "Expertise"),
 ]
+
+MENTORAS_HEADERS = [
+    "Info",
+    "Estatus",
+    "#",
+    "Nombre",
+    "Id",
+    "Email",
+    "WhatsApp",
+    "Recide",
+    "Edad",
+    "Acta",
+    "Website ",
+    "Capacitacion ",
+    "Plazo extra ",
+    "Lanzamiento",
+    "W/M",
+    "W/E",
+]
+
+EMPRENDEDORAS_HEADERS = [
+    "Info",
+    "Estatus",
+    "#",
+    "Nombre",
+    "ID",
+    "Correo",
+    "WhatsApp",
+    "Reside",
+    "Edad",
+    "Acta",
+    "Website ",
+    "Capacitacion ",
+    "Plazo extra Cap",
+    "Lanzamiento",
+    "W/E",
+]
+
+MENTORAS_COL_WIDTHS = [6.88, 14.38, 5.63, 31.5, 13.63, 28.13, 14.25, 12.5, 10.5, 7, 9, 12, 12, 12, 8, 8]
+EMPRENDEDORAS_COL_WIDTHS = [7.25, 14.38, 5.75, 18.38, 17.75, 32.13, 15.25, 12.5, 10.5, 7, 9, 12, 14, 12, 8]
 
 
 def _normalize_identity(value: str | None) -> str:
@@ -131,6 +182,312 @@ def _build_profile_key(identity_norm: str, email_norm: str, app_id: int) -> str:
         if email_fragment:
             return _normalize_profile_key(f"email_{email_fragment}")
     return _normalize_profile_key(f"app_{app_id}")
+
+
+def _norm_email_list(raw_text: str) -> list[str]:
+    valid, _invalid = _parse_email_list(raw_text or "")
+    return valid
+
+
+def _app_group_number(app: Application) -> int | None:
+    gnum = getattr(getattr(app, "form", None), "group_id", None)
+    if gnum:
+        return getattr(app.form.group, "number", None)
+    return _group_number_from_slug(getattr(app.form, "slug", ""))
+
+
+def _latest_apps_by_email_for_group_track(group_num: int, track: str) -> dict[str, dict]:
+    target_track = (track or "").strip().upper()
+    if target_track not in {"E", "M"}:
+        return {}
+
+    apps = (
+        Application.objects.select_related("form", "form__group")
+        .prefetch_related("answers__question")
+        .order_by("-created_at", "-id")
+    )
+
+    out: dict[str, dict] = {}
+    for app in apps:
+        if _app_group_number(app) != int(group_num):
+            continue
+        if _track_from_slug(getattr(app.form, "slug", "")) != target_track:
+            continue
+
+        email_norm = _normalize_email(getattr(app, "email", "") or "")
+        if not email_norm:
+            for ans in app.answers.all():
+                if getattr(ans.question, "slug", "") == "email":
+                    email_norm = _normalize_email(ans.value)
+                    if email_norm:
+                        break
+        if not email_norm or email_norm in out:
+            continue
+
+        answer_map = {}
+        for ans in app.answers.all():
+            slug = getattr(ans.question, "slug", "")
+            if slug:
+                answer_map[slug] = (ans.value or "").strip()
+
+        out[email_norm] = {
+            "app": app,
+            "answers": answer_map,
+            "name": answer_map.get("full_name") or app.name or "",
+            "id_value": answer_map.get("cedula") or answer_map.get("id_number") or "",
+            "email": answer_map.get("email") or app.email or "",
+            "whatsapp": answer_map.get("whatsapp") or "",
+            "country": answer_map.get("country_residence") or "",
+            "age": answer_map.get("age_range") or "",
+        }
+    return out
+
+
+def _build_mentoras_rows(group_num: int, emails: list[str]) -> list[list]:
+    data = _latest_apps_by_email_for_group_track(group_num, "M")
+    rows: list[list] = []
+    for idx, raw_email in enumerate(emails, start=1):
+        email_norm = _normalize_email(raw_email)
+        found = data.get(email_norm, {})
+        row = [
+            "",
+            "",
+            idx,
+            found.get("name", ""),
+            found.get("id_value", ""),
+            found.get("email", raw_email),
+            found.get("whatsapp", ""),
+            found.get("country", ""),
+            found.get("age", ""),
+            1,
+            1,
+            1,
+            0,
+            0,
+            0,
+            0,
+        ]
+        rows.append(row)
+    return rows
+
+
+def _build_emprendedoras_rows(group_num: int, emails: list[str]) -> list[list]:
+    data = _latest_apps_by_email_for_group_track(group_num, "E")
+    rows: list[list] = []
+    for idx, raw_email in enumerate(emails, start=1):
+        email_norm = _normalize_email(raw_email)
+        found = data.get(email_norm, {})
+        row = [
+            "",
+            "",
+            idx,
+            found.get("name", ""),
+            found.get("id_value", ""),
+            found.get("email", raw_email),
+            found.get("whatsapp", ""),
+            found.get("country", ""),
+            found.get("age", ""),
+            1,
+            1,
+            1,
+            0,
+            0,
+            1,
+        ]
+        rows.append(row)
+    return rows
+
+
+def _excel_col_name(col_idx: int) -> str:
+    n = int(col_idx)
+    out = []
+    while n > 0:
+        n, rem = divmod(n - 1, 26)
+        out.append(chr(65 + rem))
+    return "".join(reversed(out))
+
+
+def _cell_xml(col: int, row: int, value, style_id: int = 0) -> str:
+    ref = f"{_excel_col_name(col)}{row}"
+    if value is None:
+        return f'<c r="{ref}" s="{style_id}"/>'
+    if isinstance(value, bool):
+        return f'<c r="{ref}" s="{style_id}"><v>{1 if value else 0}</v></c>'
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return f'<c r="{ref}" s="{style_id}"><v>{value}</v></c>'
+    text = str(value)
+    text_escaped = escape(text)
+    preserve = ' xml:space="preserve"' if text.startswith(" ") or text.endswith(" ") or ("\n" in text) else ""
+    return (
+        f'<c r="{ref}" s="{style_id}" t="inlineStr">'
+        f"<is><t{preserve}>{text_escaped}</t></is>"
+        f"</c>"
+    )
+
+
+def _sheet_xml(
+    headers: list[str],
+    rows: list[list],
+    col_widths: list[float] | None = None,
+    freeze_cols: int = 0,
+    freeze_rows: int = 1,
+) -> bytes:
+    total_cols = max(len(headers), 1)
+    top_left_col = _excel_col_name(freeze_cols + 1)
+    top_left_row = freeze_rows + 1
+    top_left_cell = f"{top_left_col}{top_left_row}"
+    col_defs = []
+    for idx, width in enumerate(col_widths or [], start=1):
+        if width is None:
+            continue
+        col_defs.append(
+            f'<col min="{idx}" max="{idx}" width="{float(width):.2f}" customWidth="1"/>'
+        )
+
+    body_rows = []
+    header_cells = "".join(_cell_xml(col=i + 1, row=1, value=val, style_id=1) for i, val in enumerate(headers))
+    body_rows.append(f'<row r="1" ht="22.5" customHeight="1">{header_cells}</row>')
+
+    for r_idx, values in enumerate(rows, start=2):
+        padded = list(values) + [""] * max(0, total_cols - len(values))
+        cells = "".join(
+            _cell_xml(col=c_idx + 1, row=r_idx, value=val, style_id=0)
+            for c_idx, val in enumerate(padded[:total_cols])
+        )
+        body_rows.append(f'<row r="{r_idx}">{cells}</row>')
+
+    auto_filter_ref = f"A1:{_excel_col_name(total_cols)}1"
+    xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        "<sheetViews>"
+        '<sheetView workbookViewId="0">'
+        f'<pane xSplit="{float(freeze_cols):.1f}" ySplit="{float(freeze_rows):.1f}" '
+        f'topLeftCell="{top_left_cell}" activePane="bottomRight" state="frozen"/>'
+        "</sheetView>"
+        "</sheetViews>"
+        '<sheetFormatPr defaultRowHeight="15"/>'
+        + (f"<cols>{''.join(col_defs)}</cols>" if col_defs else "")
+        + f"<sheetData>{''.join(body_rows)}</sheetData>"
+        + f'<autoFilter ref="{auto_filter_ref}"/>'
+        + "</worksheet>"
+    )
+    return xml.encode("utf-8")
+
+
+def _participants_workbook_bytes(group_num: int, mentoras_emails: list[str], emprendedoras_emails: list[str]) -> bytes:
+    mentoras_rows = _build_mentoras_rows(group_num, mentoras_emails)
+    emprendedoras_rows = _build_emprendedoras_rows(group_num, emprendedoras_emails)
+
+    sheets = [
+        ("Mentoras", MENTORAS_HEADERS, mentoras_rows, MENTORAS_COL_WIDTHS, 4),
+        ("Emprendedoras", EMPRENDEDORAS_HEADERS, emprendedoras_rows, EMPRENDEDORAS_COL_WIDTHS, 3),
+    ]
+
+    content_types_overrides = [
+        '<Override PartName="/xl/workbook.xml" '
+        'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>',
+        '<Override PartName="/xl/styles.xml" '
+        'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>',
+    ]
+    workbook_sheets = []
+    workbook_rels = []
+
+    bio = BytesIO()
+    with zipfile.ZipFile(bio, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for idx, (name, headers, rows, widths, freeze_cols) in enumerate(sheets, start=1):
+            worksheet_path = f"xl/worksheets/sheet{idx}.xml"
+            worksheet_xml = _sheet_xml(
+                headers=headers,
+                rows=rows,
+                col_widths=widths,
+                freeze_cols=freeze_cols,
+                freeze_rows=1,
+            )
+            zf.writestr(worksheet_path, worksheet_xml)
+
+            content_types_overrides.append(
+                f'<Override PartName="/xl/worksheets/sheet{idx}.xml" '
+                'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+            )
+            workbook_sheets.append(
+                f'<sheet name="{escape(name)}" sheetId="{idx}" r:id="rId{idx}"/>'
+            )
+            workbook_rels.append(
+                f'<Relationship Id="rId{idx}" '
+                'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" '
+                f'Target="worksheets/sheet{idx}.xml"/>'
+            )
+
+        workbook_rels.append(
+            f'<Relationship Id="rId{len(sheets) + 1}" '
+            'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" '
+            'Target="styles.xml"/>'
+        )
+
+        workbook_xml = (
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+            'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+            f"<sheets>{''.join(workbook_sheets)}</sheets>"
+            "</workbook>"
+        )
+        zf.writestr("xl/workbook.xml", workbook_xml)
+
+        workbook_rels_xml = (
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            f"{''.join(workbook_rels)}"
+            "</Relationships>"
+        )
+        zf.writestr("xl/_rels/workbook.xml.rels", workbook_rels_xml)
+
+        styles_xml = (
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+            '<fonts count="2">'
+            '<font><sz val="11"/><color rgb="FF000000"/><name val="Calibri"/><family val="2"/></font>'
+            '<font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/><family val="2"/></font>'
+            "</fonts>"
+            '<fills count="3">'
+            '<fill><patternFill patternType="none"/></fill>'
+            '<fill><patternFill patternType="gray125"/></fill>'
+            '<fill><patternFill patternType="solid"><fgColor rgb="FF223413"/><bgColor indexed="64"/></patternFill></fill>'
+            "</fills>"
+            '<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>'
+            '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
+            '<cellXfs count="2">'
+            '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'
+            '<xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1">'
+            '<alignment horizontal="center" vertical="center"/>'
+            "</xf>"
+            "</cellXfs>"
+            '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>'
+            "</styleSheet>"
+        )
+        zf.writestr("xl/styles.xml", styles_xml)
+
+        root_rels_xml = (
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            '<Relationship Id="rId1" '
+            'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" '
+            'Target="xl/workbook.xml"/>'
+            "</Relationships>"
+        )
+        zf.writestr("_rels/.rels", root_rels_xml)
+
+        content_types_xml = (
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+            '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+            '<Default Extension="xml" ContentType="application/xml"/>'
+            f"{''.join(content_types_overrides)}"
+            "</Types>"
+        )
+        zf.writestr("[Content_Types].xml", content_types_xml)
+
+    return bio.getvalue()
 
 
 def _group_number_from_slug(slug: str | None) -> int | None:
@@ -570,6 +927,109 @@ def profiles_list(request):
         "bulk_email_text": "",
     }
     return render(request, "admin_dash/profiles_list.html", context)
+
+
+@staff_member_required
+def profiles_participants(request):
+    groups = list(FormGroup.objects.order_by("number"))
+    group_raw = (request.GET.get("group") or "").strip()
+    selected_group = None
+    participant_list = None
+
+    if group_raw.isdigit():
+        selected_group = FormGroup.objects.filter(number=int(group_raw)).first()
+        if selected_group:
+            participant_list = GroupParticipantList.objects.filter(group=selected_group).first()
+
+    if request.method == "POST":
+        posted_group = (request.POST.get("group") or "").strip()
+        if not posted_group.isdigit():
+            messages.error(request, "Please select a valid group.")
+            return redirect(reverse("admin_profiles_participants"))
+
+        selected_group = FormGroup.objects.filter(number=int(posted_group)).first()
+        if not selected_group:
+            messages.error(request, "Selected group does not exist.")
+            return redirect(reverse("admin_profiles_participants"))
+
+        mentoras_raw = (request.POST.get("mentoras_emails") or "").strip()
+        emprendedoras_raw = (request.POST.get("emprendedoras_emails") or "").strip()
+
+        mentoras_valid, mentoras_invalid = _parse_email_list(mentoras_raw)
+        emprendedoras_valid, emprendedoras_invalid = _parse_email_list(emprendedoras_raw)
+
+        GroupParticipantList.objects.update_or_create(
+            group=selected_group,
+            defaults={
+                "mentoras_emails_text": "\n".join(mentoras_valid),
+                "emprendedoras_emails_text": "\n".join(emprendedoras_valid),
+            },
+        )
+
+        messages.success(
+            request,
+            (
+                f"Saved participants for Group {selected_group.number}. "
+                f"Mentoras: {len(mentoras_valid)} · Emprendedoras: {len(emprendedoras_valid)}."
+            ),
+        )
+        invalid_total = len(mentoras_invalid) + len(emprendedoras_invalid)
+        if invalid_total:
+            invalid_preview = mentoras_invalid + emprendedoras_invalid
+            preview = ", ".join(invalid_preview[:8])
+            suffix = "" if invalid_total <= 8 else ", ..."
+            messages.warning(
+                request,
+                f"Ignored invalid emails ({invalid_total}): {preview}{suffix}",
+            )
+
+        return redirect(f"{reverse('admin_profiles_participants')}?group={selected_group.number}")
+
+    mentoras_emails = _norm_email_list(getattr(participant_list, "mentoras_emails_text", ""))
+    emprendedoras_emails = _norm_email_list(getattr(participant_list, "emprendedoras_emails_text", ""))
+    has_list = bool(participant_list)
+
+    context = {
+        "groups": groups,
+        "selected_group": selected_group,
+        "participant_list": participant_list,
+        "mentoras_emails_text": "\n".join(mentoras_emails),
+        "emprendedoras_emails_text": "\n".join(emprendedoras_emails),
+        "mentoras_count": len(mentoras_emails),
+        "emprendedoras_count": len(emprendedoras_emails),
+        "has_list": has_list,
+    }
+    return render(request, "admin_dash/profiles_participants.html", context)
+
+
+@staff_member_required
+def profiles_participants_download(request, group_num: int):
+    group = FormGroup.objects.filter(number=group_num).first()
+    if not group:
+        messages.error(request, "Group not found.")
+        return redirect(reverse("admin_profiles_participants"))
+
+    participant_list = GroupParticipantList.objects.filter(group=group).first()
+    if not participant_list:
+        messages.error(request, f"No participants list found for Group {group.number}.")
+        return redirect(f"{reverse('admin_profiles_participants')}?group={group.number}")
+
+    mentoras_emails = _norm_email_list(participant_list.mentoras_emails_text or "")
+    emprendedoras_emails = _norm_email_list(participant_list.emprendedoras_emails_text or "")
+    workbook_bytes = _participants_workbook_bytes(
+        group_num=group.number,
+        mentoras_emails=mentoras_emails,
+        emprendedoras_emails=emprendedoras_emails,
+    )
+
+    response = HttpResponse(
+        workbook_bytes,
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    response["Content-Disposition"] = (
+        f'attachment; filename="G{group.number}_Participantes.xlsx"'
+    )
+    return response
 
 
 @staff_member_required

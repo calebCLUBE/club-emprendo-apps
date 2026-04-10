@@ -500,6 +500,26 @@ class ParticipantEmailStatus(models.Model):
         return f"{self.email} ({state})"
 
 
+class GroupParticipantList(models.Model):
+    group = models.OneToOneField(
+        "applications.FormGroup",
+        on_delete=models.CASCADE,
+        related_name="participant_list",
+    )
+    mentoras_emails_text = models.TextField(blank=True)
+    emprendedoras_emails_text = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-group__number"]
+        verbose_name = "Group Participant List"
+        verbose_name_plural = "Group Participant Lists"
+
+    def __str__(self) -> str:
+        return f"Group {self.group.number} participants"
+
+
 DEFAULT_TASK_TYPES = [
     {
         "slug": "general",

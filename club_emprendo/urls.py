@@ -41,6 +41,16 @@ urlpatterns = [
     # PROFILES
     # ============================
     path("admin/profiles/", admin_profiles_views.profiles_list, name="admin_profiles_list"),
+    path(
+        "admin/profiles/participants/",
+        admin_profiles_views.profiles_participants,
+        name="admin_profiles_participants",
+    ),
+    path(
+        "admin/profiles/participants/<int:group_num>/download/",
+        admin_profiles_views.profiles_participants_download,
+        name="admin_profiles_participants_download",
+    ),
     path("admin/profiles/<str:identity_key>/", admin_profiles_views.profile_detail, name="admin_profile_detail"),
 
     # ============================

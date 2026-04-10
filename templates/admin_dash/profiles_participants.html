@@ -142,6 +142,22 @@
         outline: 2px solid #8eb36a;
         outline-offset: -2px;
       }
+      .ce-cell-select {
+        width: 100%;
+        min-width: 90px;
+        border: 0;
+        padding: 8px;
+        box-sizing: border-box;
+        font-size: 13px;
+        background: #fff;
+      }
+      .ce-cell-checkbox-wrap {
+        text-align: center;
+      }
+      .ce-cell-checkbox {
+        width: 16px;
+        height: 16px;
+      }
     </style>
 
     <h1 style="margin:0;">Profiles · Participants</h1>
@@ -270,11 +286,26 @@
         (function () {
           const MENTORAS_HEADERS = [{% for h in mentoras_headers %}"{{ h|escapejs }}"{% if not forloop.last %}, {% endif %}{% endfor %}];
           const EMPRENDEDORAS_HEADERS = [{% for h in emprendedoras_headers %}"{{ h|escapejs }}"{% if not forloop.last %}, {% endif %}{% endfor %}];
+          const MENTORAS_COLUMN_TYPES = JSON.parse('{{ mentoras_column_types_json|escapejs }}');
+          const EMPRENDEDORAS_COLUMN_TYPES = JSON.parse('{{ emprendedoras_column_types_json|escapejs }}');
+          const MENTORAS_STATUS_OPTIONS = JSON.parse('{{ mentoras_status_options_json|escapejs }}');
+          const EMPRENDEDORAS_STATUS_OPTIONS = JSON.parse('{{ emprendedoras_status_options_json|escapejs }}');
           const MENTORAS_ROWS = JSON.parse('{{ mentoras_rows_json|escapejs }}');
           const EMPRENDEDORAS_ROWS = JSON.parse('{{ emprendedoras_rows_json|escapejs }}');
 
-          function normalizeRows(rows, headers) {
-            const width = headers.length;
+          function checkboxValue(val) {
+            if (typeof val === 'boolean') {
+              return val;
+            }
+            if (typeof val === 'number') {
+              return val !== 0;
+            }
+            const raw = String(val == null ? '' : val).trim().toLowerCase();
+            return ['1', 'true', 'yes', 'y', 'si', 'sí', 'checked', 'on'].includes(raw);
+          }
+
+          function normalizeRows(rows, columnTypes) {
+            const width = columnTypes.length;
             if (!Array.isArray(rows)) {
               return [];
             }
@@ -283,25 +314,33 @@
               .map((r) => {
                 const out = [];
                 for (let i = 0; i < width; i += 1) {
+                  const ctype = columnTypes[i] || 'text';
                   const val = i < r.length ? r[i] : '';
-                  out.push(val == null ? '' : String(val));
+                  if (ctype === 'checkbox') {
+                    out.push(checkboxValue(val));
+                  } else if (ctype === 'readonly_num') {
+                    const n = Number(val);
+                    out.push(Number.isFinite(n) ? n : 0);
+                  } else {
+                    out.push(val == null ? '' : String(val));
+                  }
                 }
                 return out;
               });
           }
 
-          function createSheet(sheetName, headers, seedRows) {
+          function createSheet(sheetName, headers, columnTypes, statusOptions, seedRows) {
             const table = document.getElementById(`sheet-${sheetName}`);
             const tbody = table.querySelector('tbody');
             const countEl = document.querySelector(`[data-row-count="${sheetName}"]`);
             const state = {
               headers,
-              rows: normalizeRows(seedRows, headers),
+              rows: normalizeRows(seedRows, columnTypes),
             };
 
             function renumber() {
               state.rows.forEach((row, idx) => {
-                row[2] = String(idx + 1);
+                row[2] = idx + 1;
               });
             }
 
@@ -321,18 +360,53 @@
 
                 row.forEach((cellVal, colIdx) => {
                   const td = document.createElement('td');
-                  const input = document.createElement('input');
-                  input.type = 'text';
-                  input.className = 'ce-cell-input';
-                  input.value = cellVal;
-                  if (colIdx === 2) {
-                    input.readOnly = true;
-                    input.tabIndex = -1;
+                  const ctype = columnTypes[colIdx] || 'text';
+
+                  if (ctype === 'checkbox') {
+                    td.className = 'ce-cell-checkbox-wrap';
+                    const checkboxInput = document.createElement('input');
+                    checkboxInput.type = 'checkbox';
+                    checkboxInput.className = 'ce-cell-checkbox';
+                    checkboxInput.checked = checkboxValue(cellVal);
+                    checkboxInput.addEventListener('change', (e) => {
+                      state.rows[rowIdx][colIdx] = !!e.target.checked;
+                    });
+                    td.appendChild(checkboxInput);
+                  } else if (ctype === 'select') {
+                    const select = document.createElement('select');
+                    select.className = 'ce-cell-select';
+                    const emptyOpt = document.createElement('option');
+                    emptyOpt.value = '';
+                    emptyOpt.textContent = '';
+                    select.appendChild(emptyOpt);
+                    statusOptions.forEach((opt) => {
+                      const option = document.createElement('option');
+                      option.value = String(opt);
+                      option.textContent = String(opt);
+                      select.appendChild(option);
+                    });
+                    select.value = String(cellVal == null ? '' : cellVal);
+                    select.addEventListener('change', (e) => {
+                      state.rows[rowIdx][colIdx] = e.target.value;
+                    });
+                    td.appendChild(select);
+                  } else {
+                    const input = document.createElement('input');
+                    input.type = ctype === 'email' ? 'email' : 'text';
+                    input.className = 'ce-cell-input';
+                    input.value = cellVal == null ? '' : String(cellVal);
+                    if (ctype === 'readonly_num') {
+                      input.readOnly = true;
+                      input.tabIndex = -1;
+                    }
+                    input.addEventListener('input', (e) => {
+                      if (ctype === 'readonly_num') {
+                        return;
+                      }
+                      state.rows[rowIdx][colIdx] = e.target.value;
+                    });
+                    td.appendChild(input);
                   }
-                  input.addEventListener('input', (e) => {
-                    state.rows[rowIdx][colIdx] = e.target.value;
-                  });
-                  td.appendChild(input);
                   tr.appendChild(td);
                 });
 
@@ -344,7 +418,8 @@
             }
 
             function addRow() {
-              state.rows.push(Array(headers.length).fill(''));
+              const row = columnTypes.map((ctype) => (ctype === 'checkbox' ? false : ''));
+              state.rows.push(row);
               render();
             }
 
@@ -369,8 +444,20 @@
             return { addRow, deleteSelected, toJson };
           }
 
-          const mentorasSheet = createSheet('mentoras', MENTORAS_HEADERS, MENTORAS_ROWS);
-          const emprendedorasSheet = createSheet('emprendedoras', EMPRENDEDORAS_HEADERS, EMPRENDEDORAS_ROWS);
+          const mentorasSheet = createSheet(
+            'mentoras',
+            MENTORAS_HEADERS,
+            MENTORAS_COLUMN_TYPES,
+            MENTORAS_STATUS_OPTIONS,
+            MENTORAS_ROWS
+          );
+          const emprendedorasSheet = createSheet(
+            'emprendedoras',
+            EMPRENDEDORAS_HEADERS,
+            EMPRENDEDORAS_COLUMN_TYPES,
+            EMPRENDEDORAS_STATUS_OPTIONS,
+            EMPRENDEDORAS_ROWS
+          );
 
           document.querySelector('[data-sheet-add="mentoras"]').addEventListener('click', () => mentorasSheet.addRow());
           document.querySelector('[data-sheet-delete="mentoras"]').addEventListener('click', () => mentorasSheet.deleteSelected());

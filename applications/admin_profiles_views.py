@@ -100,6 +100,45 @@ MENTORAS_COL_WIDTHS = [6.88, 14.38, 5.63, 31.5, 13.63, 28.13, 14.25, 12.5, 10.5,
 EMPRENDEDORAS_COL_WIDTHS = [7.25, 14.38, 5.75, 18.38, 17.75, 32.13, 15.25, 12.5, 10.5, 7, 9, 12, 14, 12, 8]
 MENTORAS_EMAIL_COL = 5
 EMPRENDEDORAS_EMAIL_COL = 5
+MENTORAS_BOOLEAN_COLS = [9, 10, 11, 12, 13, 14, 15]
+EMPRENDEDORAS_BOOLEAN_COLS = [9, 10, 11, 12, 13, 14]
+MENTORAS_STATUS_OPTIONS = ["NFA", "NCC", "INCP", "INCPP", "CP", "DC", "D", "P", "E/T", "G", "SG"]
+EMPRENDEDORAS_STATUS_OPTIONS = ["NFA", "NCC", "INCP", "INCPP", "CP", "DC", "P", "E/T", "G", "SG"]
+MENTORAS_COLUMN_TYPES = [
+    "text",          # info
+    "select",        # Estatus
+    "readonly_num",  # #
+    "text",          # Nombre
+    "text",          # Id
+    "email",         # Email
+    "text",          # WhatsApp
+    "text",          # Recide
+    "text",          # Edad
+    "checkbox",      # Acta
+    "checkbox",      # Website
+    "checkbox",      # Capacitacion
+    "checkbox",      # Plazo extra
+    "checkbox",      # Lanzamiento
+    "checkbox",      # W/M
+    "checkbox",      # W/E
+]
+EMPRENDEDORAS_COLUMN_TYPES = [
+    "text",          # Info
+    "select",        # Estatus
+    "readonly_num",  # #
+    "text",          # Nombre
+    "text",          # ID
+    "email",         # Correo
+    "text",          # WhatsApp
+    "text",          # Reside
+    "text",          # Edad
+    "checkbox",      # Acta
+    "checkbox",      # Website
+    "checkbox",      # Capacitacion
+    "checkbox",      # Plazo extra Cap
+    "checkbox",      # Lanzamiento
+    "checkbox",      # W/E
+]
 
 
 def _normalize_identity(value: str | None) -> str:
@@ -192,6 +231,15 @@ def _norm_email_list(raw_text: str) -> list[str]:
     return valid
 
 
+def _as_checkbox_bool(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    raw = (str(value or "")).strip().lower()
+    return raw in {"1", "true", "yes", "y", "si", "sí", "checked", "on"}
+
+
 def _normalize_sheet_rows(raw_rows, headers: list[str]) -> list[list]:
     if not isinstance(raw_rows, list):
         return []
@@ -205,12 +253,39 @@ def _normalize_sheet_rows(raw_rows, headers: list[str]) -> list[list]:
             value = raw_row[idx] if idx < len(raw_row) else ""
             if value is None:
                 row.append("")
+            elif isinstance(value, bool):
+                row.append(value)
             elif isinstance(value, (int, float)) and not isinstance(value, bool):
                 row.append(value)
             else:
                 row.append(str(value))
-        if any((str(v).strip() if not isinstance(v, (int, float)) else True) for v in row):
+        has_meaningful = False
+        for v in row:
+            if isinstance(v, bool):
+                if v:
+                    has_meaningful = True
+                    break
+            elif isinstance(v, (int, float)) and not isinstance(v, bool):
+                if float(v) != 0:
+                    has_meaningful = True
+                    break
+            elif str(v).strip():
+                has_meaningful = True
+                break
+        if has_meaningful:
             out.append(row)
+    return out
+
+
+def _coerce_bool_columns(rows: list[list], bool_cols: list[int]) -> list[list]:
+    bool_set = set(bool_cols or [])
+    out: list[list] = []
+    for row in rows:
+        row_copy = list(row)
+        for idx in bool_set:
+            if idx < len(row_copy):
+                row_copy[idx] = _as_checkbox_bool(row_copy[idx])
+        out.append(row_copy)
     return out
 
 
@@ -230,6 +305,62 @@ def _emails_from_sheet_rows(rows: list[list], email_col: int) -> list[str]:
             continue
         seen.add(email_norm)
         out.append(email_norm)
+    return out
+
+
+def _mark_participated_yes(emails: list[str]) -> tuple[int, int, int]:
+    created_count = 0
+    updated_count = 0
+    unchanged_count = 0
+    for email in emails:
+        email_key = _email_status_key(email)
+        if not email_key:
+            continue
+        obj, created = ParticipantEmailStatus.objects.get_or_create(
+            email=email_key,
+            defaults={"participated": True},
+        )
+        if created:
+            created_count += 1
+            continue
+        if obj.participated:
+            unchanged_count += 1
+            continue
+        obj.participated = True
+        obj.save(update_fields=["participated", "updated_at"])
+        updated_count += 1
+    return created_count, updated_count, unchanged_count
+
+
+def _participant_list_email_keys() -> set[str]:
+    out: set[str] = set()
+    participant_lists = GroupParticipantList.objects.only(
+        "mentoras_emails_text",
+        "emprendedoras_emails_text",
+        "mentoras_sheet_rows",
+        "emprendedoras_sheet_rows",
+    )
+    for row in participant_lists:
+        mentoras_emails = _norm_email_list(getattr(row, "mentoras_emails_text", ""))
+        emprendedoras_emails = _norm_email_list(getattr(row, "emprendedoras_emails_text", ""))
+
+        if not mentoras_emails:
+            mentoras_rows = _normalize_sheet_rows(getattr(row, "mentoras_sheet_rows", []), MENTORAS_HEADERS)
+            mentoras_emails = _emails_from_sheet_rows(mentoras_rows, MENTORAS_EMAIL_COL)
+        if not emprendedoras_emails:
+            emprendedoras_rows = _normalize_sheet_rows(
+                getattr(row, "emprendedoras_sheet_rows", []),
+                EMPRENDEDORAS_HEADERS,
+            )
+            emprendedoras_emails = _emails_from_sheet_rows(
+                emprendedoras_rows,
+                EMPRENDEDORAS_EMAIL_COL,
+            )
+
+        for email in mentoras_emails + emprendedoras_emails:
+            email_key = _email_status_key(email)
+            if email_key:
+                out.add(email_key)
     return out
 
 
@@ -313,13 +444,13 @@ def _build_mentoras_rows(group_num: int, emails: list[str]) -> list[list]:
             found.get("whatsapp", ""),
             found.get("country", ""),
             found.get("age", ""),
-            1,
-            1,
-            1,
-            0,
-            0,
-            0,
-            0,
+            True,
+            True,
+            True,
+            False,
+            False,
+            False,
+            False,
         ]
         rows.append(row)
     return rows
@@ -341,12 +472,12 @@ def _build_emprendedoras_rows(group_num: int, emails: list[str]) -> list[list]:
             found.get("whatsapp", ""),
             found.get("country", ""),
             found.get("age", ""),
-            1,
-            1,
-            1,
-            0,
-            0,
-            1,
+            True,
+            True,
+            True,
+            False,
+            False,
+            True,
         ]
         rows.append(row)
     return rows
@@ -366,7 +497,7 @@ def _cell_xml(col: int, row: int, value, style_id: int = 0) -> str:
     if value is None:
         return f'<c r="{ref}" s="{style_id}"/>'
     if isinstance(value, bool):
-        return f'<c r="{ref}" s="{style_id}"><v>{1 if value else 0}</v></c>'
+        return f'<c r="{ref}" s="{style_id}" t="b"><v>{1 if value else 0}</v></c>'
     if isinstance(value, (int, float)) and not isinstance(value, bool):
         return f'<c r="{ref}" s="{style_id}"><v>{value}</v></c>'
     text = str(value)
@@ -432,6 +563,8 @@ def _sheet_xml(
 def _participants_workbook_bytes(mentoras_rows: list[list], emprendedoras_rows: list[list]) -> bytes:
     mentoras_rows = _normalize_sheet_rows(mentoras_rows, MENTORAS_HEADERS)
     emprendedoras_rows = _normalize_sheet_rows(emprendedoras_rows, EMPRENDEDORAS_HEADERS)
+    mentoras_rows = _coerce_bool_columns(mentoras_rows, MENTORAS_BOOLEAN_COLS)
+    emprendedoras_rows = _coerce_bool_columns(emprendedoras_rows, EMPRENDEDORAS_BOOLEAN_COLS)
 
     sheets = [
         ("Mentoras", MENTORAS_HEADERS, mentoras_rows, MENTORAS_COL_WIDTHS, 4),
@@ -939,6 +1072,9 @@ def profiles_list(request):
         _email_status_key(row.email): row.participated
         for row in ParticipantEmailStatus.objects.only("email", "participated")
     }
+    participant_list_email_keys = _participant_list_email_keys()
+    for email_key in participant_list_email_keys:
+        participation_map[email_key] = True
     for profile in profiles:
         profile_email_key = _email_status_key(profile.get("email"))
         profile["participated"] = bool(participation_map.get(profile_email_key, False))
@@ -1043,6 +1179,8 @@ def profiles_participants(request):
 
             mentoras_rows = _normalize_sheet_rows(mentoras_payload, MENTORAS_HEADERS)
             emprendedoras_rows = _normalize_sheet_rows(emprendedoras_payload, EMPRENDEDORAS_HEADERS)
+            mentoras_rows = _coerce_bool_columns(mentoras_rows, MENTORAS_BOOLEAN_COLS)
+            emprendedoras_rows = _coerce_bool_columns(emprendedoras_rows, EMPRENDEDORAS_BOOLEAN_COLS)
 
             if not mentoras_rows and mentoras_raw:
                 mentoras_valid, mentoras_invalid = _parse_email_list(mentoras_raw)
@@ -1071,12 +1209,25 @@ def profiles_participants(request):
                 "emprendedoras_sheet_rows": emprendedoras_rows,
             },
         )
+        participant_emails = []
+        participant_emails.extend(mentoras_valid)
+        participant_emails.extend(emprendedoras_valid)
+        if not participant_emails:
+            participant_emails.extend(_emails_from_sheet_rows(mentoras_rows, MENTORAS_EMAIL_COL))
+            participant_emails.extend(
+                _emails_from_sheet_rows(emprendedoras_rows, EMPRENDEDORAS_EMAIL_COL)
+            )
+        participation_created, participation_updated, participation_unchanged = _mark_participated_yes(
+            list(dict.fromkeys(participant_emails))
+        )
 
         messages.success(
             request,
             (
                 f"Saved participants for Group {selected_group.number}. "
-                f"Mentoras: {len(mentoras_rows)} rows · Emprendedoras: {len(emprendedoras_rows)} rows."
+                f"Mentoras: {len(mentoras_rows)} rows · Emprendedoras: {len(emprendedoras_rows)} rows. "
+                f"Profile participation set to Yes: {participation_created} new, "
+                f"{participation_updated} changed, {participation_unchanged} already yes."
             ),
         )
         invalid_total = len(mentoras_invalid) + len(emprendedoras_invalid)
@@ -1102,6 +1253,8 @@ def profiles_participants(request):
             getattr(participant_list, "emprendedoras_sheet_rows", []),
             EMPRENDEDORAS_HEADERS,
         )
+        stored_mentoras = _coerce_bool_columns(stored_mentoras, MENTORAS_BOOLEAN_COLS)
+        stored_emprendedoras = _coerce_bool_columns(stored_emprendedoras, EMPRENDEDORAS_BOOLEAN_COLS)
         if stored_mentoras or stored_emprendedoras:
             mentoras_rows = _number_sheet_rows(stored_mentoras, number_col=2)
             emprendedoras_rows = _number_sheet_rows(stored_emprendedoras, number_col=2)
@@ -1129,6 +1282,10 @@ def profiles_participants(request):
         "participant_list": participant_list,
         "mentoras_headers": MENTORAS_HEADERS,
         "emprendedoras_headers": EMPRENDEDORAS_HEADERS,
+        "mentoras_column_types_json": json.dumps(MENTORAS_COLUMN_TYPES),
+        "emprendedoras_column_types_json": json.dumps(EMPRENDEDORAS_COLUMN_TYPES),
+        "mentoras_status_options_json": json.dumps(MENTORAS_STATUS_OPTIONS),
+        "emprendedoras_status_options_json": json.dumps(EMPRENDEDORAS_STATUS_OPTIONS),
         "mentoras_rows": mentoras_rows,
         "emprendedoras_rows": emprendedoras_rows,
         "mentoras_rows_json": json.dumps(mentoras_rows),
@@ -1162,6 +1319,8 @@ def profiles_participants_download(request, group_num: int):
         getattr(participant_list, "emprendedoras_sheet_rows", []),
         EMPRENDEDORAS_HEADERS,
     )
+    mentoras_rows = _coerce_bool_columns(mentoras_rows, MENTORAS_BOOLEAN_COLS)
+    emprendedoras_rows = _coerce_bool_columns(emprendedoras_rows, EMPRENDEDORAS_BOOLEAN_COLS)
     if not mentoras_rows:
         mentoras_emails = _norm_email_list(participant_list.mentoras_emails_text or "")
         mentoras_rows = _build_mentoras_rows(group.number, mentoras_emails)
@@ -1201,5 +1360,8 @@ def profile_detail(request, identity_key: str):
                 .values_list("participated", flat=True)
                 .first()
             )
-        profile["participated"] = bool(participation_value) if participation_value is not None else False
+        from_participant_list = email_key in _participant_list_email_keys() if email_key else False
+        profile["participated"] = (
+            bool(participation_value) if participation_value is not None else from_participant_list
+        )
     return render(request, "admin_dash/profile_detail.html", {"profile": profile})

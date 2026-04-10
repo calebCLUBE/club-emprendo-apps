@@ -1,5 +1,6 @@
 import csv
 import io
+import json
 import re
 import zipfile
 from collections import defaultdict
@@ -97,6 +98,8 @@ EMPRENDEDORAS_HEADERS = [
 
 MENTORAS_COL_WIDTHS = [6.88, 14.38, 5.63, 31.5, 13.63, 28.13, 14.25, 12.5, 10.5, 7, 9, 12, 12, 12, 8, 8]
 EMPRENDEDORAS_COL_WIDTHS = [7.25, 14.38, 5.75, 18.38, 17.75, 32.13, 15.25, 12.5, 10.5, 7, 9, 12, 14, 12, 8]
+MENTORAS_EMAIL_COL = 5
+EMPRENDEDORAS_EMAIL_COL = 5
 
 
 def _normalize_identity(value: str | None) -> str:
@@ -187,6 +190,57 @@ def _build_profile_key(identity_norm: str, email_norm: str, app_id: int) -> str:
 def _norm_email_list(raw_text: str) -> list[str]:
     valid, _invalid = _parse_email_list(raw_text or "")
     return valid
+
+
+def _normalize_sheet_rows(raw_rows, headers: list[str]) -> list[list]:
+    if not isinstance(raw_rows, list):
+        return []
+    width = len(headers)
+    out: list[list] = []
+    for raw_row in raw_rows:
+        if not isinstance(raw_row, (list, tuple)):
+            continue
+        row = []
+        for idx in range(width):
+            value = raw_row[idx] if idx < len(raw_row) else ""
+            if value is None:
+                row.append("")
+            elif isinstance(value, (int, float)) and not isinstance(value, bool):
+                row.append(value)
+            else:
+                row.append(str(value))
+        if any((str(v).strip() if not isinstance(v, (int, float)) else True) for v in row):
+            out.append(row)
+    return out
+
+
+def _emails_from_sheet_rows(rows: list[list], email_col: int) -> list[str]:
+    seen = set()
+    out: list[str] = []
+    for row in rows:
+        if email_col >= len(row):
+            continue
+        email_raw = row[email_col]
+        email_norm = _normalize_email(email_raw)
+        if not email_norm or email_norm in seen:
+            continue
+        try:
+            validate_email(email_norm)
+        except ValidationError:
+            continue
+        seen.add(email_norm)
+        out.append(email_norm)
+    return out
+
+
+def _number_sheet_rows(rows: list[list], number_col: int = 2) -> list[list]:
+    out: list[list] = []
+    for idx, row in enumerate(rows, start=1):
+        row_copy = list(row)
+        if number_col < len(row_copy):
+            row_copy[number_col] = idx
+        out.append(row_copy)
+    return out
 
 
 def _app_group_number(app: Application) -> int | None:
@@ -375,9 +429,9 @@ def _sheet_xml(
     return xml.encode("utf-8")
 
 
-def _participants_workbook_bytes(group_num: int, mentoras_emails: list[str], emprendedoras_emails: list[str]) -> bytes:
-    mentoras_rows = _build_mentoras_rows(group_num, mentoras_emails)
-    emprendedoras_rows = _build_emprendedoras_rows(group_num, emprendedoras_emails)
+def _participants_workbook_bytes(mentoras_rows: list[list], emprendedoras_rows: list[list]) -> bytes:
+    mentoras_rows = _normalize_sheet_rows(mentoras_rows, MENTORAS_HEADERS)
+    emprendedoras_rows = _normalize_sheet_rows(emprendedoras_rows, EMPRENDEDORAS_HEADERS)
 
     sheets = [
         ("Mentoras", MENTORAS_HEADERS, mentoras_rows, MENTORAS_COL_WIDTHS, 4),
@@ -932,7 +986,7 @@ def profiles_list(request):
 @staff_member_required
 def profiles_participants(request):
     groups = list(FormGroup.objects.order_by("number"))
-    group_raw = (request.GET.get("group") or "").strip()
+    group_raw = (request.GET.get("group") or request.POST.get("group") or "").strip()
     selected_group = None
     participant_list = None
 
@@ -952,17 +1006,69 @@ def profiles_participants(request):
             messages.error(request, "Selected group does not exist.")
             return redirect(reverse("admin_profiles_participants"))
 
+        action = (request.POST.get("action") or "save_sheet").strip()
         mentoras_raw = (request.POST.get("mentoras_emails") or "").strip()
         emprendedoras_raw = (request.POST.get("emprendedoras_emails") or "").strip()
+        mentoras_valid: list[str] = []
+        emprendedoras_valid: list[str] = []
+        mentoras_invalid: list[str] = []
+        emprendedoras_invalid: list[str] = []
+        mentoras_rows: list[list] = []
+        emprendedoras_rows: list[list] = []
 
-        mentoras_valid, mentoras_invalid = _parse_email_list(mentoras_raw)
-        emprendedoras_valid, emprendedoras_invalid = _parse_email_list(emprendedoras_raw)
+        if action == "build_from_emails":
+            mentoras_valid, mentoras_invalid = _parse_email_list(mentoras_raw)
+            emprendedoras_valid, emprendedoras_invalid = _parse_email_list(emprendedoras_raw)
+            mentoras_rows = _build_mentoras_rows(selected_group.number, mentoras_valid)
+            emprendedoras_rows = _build_emprendedoras_rows(selected_group.number, emprendedoras_valid)
+        else:
+            mentoras_sheet_raw = (request.POST.get("mentoras_sheet_data") or "").strip()
+            emprendedoras_sheet_raw = (request.POST.get("emprendedoras_sheet_data") or "").strip()
+
+            mentoras_payload = []
+            emprendedoras_payload = []
+            decode_error = False
+            if mentoras_sheet_raw:
+                try:
+                    mentoras_payload = json.loads(mentoras_sheet_raw)
+                except json.JSONDecodeError:
+                    decode_error = True
+            if emprendedoras_sheet_raw:
+                try:
+                    emprendedoras_payload = json.loads(emprendedoras_sheet_raw)
+                except json.JSONDecodeError:
+                    decode_error = True
+            if decode_error:
+                messages.error(request, "Could not read sheet edits. Please try again.")
+
+            mentoras_rows = _normalize_sheet_rows(mentoras_payload, MENTORAS_HEADERS)
+            emprendedoras_rows = _normalize_sheet_rows(emprendedoras_payload, EMPRENDEDORAS_HEADERS)
+
+            if not mentoras_rows and mentoras_raw:
+                mentoras_valid, mentoras_invalid = _parse_email_list(mentoras_raw)
+                mentoras_rows = _build_mentoras_rows(selected_group.number, mentoras_valid)
+            if not emprendedoras_rows and emprendedoras_raw:
+                emprendedoras_valid, emprendedoras_invalid = _parse_email_list(emprendedoras_raw)
+                emprendedoras_rows = _build_emprendedoras_rows(selected_group.number, emprendedoras_valid)
+
+            if not mentoras_valid:
+                mentoras_valid = _emails_from_sheet_rows(mentoras_rows, MENTORAS_EMAIL_COL)
+            if not emprendedoras_valid:
+                emprendedoras_valid = _emails_from_sheet_rows(
+                    emprendedoras_rows,
+                    EMPRENDEDORAS_EMAIL_COL,
+                )
+
+        mentoras_rows = _number_sheet_rows(mentoras_rows, number_col=2)
+        emprendedoras_rows = _number_sheet_rows(emprendedoras_rows, number_col=2)
 
         GroupParticipantList.objects.update_or_create(
             group=selected_group,
             defaults={
                 "mentoras_emails_text": "\n".join(mentoras_valid),
                 "emprendedoras_emails_text": "\n".join(emprendedoras_valid),
+                "mentoras_sheet_rows": mentoras_rows,
+                "emprendedoras_sheet_rows": emprendedoras_rows,
             },
         )
 
@@ -970,7 +1076,7 @@ def profiles_participants(request):
             request,
             (
                 f"Saved participants for Group {selected_group.number}. "
-                f"Mentoras: {len(mentoras_valid)} · Emprendedoras: {len(emprendedoras_valid)}."
+                f"Mentoras: {len(mentoras_rows)} rows · Emprendedoras: {len(emprendedoras_rows)} rows."
             ),
         )
         invalid_total = len(mentoras_invalid) + len(emprendedoras_invalid)
@@ -985,18 +1091,52 @@ def profiles_participants(request):
 
         return redirect(f"{reverse('admin_profiles_participants')}?group={selected_group.number}")
 
-    mentoras_emails = _norm_email_list(getattr(participant_list, "mentoras_emails_text", ""))
-    emprendedoras_emails = _norm_email_list(getattr(participant_list, "emprendedoras_emails_text", ""))
-    has_list = bool(participant_list)
+    mentoras_rows: list[list] = []
+    emprendedoras_rows: list[list] = []
+    if selected_group:
+        stored_mentoras = _normalize_sheet_rows(
+            getattr(participant_list, "mentoras_sheet_rows", []),
+            MENTORAS_HEADERS,
+        )
+        stored_emprendedoras = _normalize_sheet_rows(
+            getattr(participant_list, "emprendedoras_sheet_rows", []),
+            EMPRENDEDORAS_HEADERS,
+        )
+        if stored_mentoras or stored_emprendedoras:
+            mentoras_rows = _number_sheet_rows(stored_mentoras, number_col=2)
+            emprendedoras_rows = _number_sheet_rows(stored_emprendedoras, number_col=2)
+        else:
+            mentoras_emails_seed = _norm_email_list(getattr(participant_list, "mentoras_emails_text", ""))
+            emprendedoras_emails_seed = _norm_email_list(
+                getattr(participant_list, "emprendedoras_emails_text", "")
+            )
+            mentoras_rows = _number_sheet_rows(
+                _build_mentoras_rows(selected_group.number, mentoras_emails_seed),
+                number_col=2,
+            )
+            emprendedoras_rows = _number_sheet_rows(
+                _build_emprendedoras_rows(selected_group.number, emprendedoras_emails_seed),
+                number_col=2,
+            )
+
+    mentoras_emails = _emails_from_sheet_rows(mentoras_rows, MENTORAS_EMAIL_COL)
+    emprendedoras_emails = _emails_from_sheet_rows(emprendedoras_rows, EMPRENDEDORAS_EMAIL_COL)
+    has_list = bool(participant_list and (mentoras_rows or emprendedoras_rows))
 
     context = {
         "groups": groups,
         "selected_group": selected_group,
         "participant_list": participant_list,
+        "mentoras_headers": MENTORAS_HEADERS,
+        "emprendedoras_headers": EMPRENDEDORAS_HEADERS,
+        "mentoras_rows": mentoras_rows,
+        "emprendedoras_rows": emprendedoras_rows,
+        "mentoras_rows_json": json.dumps(mentoras_rows),
+        "emprendedoras_rows_json": json.dumps(emprendedoras_rows),
         "mentoras_emails_text": "\n".join(mentoras_emails),
         "emprendedoras_emails_text": "\n".join(emprendedoras_emails),
-        "mentoras_count": len(mentoras_emails),
-        "emprendedoras_count": len(emprendedoras_emails),
+        "mentoras_count": len(mentoras_rows),
+        "emprendedoras_count": len(emprendedoras_rows),
         "has_list": has_list,
     }
     return render(request, "admin_dash/profiles_participants.html", context)
@@ -1014,12 +1154,24 @@ def profiles_participants_download(request, group_num: int):
         messages.error(request, f"No participants list found for Group {group.number}.")
         return redirect(f"{reverse('admin_profiles_participants')}?group={group.number}")
 
-    mentoras_emails = _norm_email_list(participant_list.mentoras_emails_text or "")
-    emprendedoras_emails = _norm_email_list(participant_list.emprendedoras_emails_text or "")
+    mentoras_rows = _normalize_sheet_rows(
+        getattr(participant_list, "mentoras_sheet_rows", []),
+        MENTORAS_HEADERS,
+    )
+    emprendedoras_rows = _normalize_sheet_rows(
+        getattr(participant_list, "emprendedoras_sheet_rows", []),
+        EMPRENDEDORAS_HEADERS,
+    )
+    if not mentoras_rows:
+        mentoras_emails = _norm_email_list(participant_list.mentoras_emails_text or "")
+        mentoras_rows = _build_mentoras_rows(group.number, mentoras_emails)
+    if not emprendedoras_rows:
+        emprendedoras_emails = _norm_email_list(participant_list.emprendedoras_emails_text or "")
+        emprendedoras_rows = _build_emprendedoras_rows(group.number, emprendedoras_emails)
+
     workbook_bytes = _participants_workbook_bytes(
-        group_num=group.number,
-        mentoras_emails=mentoras_emails,
-        emprendedoras_emails=emprendedoras_emails,
+        mentoras_rows=_number_sheet_rows(mentoras_rows, number_col=2),
+        emprendedoras_rows=_number_sheet_rows(emprendedoras_rows, number_col=2),
     )
 
     response = HttpResponse(

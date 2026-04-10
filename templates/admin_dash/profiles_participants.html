@@ -48,7 +48,7 @@
       }
       .ce-form-grid textarea {
         width: 100%;
-        min-height: 220px;
+        min-height: 160px;
         box-sizing: border-box;
         padding: 10px;
         border: 1px solid #d2d2d2;
@@ -84,6 +84,64 @@
         line-height: 1.1;
         font-weight: 700;
       }
+      .ce-sheet-block {
+        margin-top: 14px;
+      }
+      .ce-sheet-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin-bottom: 8px;
+      }
+      .ce-sheet-wrap {
+        border: 1px solid #d8d8d8;
+        border-radius: 10px;
+        overflow: auto;
+        max-height: 520px;
+      }
+      .ce-sheet-table {
+        border-collapse: collapse;
+        min-width: 980px;
+        width: 100%;
+      }
+      .ce-sheet-table th,
+      .ce-sheet-table td {
+        border: 1px solid #e8e8e8;
+        padding: 0;
+        text-align: left;
+        vertical-align: middle;
+      }
+      .ce-sheet-table th {
+        position: sticky;
+        top: 0;
+        background: #223413;
+        color: #fff;
+        font-size: 12px;
+        font-weight: 700;
+        padding: 8px;
+        z-index: 2;
+      }
+      .ce-sheet-table td.ce-select-cell {
+        width: 36px;
+        min-width: 36px;
+        text-align: center;
+        padding: 6px;
+      }
+      .ce-cell-input {
+        width: 100%;
+        min-width: 80px;
+        border: 0;
+        padding: 8px;
+        box-sizing: border-box;
+        font-size: 13px;
+        background: transparent;
+      }
+      .ce-cell-input:focus {
+        outline: 2px solid #8eb36a;
+        outline-offset: -2px;
+      }
     </style>
 
     <h1 style="margin:0;">Profiles · Participants</h1>
@@ -112,17 +170,17 @@
           Group {{ selected_group.number }} participant lists
         </div>
         <div class="ce-muted">
-          One list per group. Saving again replaces the existing list for this group.
+          Paste emails to auto-create rows, then edit directly in the sheet below.
         </div>
 
         <div class="ce-kpis">
           <div class="ce-kpi">
-            <div class="ce-kpi-k">Mentoras emails</div>
-            <div class="ce-kpi-v">{{ mentoras_count }}</div>
+            <div class="ce-kpi-k">Mentoras rows</div>
+            <div class="ce-kpi-v" data-row-count="mentoras">{{ mentoras_count }}</div>
           </div>
           <div class="ce-kpi">
-            <div class="ce-kpi-k">Emprendedoras emails</div>
-            <div class="ce-kpi-v">{{ emprendedoras_count }}</div>
+            <div class="ce-kpi-k">Emprendedoras rows</div>
+            <div class="ce-kpi-v" data-row-count="emprendedoras">{{ emprendedoras_count }}</div>
           </div>
         </div>
 
@@ -139,9 +197,66 @@
               <textarea id="emprendedoras_emails" name="emprendedoras_emails" placeholder="emprendedora1@email.com&#10;emprendedora2@email.com">{{ emprendedoras_emails_text }}</textarea>
             </div>
           </div>
+          <div class="ce-actions" style="margin-top:12px;">
+            <button class="ce-btn" type="submit" name="action" value="build_from_emails">Create sheets from email lists</button>
+          </div>
+        </form>
+
+        <form method="post" id="sheet-save-form" style="margin-top:12px;">
+          {% csrf_token %}
+          <input type="hidden" name="group" value="{{ selected_group.number }}">
+          <input type="hidden" name="action" value="save_sheet">
+          <input type="hidden" id="mentoras_sheet_data" name="mentoras_sheet_data" value="">
+          <input type="hidden" id="emprendedoras_sheet_data" name="emprendedoras_sheet_data" value="">
+
+          <div class="ce-sheet-block">
+            <div class="ce-sheet-head">
+              <strong>Mentoras sheet</strong>
+              <div class="ce-actions" style="margin:0;">
+                <button class="ce-btn ce-btn--ghost" type="button" data-sheet-add="mentoras">Add row</button>
+                <button class="ce-btn ce-btn--ghost" type="button" data-sheet-delete="mentoras">Delete selected</button>
+              </div>
+            </div>
+            <div class="ce-sheet-wrap">
+              <table id="sheet-mentoras" class="ce-sheet-table">
+                <thead>
+                  <tr>
+                    <th style="width:36px; min-width:36px;">✓</th>
+                    {% for header in mentoras_headers %}
+                      <th>{{ header }}</th>
+                    {% endfor %}
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="ce-sheet-block">
+            <div class="ce-sheet-head">
+              <strong>Emprendedoras sheet</strong>
+              <div class="ce-actions" style="margin:0;">
+                <button class="ce-btn ce-btn--ghost" type="button" data-sheet-add="emprendedoras">Add row</button>
+                <button class="ce-btn ce-btn--ghost" type="button" data-sheet-delete="emprendedoras">Delete selected</button>
+              </div>
+            </div>
+            <div class="ce-sheet-wrap">
+              <table id="sheet-emprendedoras" class="ce-sheet-table">
+                <thead>
+                  <tr>
+                    <th style="width:36px; min-width:36px;">✓</th>
+                    {% for header in emprendedoras_headers %}
+                      <th>{{ header }}</th>
+                    {% endfor %}
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
 
           <div class="ce-actions" style="margin-top:12px;">
-            <button class="ce-btn" type="submit">Save participant list</button>
+            <button class="ce-btn" type="submit">Save sheet edits</button>
             {% if has_list %}
               <a class="ce-btn ce-btn--ghost" href="{% url 'admin_profiles_participants_download' selected_group.number %}">
                 Download XLSX
@@ -150,6 +265,124 @@
           </div>
         </form>
       </section>
+
+      <script>
+        (function () {
+          const MENTORAS_HEADERS = [{% for h in mentoras_headers %}"{{ h|escapejs }}"{% if not forloop.last %}, {% endif %}{% endfor %}];
+          const EMPRENDEDORAS_HEADERS = [{% for h in emprendedoras_headers %}"{{ h|escapejs }}"{% if not forloop.last %}, {% endif %}{% endfor %}];
+          const MENTORAS_ROWS = JSON.parse('{{ mentoras_rows_json|escapejs }}');
+          const EMPRENDEDORAS_ROWS = JSON.parse('{{ emprendedoras_rows_json|escapejs }}');
+
+          function normalizeRows(rows, headers) {
+            const width = headers.length;
+            if (!Array.isArray(rows)) {
+              return [];
+            }
+            return rows
+              .filter((r) => Array.isArray(r))
+              .map((r) => {
+                const out = [];
+                for (let i = 0; i < width; i += 1) {
+                  const val = i < r.length ? r[i] : '';
+                  out.push(val == null ? '' : String(val));
+                }
+                return out;
+              });
+          }
+
+          function createSheet(sheetName, headers, seedRows) {
+            const table = document.getElementById(`sheet-${sheetName}`);
+            const tbody = table.querySelector('tbody');
+            const countEl = document.querySelector(`[data-row-count="${sheetName}"]`);
+            const state = {
+              headers,
+              rows: normalizeRows(seedRows, headers),
+            };
+
+            function renumber() {
+              state.rows.forEach((row, idx) => {
+                row[2] = String(idx + 1);
+              });
+            }
+
+            function render() {
+              renumber();
+              tbody.innerHTML = '';
+              state.rows.forEach((row, rowIdx) => {
+                const tr = document.createElement('tr');
+
+                const selectTd = document.createElement('td');
+                selectTd.className = 'ce-select-cell';
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.dataset.row = String(rowIdx);
+                selectTd.appendChild(checkbox);
+                tr.appendChild(selectTd);
+
+                row.forEach((cellVal, colIdx) => {
+                  const td = document.createElement('td');
+                  const input = document.createElement('input');
+                  input.type = 'text';
+                  input.className = 'ce-cell-input';
+                  input.value = cellVal;
+                  if (colIdx === 2) {
+                    input.readOnly = true;
+                    input.tabIndex = -1;
+                  }
+                  input.addEventListener('input', (e) => {
+                    state.rows[rowIdx][colIdx] = e.target.value;
+                  });
+                  td.appendChild(input);
+                  tr.appendChild(td);
+                });
+
+                tbody.appendChild(tr);
+              });
+              if (countEl) {
+                countEl.textContent = String(state.rows.length);
+              }
+            }
+
+            function addRow() {
+              state.rows.push(Array(headers.length).fill(''));
+              render();
+            }
+
+            function deleteSelected() {
+              const selected = Array.from(tbody.querySelectorAll('input[type="checkbox"]:checked'))
+                .map((cb) => Number(cb.dataset.row))
+                .filter((idx) => Number.isInteger(idx));
+              if (!selected.length) {
+                return;
+              }
+              const selectedSet = new Set(selected);
+              state.rows = state.rows.filter((_row, idx) => !selectedSet.has(idx));
+              render();
+            }
+
+            function toJson() {
+              renumber();
+              return JSON.stringify(state.rows);
+            }
+
+            render();
+            return { addRow, deleteSelected, toJson };
+          }
+
+          const mentorasSheet = createSheet('mentoras', MENTORAS_HEADERS, MENTORAS_ROWS);
+          const emprendedorasSheet = createSheet('emprendedoras', EMPRENDEDORAS_HEADERS, EMPRENDEDORAS_ROWS);
+
+          document.querySelector('[data-sheet-add="mentoras"]').addEventListener('click', () => mentorasSheet.addRow());
+          document.querySelector('[data-sheet-delete="mentoras"]').addEventListener('click', () => mentorasSheet.deleteSelected());
+          document.querySelector('[data-sheet-add="emprendedoras"]').addEventListener('click', () => emprendedorasSheet.addRow());
+          document.querySelector('[data-sheet-delete="emprendedoras"]').addEventListener('click', () => emprendedorasSheet.deleteSelected());
+
+          document.getElementById('sheet-save-form').addEventListener('submit', (e) => {
+            document.getElementById('mentoras_sheet_data').value = mentorasSheet.toJson();
+            document.getElementById('emprendedoras_sheet_data').value = emprendedorasSheet.toJson();
+          });
+        })();
+      </script>
     {% endif %}
   </div>
 </div>

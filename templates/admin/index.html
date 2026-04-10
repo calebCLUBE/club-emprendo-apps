@@ -3,22 +3,22 @@
 {% block content %}
   <style>
     .ce-admin-home-wrap {
-      display: flex;
-      justify-content: center;
+      display: block;
     }
     .ce-admin-home-card {
-      max-width: 1200px;
-      width: 100%;
+      max-width: min(1800px, calc(100vw - 44px));
+      width: min(1800px, calc(100vw - 44px));
+      margin-left: auto;
+      margin-right: auto;
     }
     .ce-admin-home-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(260px, 320px));
-      justify-content: center;
-      gap: 18px;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 16px;
     }
     .ce-admin-home-grid .ce-admin-tile {
-      min-height: 150px;
-      padding: 22px 18px;
+      min-height: 116px;
+      padding: 18px 16px;
       text-align: center;
       display: flex;
       flex-direction: column;
@@ -27,12 +27,12 @@
       border-radius: 16px;
     }
     .ce-admin-home-grid .ce-admin-tile-title {
-      font-size: 22px;
+      font-size: 19px;
       line-height: 1.15;
     }
     .ce-admin-home-grid .ce-admin-tile-sub {
-      margin-top: 10px;
-      font-size: 14px;
+      margin-top: 8px;
+      font-size: 13px;
       line-height: 1.35;
       max-width: 260px;
     }

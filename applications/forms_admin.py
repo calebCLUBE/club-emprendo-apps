@@ -42,12 +42,14 @@ class UserTaskAssignForm(forms.ModelForm):
             "description",
             "task_type_ref",
             "priority",
+            "hours_estimate",
             "impact",
             "status",
             "due_date",
         ]
         widgets = {
             "description": forms.Textarea(attrs={"rows": 4}),
+            "hours_estimate": forms.NumberInput(attrs={"step": "0.25", "min": "0"}),
             "impact": forms.Textarea(attrs={"rows": 3}),
             "due_date": forms.DateInput(attrs={"type": "date"}),
         }
@@ -66,6 +68,7 @@ class UserTaskAssignForm(forms.ModelForm):
         self.fields["task_type_ref"].queryset = TaskType.objects.filter(is_active=True).order_by("position", "name")
         self.fields["task_type_ref"].label = "Task type"
         self.fields["task_type_ref"].required = True
+        self.fields["hours_estimate"].label = "Hours Estimate"
         self.fields["impact"].label = "Impact"
         self.fields["impact"].help_text = ""
         if not self.instance.pk and not self.initial.get("task_type_ref"):
@@ -84,12 +87,14 @@ class UserTaskEditForm(forms.ModelForm):
             "description",
             "task_type_ref",
             "priority",
+            "hours_estimate",
             "impact",
             "status",
             "due_date",
         ]
         widgets = {
             "description": forms.Textarea(attrs={"rows": 4}),
+            "hours_estimate": forms.NumberInput(attrs={"step": "0.25", "min": "0"}),
             "impact": forms.Textarea(attrs={"rows": 3}),
             "due_date": forms.DateInput(attrs={"type": "date"}),
         }
@@ -107,6 +112,7 @@ class UserTaskEditForm(forms.ModelForm):
         self.fields["task_type_ref"].queryset = TaskType.objects.filter(is_active=True).order_by("position", "name")
         self.fields["task_type_ref"].label = "Task type"
         self.fields["task_type_ref"].required = True
+        self.fields["hours_estimate"].label = "Hours Estimate"
         self.fields["impact"].label = "Impact"
         if not self.instance.task_type_ref_id and self.instance.task_type:
             self.initial["task_type_ref"] = (
@@ -123,11 +129,13 @@ class WebsiteRevisionRequestForm(forms.ModelForm):
             "title",
             "description",
             "priority",
+            "hours_estimate",
             "impact",
             "due_date",
         ]
         widgets = {
             "description": forms.Textarea(attrs={"rows": 4}),
+            "hours_estimate": forms.NumberInput(attrs={"step": "0.25", "min": "0"}),
             "impact": forms.Textarea(attrs={"rows": 3}),
             "due_date": forms.DateInput(attrs={"type": "date"}),
         }
@@ -142,6 +150,7 @@ class WebsiteRevisionRequestForm(forms.ModelForm):
         self.fields["assigned_to"].queryset = ordered_users
         self.fields["assigned_to"].required = False
         self.fields["assigned_to"].label_from_instance = _user_label
+        self.fields["hours_estimate"].label = "Hours Estimate"
         self.fields["impact"].label = "Impact"
 
 

@@ -80,6 +80,7 @@
           <th>Type</th>
           <th>Status</th>
           <th>Priority</th>
+          <th>Hours Estimate</th>
           <th>Due</th>
           <th>Impact</th>
           <th>Created</th>
@@ -112,6 +113,7 @@
               </form>
             </td>
             <td>{{ t.get_priority_display }}</td>
+            <td>{{ t.hours_estimate|default:"—" }}</td>
             <td>{{ t.due_date|default:"—" }}</td>
             <td>{{ t.impact|default:"—"|linebreaksbr }}</td>
             <td>{{ t.created_at }}</td>
@@ -121,7 +123,7 @@
           </tr>
         {% empty %}
           <tr>
-            <td colspan="8">No tasks assigned yet.</td>
+            <td colspan="9">No tasks assigned yet.</td>
           </tr>
         {% endfor %}
       </tbody>

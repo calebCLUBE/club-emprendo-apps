@@ -165,6 +165,7 @@
             <th>Assigned to</th>
             <th>Type</th>
             <th>Priority</th>
+            <th>Hours Estimate</th>
             <th>Status</th>
             <th>Due</th>
             <th>Created</th>
@@ -183,6 +184,7 @@
               <td>{{ t.assigned_to }}</td>
               <td>{{ t.task_type_name }}</td>
               <td>{{ t.get_priority_display }}</td>
+              <td>{{ t.hours_estimate|default:"—" }}</td>
               <td>{{ t.get_status_display }}</td>
               <td>{{ t.due_date|default:"—" }}</td>
               <td>{{ t.created_at }}</td>
@@ -192,7 +194,7 @@
             </tr>
           {% empty %}
             <tr>
-              <td colspan="9">No tasks found for this filter.</td>
+              <td colspan="10">No tasks found for this filter.</td>
             </tr>
           {% endfor %}
         </tbody>

@@ -640,6 +640,12 @@ class UserTask(models.Model):
         default=PRIORITY_MEDIUM,
         db_index=True,
     )
+    hours_estimate = models.DecimalField(
+        max_digits=6,
+        decimal_places=2,
+        null=True,
+        blank=True,
+    )
     impact = models.TextField(
         blank=True,
         help_text="What impact this task has and why it matters.",

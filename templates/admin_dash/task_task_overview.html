@@ -80,6 +80,10 @@
         <div class="ce-v">{{ task.get_priority_display }}</div>
       </div>
       <div>
+        <div class="ce-k">Hours Estimate</div>
+        <div class="ce-v">{{ task.hours_estimate|default:"—" }}</div>
+      </div>
+      <div>
         <div class="ce-k">Due date</div>
         <div class="ce-v">{{ task.due_date|default:"—" }}</div>
       </div>

@@ -55,6 +55,7 @@
           <th>Requested by</th>
           <th>Assigned to</th>
           <th>Priority</th>
+          <th>Hours Estimate</th>
           <th>Status</th>
           <th>Due</th>
           <th>Actions</th>
@@ -72,6 +73,7 @@
             <td>{{ t.requested_by|default:"—" }}</td>
             <td>{{ t.assigned_to }}</td>
             <td>{{ t.get_priority_display }}</td>
+            <td>{{ t.hours_estimate|default:"—" }}</td>
             <td>{{ t.get_status_display }}</td>
             <td>{{ t.due_date|default:"—" }}</td>
             <td>
@@ -82,14 +84,14 @@
           </tr>
           {% if t.impact %}
             <tr>
-              <td colspan="7" style="background:#fcfcfc; color:#444;">
+              <td colspan="8" style="background:#fcfcfc; color:#444;">
                 <strong>Impact:</strong> {{ t.impact|linebreaksbr }}
               </td>
             </tr>
           {% endif %}
         {% empty %}
           <tr>
-            <td colspan="7">No website revision tasks yet.</td>
+            <td colspan="8">No website revision tasks yet.</td>
           </tr>
         {% endfor %}
       </tbody>

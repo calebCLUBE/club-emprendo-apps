@@ -50,6 +50,7 @@ def _send_assignment_email(request, task: UserTask) -> None:
         f"Title: {task.title}\n"
         f"Type: {task.task_type_name}\n"
         f"Priority: {task.get_priority_display()}\n"
+        f"Hours estimate: {task.hours_estimate if task.hours_estimate is not None else 'Not set'}\n"
         f"Status: {task.get_status_display()}\n"
         f"Due date: {task.due_date or 'Not set'}\n\n"
         f"Impact:\n{task.impact or 'Not specified'}\n\n"
@@ -91,6 +92,7 @@ def _send_requester_completion_email(request, task: UserTask) -> None:
         f"Assigned to: {task.assigned_to}\n"
         f"Type: {task.task_type_name}\n"
         f"Priority: {task.get_priority_display()}\n"
+        f"Hours estimate: {task.hours_estimate if task.hours_estimate is not None else 'Not set'}\n"
         f"Completed status: {task.get_status_display()}\n\n"
         f"Impact:\n{task.impact or 'Not specified'}\n\n"
         f"Description:\n{task.description or 'No description provided'}\n\n"
@@ -135,6 +137,7 @@ def _send_requester_revision_needed_email(request, task: UserTask) -> None:
         f"Assigned to: {task.assigned_to}\n"
         f"Type: {task.task_type_name}\n"
         f"Priority: {task.get_priority_display()}\n"
+        f"Hours estimate: {task.hours_estimate if task.hours_estimate is not None else 'Not set'}\n"
         f"Current status: {task.get_status_display()}\n\n"
         f"Please review this task and either:\n"
         f"- change it back to In progress, or\n"
@@ -454,6 +457,7 @@ def task_manager_assign(request):
                     task_type_ref=task_type_ref,
                     task_type=task_type_slug,
                     priority=form.cleaned_data["priority"],
+                    hours_estimate=form.cleaned_data.get("hours_estimate"),
                     impact=form.cleaned_data.get("impact", ""),
                     status=form.cleaned_data["status"],
                     due_date=form.cleaned_data.get("due_date"),

@@ -113,6 +113,32 @@
         </select>
       </div>
       <div>
+        <label for="filter_status">Filter by status</label>
+        <select id="filter_status" name="filter_status">
+          <option value="">All statuses</option>
+          {% for value, label in status_choices %}
+            <option value="{{ value }}" {% if selected_status == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label for="filter_priority">Filter by priority</label>
+        <select id="filter_priority" name="filter_priority">
+          <option value="">All priorities</option>
+          {% for value, label in priority_choices %}
+            <option value="{{ value }}" {% if selected_priority == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label for="sort">Sort</label>
+        <select id="sort" name="sort">
+          {% for value, label in sort_choices %}
+            <option value="{{ value }}" {% if selected_sort == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
         <button class="ce-btn" type="submit">Apply filter</button>
       </div>
       <div>
@@ -131,6 +157,9 @@
     <form method="post">
       {% csrf_token %}
       <input type="hidden" name="assignee" value="{{ selected_user_id }}">
+      <input type="hidden" name="filter_status" value="{{ selected_status }}">
+      <input type="hidden" name="filter_priority" value="{{ selected_priority }}">
+      <input type="hidden" name="sort" value="{{ selected_sort }}">
       <div class="ce-bulk">
         <div>
           <label for="bulk_status">Change status</label>

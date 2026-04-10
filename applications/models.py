@@ -584,10 +584,10 @@ class UserTask(models.Model):
     PRIORITY_HIGH = "high"
     PRIORITY_URGENT = "urgent"
     PRIORITY_CHOICES = [
-        (PRIORITY_LOW, "Low"),
-        (PRIORITY_MEDIUM, "Medium"),
-        (PRIORITY_HIGH, "High"),
-        (PRIORITY_URGENT, "Urgent"),
+        (PRIORITY_URGENT, "P1"),
+        (PRIORITY_HIGH, "P2"),
+        (PRIORITY_MEDIUM, "P3"),
+        (PRIORITY_LOW, "P4"),
     ]
 
     assigned_to = models.ForeignKey(

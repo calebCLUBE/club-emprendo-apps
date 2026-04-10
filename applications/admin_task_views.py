@@ -1,10 +1,11 @@
 import logging
+from urllib.parse import urlencode
 
 from django.contrib import messages
 from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth import get_user_model
 from django.core.mail import send_mail
-from django.db.models import Count, Q
+from django.db.models import Case, Count, IntegerField, Q, Value, When
 from django.conf import settings
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -13,6 +14,15 @@ from .forms_admin import UserTaskAssignForm, UserTaskEditForm
 from .models import TaskType, UserTask, ensure_default_task_types
 
 logger = logging.getLogger(__name__)
+
+TASK_SORT_CHOICES = [
+    ("newest", "Newest first"),
+    ("oldest", "Oldest first"),
+    ("priority_high", "Priority P1 to P4"),
+    ("priority_low", "Priority P4 to P1"),
+    ("due_soon", "Due date: soonest first"),
+    ("due_late", "Due date: latest first"),
+]
 
 
 def _ordered_users(user_model):
@@ -32,6 +42,69 @@ def _website_revision_task_type() -> TaskType | None:
     if revision_type:
         return revision_type
     return TaskType.objects.filter(slug=UserTask.TYPE_WEBSITE_REVISION).first()
+
+
+def _priority_rank_expression():
+    return Case(
+        When(priority=UserTask.PRIORITY_URGENT, then=Value(1)),
+        When(priority=UserTask.PRIORITY_HIGH, then=Value(2)),
+        When(priority=UserTask.PRIORITY_MEDIUM, then=Value(3)),
+        When(priority=UserTask.PRIORITY_LOW, then=Value(4)),
+        default=Value(99),
+        output_field=IntegerField(),
+    )
+
+
+def _due_null_rank_expression():
+    return Case(
+        When(due_date__isnull=True, then=Value(1)),
+        default=Value(0),
+        output_field=IntegerField(),
+    )
+
+
+def _apply_task_sort(queryset, sort_key: str):
+    if sort_key == "oldest":
+        return queryset.order_by("created_at", "id")
+    if sort_key == "priority_high":
+        return queryset.annotate(_priority_rank=_priority_rank_expression()).order_by(
+            "_priority_rank", "-created_at", "-id"
+        )
+    if sort_key == "priority_low":
+        return queryset.annotate(_priority_rank=_priority_rank_expression()).order_by(
+            "-_priority_rank", "-created_at", "-id"
+        )
+    if sort_key == "due_soon":
+        return queryset.annotate(_due_null_rank=_due_null_rank_expression()).order_by(
+            "_due_null_rank", "due_date", "-created_at", "-id"
+        )
+    if sort_key == "due_late":
+        return queryset.annotate(_due_null_rank=_due_null_rank_expression()).order_by(
+            "_due_null_rank", "-due_date", "-created_at", "-id"
+        )
+    return queryset.order_by("-created_at", "-id")
+
+
+def _task_list_url(
+    base_url: str,
+    *,
+    assignee: str = "",
+    status_filter: str = "",
+    priority_filter: str = "",
+    sort_key: str = "newest",
+) -> str:
+    params = {}
+    if assignee:
+        params["assignee"] = assignee
+    if status_filter:
+        params["filter_status"] = status_filter
+    if priority_filter:
+        params["filter_priority"] = priority_filter
+    if sort_key and sort_key != "newest":
+        params["sort"] = sort_key
+    if not params:
+        return base_url
+    return f"{base_url}?{urlencode(params)}"
 
 
 def _send_assignment_email(request, task: UserTask) -> None:
@@ -200,13 +273,24 @@ def task_manager_overview(request):
     users = _ordered_users(user_model)
 
     selected_user_id = (request.GET.get("assignee") or request.POST.get("assignee") or "").strip()
+    selected_status = (request.GET.get("filter_status") or request.POST.get("filter_status") or "").strip()
+    selected_priority = (request.GET.get("filter_priority") or request.POST.get("filter_priority") or "").strip()
+    sort_key = (request.GET.get("sort") or request.POST.get("sort") or "newest").strip()
+    valid_statuses = {choice[0] for choice in UserTask.STATUS_CHOICES}
+    valid_priorities = {choice[0] for choice in UserTask.PRIORITY_CHOICES}
+    valid_sorts = {choice[0] for choice in TASK_SORT_CHOICES}
+
+    if selected_status and selected_status not in valid_statuses:
+        selected_status = ""
+    if selected_priority and selected_priority not in valid_priorities:
+        selected_priority = ""
+    if sort_key not in valid_sorts:
+        sort_key = "newest"
 
     if request.method == "POST":
         task_ids = [task_id for task_id in request.POST.getlist("task_ids") if str(task_id).strip()]
         bulk_status = (request.POST.get("bulk_status") or "").strip()
         bulk_priority = (request.POST.get("bulk_priority") or "").strip()
-        valid_statuses = {choice[0] for choice in UserTask.STATUS_CHOICES}
-        valid_priorities = {choice[0] for choice in UserTask.PRIORITY_CHOICES}
 
         if not task_ids:
             messages.error(request, "Select at least one task.")
@@ -288,9 +372,13 @@ def task_manager_overview(request):
                         + ".",
                     )
 
-        redirect_url = reverse("admin_task_manager_overview")
-        if selected_user_id:
-            redirect_url = f"{redirect_url}?assignee={selected_user_id}"
+        redirect_url = _task_list_url(
+            reverse("admin_task_manager_overview"),
+            assignee=selected_user_id,
+            status_filter=selected_status,
+            priority_filter=selected_priority,
+            sort_key=sort_key,
+        )
         return redirect(redirect_url)
 
     selected_user = None
@@ -301,11 +389,13 @@ def task_manager_overview(request):
             tasks = tasks.filter(assigned_to_id=selected_user.id)
         except (ValueError, user_model.DoesNotExist):
             selected_user_id = ""
+    if selected_status:
+        tasks = tasks.filter(status=selected_status)
+    if selected_priority:
+        tasks = tasks.filter(priority=selected_priority)
 
-    tasks = (
-        tasks.select_related("assigned_to", "created_by", "requested_by", "task_type_ref")
-        .order_by("-created_at")
-    )
+    tasks = tasks.select_related("assigned_to", "created_by", "requested_by", "task_type_ref")
+    tasks = _apply_task_sort(tasks, sort_key)
     return render(
         request,
         "admin_dash/task_overview.html",
@@ -314,8 +404,12 @@ def task_manager_overview(request):
             "users": users,
             "selected_user_id": selected_user_id,
             "selected_user": selected_user,
+            "selected_status": selected_status,
+            "selected_priority": selected_priority,
+            "selected_sort": sort_key,
             "status_choices": UserTask.STATUS_CHOICES,
             "priority_choices": UserTask.PRIORITY_CHOICES,
+            "sort_choices": TASK_SORT_CHOICES,
             "task_type_admin_url": _task_type_link(),
         },
     )
@@ -343,21 +437,47 @@ def task_manager_user_tasks(request, user_id: int):
     ensure_default_task_types()
     user_model = get_user_model()
     user_obj = get_object_or_404(user_model, id=user_id)
+    selected_status = (request.GET.get("filter_status") or request.POST.get("filter_status") or "").strip()
+    selected_priority = (request.GET.get("filter_priority") or request.POST.get("filter_priority") or "").strip()
+    sort_key = (request.GET.get("sort") or request.POST.get("sort") or "newest").strip()
+    valid_statuses = {choice[0] for choice in UserTask.STATUS_CHOICES}
+    valid_priorities = {choice[0] for choice in UserTask.PRIORITY_CHOICES}
+    valid_sorts = {choice[0] for choice in TASK_SORT_CHOICES}
+
+    if selected_status and selected_status not in valid_statuses:
+        selected_status = ""
+    if selected_priority and selected_priority not in valid_priorities:
+        selected_priority = ""
+    if sort_key not in valid_sorts:
+        sort_key = "newest"
 
     if request.method == "POST":
         task_id = request.POST.get("task_id")
         new_status = (request.POST.get("status") or "").strip()
-        valid_statuses = {choice[0] for choice in UserTask.STATUS_CHOICES}
         task = get_object_or_404(UserTask, id=task_id, assigned_to=user_obj)
         old_status = task.status
 
         if new_status not in valid_statuses:
             messages.error(request, "Please choose a valid status.")
-            return redirect("admin_task_manager_user_tasks", user_id=user_obj.id)
+            return redirect(
+                _task_list_url(
+                    reverse("admin_task_manager_user_tasks", kwargs={"user_id": user_obj.id}),
+                    status_filter=selected_status,
+                    priority_filter=selected_priority,
+                    sort_key=sort_key,
+                )
+            )
 
         if old_status == new_status:
             messages.success(request, "Task status unchanged.")
-            return redirect("admin_task_manager_user_tasks", user_id=user_obj.id)
+            return redirect(
+                _task_list_url(
+                    reverse("admin_task_manager_user_tasks", kwargs={"user_id": user_obj.id}),
+                    status_filter=selected_status,
+                    priority_filter=selected_priority,
+                    sort_key=sort_key,
+                )
+            )
 
         task.status = new_status
         task.save(update_fields=["status", "updated_at"])
@@ -373,20 +493,34 @@ def task_manager_user_tasks(request, user_id: int):
         else:
             messages.success(request, "Task status updated.")
 
-        return redirect("admin_task_manager_user_tasks", user_id=user_obj.id)
+        return redirect(
+            _task_list_url(
+                reverse("admin_task_manager_user_tasks", kwargs={"user_id": user_obj.id}),
+                status_filter=selected_status,
+                priority_filter=selected_priority,
+                sort_key=sort_key,
+            )
+        )
 
-    tasks = (
-        UserTask.objects.filter(assigned_to=user_obj)
-        .select_related("assigned_to", "created_by", "requested_by", "task_type_ref")
-        .order_by("-created_at")
-    )
+    tasks = UserTask.objects.filter(assigned_to=user_obj)
+    if selected_status:
+        tasks = tasks.filter(status=selected_status)
+    if selected_priority:
+        tasks = tasks.filter(priority=selected_priority)
+    tasks = tasks.select_related("assigned_to", "created_by", "requested_by", "task_type_ref")
+    tasks = _apply_task_sort(tasks, sort_key)
     return render(
         request,
         "admin_dash/task_manager_user_tasks.html",
         {
             "target_user": user_obj,
             "tasks": tasks,
+            "selected_status": selected_status,
+            "selected_priority": selected_priority,
+            "selected_sort": sort_key,
             "status_choices": UserTask.STATUS_CHOICES,
+            "priority_choices": UserTask.PRIORITY_CHOICES,
+            "sort_choices": TASK_SORT_CHOICES,
             "task_type_admin_url": _task_type_link(),
         },
     )

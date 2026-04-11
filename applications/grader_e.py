@@ -10,6 +10,7 @@ MODEL = "gpt-5.2"
 TIMEOUT = 60
 logger = logging.getLogger(__name__)
 PRIORITY_STATUS = "Priority"
+MAX_TOTAL_SCORE = 64
 
 W = {
     "prior_mentoring": 2,
@@ -89,10 +90,23 @@ def _normalized_identifier(row: dict | pd.Series, keys: list[str]) -> tuple[str,
 def _score_rank(value) -> float:
     if value in (None, "", "NA"):
         return float("-inf")
+    if isinstance(value, str):
+        raw = value.strip()
+        if not raw or raw.upper() == "NA":
+            return float("-inf")
+        if raw.endswith("%"):
+            value = raw[:-1].strip()
+        else:
+            value = raw
     try:
         return float(value)
     except (TypeError, ValueError):
         return float("-inf")
+
+
+def _format_total_percentage(total_score: float) -> str:
+    pct = (float(total_score) / MAX_TOTAL_SCORE) * 100 if MAX_TOTAL_SCORE else 0.0
+    return f"{pct:.2f}%"
 
 
 def _dedupe_scored_rows(df: pd.DataFrame, score_col: str, id_keys: list[str]) -> tuple[pd.DataFrame, int]:
@@ -354,9 +368,11 @@ def grade_single_row(row: dict, client: OpenAI, priority_emails: set[str] | None
         gh_pt,
         bc_pt,
     ])
+    total_score_pct = _format_total_percentage(total_score)
+    score_exp_lines.append(f"total_score - {total_score}/{MAX_TOTAL_SCORE} ({total_score_pct})")
 
     return [
-        total_score,
+        total_score_pct,
         status,
         row.get("full_name"),
         row.get("whatsapp"),
@@ -374,7 +390,7 @@ def grade_single_row(row: dict, client: OpenAI, priority_emails: set[str] | None
         row.get("biggest_challenge"), bc_pt,
         row.get("additional_comments"),
         "\n".join(score_exp_lines),
-        "Applicants must meet all tablestakes; structured fields are deterministic; unstructured responses scored 1–5 and weighted.",
+        "Applicants must meet all tablestakes; structured fields are deterministic; unstructured responses scored 1–5 and weighted. Total score shown as percentage.",
     ]
 
 

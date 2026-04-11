@@ -2,6 +2,7 @@
 import openai
 import csv
 import io
+import json
 import re
 from typing import List, Tuple
 from urllib.parse import urlparse
@@ -270,19 +271,25 @@ def _run_grade_job(job_id: int):
             raise RuntimeError("Grader returned empty output")
 
         # ----------------------------------
-        # STORE GRADED FILE (keep all runs)
+        # STORE GRADED FILE (keep latest per form slug)
         # ----------------------------------
         csv_text = graded_df.to_csv(index=False)
 
-        gf = GradedFile.objects.create(
-            form_slug=job.form_slug,
-            csv_text=csv_text,
-        )
+        existing_qs = GradedFile.objects.filter(form_slug=job.form_slug)
+        replaced_count = existing_qs.count()
+        with transaction.atomic():
+            existing_qs.delete()
+            gf = GradedFile.objects.create(
+                form_slug=job.form_slug,
+                csv_text=csv_text,
+            )
 
         drive_sync = sync_generated_csv_artifact(job.form_slug, csv_text)
         _job_log(job, f"☁️ Drive sync: {drive_sync.status} - {drive_sync.detail}")
 
         _job_log(job, f"📄 Saved graded file (id={gf.id}, bytes={len(csv_text)})")
+        if replaced_count:
+            _job_log(job, f"♻️ Removed {replaced_count} older graded file(s) for {job.form_slug}")
 
         _job_log(job, "✅ Grading completed successfully")
 
@@ -377,6 +384,44 @@ def _norm_email_list(s: str) -> list[str]:
         seen.add(email)
         out.append(email)
     return out
+
+
+def _normalize_csv_data_rows(rows, width: int) -> list[list[str]]:
+    normalized: list[list[str]] = []
+    if width <= 0:
+        return normalized
+    if not isinstance(rows, list):
+        return normalized
+    for raw_row in rows:
+        if not isinstance(raw_row, list):
+            continue
+        row: list[str] = []
+        for i in range(width):
+            cell = raw_row[i] if i < len(raw_row) else ""
+            row.append("" if cell is None else str(cell))
+        normalized.append(row)
+    return normalized
+
+
+def _csv_text_to_grid(csv_text: str) -> tuple[list[str], list[list[str]]]:
+    if not csv_text:
+        return [], []
+    parsed = list(csv.reader(io.StringIO(csv_text)))
+    if not parsed:
+        return [], []
+    headers = ["" if cell is None else str(cell) for cell in parsed[0]]
+    width = len(headers)
+    rows = _normalize_csv_data_rows(parsed[1:], width)
+    return headers, rows
+
+
+def _grid_to_csv_text(headers: list[str], rows: list[list[str]]) -> str:
+    buf = io.StringIO()
+    writer = csv.writer(buf, lineterminator="\n")
+    writer.writerow(["" if h is None else str(h) for h in headers])
+    for row in _normalize_csv_data_rows(rows, len(headers)):
+        writer.writerow(row)
+    return buf.getvalue()
 
 
 def _parse_emp_availability(cell: str) -> set[str]:
@@ -2327,9 +2372,22 @@ def database_home(request):
         s.submission_count = counts.get(s.slug, 0)
         s.admin_edit_url = reverse("admin:applications_formdefinition_change", args=[s.id])
 
-    graded_files = list(
-        GradedFile.objects.exclude(form_slug__startswith="PAIR_G").order_by("-created_at")[:200]
+    latest_graded_by_form: dict[str, GradedFile] = {}
+    graded_candidates = (
+        GradedFile.objects.exclude(form_slug__startswith="PAIR_G")
+        .order_by("-created_at", "-id")
     )
+    for gf in graded_candidates:
+        slug = (gf.form_slug or "").strip()
+        if not slug or slug in latest_graded_by_form:
+            continue
+        latest_graded_by_form[slug] = gf
+
+    graded_files = sorted(
+        latest_graded_by_form.values(),
+        key=lambda item: (item.created_at, item.id),
+        reverse=True,
+    )[:200]
     graded_files_by_group_map = {}
     graded_files_other = []
     for gf in graded_files:
@@ -3067,6 +3125,18 @@ def grading_home(request):
     if group:
         fds = fds.filter(slug__startswith=f"G{group}_")
 
+    form_slugs = [fd.slug for fd in fds]
+    latest_graded_by_slug: dict[str, GradedFile] = {}
+    if form_slugs:
+        latest_candidates = (
+            GradedFile.objects.filter(form_slug__in=form_slugs)
+            .order_by("-created_at", "-id")
+        )
+        for gf in latest_candidates:
+            slug = (gf.form_slug or "").strip()
+            if slug and slug not in latest_graded_by_slug:
+                latest_graded_by_slug[slug] = gf
+
     totals = {
         row["form__slug"]: row["c"]
         for row in Application.objects.filter(form__in=fds)
@@ -3086,11 +3156,14 @@ def grading_home(request):
 
     rows = []
     for fd in fds:
+        latest_file = latest_graded_by_slug.get(fd.slug)
         rows.append({
             "slug": fd.slug,
             "name": fd.name,
             "total": totals.get(fd.slug, 0),
             "pending": pending.get(fd.slug, 0),
+            "latest_graded_file_id": latest_file.id if latest_file else None,
+            "latest_graded_at": latest_file.created_at if latest_file else None,
         })
 
     return render(
@@ -3099,6 +3172,64 @@ def grading_home(request):
         {
             "group": group,
             "forms": rows,
+        },
+    )
+
+
+@staff_member_required
+def grading_live_sheet(request, form_slug: str):
+    latest_file = (
+        GradedFile.objects.filter(form_slug=form_slug)
+        .order_by("-created_at", "-id")
+        .first()
+    )
+    if not latest_file:
+        messages.error(request, f"No graded file found for {form_slug}.")
+        return redirect("admin_grading_home")
+
+    headers, rows = _csv_text_to_grid(latest_file.csv_text or "")
+
+    if request.method == "POST":
+        if not headers:
+            messages.error(request, "This graded file has no header row and cannot be edited in-sheet.")
+            return redirect("admin_grading_live_sheet", form_slug=form_slug)
+
+        rows_raw = (request.POST.get("rows_json") or "").strip()
+        try:
+            rows_payload = json.loads(rows_raw) if rows_raw else []
+        except json.JSONDecodeError:
+            messages.error(request, "Could not read sheet edits. Please try again.")
+            return redirect("admin_grading_live_sheet", form_slug=form_slug)
+
+        rows = _normalize_csv_data_rows(rows_payload, len(headers))
+        csv_text = _grid_to_csv_text(headers, rows)
+
+        latest_file.csv_text = csv_text
+        latest_file.save(update_fields=["csv_text"])
+
+        try:
+            drive_sync = sync_generated_csv_artifact(form_slug, csv_text)
+            messages.success(
+                request,
+                f"Saved sheet edits. Drive sync: {drive_sync.status}.",
+            )
+        except Exception:
+            logger.exception("Drive sync failed after sheet edit for %s", form_slug)
+            messages.warning(
+                request,
+                "Saved sheet edits, but Drive sync failed. You can retry from Database > Sync.",
+            )
+
+        return redirect("admin_grading_live_sheet", form_slug=form_slug)
+
+    return render(
+        request,
+        "admin_dash/grading_live_sheet.html",
+        {
+            "form_slug": form_slug,
+            "graded_file": latest_file,
+            "headers": headers,
+            "rows": rows,
         },
     )
 

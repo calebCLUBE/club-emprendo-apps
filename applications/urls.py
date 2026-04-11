@@ -111,5 +111,10 @@ urlpatterns = [
         admin_views.download_graded_csv,
         name="admin_grading_download_csv",
     ),
+    path(
+        "admin/grading/sheet/<slug:form_slug>/",
+        admin_views.grading_live_sheet,
+        name="admin_grading_live_sheet",
+    ),
 
 ]

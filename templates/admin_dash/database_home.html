@@ -73,6 +73,7 @@
           {% for f in bucket.files %}
             <li style="margin:6px 0; display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
               <span>{{ f.created_at|date:"Y-m-d H:i" }} — {{ f.form_slug }}</span>
+              <a href="{% url 'admin_grading_live_sheet' f.form_slug %}">Live Sheet</a>
               <a href="{% url 'admin_grading_download_csv' f.id %}">Download CSV</a>
               <form method="post" action="{% url 'admin_delete_graded_file' f.id %}" style="display:inline;">
                 {% csrf_token %}
@@ -101,6 +102,7 @@
           {% for f in graded_files_other %}
             <li style="margin:6px 0; display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
               <span>{{ f.created_at|date:"Y-m-d H:i" }} — {{ f.form_slug }}</span>
+              <a href="{% url 'admin_grading_live_sheet' f.form_slug %}">Live Sheet</a>
               <a href="{% url 'admin_grading_download_csv' f.id %}">Download CSV</a>
               <form method="post" action="{% url 'admin_delete_graded_file' f.id %}" style="display:inline;">
                 {% csrf_token %}
@@ -134,6 +136,8 @@
       {% for f in pairing_files %}
         <li style="margin:6px 0;">
           {{ f.created_at|date:"Y-m-d H:i" }} — {{ f.form_slug }}
+          &nbsp; — &nbsp;
+          <a href="{% url 'admin_grading_live_sheet' f.form_slug %}">Live Sheet</a>
           &nbsp; — &nbsp;
           <a href="{% url 'admin_grading_download_csv' f.id %}">Download CSV</a>
         </li>

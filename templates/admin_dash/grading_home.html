@@ -67,6 +67,12 @@
       font-family: inherit;
       font-size: 13px;
     }
+    .ce-grade-extra-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 8px;
+    }
     .ce-btn {
       height: 38px;
       padding: 0 14px;
@@ -252,6 +258,13 @@
                     placeholder="one@email.com&#10;two@email.com"
                   ></textarea>
                   <button class="ce-btn ce-btn-primary" type="submit">Grade (live)</button>
+                  {% if f.latest_graded_file_id %}
+                    <div class="ce-grade-extra-actions">
+                      <a class="ce-btn" href="{% url 'admin_grading_live_sheet' f.slug %}">Live Sheet</a>
+                      <a class="ce-btn" href="{% url 'admin_grading_download_csv' f.latest_graded_file_id %}">Download CSV</a>
+                    </div>
+                    <span class="ce-grade-muted">Latest file: {{ f.latest_graded_at|date:"Y-m-d H:i" }}</span>
+                  {% endif %}
                 </form>
               </td>
             </tr>

@@ -6,6 +6,7 @@ MODEL = "gpt-5.2"
 TIMEOUT = 60
 logger = logging.getLogger(__name__)
 PRIORITY_STATUS = "Priority"
+MAX_TOTAL_SCORE = 81
 
 W = {
     "owned_business": 3,
@@ -75,10 +76,23 @@ def _normalized_identifier(row: dict | pd.Series, keys: list[str]) -> tuple[str,
 def _score_rank(value) -> float:
     if value in (None, "", "NA"):
         return float("-inf")
+    if isinstance(value, str):
+        raw = value.strip()
+        if not raw or raw.upper() == "NA":
+            return float("-inf")
+        if raw.endswith("%"):
+            value = raw[:-1].strip()
+        else:
+            value = raw
     try:
         return float(value)
     except (TypeError, ValueError):
         return float("-inf")
+
+
+def _format_total_percentage(total_score: float) -> str:
+    pct = (float(total_score) / MAX_TOTAL_SCORE) * 100 if MAX_TOTAL_SCORE else 0.0
+    return f"{pct:.2f}%"
 
 
 def _dedupe_scored_rows(df: pd.DataFrame, score_col: str, id_keys: list[str]) -> tuple[pd.DataFrame, int]:
@@ -360,9 +374,11 @@ def grade_single_row(row: dict, client: OpenAI, priority_emails: set[str] | None
         mot_raw * W["motivation"],
         prof_raw * W["professional_expertise"],
     ])
+    total_pts_pct = _format_total_percentage(total_pts)
+    score_exp.append(f"total_score - {total_pts}/{MAX_TOTAL_SCORE} ({total_pts_pct})")
 
     return {
-        "total_pts": total_pts,
+        "total_pts": total_pts_pct,
         "status": status,
         "certificate_name": row.get("certificate_name"),
         "preferred_name": row.get("preferred_name"),
@@ -398,7 +414,7 @@ def grade_single_row(row: dict, client: OpenAI, priority_emails: set[str] | None
         "professional_expertise": row.get("professional_expertise"),
         "professional_expertise_pt": prof_raw * W["professional_expertise"],
         "score_exp": "\n".join(score_exp),
-        "grading_rubric": "Weighted rubric applied; unstructured responses scored 1–5.",
+        "grading_rubric": "Weighted rubric applied; unstructured responses scored 1–5. Total score shown as percentage.",
     }
 
 # -----------------------

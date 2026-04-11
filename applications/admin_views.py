@@ -1,5 +1,6 @@
 # applications/admin_views.py
 import openai
+import calendar
 import csv
 import io
 import json
@@ -8,7 +9,7 @@ from typing import List, Tuple
 from urllib.parse import urlparse
 from django.core.mail import get_connection
 import time
-from datetime import datetime
+from datetime import datetime, date
 from applications.grading import grade_from_answers
 from openai import OpenAI
 from django.core.files.base import ContentFile
@@ -48,6 +49,7 @@ from applications.models import (
     Choice,
     FormDefinition,
     FormGroup,
+    GroupParticipantList,
     Section,
     Question,
     GradedFile,
@@ -166,6 +168,137 @@ def _job_log(job: GradingJob, line: str):
     job.save(update_fields=["log_text", "updated_at"])
 
 
+def _track_from_form_slug(form_slug: str) -> str | None:
+    slug = (form_slug or "").strip().upper()
+    if slug.endswith("E_A2"):
+        return "E"
+    if slug.endswith("M_A2"):
+        return "M"
+    return None
+
+
+def _emails_from_participant_sheet_rows(rows) -> set[str]:
+    if not isinstance(rows, list):
+        return set()
+
+    out: set[str] = set()
+    for row in rows:
+        if not isinstance(row, list):
+            continue
+        for cell in row:
+            raw = (str(cell or "").strip().lower())
+            if not raw or "@" not in raw:
+                continue
+            if re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", raw):
+                out.add(raw)
+    return out
+
+
+def _month_name_to_number(month_name: str) -> int | None:
+    raw = (month_name or "").strip().lower()
+    if not raw:
+        return None
+
+    month_num = RESPOND_BY_MONTH_TO_NUM.get(raw)
+    if month_num:
+        return int(month_num)
+
+    month_map_en = {
+        "january": 1,
+        "february": 2,
+        "march": 3,
+        "april": 4,
+        "may": 5,
+        "june": 6,
+        "july": 7,
+        "august": 8,
+        "september": 9,
+        "october": 10,
+        "november": 11,
+        "december": 12,
+    }
+    return month_map_en.get(raw)
+
+
+def _safe_add_months(base_date: date, months: int) -> date:
+    month_index = (base_date.month - 1) + int(months)
+    year = base_date.year + (month_index // 12)
+    month = (month_index % 12) + 1
+    day = min(base_date.day, calendar.monthrange(year, month)[1])
+    return date(year, month, day)
+
+
+def _group_start_date(group: FormGroup | None) -> date | None:
+    if not group:
+        return None
+    try:
+        day = int(getattr(group, "start_day", 0) or 0)
+        year = int(getattr(group, "year", 0) or 0)
+    except (TypeError, ValueError):
+        return None
+
+    month_num = _month_name_to_number(getattr(group, "start_month", ""))
+    if not day or not year or not month_num:
+        return None
+    try:
+        return date(year, month_num, day)
+    except ValueError:
+        return None
+
+
+def _is_group_currently_active(group: FormGroup | None, today: date | None = None) -> bool:
+    start_date = _group_start_date(group)
+    if not start_date:
+        return False
+    today = today or timezone.localdate()
+    active_until = _safe_add_months(start_date, 3)
+    return start_date <= today < active_until
+
+
+def _active_participant_emails_for_track(track: str | None) -> set[str]:
+    wanted = (track or "").strip().upper()
+    include_e = wanted in {"", "E"}
+    include_m = wanted in {"", "M"}
+
+    out: set[str] = set()
+    participant_lists = GroupParticipantList.objects.select_related("group").only(
+        "group__start_day",
+        "group__start_month",
+        "group__year",
+        "mentoras_emails_text",
+        "emprendedoras_emails_text",
+        "mentoras_sheet_rows",
+        "emprendedoras_sheet_rows",
+    )
+    today = timezone.localdate()
+    for row in participant_lists:
+        if not _is_group_currently_active(getattr(row, "group", None), today=today):
+            continue
+
+        if include_e:
+            emps = _norm_email_list(getattr(row, "emprendedoras_emails_text", ""))
+            if emps:
+                out.update(emps)
+            else:
+                out.update(
+                    _emails_from_participant_sheet_rows(getattr(row, "emprendedoras_sheet_rows", []))
+                )
+
+        if include_m:
+            mentors = _norm_email_list(getattr(row, "mentoras_emails_text", ""))
+            if mentors:
+                out.update(mentors)
+            else:
+                out.update(
+                    _emails_from_participant_sheet_rows(getattr(row, "mentoras_sheet_rows", []))
+                )
+    return out
+
+
+def _active_participant_emails_for_form_slug(form_slug: str) -> set[str]:
+    return _active_participant_emails_for_track(_track_from_form_slug(form_slug))
+
+
 @staff_member_required
 def grading_job_status(request, job_id: int):
     job = get_object_or_404(GradingJob, id=job_id)
@@ -184,6 +317,12 @@ def _run_grade_job(job_id: int):
             _job_log(
                 job,
                 f"⭐ Priority status override enabled for {len(priority_emails)} email(s).",
+            )
+        active_participant_emails = _active_participant_emails_for_form_slug(job.form_slug)
+        if active_participant_emails:
+            _job_log(
+                job,
+                f"🧷 Active participant filter enabled for {len(active_participant_emails)} email(s).",
             )
 
         # ----------------------------------
@@ -257,6 +396,7 @@ def _run_grade_job(job_id: int):
                 client,
                 log_fn=lambda msg: _job_log(job, msg),
                 priority_emails=priority_emails,
+                active_participant_emails=active_participant_emails,
             )
 
         else:  # M_A2
@@ -266,6 +406,7 @@ def _run_grade_job(job_id: int):
                 client,
                 log_fn=lambda msg: _job_log(job, msg),
                 priority_emails=priority_emails,
+                active_participant_emails=active_participant_emails,
             )
 
         if graded_df is None or graded_df.empty:

@@ -6,6 +6,7 @@ MODEL = "gpt-5.2"
 TIMEOUT = 60
 logger = logging.getLogger(__name__)
 PRIORITY_STATUS = "Priority"
+ACTIVE_PARTICIPANT_STATUS = "participante activa"
 MAX_TOTAL_SCORE = 81
 
 W = {
@@ -137,6 +138,13 @@ def _is_priority_email(row: dict, priority_emails: set[str] | None) -> bool:
         return False
     email = str(row.get("email", "") or "").strip().lower()
     return bool(email and email in priority_emails)
+
+
+def _is_active_participant_email(row: dict, active_participant_emails: set[str] | None) -> bool:
+    if not active_participant_emails:
+        return False
+    email = str(row.get("email", "") or "").strip().lower()
+    return bool(email and email in active_participant_emails)
 
 
 def _categories_to_dict(categories) -> dict:
@@ -282,14 +290,21 @@ COLUMNS = [
 # Grade ONE row
 # -----------------------
 
-def grade_single_row(row: dict, client: OpenAI, priority_emails: set[str] | None = None) -> dict:
+def grade_single_row(
+    row: dict,
+    client: OpenAI,
+    priority_emails: set[str] | None = None,
+    active_participant_emails: set[str] | None = None,
+) -> dict:
     disqual_reasons = _disqualification_reasons(row)
     meets_all = not disqual_reasons
     status = status_from_participation(
         row.get("prior_participation"),
         disqualified=not meets_all,
     )
-    if _is_priority_email(row, priority_emails):
+    if _is_active_participant_email(row, active_participant_emails):
+        status = ACTIVE_PARTICIPANT_STATUS
+    elif _is_priority_email(row, priority_emails):
         status = PRIORITY_STATUS
 
     owned_pt = yes(row.get("owned_business")) * W["owned_business"]
@@ -426,10 +441,16 @@ def grade_from_dataframe(
     client: OpenAI,
     log_fn=None,
     priority_emails: set[str] | list[str] | tuple[str, ...] | None = None,
+    active_participant_emails: set[str] | list[str] | tuple[str, ...] | None = None,
 ) -> pd.DataFrame:
     out = []
     total = len(df)
     normalized_priority_emails = {str(e).strip().lower() for e in (priority_emails or []) if str(e).strip()}
+    normalized_active_participant_emails = {
+        str(e).strip().lower()
+        for e in (active_participant_emails or [])
+        if str(e).strip()
+    }
 
     for i, (_, row) in enumerate(df.iterrows(), start=1):
         if log_fn:
@@ -440,6 +461,7 @@ def grade_from_dataframe(
                 row.to_dict(),
                 client,
                 priority_emails=normalized_priority_emails,
+                active_participant_emails=normalized_active_participant_emails,
             )
         )
 

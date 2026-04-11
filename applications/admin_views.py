@@ -23,6 +23,7 @@ from django.core.mail import EmailMultiAlternatives, get_connection
 from django.core.cache import cache
 from django.db import transaction, DatabaseError
 from django.db.models import Model, Count, Q
+from django.db.models.functions import Lower
 from django.http import HttpResponse, Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -2805,7 +2806,13 @@ def database_track_detail(request, track: str):
         if (fd.slug or "").strip().upper().endswith(f"{track}_A2")
     ]
     second_part_completed_count = (
-        Application.objects.filter(form__in=second_part_forms).count()
+        Application.objects.filter(form__in=second_part_forms)
+        .exclude(email__isnull=True)
+        .exclude(email__exact="")
+        .annotate(_email_norm=Lower("email"))
+        .values("_email_norm")
+        .distinct()
+        .count()
         if second_part_forms
         else 0
     )

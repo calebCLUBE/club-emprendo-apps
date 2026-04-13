@@ -3187,6 +3187,7 @@ def database_track_detail(request, track: str):
         completion_filter = TRACK_COMPLETION_FILTER_ALL
 
     headers, rows, forms = _build_csv_for_track(track, selected_group)
+    completion_people_count: int | None = None
 
     second_part_forms = [
         fd for fd in forms
@@ -3227,6 +3228,7 @@ def database_track_detail(request, track: str):
             forms,
             completion_filter,
         )
+        completion_people_count = len(allowed_roots)
         filtered_rows: list[list[str]] = []
         for row in rows:
             row_tokens = _row_identity_tokens(headers, row)
@@ -3257,6 +3259,7 @@ def database_track_detail(request, track: str):
             "group_options": group_options,
             "apps": apps,
             "second_part_completed_count": second_part_completed_count,
+            "completion_people_count": completion_people_count,
             "preview_html": preview_html,
             "rows_count": len(rows),
         },

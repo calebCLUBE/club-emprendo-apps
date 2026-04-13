@@ -299,6 +299,78 @@ def _active_participant_emails_for_form_slug(form_slug: str) -> set[str]:
     return _active_participant_emails_for_track(_track_from_form_slug(form_slug))
 
 
+def _normalize_document_id(raw_value: str) -> str:
+    value = str(raw_value or "").strip().lower()
+    if not value:
+        return ""
+    return re.sub(r"[^a-z0-9]+", "", value)
+
+
+def _group_number_from_form(form_slug: str, form_def: FormDefinition | None = None) -> int | None:
+    if form_def and getattr(form_def, "group_id", None):
+        try:
+            return int(getattr(form_def.group, "number"))
+        except Exception:
+            return None
+    match = re.match(r"^G(?P<num>\d+)_", (form_slug or "").strip(), flags=re.IGNORECASE)
+    if not match:
+        return None
+    try:
+        return int(match.group("num"))
+    except (TypeError, ValueError):
+        return None
+
+
+def _mentor_dual_applicant_identifiers(
+    mentor_form_slug: str,
+    mentor_form: FormDefinition | None = None,
+) -> tuple[set[str], set[str]]:
+    if not (mentor_form_slug or "").strip().upper().endswith("M_A2"):
+        return set(), set()
+
+    group_num = _group_number_from_form(mentor_form_slug, mentor_form)
+    if not group_num:
+        return set(), set()
+
+    empr_form = FormDefinition.objects.filter(slug=f"G{group_num}_E_A2").first()
+    if not empr_form:
+        return set(), set()
+
+    empre_apps = (
+        Application.objects
+        .filter(form=empr_form)
+        .prefetch_related("answers__question")
+        .order_by("-created_at", "-id")
+    )
+
+    email_keys: set[str] = set()
+    doc_keys: set[str] = set()
+    for app in empre_apps:
+        app_email = (app.email or "").strip().lower()
+        if app_email:
+            email_keys.add(app_email)
+
+        answer_map = {
+            getattr(ans.question, "slug", ""): (ans.value or "")
+            for ans in app.answers.all()
+        }
+        if not app_email:
+            fallback_email = (answer_map.get("email") or "").strip().lower()
+            if fallback_email:
+                email_keys.add(fallback_email)
+
+        doc_raw = (
+            answer_map.get("cedula")
+            or answer_map.get("id_number")
+            or ""
+        )
+        doc_key = _normalize_document_id(doc_raw)
+        if doc_key:
+            doc_keys.add(doc_key)
+
+    return email_keys, doc_keys
+
+
 @staff_member_required
 def grading_job_status(request, job_id: int):
     job = get_object_or_404(GradingJob, id=job_id)
@@ -332,6 +404,22 @@ def _run_grade_job(job_id: int):
             raise RuntimeError(f"Unsupported form type: {job.form_slug}")
 
         fd = FormDefinition.objects.get(slug=job.form_slug)
+        dual_applicant_emails: set[str] = set()
+        dual_applicant_doc_ids: set[str] = set()
+        if job.form_slug.endswith("M_A2"):
+            dual_applicant_emails, dual_applicant_doc_ids = _mentor_dual_applicant_identifiers(
+                mentor_form_slug=job.form_slug,
+                mentor_form=fd,
+            )
+            if dual_applicant_emails or dual_applicant_doc_ids:
+                _job_log(
+                    job,
+                    (
+                        "🔁 Dual-applicant filter enabled for mentor grading: "
+                        f"{len(dual_applicant_emails)} email(s), "
+                        f"{len(dual_applicant_doc_ids)} document id(s)."
+                    ),
+                )
 
         apps = (
             Application.objects
@@ -397,6 +485,8 @@ def _run_grade_job(job_id: int):
                 log_fn=lambda msg: _job_log(job, msg),
                 priority_emails=priority_emails,
                 active_participant_emails=active_participant_emails,
+                dual_applicant_emails=dual_applicant_emails,
+                dual_applicant_doc_ids=dual_applicant_doc_ids,
             )
 
         else:  # M_A2
@@ -3342,6 +3432,21 @@ def grading_live_sheet(request, form_slug: str):
             messages.error(request, "This graded file has no header row and cannot be edited in-sheet.")
             return redirect("admin_grading_live_sheet", form_slug=form_slug)
 
+        headers_raw = (request.POST.get("headers_json") or "").strip()
+        edited_headers = list(headers)
+        if headers_raw:
+            try:
+                headers_payload = json.loads(headers_raw)
+            except json.JSONDecodeError:
+                messages.error(request, "Could not read sheet columns. Please try again.")
+                return redirect("admin_grading_live_sheet", form_slug=form_slug)
+
+            if not isinstance(headers_payload, list) or len(headers_payload) != len(headers):
+                messages.error(request, "Sheet columns were out of sync. Please reload and try again.")
+                return redirect("admin_grading_live_sheet", form_slug=form_slug)
+
+            edited_headers = ["" if h is None else str(h) for h in headers_payload]
+
         rows_raw = (request.POST.get("rows_json") or "").strip()
         try:
             rows_payload = json.loads(rows_raw) if rows_raw else []
@@ -3349,8 +3454,8 @@ def grading_live_sheet(request, form_slug: str):
             messages.error(request, "Could not read sheet edits. Please try again.")
             return redirect("admin_grading_live_sheet", form_slug=form_slug)
 
-        rows = _normalize_csv_data_rows(rows_payload, len(headers))
-        csv_text = _grid_to_csv_text(headers, rows)
+        rows = _normalize_csv_data_rows(rows_payload, len(edited_headers))
+        csv_text = _grid_to_csv_text(edited_headers, rows)
 
         latest_file.csv_text = csv_text
         latest_file.save(update_fields=["csv_text"])

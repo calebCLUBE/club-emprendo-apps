@@ -7,6 +7,7 @@ TIMEOUT = 60
 logger = logging.getLogger(__name__)
 PRIORITY_STATUS = "Priority"
 ACTIVE_PARTICIPANT_STATUS = "participante activa"
+DUAL_APPLICANT_STATUS = "aplicante a emprendediora"
 MAX_TOTAL_SCORE = 81
 
 W = {
@@ -145,6 +146,29 @@ def _is_active_participant_email(row: dict, active_participant_emails: set[str] 
         return False
     email = str(row.get("email", "") or "").strip().lower()
     return bool(email and email in active_participant_emails)
+
+
+def _normalize_document_id(raw_value: str) -> str:
+    value = str(raw_value or "").strip().lower()
+    if not value:
+        return ""
+    return "".join(ch for ch in value if ch.isalnum())
+
+
+def _is_dual_applicant(
+    row: dict,
+    dual_applicant_emails: set[str] | None,
+    dual_applicant_doc_ids: set[str] | None,
+) -> bool:
+    email = str(row.get("email", "") or "").strip().lower()
+    if email and dual_applicant_emails and email in dual_applicant_emails:
+        return True
+
+    doc_raw = row.get("id_number") or row.get("cedula") or ""
+    doc_key = _normalize_document_id(doc_raw)
+    if doc_key and dual_applicant_doc_ids and doc_key in dual_applicant_doc_ids:
+        return True
+    return False
 
 
 def _categories_to_dict(categories) -> dict:
@@ -295,6 +319,8 @@ def grade_single_row(
     client: OpenAI,
     priority_emails: set[str] | None = None,
     active_participant_emails: set[str] | None = None,
+    dual_applicant_emails: set[str] | None = None,
+    dual_applicant_doc_ids: set[str] | None = None,
 ) -> dict:
     disqual_reasons = _disqualification_reasons(row)
     meets_all = not disqual_reasons
@@ -302,7 +328,9 @@ def grade_single_row(
         row.get("prior_participation"),
         disqualified=not meets_all,
     )
-    if _is_active_participant_email(row, active_participant_emails):
+    if _is_dual_applicant(row, dual_applicant_emails, dual_applicant_doc_ids):
+        status = DUAL_APPLICANT_STATUS
+    elif _is_active_participant_email(row, active_participant_emails):
         status = ACTIVE_PARTICIPANT_STATUS
     elif _is_priority_email(row, priority_emails):
         status = PRIORITY_STATUS
@@ -442,6 +470,8 @@ def grade_from_dataframe(
     log_fn=None,
     priority_emails: set[str] | list[str] | tuple[str, ...] | None = None,
     active_participant_emails: set[str] | list[str] | tuple[str, ...] | None = None,
+    dual_applicant_emails: set[str] | list[str] | tuple[str, ...] | None = None,
+    dual_applicant_doc_ids: set[str] | list[str] | tuple[str, ...] | None = None,
 ) -> pd.DataFrame:
     out = []
     total = len(df)
@@ -450,6 +480,16 @@ def grade_from_dataframe(
         str(e).strip().lower()
         for e in (active_participant_emails or [])
         if str(e).strip()
+    }
+    normalized_dual_applicant_emails = {
+        str(e).strip().lower()
+        for e in (dual_applicant_emails or [])
+        if str(e).strip()
+    }
+    normalized_dual_applicant_doc_ids = {
+        _normalize_document_id(str(v))
+        for v in (dual_applicant_doc_ids or [])
+        if _normalize_document_id(str(v))
     }
 
     for i, (_, row) in enumerate(df.iterrows(), start=1):
@@ -462,6 +502,8 @@ def grade_from_dataframe(
                 client,
                 priority_emails=normalized_priority_emails,
                 active_participant_emails=normalized_active_participant_emails,
+                dual_applicant_emails=normalized_dual_applicant_emails,
+                dual_applicant_doc_ids=normalized_dual_applicant_doc_ids,
             )
         )
 

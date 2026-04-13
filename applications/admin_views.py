@@ -498,8 +498,6 @@ def _run_grade_job(job_id: int):
                 log_fn=lambda msg: _job_log(job, msg),
                 priority_emails=priority_emails,
                 active_participant_emails=active_participant_emails,
-                dual_applicant_emails=dual_applicant_emails,
-                dual_applicant_doc_ids=dual_applicant_doc_ids,
             )
 
         else:  # M_A2
@@ -510,6 +508,8 @@ def _run_grade_job(job_id: int):
                 log_fn=lambda msg: _job_log(job, msg),
                 priority_emails=priority_emails,
                 active_participant_emails=active_participant_emails,
+                dual_applicant_emails=dual_applicant_emails,
+                dual_applicant_doc_ids=dual_applicant_doc_ids,
             )
 
         if graded_df is None or graded_df.empty:

@@ -2095,6 +2095,8 @@ def _track_completion_filter_data(
 
     if completion_filter == TRACK_COMPLETION_FILTER_A1_ONLY:
         matched_roots = has_a1_roots - has_a2_roots
+    elif completion_filter == TRACK_COMPLETION_FILTER_A1_A2:
+        matched_roots = has_a1_roots & has_a2_roots
     else:
         matched_roots = has_a1_roots | has_a2_roots
 
@@ -3183,6 +3185,7 @@ def database_track_detail(request, track: str):
     if completion_filter not in {
         TRACK_COMPLETION_FILTER_ALL,
         TRACK_COMPLETION_FILTER_A1_ONLY,
+        TRACK_COMPLETION_FILTER_A1_A2,
     }:
         completion_filter = TRACK_COMPLETION_FILTER_ALL
 
@@ -3221,7 +3224,7 @@ def database_track_detail(request, track: str):
         .order_by("-created_at", "-id")
     ) if forms else []
 
-    if completion_filter == TRACK_COMPLETION_FILTER_A1_ONLY and forms:
+    if completion_filter in {TRACK_COMPLETION_FILTER_A1_ONLY, TRACK_COMPLETION_FILTER_A1_A2} and forms:
         allowed_app_ids, allowed_roots, token_to_root, completion_apps = _track_completion_filter_data(
             track,
             forms,

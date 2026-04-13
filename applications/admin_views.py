@@ -72,6 +72,7 @@ AUTO_REMINDER_CHECK_THROTTLE_SECONDS = 45
 TRACK_COMPLETION_FILTER_ALL = ""
 TRACK_COMPLETION_FILTER_A1_ONLY = "a1_only"
 TRACK_COMPLETION_FILTER_A1_A2 = "a1_a2"
+TRACK_COMPLETION_FILTER_EXCLUDE_A2_ONLY = "exclude_a2_only"
 IDENTITY_EMAIL_SLUGS = {"email", "correo", "correo_electronico"}
 IDENTITY_DOCUMENT_SLUGS = {
     "cedula",
@@ -2096,6 +2097,8 @@ def _track_completion_filter_data(
         matched_roots = has_a1_roots - has_a2_roots
     elif completion_filter == TRACK_COMPLETION_FILTER_A1_A2:
         matched_roots = has_a1_roots & has_a2_roots
+    elif completion_filter == TRACK_COMPLETION_FILTER_EXCLUDE_A2_ONLY:
+        matched_roots = has_a1_roots
     else:
         matched_roots = has_a1_roots | has_a2_roots
 
@@ -3183,11 +3186,11 @@ def database_track_detail(request, track: str):
         TRACK_COMPLETION_FILTER_ALL,
         TRACK_COMPLETION_FILTER_A1_ONLY,
         TRACK_COMPLETION_FILTER_A1_A2,
+        TRACK_COMPLETION_FILTER_EXCLUDE_A2_ONLY,
     }:
         completion_filter = TRACK_COMPLETION_FILTER_ALL
 
     headers, rows, forms = _build_csv_for_track(track, selected_group)
-    completion_people_count: int | None = None
 
     second_part_forms = [
         fd for fd in forms
@@ -3222,19 +3225,30 @@ def database_track_detail(request, track: str):
         .order_by("-created_at", "-id")
     ) if forms else []
 
-    if completion_filter in {TRACK_COMPLETION_FILTER_A1_ONLY, TRACK_COMPLETION_FILTER_A1_A2} and forms:
+    if completion_filter in {
+        TRACK_COMPLETION_FILTER_A1_ONLY,
+        TRACK_COMPLETION_FILTER_A1_A2,
+        TRACK_COMPLETION_FILTER_EXCLUDE_A2_ONLY,
+    } and forms:
         allowed_app_ids, allowed_roots, token_to_root, completion_apps = _track_completion_filter_data(
             track,
             forms,
             completion_filter,
         )
-        completion_people_count = len(allowed_roots)
         filtered_rows: list[list[str]] = []
+        app_id_idx = headers.index("application_id") if "application_id" in headers else -1
         for row in rows:
+            include_row = False
+            if app_id_idx >= 0 and app_id_idx < len(row):
+                raw_id = str(row[app_id_idx] or "").strip()
+                if raw_id.isdigit() and int(raw_id) in allowed_app_ids:
+                    include_row = True
+            if include_row:
+                filtered_rows.append(row)
+                continue
             row_tokens = _row_identity_tokens(headers, row)
             if not row_tokens:
                 continue
-            include_row = False
             for tok in row_tokens:
                 root = token_to_root.get(tok)
                 if root and root in allowed_roots:
@@ -3259,7 +3273,6 @@ def database_track_detail(request, track: str):
             "group_options": group_options,
             "apps": apps,
             "second_part_completed_count": second_part_completed_count,
-            "completion_people_count": completion_people_count,
             "preview_html": preview_html,
             "rows_count": len(rows),
         },

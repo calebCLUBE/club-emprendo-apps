@@ -7,19 +7,9 @@
   </p>
 
   <p style="margin:8px 0 12px 0; padding:8px 10px; border:1px solid #ddd; border-radius:8px; background:#fafafa;">
-    {% if completion_filter == "a1_only" %}
-      <strong>Personas únicas que llenaron A1 y no A2:</strong>
-      {{ completion_people_count|default:0 }}
-      {% if selected_group %}en Group {{ selected_group }}{% endif %}
-    {% elif completion_filter == "a1_a2" %}
-      <strong>Personas únicas que llenaron A1 y A2:</strong>
-      {{ completion_people_count|default:0 }}
-      {% if selected_group %}en Group {{ selected_group }}{% endif %}
-    {% else %}
-      <strong>Completaron la segunda parte (A2):</strong>
-      {{ second_part_completed_count|default:0 }}
-      {% if selected_group %}en Group {{ selected_group }}{% endif %}
-    {% endif %}
+    <strong>Completaron la segunda parte (A2):</strong>
+    {{ second_part_completed_count|default:0 }}
+    {% if selected_group %}en Group {{ selected_group }}{% endif %}
   </p>
 
   <form method="get" style="margin:10px 0; padding:10px; border:1px solid #ddd; border-radius:10px; display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap;">
@@ -36,11 +26,8 @@
       <label for="completion_filter"><strong>Filter by completion</strong></label><br>
       <select id="completion_filter" name="completion" class="vTextField">
         <option value="" {% if not completion_filter %}selected{% endif %}>All</option>
-        <option value="a1_only" {% if completion_filter == "a1_only" %}selected{% endif %}>
-          Filled A1 only (not A2)
-        </option>
-        <option value="a1_a2" {% if completion_filter == "a1_a2" %}selected{% endif %}>
-          Filled A1 and A2
+        <option value="exclude_a2_only" {% if completion_filter == "exclude_a2_only" %}selected{% endif %}>
+          Hide people with A2 but no A1
         </option>
       </select>
     </div>

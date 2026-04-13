@@ -26,8 +26,8 @@
       <label for="completion_filter"><strong>Filter by completion</strong></label><br>
       <select id="completion_filter" name="completion" class="vTextField">
         <option value="" {% if not completion_filter %}selected{% endif %}>All</option>
-        <option value="exclude_a2_only" {% if completion_filter == "exclude_a2_only" %}selected{% endif %}>
-          Hide people with A2 but no A1
+        <option value="a1_only" {% if completion_filter == "a1_only" %}selected{% endif %}>
+          Show only A1 (hide anyone with A2)
         </option>
       </select>
     </div>

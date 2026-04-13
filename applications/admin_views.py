@@ -84,6 +84,14 @@ IDENTITY_DOCUMENT_SLUGS = {
     "numero_de_documento",
     "numerodedocumento",
 }
+PREVIOUS_APPLICATION_DOC_SLUGS = (
+    "cedula",
+    "id_number",
+    "documento",
+    "document_number",
+    "numero_de_documento",
+    "numerodedocumento",
+)
 PERCENT_SCORE_HEADERS = {
     "totalscore",
     "totalpts",
@@ -391,6 +399,80 @@ def _mentor_dual_applicant_identifiers(
     return email_keys, doc_keys
 
 
+def _application_answer_map(app: Application) -> dict[str, str]:
+    return {
+        (getattr(getattr(ans, "question", None), "slug", "") or "").strip().lower(): (ans.value or "")
+        for ans in app.answers.all()
+    }
+
+
+def _application_doc_id_key(answer_map: dict[str, str]) -> str:
+    for slug in PREVIOUS_APPLICATION_DOC_SLUGS:
+        value = answer_map.get(slug, "")
+        normalized = _normalize_document_id(value)
+        if normalized:
+            return normalized
+    return ""
+
+
+def _prior_application_ids_for_track(
+    track: str,
+    current_apps: list[Application],
+) -> set[int]:
+    wanted = (track or "").strip().upper()
+    if wanted not in {"E", "M"} or not current_apps:
+        return set()
+
+    historical_apps = list(
+        Application.objects.filter(
+            Q(form__slug__iendswith=f"{wanted}_A1") | Q(form__slug__iendswith=f"{wanted}_A2")
+        )
+        .prefetch_related("answers__question")
+        .order_by("created_at", "id")
+    )
+    if not historical_apps:
+        return set()
+
+    email_earliest: dict[str, tuple[datetime, int]] = {}
+    doc_earliest: dict[str, tuple[datetime, int]] = {}
+    app_keys: dict[int, tuple[str, str]] = {}
+
+    for app in historical_apps:
+        when = (app.created_at, int(app.id))
+        email_key = (app.email or "").strip().lower()
+        answer_map = _application_answer_map(app)
+        doc_key = _application_doc_id_key(answer_map)
+        app_keys[app.id] = (email_key, doc_key)
+
+        if email_key:
+            prev = email_earliest.get(email_key)
+            if prev is None or when < prev:
+                email_earliest[email_key] = when
+        if doc_key:
+            prev = doc_earliest.get(doc_key)
+            if prev is None or when < prev:
+                doc_earliest[doc_key] = when
+
+    out: set[int] = set()
+    for app in current_apps:
+        key_now = (app.created_at, int(app.id))
+        email_key, doc_key = app_keys.get(app.id, ("", ""))
+
+        has_previous = False
+        if email_key:
+            first_seen = email_earliest.get(email_key)
+            has_previous = bool(first_seen and first_seen < key_now)
+
+        if not has_previous and doc_key:
+            first_seen = doc_earliest.get(doc_key)
+            has_previous = bool(first_seen and first_seen < key_now)
+
+        if has_previous:
+            out.add(app.id)
+
+    return out
+
+
 @staff_member_required
 def grading_job_status(request, job_id: int):
     job = get_object_or_404(GradingJob, id=job_id)
@@ -451,7 +533,18 @@ def _run_grade_job(job_id: int):
         if not apps.exists():
             raise RuntimeError("No applications to grade.")
 
-        _job_log(job, f"📦 Building master dataset ({apps.count()} applications)")
+        app_list = list(apps)
+        previous_application_ids = _prior_application_ids_for_track(
+            "E" if job.form_slug.endswith("E_A2") else "M",
+            app_list,
+        )
+        if previous_application_ids:
+            _job_log(
+                job,
+                f"🕘 Previous-application status enabled for {len(previous_application_ids)} application(s).",
+            )
+
+        _job_log(job, f"📦 Building master dataset ({len(app_list)} applications)")
 
         # ----------------------------------
         # BUILD MASTER DATAFRAME (MATCHES MASTER CSV)
@@ -470,7 +563,7 @@ def _run_grade_job(job_id: int):
         ] + [q.slug for q in questions]
 
         rows = []
-        for app in apps:
+        for app in app_list:
             answer_map = {
                 a.question.slug: (a.value or "")
                 for a in app.answers.all()
@@ -505,6 +598,7 @@ def _run_grade_job(job_id: int):
                 log_fn=lambda msg: _job_log(job, msg),
                 priority_emails=priority_emails,
                 active_participant_emails=active_participant_emails,
+                previous_application_ids=previous_application_ids,
             )
 
         else:  # M_A2
@@ -515,6 +609,7 @@ def _run_grade_job(job_id: int):
                 log_fn=lambda msg: _job_log(job, msg),
                 priority_emails=priority_emails,
                 active_participant_emails=active_participant_emails,
+                previous_application_ids=previous_application_ids,
                 dual_applicant_emails=dual_applicant_emails,
                 dual_applicant_doc_ids=dual_applicant_doc_ids,
             )

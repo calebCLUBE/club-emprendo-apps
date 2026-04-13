@@ -49,14 +49,30 @@ def has_prior_participation(v) -> bool:
     return any(tok in text for tok in selected_tokens)
 
 
-def status_from_participation(v, *, disqualified: bool) -> str:
+def _row_application_id(row: dict) -> int | None:
+    raw = row.get("application_id")
+    if raw is None:
+        return None
+    text = str(raw).strip()
+    if text.isdigit():
+        try:
+            return int(text)
+        except Exception:
+            return None
+    return None
+
+
+def status_from_participation(v, *, disqualified: bool, has_previous_application: bool) -> str:
     if disqualified:
         return "N/A"
 
     if has_prior_participation(v):
         return "Seleccionada"
 
-    return "Aplicante anterios"
+    if has_previous_application:
+        return "Aplicante anterios"
+
+    return ""
 
 
 def red_flag_color(red_flag_text: str, prior_participation_value) -> str:
@@ -67,9 +83,21 @@ def red_flag_color(red_flag_text: str, prior_participation_value) -> str:
     return ""
 
 
+def _normalized_document_identifier(value) -> str:
+    text = str(value or "").strip().lower()
+    return "".join(ch for ch in text if ch.isalnum())
+
+
 def _normalized_identifier(row: dict | pd.Series, keys: list[str]) -> tuple[str, str] | None:
     for key in keys:
-        value = str(row.get(key, "") or "").strip().lower()
+        if key == "cedula":
+            raw_value = row.get("cedula", "") or row.get("id_number", "")
+            value = _normalized_document_identifier(raw_value)
+        elif key == "id_number":
+            raw_value = row.get("id_number", "") or row.get("cedula", "")
+            value = _normalized_document_identifier(raw_value)
+        else:
+            value = str(row.get(key, "") or "").strip().lower()
         if value:
             return key, value
     return None
@@ -319,14 +347,22 @@ def grade_single_row(
     client: OpenAI,
     priority_emails: set[str] | None = None,
     active_participant_emails: set[str] | None = None,
+    previous_application_ids: set[int] | None = None,
     dual_applicant_emails: set[str] | None = None,
     dual_applicant_doc_ids: set[str] | None = None,
 ) -> dict:
     disqual_reasons = _disqualification_reasons(row)
     meets_all = not disqual_reasons
+    application_id = _row_application_id(row)
+    has_previous_application = bool(
+        application_id is not None
+        and previous_application_ids
+        and application_id in previous_application_ids
+    )
     status = status_from_participation(
         row.get("prior_participation"),
         disqualified=not meets_all,
+        has_previous_application=has_previous_application,
     )
     if _is_dual_applicant(row, dual_applicant_emails, dual_applicant_doc_ids):
         status = DUAL_APPLICANT_STATUS
@@ -470,6 +506,7 @@ def grade_from_dataframe(
     log_fn=None,
     priority_emails: set[str] | list[str] | tuple[str, ...] | None = None,
     active_participant_emails: set[str] | list[str] | tuple[str, ...] | None = None,
+    previous_application_ids: set[int] | list[int] | tuple[int, ...] | None = None,
     dual_applicant_emails: set[str] | list[str] | tuple[str, ...] | None = None,
     dual_applicant_doc_ids: set[str] | list[str] | tuple[str, ...] | None = None,
 ) -> pd.DataFrame:
@@ -480,6 +517,11 @@ def grade_from_dataframe(
         str(e).strip().lower()
         for e in (active_participant_emails or [])
         if str(e).strip()
+    }
+    normalized_previous_application_ids = {
+        int(v)
+        for v in (previous_application_ids or [])
+        if str(v).strip().isdigit()
     }
     normalized_dual_applicant_emails = {
         str(e).strip().lower()
@@ -502,13 +544,14 @@ def grade_from_dataframe(
                 client,
                 priority_emails=normalized_priority_emails,
                 active_participant_emails=normalized_active_participant_emails,
+                previous_application_ids=normalized_previous_application_ids,
                 dual_applicant_emails=normalized_dual_applicant_emails,
                 dual_applicant_doc_ids=normalized_dual_applicant_doc_ids,
             )
         )
 
     out_df = pd.DataFrame(out, columns=COLUMNS)
-    out_df, removed = _dedupe_scored_rows(out_df, "total_pts", ["email", "id_number"])
+    out_df, removed = _dedupe_scored_rows(out_df, "total_pts", ["email", "cedula", "id_number"])
     if removed and log_fn:
         log_fn(f"→ Removed {removed} duplicate mentora rows, keeping the highest score per person")
     return out_df

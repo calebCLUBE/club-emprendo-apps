@@ -23,6 +23,18 @@
       </select>
     </div>
     <div>
+      <label for="completion_filter"><strong>Filter by completion</strong></label><br>
+      <select id="completion_filter" name="completion" class="vTextField">
+        <option value="" {% if not completion_filter %}selected{% endif %}>All</option>
+        <option value="a1_only" {% if completion_filter == "a1_only" %}selected{% endif %}>
+          Filled A1 only (not A2)
+        </option>
+        <option value="a1_a2" {% if completion_filter == "a1_a2" %}selected{% endif %}>
+          Filled A1 and A2
+        </option>
+      </select>
+    </div>
+    <div>
       <button type="submit" class="button default">Apply</button>
       <a class="button" href="{% url 'admin_database_track_detail' track %}" style="margin-left:6px;">Clear</a>
     </div>

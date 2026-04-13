@@ -69,6 +69,18 @@ A2_FORM_RE = re.compile(r"^(G\d+_)?(E_A2|M_A2)$")
 TEST_A2_FORM_RE = re.compile(r"^TEST_(E_A2|M_A2)$")
 REMINDER_LOCK_TTL_SECONDS = 60 * 60
 AUTO_REMINDER_CHECK_THROTTLE_SECONDS = 45
+TRACK_COMPLETION_FILTER_ALL = ""
+TRACK_COMPLETION_FILTER_A1_ONLY = "a1_only"
+TRACK_COMPLETION_FILTER_A1_A2 = "a1_a2"
+IDENTITY_EMAIL_SLUGS = {"email", "correo", "correo_electronico"}
+IDENTITY_DOCUMENT_SLUGS = {
+    "cedula",
+    "id_number",
+    "documento",
+    "document_number",
+    "numero_de_documento",
+    "numerodedocumento",
+}
 
 
 def _reminder_lock_key(form_slug: str) -> str:
@@ -1962,6 +1974,144 @@ def _build_csv_for_track(
     return headers, rows, forms
 
 
+def _normalize_identity_email(value: str | None) -> str:
+    return str(value or "").strip().lower()
+
+
+def _application_identity_tokens(app: Application) -> set[str]:
+    tokens: set[str] = set()
+
+    app_email = _normalize_identity_email(getattr(app, "email", ""))
+    if app_email:
+        tokens.add(f"email:{app_email}")
+
+    for ans in app.answers.all():
+        slug = (getattr(getattr(ans, "question", None), "slug", "") or "").strip().lower()
+        raw_value = ans.value or ""
+
+        if slug in IDENTITY_EMAIL_SLUGS:
+            answer_email = _normalize_identity_email(raw_value)
+            if answer_email:
+                tokens.add(f"email:{answer_email}")
+            continue
+
+        if slug in IDENTITY_DOCUMENT_SLUGS:
+            doc_key = _normalize_document_id(raw_value)
+            if doc_key:
+                tokens.add(f"doc:{doc_key}")
+
+    return tokens
+
+
+def _row_identity_tokens(headers: List[str], row: List[str]) -> set[str]:
+    tokens: set[str] = set()
+    width = min(len(headers), len(row))
+    for i in range(width):
+        slug = (headers[i] or "").strip().lower()
+        value = row[i]
+        if slug in IDENTITY_EMAIL_SLUGS:
+            email_key = _normalize_identity_email(value)
+            if email_key:
+                tokens.add(f"email:{email_key}")
+            continue
+        if slug in IDENTITY_DOCUMENT_SLUGS:
+            doc_key = _normalize_document_id(value)
+            if doc_key:
+                tokens.add(f"doc:{doc_key}")
+    return tokens
+
+
+def _track_completion_filter_data(
+    track: str,
+    forms: list[FormDefinition],
+    completion_filter: str,
+) -> tuple[set[int], set[str], dict[str, str], list[Application]]:
+    a1_suffix = f"{track}_A1"
+    a2_suffix = f"{track}_A2"
+
+    apps = list(
+        Application.objects.filter(form__in=forms)
+        .select_related("form", "form__group")
+        .prefetch_related("answers__question")
+        .order_by("-created_at", "-id")
+    )
+
+    parent: dict[str, str] = {}
+
+    def find(x: str) -> str:
+        root = parent.get(x, x)
+        if root != x:
+            root = find(root)
+            parent[x] = root
+        return root
+
+    def union(a: str, b: str) -> None:
+        ra = find(a)
+        rb = find(b)
+        if ra == rb:
+            return
+        parent[rb] = ra
+
+    app_tokens: dict[int, set[str]] = {}
+    app_stage: dict[int, str] = {}
+
+    for app in apps:
+        slug = (getattr(getattr(app, "form", None), "slug", "") or "").strip().upper()
+        stage = ""
+        if slug.endswith(a1_suffix):
+            stage = "a1"
+        elif slug.endswith(a2_suffix):
+            stage = "a2"
+        if not stage:
+            continue
+
+        tokens = _application_identity_tokens(app)
+        if not tokens:
+            continue
+
+        token_list = sorted(tokens)
+        for tok in token_list:
+            parent.setdefault(tok, tok)
+        head = token_list[0]
+        for tok in token_list[1:]:
+            union(head, tok)
+
+        app_tokens[app.id] = tokens
+        app_stage[app.id] = stage
+
+    has_a1_roots: set[str] = set()
+    has_a2_roots: set[str] = set()
+    for app in apps:
+        tokens = app_tokens.get(app.id)
+        stage = app_stage.get(app.id)
+        if not tokens or not stage:
+            continue
+        root = find(next(iter(tokens)))
+        if stage == "a1":
+            has_a1_roots.add(root)
+        elif stage == "a2":
+            has_a2_roots.add(root)
+
+    if completion_filter == TRACK_COMPLETION_FILTER_A1_ONLY:
+        matched_roots = has_a1_roots - has_a2_roots
+    elif completion_filter == TRACK_COMPLETION_FILTER_A1_A2:
+        matched_roots = has_a1_roots & has_a2_roots
+    else:
+        matched_roots = has_a1_roots | has_a2_roots
+
+    allowed_app_ids: set[int] = set()
+    for app in apps:
+        tokens = app_tokens.get(app.id)
+        if not tokens:
+            continue
+        token_roots = {find(tok) for tok in tokens}
+        if token_roots & matched_roots:
+            allowed_app_ids.add(app.id)
+
+    token_to_root = {tok: find(tok) for tok in parent}
+    return allowed_app_ids, matched_roots, token_to_root, apps
+
+
 def _csv_http_response(filename: str, headers: List[str], rows: List[List[str]]) -> HttpResponse:
     resp = HttpResponse(content_type="text/csv; charset=utf-8")
     resp["Content-Disposition"] = f'attachment; filename="{filename}"'
@@ -3028,9 +3178,15 @@ def database_track_detail(request, track: str):
 
     group_raw = (request.GET.get("group") or "").strip()
     selected_group: int | None = int(group_raw) if group_raw.isdigit() else None
+    completion_filter = (request.GET.get("completion") or "").strip().lower()
+    if completion_filter not in {
+        TRACK_COMPLETION_FILTER_ALL,
+        TRACK_COMPLETION_FILTER_A1_ONLY,
+        TRACK_COMPLETION_FILTER_A1_A2,
+    }:
+        completion_filter = TRACK_COMPLETION_FILTER_ALL
 
     headers, rows, forms = _build_csv_for_track(track, selected_group)
-    preview_html = _csv_preview_html(headers, rows, max_rows=None)
 
     second_part_forms = [
         fd for fd in forms
@@ -3065,6 +3221,30 @@ def database_track_detail(request, track: str):
         .order_by("-created_at", "-id")
     ) if forms else []
 
+    if completion_filter in {TRACK_COMPLETION_FILTER_A1_ONLY, TRACK_COMPLETION_FILTER_A1_A2} and forms:
+        allowed_app_ids, allowed_roots, token_to_root, completion_apps = _track_completion_filter_data(
+            track,
+            forms,
+            completion_filter,
+        )
+        filtered_rows: list[list[str]] = []
+        for row in rows:
+            row_tokens = _row_identity_tokens(headers, row)
+            if not row_tokens:
+                continue
+            include_row = False
+            for tok in row_tokens:
+                root = token_to_root.get(tok)
+                if root and root in allowed_roots:
+                    include_row = True
+                    break
+            if include_row:
+                filtered_rows.append(row)
+        rows = filtered_rows
+        apps = [app for app in completion_apps if app.id in allowed_app_ids]
+
+    preview_html = _csv_preview_html(headers, rows, max_rows=None)
+
     track_label = "Emprendedoras" if track == "E" else "Mentoras"
     return render(
         request,
@@ -3073,6 +3253,7 @@ def database_track_detail(request, track: str):
             "track": track,
             "track_label": track_label,
             "selected_group": selected_group,
+            "completion_filter": completion_filter,
             "group_options": group_options,
             "apps": apps,
             "second_part_completed_count": second_part_completed_count,

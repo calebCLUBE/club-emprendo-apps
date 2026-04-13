@@ -89,6 +89,8 @@
       <li>
         {{ f.created_at }} — {{ f.form_slug }} —
         <a href="{% url 'admin_grading_download_csv' f.id %}">Download CSV</a>
+        —
+        <a href="{% url 'admin_grading_download_excel' f.id %}">Download Excel</a>
       </li>
     {% empty %}
       <li>No pairing outputs yet.</li>

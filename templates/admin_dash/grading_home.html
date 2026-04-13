@@ -262,6 +262,7 @@
                     <div class="ce-grade-extra-actions">
                       <a class="ce-btn" href="{% url 'admin_grading_live_sheet' f.slug %}">Sheet</a>
                       <a class="ce-btn" href="{% url 'admin_grading_download_csv' f.latest_graded_file_id %}">Download CSV</a>
+                      <a class="ce-btn" href="{% url 'admin_grading_download_excel' f.latest_graded_file_id %}">Download Excel</a>
                     </div>
                     <span class="ce-grade-muted">Latest file: {{ f.latest_graded_at|date:"Y-m-d H:i" }}</span>
                   {% endif %}

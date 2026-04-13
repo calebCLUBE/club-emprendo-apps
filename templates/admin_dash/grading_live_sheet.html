@@ -142,6 +142,7 @@
         <button class="ce-btn" type="button" id="add-row-btn">Add Row</button>
         <button class="ce-btn" type="button" id="delete-selected-btn">Delete Selected</button>
         <a class="ce-btn" href="{% url 'admin_grading_download_csv' graded_file.id %}">Download CSV</a>
+        <a class="ce-btn" href="{% url 'admin_grading_download_excel' graded_file.id %}">Download Excel</a>
         <a class="ce-btn" href="{% url 'admin_grading_home' %}">Back to Grading</a>
       </div>
 
@@ -182,13 +183,51 @@
     const seedRows = JSON.parse(document.getElementById('grading-sheet-rows').textContent || '[]');
     const width = headers.length;
     const tbody = table.querySelector('tbody');
+    const percentHeaderKeys = new Set(['totalscore', 'totalpts', 'overallscore']);
+
+    function normalizeHeaderKey(value) {
+      return String(value == null ? '' : value).trim().toLowerCase().replace(/[^a-z0-9]+/g, '');
+    }
+
+    const percentColIndexes = new Set(
+      headers
+        .map((h, idx) => ({ key: normalizeHeaderKey(h), idx }))
+        .filter((x) => percentHeaderKeys.has(x.key))
+        .map((x) => x.idx)
+    );
+
+    function formatPercentDisplay(raw) {
+      const text = String(raw == null ? '' : raw).trim();
+      if (!text) {
+        return '';
+      }
+      if (text.toUpperCase() === 'NA') {
+        return text;
+      }
+      if (text.endsWith('%')) {
+        return text;
+      }
+      const num = Number(text);
+      if (!Number.isFinite(num)) {
+        return text;
+      }
+      if (num >= -1 && num <= 1) {
+        return `${(num * 100).toFixed(2)}%`;
+      }
+      return `${num.toFixed(2)}%`;
+    }
 
     let rows = Array.isArray(seedRows) ? seedRows
       .filter((r) => Array.isArray(r))
       .map((r) => {
         const out = [];
         for (let i = 0; i < width; i += 1) {
-          out.push(i < r.length ? String(r[i] == null ? '' : r[i]) : '');
+          const raw = i < r.length ? String(r[i] == null ? '' : r[i]) : '';
+          if (percentColIndexes.has(i)) {
+            out.push(formatPercentDisplay(raw));
+          } else {
+            out.push(raw);
+          }
         }
         return out;
       }) : [];
@@ -215,6 +254,13 @@
           input.addEventListener('input', (e) => {
             rows[rowIdx][colIdx] = e.target.value;
           });
+          if (percentColIndexes.has(colIdx)) {
+            input.addEventListener('blur', (e) => {
+              const formatted = formatPercentDisplay(e.target.value);
+              e.target.value = formatted;
+              rows[rowIdx][colIdx] = formatted;
+            });
+          }
           td.appendChild(input);
           tr.appendChild(td);
         });

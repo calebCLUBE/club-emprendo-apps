@@ -75,6 +75,7 @@
               <span>{{ f.created_at|date:"Y-m-d H:i" }} — {{ f.form_slug }}</span>
               <a href="{% url 'admin_grading_live_sheet' f.form_slug %}">Sheet</a>
               <a href="{% url 'admin_grading_download_csv' f.id %}">Download CSV</a>
+              <a href="{% url 'admin_grading_download_excel' f.id %}">Download Excel</a>
               <form method="post" action="{% url 'admin_delete_graded_file' f.id %}" style="display:inline;">
                 {% csrf_token %}
                 <input type="hidden" name="next" value="{{ database_next }}">
@@ -104,6 +105,7 @@
               <span>{{ f.created_at|date:"Y-m-d H:i" }} — {{ f.form_slug }}</span>
               <a href="{% url 'admin_grading_live_sheet' f.form_slug %}">Sheet</a>
               <a href="{% url 'admin_grading_download_csv' f.id %}">Download CSV</a>
+              <a href="{% url 'admin_grading_download_excel' f.id %}">Download Excel</a>
               <form method="post" action="{% url 'admin_delete_graded_file' f.id %}" style="display:inline;">
                 {% csrf_token %}
                 <input type="hidden" name="next" value="{{ database_next }}">
@@ -140,6 +142,8 @@
           <a href="{% url 'admin_grading_live_sheet' f.form_slug %}">Sheet</a>
           &nbsp; — &nbsp;
           <a href="{% url 'admin_grading_download_csv' f.id %}">Download CSV</a>
+          &nbsp; — &nbsp;
+          <a href="{% url 'admin_grading_download_excel' f.id %}">Download Excel</a>
         </li>
       {% endfor %}
     </ul>

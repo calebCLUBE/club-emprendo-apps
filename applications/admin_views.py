@@ -5,8 +5,10 @@ import csv
 import io
 import json
 import re
+import zipfile
 from typing import List, Tuple
 from urllib.parse import urlparse
+from xml.sax.saxutils import escape
 from django.core.mail import get_connection
 import time
 from datetime import datetime, date
@@ -81,6 +83,11 @@ IDENTITY_DOCUMENT_SLUGS = {
     "document_number",
     "numero_de_documento",
     "numerodedocumento",
+}
+PERCENT_SCORE_HEADERS = {
+    "totalscore",
+    "totalpts",
+    "overallscore",
 }
 
 
@@ -561,6 +568,35 @@ def download_graded_csv(request, graded_file_id: int):
     )
     return response
 
+
+@staff_member_required
+def download_graded_excel(request, graded_file_id: int):
+    gf = get_object_or_404(GradedFile, id=graded_file_id)
+    headers, rows = _csv_text_to_grid(gf.csv_text or "")
+    if not headers:
+        headers = [""]
+        rows = []
+
+    percent_col_indexes = {
+        idx
+        for idx, header in enumerate(headers)
+        if _normalized_header_key(header) in PERCENT_SCORE_HEADERS
+    }
+    workbook_bytes = _graded_workbook_bytes(
+        headers=headers,
+        rows=rows,
+        percent_col_indexes=percent_col_indexes,
+        sheet_name=gf.form_slug or "Sheet",
+    )
+    response = HttpResponse(
+        workbook_bytes,
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    response["Content-Disposition"] = (
+        f'attachment; filename="{gf.form_slug}_graded.xlsx"'
+    )
+    return response
+
 @staff_member_required
 @require_POST
 def start_grading_job(request, form_slug: str):
@@ -667,6 +703,189 @@ def _grid_to_csv_text(headers: list[str], rows: list[list[str]]) -> str:
     for row in _normalize_csv_data_rows(rows, len(headers)):
         writer.writerow(row)
     return buf.getvalue()
+
+
+def _normalized_header_key(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", str(value or "").strip().lower())
+
+
+def _excel_col_name(col_num: int) -> str:
+    name = ""
+    n = max(1, int(col_num))
+    while n:
+        n, rem = divmod(n - 1, 26)
+        name = chr(65 + rem) + name
+    return name
+
+
+def _parse_percent_decimal(value: str) -> float | None:
+    raw = str(value or "").strip()
+    if not raw or raw.upper() == "NA":
+        return None
+
+    had_percent = raw.endswith("%")
+    if had_percent:
+        raw = raw[:-1].strip()
+    raw = raw.replace(",", "")
+    try:
+        num = float(raw)
+    except (TypeError, ValueError):
+        return None
+
+    if had_percent:
+        return num / 100.0
+    if -1.0 <= num <= 1.0:
+        return num
+    return num / 100.0
+
+
+def _xlsx_cell_xml(col: int, row: int, value, style_id: int = 0, number_value: float | None = None) -> str:
+    ref = f"{_excel_col_name(col)}{row}"
+    if number_value is not None:
+        return f'<c r="{ref}" s="{style_id}"><v>{number_value}</v></c>'
+
+    text = "" if value is None else str(value)
+    text_escaped = escape(text)
+    preserve = ' xml:space="preserve"' if text.startswith(" ") or text.endswith(" ") or ("\n" in text) else ""
+    return (
+        f'<c r="{ref}" s="{style_id}" t="inlineStr">'
+        f"<is><t{preserve}>{text_escaped}</t></is>"
+        "</c>"
+    )
+
+
+def _graded_sheet_xml(headers: list[str], rows: list[list[str]], percent_col_indexes: set[int]) -> bytes:
+    total_cols = max(1, len(headers))
+
+    header_cells = "".join(
+        _xlsx_cell_xml(col=i + 1, row=1, value=headers[i], style_id=1)
+        for i in range(total_cols)
+    )
+    body_rows: list[str] = [f'<row r="1" ht="22.5" customHeight="1">{header_cells}</row>']
+
+    for r_idx, row_values in enumerate(rows, start=2):
+        padded = list(row_values) + [""] * max(0, total_cols - len(row_values))
+        row_cells: list[str] = []
+        for c_idx, cell_value in enumerate(padded[:total_cols]):
+            col_index = c_idx
+            if col_index in percent_col_indexes:
+                pct_val = _parse_percent_decimal(cell_value)
+                if pct_val is not None:
+                    row_cells.append(
+                        _xlsx_cell_xml(
+                            col=c_idx + 1,
+                            row=r_idx,
+                            value=cell_value,
+                            style_id=2,
+                            number_value=pct_val,
+                        )
+                    )
+                    continue
+            row_cells.append(_xlsx_cell_xml(col=c_idx + 1, row=r_idx, value=cell_value, style_id=0))
+        body_rows.append(f'<row r="{r_idx}">{"".join(row_cells)}</row>')
+
+    auto_filter_ref = f"A1:{_excel_col_name(total_cols)}1"
+    xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        "<sheetViews>"
+        '<sheetView workbookViewId="0">'
+        '<pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/>'
+        "</sheetView>"
+        "</sheetViews>"
+        '<sheetFormatPr defaultRowHeight="15"/>'
+        f'<sheetData>{"".join(body_rows)}</sheetData>'
+        f'<autoFilter ref="{auto_filter_ref}"/>'
+        "</worksheet>"
+    )
+    return xml.encode("utf-8")
+
+
+def _graded_workbook_bytes(headers: list[str], rows: list[list[str]], percent_col_indexes: set[int], sheet_name: str) -> bytes:
+    safe_sheet_name = (sheet_name or "Sheet").strip() or "Sheet"
+    safe_sheet_name = re.sub(r"[:\\/?*\[\]]", "_", safe_sheet_name)[:31]
+
+    sheet_xml = _graded_sheet_xml(headers=headers, rows=rows, percent_col_indexes=percent_col_indexes)
+
+    bio = io.BytesIO()
+    with zipfile.ZipFile(bio, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("xl/worksheets/sheet1.xml", sheet_xml)
+
+        workbook_xml = (
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+            'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+            f'<sheets><sheet name="{escape(safe_sheet_name)}" sheetId="1" r:id="rId1"/></sheets>'
+            "</workbook>"
+        )
+        zf.writestr("xl/workbook.xml", workbook_xml)
+
+        workbook_rels_xml = (
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            '<Relationship Id="rId1" '
+            'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" '
+            'Target="worksheets/sheet1.xml"/>'
+            '<Relationship Id="rId2" '
+            'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" '
+            'Target="styles.xml"/>'
+            "</Relationships>"
+        )
+        zf.writestr("xl/_rels/workbook.xml.rels", workbook_rels_xml)
+
+        styles_xml = (
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+            '<numFmts count="1"><numFmt numFmtId="164" formatCode="0.00%"/></numFmts>'
+            '<fonts count="2">'
+            '<font><sz val="11"/><color rgb="FF000000"/><name val="Calibri"/><family val="2"/></font>'
+            '<font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/><family val="2"/></font>'
+            "</fonts>"
+            '<fills count="3">'
+            '<fill><patternFill patternType="none"/></fill>'
+            '<fill><patternFill patternType="gray125"/></fill>'
+            '<fill><patternFill patternType="solid"><fgColor rgb="FF1F2937"/><bgColor indexed="64"/></patternFill></fill>'
+            "</fills>"
+            '<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>'
+            '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
+            '<cellXfs count="3">'
+            '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'
+            '<xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1">'
+            '<alignment horizontal="center" vertical="center"/>'
+            "</xf>"
+            '<xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>'
+            "</cellXfs>"
+            '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>'
+            "</styleSheet>"
+        )
+        zf.writestr("xl/styles.xml", styles_xml)
+
+        root_rels_xml = (
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            '<Relationship Id="rId1" '
+            'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" '
+            'Target="xl/workbook.xml"/>'
+            "</Relationships>"
+        )
+        zf.writestr("_rels/.rels", root_rels_xml)
+
+        content_types_xml = (
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+            '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+            '<Default Extension="xml" ContentType="application/xml"/>'
+            '<Override PartName="/xl/workbook.xml" '
+            'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+            '<Override PartName="/xl/styles.xml" '
+            'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>'
+            '<Override PartName="/xl/worksheets/sheet1.xml" '
+            'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+            "</Types>"
+        )
+        zf.writestr("[Content_Types].xml", content_types_xml)
+
+    return bio.getvalue()
 
 
 def _parse_emp_availability(cell: str) -> set[str]:

@@ -3218,41 +3218,31 @@ def database_track_detail(request, track: str):
         if g is not None
     )
 
-    apps = (
+    apps_qs = (
         Application.objects.filter(form__in=forms)
         .select_related("form", "form__group")
         .order_by("-created_at", "-id")
-    ) if forms else []
+    ) if forms else Application.objects.none()
 
-    if completion_filter in {TRACK_COMPLETION_FILTER_A1_ONLY, TRACK_COMPLETION_FILTER_A1_A2} and forms:
-        allowed_app_ids, allowed_roots, token_to_root, completion_apps = _track_completion_filter_data(
-            track,
-            forms,
-            completion_filter,
-        )
-        filtered_rows: list[list[str]] = []
+    if completion_filter == TRACK_COMPLETION_FILTER_A1_ONLY:
+        apps_qs = apps_qs.filter(form__slug__iendswith=f"{track}_A1")
+    elif completion_filter == TRACK_COMPLETION_FILTER_A1_A2:
+        apps_qs = apps_qs.filter(form__slug__iendswith=f"{track}_A2")
+
+    apps = list(apps_qs)
+
+    if completion_filter in {TRACK_COMPLETION_FILTER_A1_ONLY, TRACK_COMPLETION_FILTER_A1_A2} and rows:
+        allowed_app_ids = {app.id for app in apps}
         app_id_idx = headers.index("application_id") if "application_id" in headers else -1
-        for row in rows:
-            include_row = False
-            if app_id_idx >= 0 and app_id_idx < len(row):
+        if app_id_idx >= 0:
+            filtered_rows: list[list[str]] = []
+            for row in rows:
+                if app_id_idx >= len(row):
+                    continue
                 raw_id = str(row[app_id_idx] or "").strip()
                 if raw_id.isdigit() and int(raw_id) in allowed_app_ids:
-                    include_row = True
-            if include_row:
-                filtered_rows.append(row)
-                continue
-            row_tokens = _row_identity_tokens(headers, row)
-            if not row_tokens:
-                continue
-            for tok in row_tokens:
-                root = token_to_root.get(tok)
-                if root and root in allowed_roots:
-                    include_row = True
-                    break
-            if include_row:
-                filtered_rows.append(row)
-        rows = filtered_rows
-        apps = [app for app in completion_apps if app.id in allowed_app_ids]
+                    filtered_rows.append(row)
+            rows = filtered_rows
 
     preview_html = _csv_preview_html(headers, rows, max_rows=None)
 

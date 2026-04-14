@@ -3418,6 +3418,8 @@ def database_form_detail(request, form_slug: str):
             "is_first_application": is_first_application,
             "second_stage_sent_count": second_stage_sent_count,
             "preview_html": preview_html,
+            "sheet_headers": headers,
+            "sheet_rows": rows,
         },
     )
 
@@ -3472,6 +3474,8 @@ def database_type_detail(request, app_type: str):
             "apps": apps,
             "preview_html": preview_html,
             "rows_count": len(rows),
+            "sheet_headers": headers,
+            "sheet_rows": rows,
         },
     )
 
@@ -3587,6 +3591,8 @@ def database_track_detail(request, track: str):
             "second_part_completed_count": second_part_completed_count,
             "preview_html": preview_html,
             "rows_count": len(rows),
+            "sheet_headers": headers,
+            "sheet_rows": rows,
         },
     )
 

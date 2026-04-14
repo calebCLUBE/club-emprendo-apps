@@ -123,13 +123,10 @@
 <script>
   (function () {
     const sheetRoot = document.getElementById('live-sheet-canvas');
+    const formEl = document.getElementById('live-sheet-form');
     const headersInput = document.getElementById('headers_json');
     const rowsInput = document.getElementById('rows_json');
-    if (!sheetRoot || !headersInput || !rowsInput) {
-      return;
-    }
-    if (typeof window.x_spreadsheet !== 'function') {
-      console.error('x-spreadsheet failed to load.');
+    if (!sheetRoot || !formEl || !headersInput || !rowsInput) {
       return;
     }
 
@@ -234,18 +231,20 @@
         }
       }
 
-      return [{
+      return {
         name: 'Sheet',
         freeze: 'A2',
         styles: [],
         merges: {},
         rows: rowsObj,
         cols: { len: colCount },
-      }];
+      };
     }
 
     function toMatrix(payload) {
-      const sheet = Array.isArray(payload) && payload.length ? payload[0] : {};
+      const sheet = Array.isArray(payload)
+        ? (payload.length ? payload[0] : {})
+        : (payload || {});
       const rowsObj = sheet && typeof sheet.rows === 'object' ? sheet.rows : {};
       const colsObj = sheet && typeof sheet.cols === 'object' ? sheet.cols : {};
 
@@ -299,6 +298,81 @@
       return matrix;
     }
 
+    function renderFallbackSheet(matrix) {
+      const width = Math.max(1, Array.isArray(matrix[0]) ? matrix[0].length : 1);
+      const normalizedMatrix = matrix.map((row) => {
+        const out = [];
+        for (let i = 0; i < width; i += 1) {
+          out.push(i < row.length ? String(row[i] == null ? '' : row[i]) : '');
+        }
+        return out;
+      });
+
+      const wrapper = document.createElement('div');
+      wrapper.style.maxHeight = '64vh';
+      wrapper.style.overflow = 'auto';
+      wrapper.style.border = '1px solid #e5e7eb';
+      wrapper.style.borderRadius = '8px';
+      wrapper.style.background = '#fff';
+
+      const table = document.createElement('table');
+      table.style.borderCollapse = 'collapse';
+      table.style.width = '100%';
+      table.style.minWidth = '960px';
+
+      const thead = document.createElement('thead');
+      const tbody = document.createElement('tbody');
+
+      const trHead = document.createElement('tr');
+      for (let c = 0; c < width; c += 1) {
+        const th = document.createElement('th');
+        th.textContent = normalizedMatrix[0] && normalizedMatrix[0][c] ? normalizedMatrix[0][c] : '';
+        th.style.position = 'sticky';
+        th.style.top = '0';
+        th.style.background = '#f9fafb';
+        th.style.border = '1px solid #e5e7eb';
+        th.style.padding = '8px';
+        th.style.textAlign = 'left';
+        th.style.fontSize = '12px';
+        th.style.fontWeight = '700';
+        trHead.appendChild(th);
+      }
+      thead.appendChild(trHead);
+
+      for (let r = 1; r < normalizedMatrix.length; r += 1) {
+        const tr = document.createElement('tr');
+        for (let c = 0; c < width; c += 1) {
+          const td = document.createElement('td');
+          td.style.border = '1px solid #e5e7eb';
+          td.style.padding = '4px';
+          const input = document.createElement('input');
+          input.type = 'text';
+          input.value = normalizedMatrix[r][c] || '';
+          input.style.width = '100%';
+          input.style.border = '0';
+          input.style.padding = '4px 6px';
+          input.style.boxSizing = 'border-box';
+          input.addEventListener('input', (e) => {
+            normalizedMatrix[r][c] = e.target.value;
+          });
+          td.appendChild(input);
+          tr.appendChild(td);
+        }
+        tbody.appendChild(tr);
+      }
+
+      table.appendChild(thead);
+      table.appendChild(tbody);
+      wrapper.appendChild(table);
+      sheetRoot.innerHTML = '';
+      sheetRoot.appendChild(wrapper);
+      return {
+        getMatrix: function () {
+          return normalizedMatrix;
+        },
+      };
+    }
+
     function isRowEmpty(row) {
       return !row.some((value) => String(value == null ? '' : value).trim() !== '');
     }
@@ -314,32 +388,7 @@
       return matrix.slice(0, last + 1);
     }
 
-    const seedMatrix = seedMatrixFromCsv();
-    const initialColCount = Math.max(1, seedMatrix[0] ? seedMatrix[0].length : 1);
-    const spreadsheet = x_spreadsheet('#live-sheet-canvas', {
-      mode: 'edit',
-      showToolbar: true,
-      showGrid: true,
-      showContextmenu: true,
-      row: {
-        len: Math.max(1, seedMatrix.length),
-        height: 28,
-      },
-      col: {
-        len: initialColCount,
-        width: 140,
-        minWidth: 64,
-        indexWidth: 50,
-      },
-      view: {
-        height: function () {
-          return Math.max(480, window.innerHeight - 330);
-        },
-      },
-    }).loadData(toSpreadsheetPayload(seedMatrix));
-
-    document.getElementById('live-sheet-form').addEventListener('submit', function () {
-      const matrixRaw = toMatrix(spreadsheet.getData());
+    function matrixToSubmission(matrixRaw) {
       const matrix = trimTrailingEmptyRows(
         matrixRaw.map((row) => row.map((value) => String(value == null ? '' : value)))
       );
@@ -373,6 +422,57 @@
 
       headersInput.value = JSON.stringify(normalizedHeaders);
       rowsInput.value = JSON.stringify(outRows);
+    }
+
+    const seedMatrix = seedMatrixFromCsv();
+    let getMatrixForSubmit = function () {
+      return seedMatrix;
+    };
+
+    if (typeof window.x_spreadsheet === 'function') {
+      try {
+        const initialColCount = Math.max(1, seedMatrix[0] ? seedMatrix[0].length : 1);
+        const spreadsheet = x_spreadsheet('#live-sheet-canvas', {
+          mode: 'edit',
+          showToolbar: true,
+          showGrid: true,
+          showContextmenu: true,
+          row: {
+            len: Math.max(1, seedMatrix.length),
+            height: 28,
+          },
+          col: {
+            len: initialColCount,
+            width: 140,
+            minWidth: 64,
+            indexWidth: 50,
+          },
+          view: {
+            height: function () {
+              return Math.max(480, window.innerHeight - 330);
+            },
+          },
+        });
+        const payload = toSpreadsheetPayload(seedMatrix);
+        try {
+          spreadsheet.loadData(payload);
+        } catch (err) {
+          spreadsheet.loadData([payload]);
+        }
+        getMatrixForSubmit = function () {
+          return toMatrix(spreadsheet.getData());
+        };
+      } catch (err) {
+        const fallback = renderFallbackSheet(seedMatrix);
+        getMatrixForSubmit = fallback.getMatrix;
+      }
+    } else {
+      const fallback = renderFallbackSheet(seedMatrix);
+      getMatrixForSubmit = fallback.getMatrix;
+    }
+
+    formEl.addEventListener('submit', function () {
+      matrixToSubmission(getMatrixForSubmit());
     });
   })();
 </script>

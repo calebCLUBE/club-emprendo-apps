@@ -29,9 +29,9 @@
   </p>
 
   <details style="margin-top:12px;">
-    <summary style="cursor:pointer; font-weight:600;">CSV Preview (click to expand/collapse)</summary>
+    <summary style="cursor:pointer; font-weight:600;">Sheet Preview (click to expand/collapse)</summary>
     <div style="margin-top:10px;">
-      {{ preview_html|safe }}
+      {% include "admin_dash/includes/xsheet_preview.html" with sheet_id="db-type-preview" sheet_headers=sheet_headers sheet_rows=sheet_rows sheet_height=560 %}
     </div>
   </details>
 

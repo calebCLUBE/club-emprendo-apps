@@ -1098,6 +1098,39 @@ def profiles_list(request):
     elif status_filter == "not_graded":
         filtered = [p for p in filtered if not p["is_graded"]]
 
+    sheet_headers = [
+        "Cedula",
+        "Email",
+        "Applicant",
+        "Group",
+        "Form",
+        "Calificacion status",
+        "Score",
+        "Participated",
+        "Profile URL",
+    ]
+    sheet_rows: list[list[str]] = []
+    for p in filtered:
+        group_label = f"Group {p['group_num']}" if p.get("group_num") else "Ungrouped"
+        form_label = str(p.get("form_slug") or "—")
+        track = str(p.get("track") or "").strip()
+        if track and track != "—":
+            form_label = f"{form_label} · {track}"
+        profile_url = reverse("admin_profile_detail", args=[p["profile_key"]])
+        sheet_rows.append(
+            [
+                str(p.get("identity_display") or ""),
+                str(p.get("email") or ""),
+                str(p.get("applicant_name") or ""),
+                group_label,
+                form_label,
+                str(p.get("calificacion_status") or ""),
+                str(p.get("overall_score") or "—"),
+                "Yes" if p.get("participated") else "No",
+                profile_url,
+            ]
+        )
+
     group_options = sorted(
         {p["group_num"] for p in profiles if p["group_num"] is not None},
         reverse=True,
@@ -1115,6 +1148,8 @@ def profiles_list(request):
         "participated_profiles": sum(1 for p in profiles if p["participated"]),
         "bulk_participation_default": "yes",
         "bulk_email_text": "",
+        "profiles_sheet_headers": sheet_headers,
+        "profiles_sheet_rows": sheet_rows,
     }
     return render(request, "admin_dash/profiles_list.html", context)
 

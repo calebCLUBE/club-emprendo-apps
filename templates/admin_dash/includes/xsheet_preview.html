@@ -2,6 +2,24 @@
 {% with root_id=sheet_id|add:"-root" headers_id=sheet_id|add:"-headers" rows_id=sheet_id|add:"-rows" %}
 <link rel="stylesheet" href="{% static 'vendor/x-data-spreadsheet/xspreadsheet.css' %}">
 <style>
+  /* Keep toolbar text/icons readable across Django admin theme overrides */
+  .x-spreadsheet-toolbar,
+  .x-spreadsheet-bottombar,
+  .x-spreadsheet-toolbar .x-spreadsheet-toolbar-btn,
+  .x-spreadsheet-toolbar .x-spreadsheet-dropdown-title,
+  .x-spreadsheet-menu > li,
+  .x-spreadsheet-menu > li.active,
+  .x-spreadsheet-form-input input,
+  .x-spreadsheet-form-select,
+  .x-spreadsheet-form-select .input-text,
+  .x-spreadsheet-item,
+  .x-spreadsheet-header {
+    color: #1f2937 !important;
+  }
+  .x-spreadsheet-icon .x-spreadsheet-icon-img {
+    opacity: 0.72;
+  }
+
   .ce-sheet-preview-wrap {
     border: 1px solid #ddd;
     border-radius: 10px;

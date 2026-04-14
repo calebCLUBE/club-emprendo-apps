@@ -207,7 +207,7 @@
 
     <section style="margin: 6px 0 16px;">
       <div style="font-weight:700; margin-bottom:8px;">Profiles sheet</div>
-      {% include "admin_dash/includes/xsheet_preview.html" with sheet_id="profiles-list-sheet" sheet_headers=profiles_sheet_headers sheet_rows=profiles_sheet_rows sheet_height=580 %}
+      {% include "admin_dash/includes/xsheet_preview.html" with sheet_id="profiles-list-sheet" sheet_headers=profiles_sheet_headers sheet_rows=profiles_sheet_rows sheet_height=580 sheet_deferred=True %}
       <div class="ce-muted">Use the Profile URL column to open a specific profile page.</div>
     </section>
 

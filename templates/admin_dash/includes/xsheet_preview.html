@@ -54,6 +54,32 @@
     z-index: 1;
     background: #f9fafb;
   }
+  .ce-sheet-deferred {
+    padding: 12px;
+    border-bottom: 1px solid #e5e7eb;
+    background: #f8fafc;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+  }
+  .ce-sheet-deferred-msg {
+    color: #334155;
+    font-size: 12px;
+  }
+  .ce-sheet-deferred-btn {
+    border: 1px solid #cbd5e1;
+    background: #fff;
+    color: #0f172a;
+    border-radius: 8px;
+    height: 34px;
+    padding: 0 12px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .ce-sheet-deferred-btn:hover {
+    background: #f8fafc;
+  }
 </style>
 
 <div class="ce-sheet-preview-wrap">
@@ -71,6 +97,8 @@
 <script>
   (function () {
     const LOCAL_XSHEET_JS_URL = "{% static 'vendor/x-data-spreadsheet/xspreadsheet.js' %}";
+    const MAX_AUTO_CELLS = 25000;
+    const FORCE_DEFERRED = {{ sheet_deferred|yesno:"true,false,false" }};
     const root = document.getElementById('{{ root_id }}');
     if (!root) {
       return;
@@ -105,6 +133,7 @@
       if (!spreadsheet || typeof spreadsheet.cellText !== 'function') {
         return;
       }
+      const tasks = [];
       for (let r = 0; r < matrix.length; r += 1) {
         const row = Array.isArray(matrix[r]) ? matrix[r] : [];
         for (let c = 0; c < row.length; c += 1) {
@@ -112,9 +141,21 @@
           if (!text) {
             continue;
           }
-          spreadsheet.cellText(r, c, text, 0);
+          tasks.push([r, c, text]);
         }
       }
+      let idx = 0;
+      const step = function () {
+        const end = Math.min(idx + 1200, tasks.length);
+        for (; idx < end; idx += 1) {
+          const item = tasks[idx];
+          spreadsheet.cellText(item[0], item[1], item[2], 0);
+        }
+        if (idx < tasks.length) {
+          window.requestAnimationFrame(step);
+        }
+      };
+      step();
     }
 
     function ensureSpreadsheetLib() {
@@ -179,39 +220,75 @@
       root.appendChild(table);
     }
 
-    const seedMatrix = seedMatrixFromCsv();
-    ensureSpreadsheetLib().finally(function () {
-      if (typeof window.x_spreadsheet !== 'function') {
-        renderFallback(seedMatrix);
-        return;
-      }
-      try {
-        const spreadsheet = x_spreadsheet('#{{ root_id }}', {
-          mode: 'edit',
-          showToolbar: true,
-          showGrid: true,
-          showContextmenu: true,
-          row: {
-            len: Math.max(1, seedMatrix.length),
-            height: 28,
-          },
-          col: {
-            len: Math.max(1, seedMatrix[0] ? seedMatrix[0].length : 1),
-            width: 140,
-            minWidth: 64,
-            indexWidth: 50,
-          },
-          view: {
-            height: function () {
-              return {{ sheet_height|default:560 }};
+    function initSpreadsheet(matrix) {
+      ensureSpreadsheetLib().finally(function () {
+        if (typeof window.x_spreadsheet !== 'function') {
+          renderFallback(matrix);
+          return;
+        }
+        try {
+          const spreadsheet = x_spreadsheet('#{{ root_id }}', {
+            mode: 'edit',
+            showToolbar: true,
+            showGrid: true,
+            showContextmenu: true,
+            row: {
+              len: Math.max(1, matrix.length),
+              height: 28,
             },
-          },
-        });
-        hydrateSpreadsheet(spreadsheet, seedMatrix);
-      } catch (err) {
-        renderFallback(seedMatrix);
-      }
-    });
+            col: {
+              len: Math.max(1, matrix[0] ? matrix[0].length : 1),
+              width: 140,
+              minWidth: 64,
+              indexWidth: 50,
+            },
+            view: {
+              height: function () {
+                return {{ sheet_height|default:560 }};
+              },
+            },
+          });
+          hydrateSpreadsheet(spreadsheet, matrix);
+        } catch (err) {
+          renderFallback(matrix);
+        }
+      });
+    }
+
+    function renderDeferredLoader(matrix, totalCells) {
+      const wrap = document.createElement('div');
+      wrap.className = 'ce-sheet-deferred';
+
+      const msg = document.createElement('div');
+      msg.className = 'ce-sheet-deferred-msg';
+      msg.textContent = `Large dataset detected (${totalCells.toLocaleString()} cells). Click to load the full Excel-style sheet.`;
+
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'ce-sheet-deferred-btn';
+      btn.textContent = 'Load Excel-style sheet';
+      btn.addEventListener('click', function () {
+        root.innerHTML = '';
+        initSpreadsheet(matrix);
+      });
+
+      wrap.appendChild(msg);
+      wrap.appendChild(btn);
+      root.innerHTML = '';
+      root.style.overflow = 'auto';
+      root.appendChild(wrap);
+    }
+
+    const seedMatrix = seedMatrixFromCsv();
+    const rowCount = Math.max(0, seedMatrix.length - 1);
+    const colCount = Math.max(0, seedMatrix[0] ? seedMatrix[0].length : 0);
+    const totalCells = rowCount * colCount;
+
+    if (FORCE_DEFERRED || totalCells > MAX_AUTO_CELLS) {
+      renderDeferredLoader(seedMatrix, totalCells);
+      return;
+    }
+    initSpreadsheet(seedMatrix);
   })();
 </script>
 {% endwith %}

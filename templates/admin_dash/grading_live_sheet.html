@@ -1,8 +1,8 @@
 {% extends "admin/base_site.html" %}
+{% load static %}
 
 {% block content %}
-<link rel="stylesheet" href="https://unpkg.com/x-data-spreadsheet@1.1.5/dist/xspreadsheet.css">
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/x-data-spreadsheet@1.1.5/dist/xspreadsheet.css">
+<link rel="stylesheet" href="{% static 'vendor/x-data-spreadsheet/xspreadsheet.css' %}">
 <div class="ce-admin-wrap">
   <style>
     .ce-sheet-shell {
@@ -120,6 +120,7 @@
 
 {{ headers|json_script:"grading-sheet-headers" }}
 {{ rows|json_script:"grading-sheet-rows" }}
+<script src="{% static 'vendor/x-data-spreadsheet/xspreadsheet.js' %}"></script>
 <script>
   (function () {
     const sheetRoot = document.getElementById('live-sheet-canvas');
@@ -321,7 +322,7 @@
       warn.style.background = '#fffbeb';
       warn.style.color = '#92400e';
       warn.style.fontSize = '12px';
-      warn.textContent = 'Excel-style toolbar could not load from CDN. Showing basic editor fallback.';
+      warn.textContent = 'Excel-style toolbar library did not load. Showing basic editor fallback.';
 
       const table = document.createElement('table');
       table.style.borderCollapse = 'collapse';
@@ -395,57 +396,6 @@
         last -= 1;
       }
       return matrix.slice(0, last + 1);
-    }
-
-    function ensureSpreadsheetLib() {
-      if (typeof window.x_spreadsheet === 'function') {
-        return Promise.resolve(true);
-      }
-      if (window.__ceXSpreadsheetLoading && typeof window.__ceXSpreadsheetLoading.then === 'function') {
-        return window.__ceXSpreadsheetLoading;
-      }
-
-      const candidates = [
-        'https://unpkg.com/x-data-spreadsheet@1.1.5/dist/xspreadsheet.js',
-        'https://cdn.jsdelivr.net/npm/x-data-spreadsheet@1.1.5/dist/xspreadsheet.js',
-      ];
-
-      window.__ceXSpreadsheetLoading = new Promise((resolve) => {
-        function tryAt(index) {
-          if (typeof window.x_spreadsheet === 'function') {
-            resolve(true);
-            return;
-          }
-          if (index >= candidates.length) {
-            resolve(false);
-            return;
-          }
-          const existing = document.querySelector(`script[data-ce-xsheet="${index}"]`);
-          if (existing) {
-            existing.addEventListener('load', () => resolve(typeof window.x_spreadsheet === 'function'));
-            existing.addEventListener('error', () => tryAt(index + 1));
-            return;
-          }
-          const script = document.createElement('script');
-          script.src = candidates[index];
-          script.async = true;
-          script.setAttribute('data-ce-xsheet', String(index));
-          script.onload = function () {
-            if (typeof window.x_spreadsheet === 'function') {
-              resolve(true);
-            } else {
-              tryAt(index + 1);
-            }
-          };
-          script.onerror = function () {
-            tryAt(index + 1);
-          };
-          document.head.appendChild(script);
-        }
-        tryAt(0);
-      });
-
-      return window.__ceXSpreadsheetLoading;
     }
 
     function matrixToSubmission(matrixRaw) {
@@ -533,9 +483,7 @@
       }
     }
 
-    ensureSpreadsheetLib().finally(function () {
-      initSpreadsheetEditor();
-    });
+    initSpreadsheetEditor();
 
     formEl.addEventListener('submit', function () {
       matrixToSubmission(getMatrixForSubmit());

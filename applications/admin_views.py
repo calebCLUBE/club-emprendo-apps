@@ -3950,11 +3950,15 @@ def grading_live_sheet(request, form_slug: str):
                 messages.error(request, "Could not read sheet columns. Please try again.")
                 return redirect("admin_grading_live_sheet", form_slug=form_slug)
 
-            if not isinstance(headers_payload, list) or len(headers_payload) != len(headers):
+            if not isinstance(headers_payload, list):
                 messages.error(request, "Sheet columns were out of sync. Please reload and try again.")
                 return redirect("admin_grading_live_sheet", form_slug=form_slug)
 
             edited_headers = ["" if h is None else str(h) for h in headers_payload]
+
+        if not edited_headers:
+            messages.error(request, "The sheet must have at least one column.")
+            return redirect("admin_grading_live_sheet", form_slug=form_slug)
 
         rows_raw = (request.POST.get("rows_json") or "").strip()
         try:

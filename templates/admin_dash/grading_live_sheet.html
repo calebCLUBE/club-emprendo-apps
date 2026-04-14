@@ -1,6 +1,7 @@
 {% extends "admin/base_site.html" %}
 
 {% block content %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/x-data-spreadsheet@1.1.5/dist/xspreadsheet.css">
 <div class="ce-admin-wrap">
   <style>
     .ce-sheet-shell {
@@ -59,69 +60,24 @@
     }
     .ce-sheet-wrap {
       width: 100%;
-      overflow: auto;
       border: 1px solid #ddd;
       border-radius: 12px;
       background: #fff;
-      max-height: 72vh;
+      overflow: hidden;
+      min-height: 480px;
     }
-    .ce-sheet-table {
-      border-collapse: separate;
-      border-spacing: 0;
-      min-width: 900px;
+    #live-sheet-canvas {
       width: 100%;
+      min-height: 480px;
     }
-    .ce-sheet-table th,
-    .ce-sheet-table td {
-      border-right: 1px solid #eee;
-      border-bottom: 1px solid #eee;
-      vertical-align: middle;
-      padding: 0;
-    }
-    .ce-sheet-table th {
-      position: sticky;
-      top: 0;
-      z-index: 3;
-      background: #fafafa;
+    .ce-sheet-help {
+      margin: 10px 0 0;
+      color: #555;
       font-size: 12px;
-      font-weight: 700;
-      letter-spacing: 0.3px;
-      text-transform: uppercase;
-      color: #666;
-      padding: 10px 8px;
-      white-space: nowrap;
+      line-height: 1.45;
     }
-    .ce-sheet-table tr td:first-child,
-    .ce-sheet-table tr th:first-child {
-      position: sticky;
-      left: 0;
-      z-index: 2;
-      background: #fff;
-    }
-    .ce-sheet-table tr th:first-child {
-      z-index: 4;
-      background: #fafafa;
-    }
-    .ce-row-selector {
-      width: 34px;
-      min-width: 34px;
-      text-align: center;
-      background: #fff;
-    }
-    .ce-cell-input {
-      width: 100%;
-      min-width: 120px;
-      border: 0;
-      padding: 8px 10px;
-      font-size: 13px;
-      line-height: 1.3;
-      background: #fff;
-      box-sizing: border-box;
-    }
-    .ce-cell-input:focus {
-      outline: 2px solid #93c5fd;
-      outline-offset: -2px;
-      background: #eff6ff;
+    .ce-sheet-help strong {
+      color: #1f2937;
     }
   </style>
 
@@ -136,11 +92,10 @@
 
     <form method="post" id="live-sheet-form" class="ce-sheet-card">
       {% csrf_token %}
+      <input type="hidden" id="headers_json" name="headers_json" value="">
       <input type="hidden" id="rows_json" name="rows_json" value="">
       <div class="ce-sheet-actions">
         <button class="ce-btn ce-btn-primary" type="submit">Save Sheet</button>
-        <button class="ce-btn" type="button" id="add-row-btn">Add Row</button>
-        <button class="ce-btn" type="button" id="delete-selected-btn">Delete Selected</button>
         <a class="ce-btn" href="{% url 'admin_grading_download_csv' graded_file.id %}">Download CSV</a>
         <a class="ce-btn" href="{% url 'admin_grading_download_excel' graded_file.id %}">Download Excel</a>
         <a class="ce-btn" href="{% url 'admin_grading_home' %}">Back to Grading</a>
@@ -148,18 +103,11 @@
 
       {% if headers %}
         <div class="ce-sheet-wrap" style="margin-top:12px;">
-          <table id="live-sheet-table" class="ce-sheet-table">
-            <thead>
-              <tr>
-                <th class="ce-row-selector">✓</th>
-                {% for h in headers %}
-                  <th>{{ h }}</th>
-                {% endfor %}
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
+          <div id="live-sheet-canvas"></div>
         </div>
+        <p class="ce-sheet-help">
+          <strong>Excel-like controls:</strong> use the top toolbar and right-click context menu to insert/delete rows and columns, resize rows/columns, change fonts and font sizes, apply cell colors, freeze, and hide columns/rows.
+        </p>
       {% else %}
         <p style="margin-top:12px; color:#666;">
           This graded CSV is empty (no headers), so it cannot be edited as a live sheet yet.
@@ -171,30 +119,36 @@
 
 {{ headers|json_script:"grading-sheet-headers" }}
 {{ rows|json_script:"grading-sheet-rows" }}
+<script src="https://cdn.jsdelivr.net/npm/x-data-spreadsheet@1.1.5/dist/xspreadsheet.js"></script>
 <script>
   (function () {
-    const table = document.getElementById('live-sheet-table');
+    const sheetRoot = document.getElementById('live-sheet-canvas');
+    const headersInput = document.getElementById('headers_json');
     const rowsInput = document.getElementById('rows_json');
-    if (!table || !rowsInput) {
+    if (!sheetRoot || !headersInput || !rowsInput) {
+      return;
+    }
+    if (typeof window.x_spreadsheet !== 'function') {
+      console.error('x-spreadsheet failed to load.');
       return;
     }
 
     const headers = JSON.parse(document.getElementById('grading-sheet-headers').textContent || '[]');
     const seedRows = JSON.parse(document.getElementById('grading-sheet-rows').textContent || '[]');
-    const width = headers.length;
-    const tbody = table.querySelector('tbody');
     const percentHeaderKeys = new Set(['score', 'totalscore', 'totalpts', 'overallscore']);
 
     function normalizeHeaderKey(value) {
       return String(value == null ? '' : value).trim().toLowerCase().replace(/[^a-z0-9]+/g, '');
     }
 
-    const percentColIndexes = new Set(
-      headers
-        .map((h, idx) => ({ key: normalizeHeaderKey(h), idx }))
-        .filter((x) => percentHeaderKeys.has(x.key))
-        .map((x) => x.idx)
-    );
+    function getPercentColIndexes(cols) {
+      return new Set(
+        cols
+          .map((h, idx) => ({ key: normalizeHeaderKey(h), idx }))
+          .filter((x) => percentHeaderKeys.has(x.key))
+          .map((x) => x.idx)
+      );
+    }
 
     function formatPercentDisplay(raw) {
       const text = String(raw == null ? '' : raw).trim();
@@ -217,82 +171,209 @@
       return `${num.toFixed(2)}%`;
     }
 
-    let rows = Array.isArray(seedRows) ? seedRows
-      .filter((r) => Array.isArray(r))
-      .map((r) => {
-        const out = [];
-        for (let i = 0; i < width; i += 1) {
-          const raw = i < r.length ? String(r[i] == null ? '' : r[i]) : '';
-          if (percentColIndexes.has(i)) {
-            out.push(formatPercentDisplay(raw));
-          } else {
-            out.push(raw);
+    function parseCellText(cell) {
+      if (cell == null) {
+        return '';
+      }
+      if (typeof cell === 'object') {
+        if (cell.text != null) {
+          return String(cell.text);
+        }
+        if (cell.value != null) {
+          return String(cell.value);
+        }
+        return '';
+      }
+      return String(cell);
+    }
+
+    function seedMatrixFromCsv() {
+      const width = Math.max(1, Array.isArray(headers) ? headers.length : 0);
+      const headerRow = [];
+      const percentCols = getPercentColIndexes(headers);
+      for (let i = 0; i < width; i += 1) {
+        headerRow.push(String(headers[i] == null ? '' : headers[i]));
+      }
+      const matrix = [headerRow];
+      if (!Array.isArray(seedRows)) {
+        return matrix;
+      }
+      seedRows
+        .filter((r) => Array.isArray(r))
+        .forEach((r) => {
+          const out = [];
+          for (let i = 0; i < width; i += 1) {
+            const raw = i < r.length ? String(r[i] == null ? '' : r[i]) : '';
+            out.push(percentCols.has(i) ? formatPercentDisplay(raw) : raw);
+          }
+          matrix.push(out);
+        });
+      return matrix;
+    }
+
+    function toSpreadsheetPayload(matrix) {
+      const rowCount = Math.max(1, matrix.length);
+      const colCount = Math.max(
+        1,
+        matrix.reduce((max, row) => Math.max(max, Array.isArray(row) ? row.length : 0), 0)
+      );
+      const rowsObj = { len: rowCount };
+
+      for (let r = 0; r < rowCount; r += 1) {
+        const row = Array.isArray(matrix[r]) ? matrix[r] : [];
+        const cells = {};
+        for (let c = 0; c < colCount; c += 1) {
+          const raw = c < row.length ? row[c] : '';
+          const text = raw == null ? '' : String(raw);
+          if (text) {
+            cells[c] = { text };
           }
         }
-        return out;
-      }) : [];
-
-    function render() {
-      tbody.innerHTML = '';
-      rows.forEach((row, rowIdx) => {
-        const tr = document.createElement('tr');
-
-        const selectTd = document.createElement('td');
-        selectTd.className = 'ce-row-selector';
-        const selector = document.createElement('input');
-        selector.type = 'checkbox';
-        selector.dataset.row = String(rowIdx);
-        selectTd.appendChild(selector);
-        tr.appendChild(selectTd);
-
-        row.forEach((cell, colIdx) => {
-          const td = document.createElement('td');
-          const input = document.createElement('input');
-          input.type = 'text';
-          input.className = 'ce-cell-input';
-          input.value = cell == null ? '' : String(cell);
-          input.addEventListener('input', (e) => {
-            rows[rowIdx][colIdx] = e.target.value;
-          });
-          if (percentColIndexes.has(colIdx)) {
-            input.addEventListener('blur', (e) => {
-              const formatted = formatPercentDisplay(e.target.value);
-              e.target.value = formatted;
-              rows[rowIdx][colIdx] = formatted;
-            });
-          }
-          td.appendChild(input);
-          tr.appendChild(td);
-        });
-
-        tbody.appendChild(tr);
-      });
-    }
-
-    function addRow() {
-      rows.push(Array(width).fill(''));
-      render();
-    }
-
-    function deleteSelected() {
-      const selected = Array.from(tbody.querySelectorAll('input[type="checkbox"]:checked'))
-        .map((cb) => Number(cb.dataset.row))
-        .filter((idx) => Number.isInteger(idx));
-      if (!selected.length) {
-        return;
+        if (Object.keys(cells).length) {
+          rowsObj[r] = { cells };
+        }
       }
-      const selectedSet = new Set(selected);
-      rows = rows.filter((_row, idx) => !selectedSet.has(idx));
-      render();
+
+      return [{
+        name: 'Sheet',
+        freeze: 'A2',
+        styles: [],
+        merges: {},
+        rows: rowsObj,
+        cols: { len: colCount },
+      }];
     }
 
-    document.getElementById('add-row-btn').addEventListener('click', addRow);
-    document.getElementById('delete-selected-btn').addEventListener('click', deleteSelected);
-    document.getElementById('live-sheet-form').addEventListener('submit', () => {
-      rowsInput.value = JSON.stringify(rows);
-    });
+    function toMatrix(payload) {
+      const sheet = Array.isArray(payload) && payload.length ? payload[0] : {};
+      const rowsObj = sheet && typeof sheet.rows === 'object' ? sheet.rows : {};
+      const colsObj = sheet && typeof sheet.cols === 'object' ? sheet.cols : {};
 
-    render();
+      let maxRow = Number.isFinite(Number(rowsObj.len)) ? Math.max(0, Number(rowsObj.len) - 1) : 0;
+      let maxCol = Number.isFinite(Number(colsObj.len)) ? Math.max(0, Number(colsObj.len) - 1) : 0;
+
+      Object.keys(rowsObj).forEach((rowKey) => {
+        if (!/^\d+$/.test(rowKey)) {
+          return;
+        }
+        const rowIdx = Number(rowKey);
+        if (rowIdx > maxRow) {
+          maxRow = rowIdx;
+        }
+        const row = rowsObj[rowKey];
+        const cells = row && typeof row.cells === 'object' ? row.cells : {};
+        Object.keys(cells).forEach((colKey) => {
+          if (!/^\d+$/.test(colKey)) {
+            return;
+          }
+          const colIdx = Number(colKey);
+          if (colIdx > maxCol) {
+            maxCol = colIdx;
+          }
+        });
+      });
+
+      const matrix = Array.from({ length: maxRow + 1 }, () => Array(maxCol + 1).fill(''));
+      Object.keys(rowsObj).forEach((rowKey) => {
+        if (!/^\d+$/.test(rowKey)) {
+          return;
+        }
+        const rowIdx = Number(rowKey);
+        const row = rowsObj[rowKey];
+        const cells = row && typeof row.cells === 'object' ? row.cells : {};
+        Object.keys(cells).forEach((colKey) => {
+          if (!/^\d+$/.test(colKey)) {
+            return;
+          }
+          const colIdx = Number(colKey);
+          matrix[rowIdx][colIdx] = parseCellText(cells[colKey]);
+        });
+      });
+
+      if (!matrix.length) {
+        return [['']];
+      }
+      if (!matrix[0].length) {
+        return [['']];
+      }
+      return matrix;
+    }
+
+    function isRowEmpty(row) {
+      return !row.some((value) => String(value == null ? '' : value).trim() !== '');
+    }
+
+    function trimTrailingEmptyRows(matrix) {
+      if (!matrix.length) {
+        return [['']];
+      }
+      let last = matrix.length - 1;
+      while (last > 0 && isRowEmpty(matrix[last])) {
+        last -= 1;
+      }
+      return matrix.slice(0, last + 1);
+    }
+
+    const seedMatrix = seedMatrixFromCsv();
+    const initialColCount = Math.max(1, seedMatrix[0] ? seedMatrix[0].length : 1);
+    const spreadsheet = x_spreadsheet('#live-sheet-canvas', {
+      mode: 'edit',
+      showToolbar: true,
+      showGrid: true,
+      showContextmenu: true,
+      row: {
+        len: Math.max(1, seedMatrix.length),
+        height: 28,
+      },
+      col: {
+        len: initialColCount,
+        width: 140,
+        minWidth: 64,
+        indexWidth: 50,
+      },
+      view: {
+        height: function () {
+          return Math.max(480, window.innerHeight - 330);
+        },
+      },
+    }).loadData(toSpreadsheetPayload(seedMatrix));
+
+    document.getElementById('live-sheet-form').addEventListener('submit', function () {
+      const matrixRaw = toMatrix(spreadsheet.getData());
+      const matrix = trimTrailingEmptyRows(
+        matrixRaw.map((row) => row.map((value) => String(value == null ? '' : value)))
+      );
+
+      if (!matrix.length) {
+        matrix.push(['']);
+      }
+      if (!matrix[0].length) {
+        matrix[0] = [''];
+      }
+
+      const headerRow = matrix[0].map((value) => String(value == null ? '' : value));
+      const width = Math.max(1, headerRow.length);
+      const percentCols = getPercentColIndexes(headerRow);
+
+      const normalizedHeaders = [];
+      for (let i = 0; i < width; i += 1) {
+        normalizedHeaders.push(i < headerRow.length ? String(headerRow[i]) : '');
+      }
+
+      const outRows = [];
+      for (let r = 1; r < matrix.length; r += 1) {
+        const sourceRow = Array.isArray(matrix[r]) ? matrix[r] : [];
+        const out = [];
+        for (let c = 0; c < width; c += 1) {
+          const raw = c < sourceRow.length ? String(sourceRow[c] == null ? '' : sourceRow[c]) : '';
+          out.push(percentCols.has(c) ? formatPercentDisplay(raw) : raw);
+        }
+        outRows.push(out);
+      }
+
+      headersInput.value = JSON.stringify(normalizedHeaders);
+      rowsInput.value = JSON.stringify(outRows);
+    });
   })();
 </script>
 {% endblock %}

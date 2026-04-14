@@ -617,6 +617,13 @@ def _run_grade_job(job_id: int):
         if graded_df is None or graded_df.empty:
             raise RuntimeError("Grader returned empty output")
 
+        if "status" not in graded_df.columns:
+            fallback_status = ""
+            if "recommendation" in graded_df.columns:
+                fallback_status = graded_df["recommendation"].fillna("").astype(str)
+            graded_df.insert(1, "status", fallback_status)
+            _job_log(job, "⚠️ Grader output had no status column. Inserted fallback status column before saving.")
+
         # ----------------------------------
         # STORE GRADED FILE (keep latest per form slug)
         # ----------------------------------

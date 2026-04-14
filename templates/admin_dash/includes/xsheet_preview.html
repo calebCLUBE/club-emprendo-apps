@@ -1,5 +1,6 @@
-{% load inline_static %}
+{% load static inline_static %}
 {% with root_id=sheet_id|add:"-root" headers_id=sheet_id|add:"-headers" rows_id=sheet_id|add:"-rows" %}
+<link rel="stylesheet" href="{% static 'vendor/x-data-spreadsheet/xspreadsheet.css' %}">
 <style>
 {% inline_static 'vendor/x-data-spreadsheet/xspreadsheet.css' %}
 </style>
@@ -54,6 +55,7 @@
 </script>
 <script>
   (function () {
+    const LOCAL_XSHEET_JS_URL = "{% static 'vendor/x-data-spreadsheet/xspreadsheet.js' %}";
     const root = document.getElementById('{{ root_id }}');
     if (!root) {
       return;
@@ -84,37 +86,42 @@
       return matrix;
     }
 
-    function toSpreadsheetPayload(matrix) {
-      const rowCount = Math.max(1, matrix.length);
-      const colCount = Math.max(
-        1,
-        matrix.reduce((max, row) => Math.max(max, Array.isArray(row) ? row.length : 0), 0)
-      );
-      const rowsObj = { len: rowCount };
-
-      for (let r = 0; r < rowCount; r += 1) {
+    function hydrateSpreadsheet(spreadsheet, matrix) {
+      if (!spreadsheet || typeof spreadsheet.cellText !== 'function') {
+        return;
+      }
+      for (let r = 0; r < matrix.length; r += 1) {
         const row = Array.isArray(matrix[r]) ? matrix[r] : [];
-        const cells = {};
-        for (let c = 0; c < colCount; c += 1) {
-          const raw = c < row.length ? row[c] : '';
-          const text = raw == null ? '' : String(raw);
-          if (text) {
-            cells[c] = { text };
+        for (let c = 0; c < row.length; c += 1) {
+          const text = String(row[c] == null ? '' : row[c]);
+          if (!text) {
+            continue;
           }
-        }
-        if (Object.keys(cells).length) {
-          rowsObj[r] = { cells };
+          spreadsheet.cellText(r, c, text, 0);
         }
       }
+    }
 
-      return {
-        name: 'Preview',
-        freeze: 'A2',
-        styles: [],
-        merges: {},
-        rows: rowsObj,
-        cols: { len: colCount },
-      };
+    function ensureSpreadsheetLib() {
+      if (typeof window.x_spreadsheet === 'function') {
+        return Promise.resolve(true);
+      }
+      if (window.__ceXSheetLocalLoadPromise && typeof window.__ceXSheetLocalLoadPromise.then === 'function') {
+        return window.__ceXSheetLocalLoadPromise;
+      }
+      window.__ceXSheetLocalLoadPromise = new Promise((resolve) => {
+        const tag = document.createElement('script');
+        tag.src = LOCAL_XSHEET_JS_URL;
+        tag.async = true;
+        tag.onload = function () {
+          resolve(typeof window.x_spreadsheet === 'function');
+        };
+        tag.onerror = function () {
+          resolve(false);
+        };
+        document.head.appendChild(tag);
+      });
+      return window.__ceXSheetLocalLoadPromise;
     }
 
     function renderFallback(matrix) {
@@ -158,43 +165,38 @@
     }
 
     const seedMatrix = seedMatrixFromCsv();
-    const payload = toSpreadsheetPayload(seedMatrix);
-
-    if (typeof window.x_spreadsheet !== 'function') {
-      renderFallback(seedMatrix);
-      return;
-    }
-
-    try {
-      const spreadsheet = x_spreadsheet('#{{ root_id }}', {
-        mode: 'edit',
-        showToolbar: true,
-        showGrid: true,
-        showContextmenu: true,
-        row: {
-          len: Math.max(1, seedMatrix.length),
-          height: 28,
-        },
-        col: {
-          len: Math.max(1, seedMatrix[0] ? seedMatrix[0].length : 1),
-          width: 140,
-          minWidth: 64,
-          indexWidth: 50,
-        },
-        view: {
-          height: function () {
-            return {{ sheet_height|default:560 }};
-          },
-        },
-      });
-      try {
-        spreadsheet.loadData([payload]);
-      } catch (err) {
-        spreadsheet.loadData(payload);
+    ensureSpreadsheetLib().finally(function () {
+      if (typeof window.x_spreadsheet !== 'function') {
+        renderFallback(seedMatrix);
+        return;
       }
-    } catch (err) {
-      renderFallback(seedMatrix);
-    }
+      try {
+        const spreadsheet = x_spreadsheet('#{{ root_id }}', {
+          mode: 'edit',
+          showToolbar: true,
+          showGrid: true,
+          showContextmenu: true,
+          row: {
+            len: Math.max(1, seedMatrix.length),
+            height: 28,
+          },
+          col: {
+            len: Math.max(1, seedMatrix[0] ? seedMatrix[0].length : 1),
+            width: 140,
+            minWidth: 64,
+            indexWidth: 50,
+          },
+          view: {
+            height: function () {
+              return {{ sheet_height|default:560 }};
+            },
+          },
+        });
+        hydrateSpreadsheet(spreadsheet, seedMatrix);
+      } catch (err) {
+        renderFallback(seedMatrix);
+      }
+    });
   })();
 </script>
 {% endwith %}

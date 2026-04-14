@@ -22,6 +22,53 @@ W = {
     "biggest_challenge": 4,
 }
 
+AVAILABILITY_LABELS = {
+    # English-style keys
+    "mon_morning": "Lunes - Manana",
+    "mon_afternoon": "Lunes - Tarde",
+    "mon_night": "Lunes - Noche",
+    "tue_morning": "Martes - Manana",
+    "tue_afternoon": "Martes - Tarde",
+    "tue_night": "Martes - Noche",
+    "wed_morning": "Miercoles - Manana",
+    "wed_afternoon": "Miercoles - Tarde",
+    "wed_night": "Miercoles - Noche",
+    "thu_morning": "Jueves - Manana",
+    "thu_afternoon": "Jueves - Tarde",
+    "thu_night": "Jueves - Noche",
+    "fri_morning": "Viernes - Manana",
+    "fri_afternoon": "Viernes - Tarde",
+    "fri_night": "Viernes - Noche",
+    "sat_morning": "Sabado - Manana",
+    "sat_afternoon": "Sabado - Tarde",
+    "sat_night": "Sabado - Noche",
+    "sun_morning": "Domingo - Manana",
+    "sun_afternoon": "Domingo - Tarde",
+    "sun_night": "Domingo - Noche",
+    # Spanish-style keys
+    "lunes_manana": "Lunes - Manana",
+    "lunes_tarde": "Lunes - Tarde",
+    "lunes_noche": "Lunes - Noche",
+    "martes_manana": "Martes - Manana",
+    "martes_tarde": "Martes - Tarde",
+    "martes_noche": "Martes - Noche",
+    "miercoles_manana": "Miercoles - Manana",
+    "miercoles_tarde": "Miercoles - Tarde",
+    "miercoles_noche": "Miercoles - Noche",
+    "jueves_manana": "Jueves - Manana",
+    "jueves_tarde": "Jueves - Tarde",
+    "jueves_noche": "Jueves - Noche",
+    "viernes_manana": "Viernes - Manana",
+    "viernes_tarde": "Viernes - Tarde",
+    "viernes_noche": "Viernes - Noche",
+    "sabado_manana": "Sabado - Manana",
+    "sabado_tarde": "Sabado - Tarde",
+    "sabado_noche": "Sabado - Noche",
+    "domingo_manana": "Domingo - Manana",
+    "domingo_tarde": "Domingo - Tarde",
+    "domingo_noche": "Domingo - Noche",
+}
+
 # ==================================================
 # Helpers (structured)
 # ==================================================
@@ -193,6 +240,35 @@ def _pick_row_value(row: dict, *keys: str):
         if text:
             return value
     return ""
+
+
+def _format_availability_grid(raw_value) -> str:
+    text = str(raw_value or "").strip()
+    if not text:
+        return ""
+
+    cleaned = (
+        text.replace("[", "")
+        .replace("]", "")
+        .replace('"', "")
+        .replace("'", "")
+        .replace("\n", ",")
+        .replace(";", ",")
+    )
+    parts = [p.strip() for p in cleaned.split(",") if p.strip()]
+    if not parts:
+        return text
+
+    out: list[str] = []
+    seen: set[str] = set()
+    for part in parts:
+        key = part.strip().lower()
+        label = AVAILABILITY_LABELS.get(key, part.strip())
+        if label in seen:
+            continue
+        seen.add(label)
+        out.append(label)
+    return "; ".join(out)
 
 
 # ==================================================
@@ -382,13 +458,15 @@ def grade_single_row(
     growth_how = _pick_row_value(row, "growth_how")
     biggest_challenge = _pick_row_value(row, "biggest_challenge")
     additional_comments = _pick_row_value(row, "additional_comments")
-    availability_grid = _pick_row_value(
+    availability_raw = _pick_row_value(
         row,
         "availability_grid",
+        "preferred_schedule",
         "availability",
         "availability_options",
         "weekly_availability",
     )
+    availability_grid = _format_availability_grid(availability_raw)
 
     if disqual_reasons:
         reason_text = "Disqualified: " + ", ".join(disqual_reasons)

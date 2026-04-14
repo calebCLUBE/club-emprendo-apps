@@ -174,9 +174,9 @@
         },
       });
       try {
-        spreadsheet.loadData(payload);
-      } catch (err) {
         spreadsheet.loadData([payload]);
+      } catch (err) {
+        spreadsheet.loadData(payload);
       }
     } catch (err) {
       renderFallback(seedMatrix);

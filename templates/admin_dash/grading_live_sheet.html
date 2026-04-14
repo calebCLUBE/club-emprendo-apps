@@ -455,9 +455,9 @@
         });
         const payload = toSpreadsheetPayload(seedMatrix);
         try {
-          spreadsheet.loadData(payload);
-        } catch (err) {
           spreadsheet.loadData([payload]);
+        } catch (err) {
+          spreadsheet.loadData(payload);
         }
         getMatrixForSubmit = function () {
           return toMatrix(spreadsheet.getData());

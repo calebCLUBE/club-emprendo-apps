@@ -183,7 +183,7 @@
     const seedRows = JSON.parse(document.getElementById('grading-sheet-rows').textContent || '[]');
     const width = headers.length;
     const tbody = table.querySelector('tbody');
-    const percentHeaderKeys = new Set(['totalscore', 'totalpts', 'overallscore']);
+    const percentHeaderKeys = new Set(['score', 'totalscore', 'totalpts', 'overallscore']);
 
     function normalizeHeaderKey(value) {
       return String(value == null ? '' : value).trim().toLowerCase().replace(/[^a-z0-9]+/g, '');

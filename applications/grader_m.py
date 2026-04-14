@@ -176,6 +176,17 @@ def _is_active_participant_email(row: dict, active_participant_emails: set[str] 
     return bool(email and email in active_participant_emails)
 
 
+def _pick_row_value(row: dict, *keys: str):
+    for key in keys:
+        value = row.get(key)
+        if value is None:
+            continue
+        text = str(value).strip()
+        if text:
+            return value
+    return ""
+
+
 def _normalize_document_id(raw_value: str) -> str:
     value = str(raw_value or "").strip().lower()
     if not value:
@@ -299,42 +310,30 @@ Explanation: <2–3 sentences justifying the score>
 # -----------------------
 
 COLUMNS = [
-    "total_pts",
-    "status",
-    "certificate_name",
-    "preferred_name",
-    "id_number",
-    "email",
+    "Status",
+    "score",
+    "score_exp",
+    "full_name",
     "whatsapp",
-    "country_residence",
+    "email",
+    "ID",
     "age_range",
+    "country_residence",
+    "country_birth",
     "flag_color",
     "meets_all_req",
-    "req_explain",
+    "Req_Interner",
+    "weekly_time",
+    "participated_before",
     "owned_business",
-    "owned_business_pt",
-    "prior_participation",
-    "prior_participation_pt",
-    "business_years",
-    "business_years_pt",
-    "has_employees",
-    "has_employees_pt",
-    "professional_expertise",
-    "professional_expertise_pt",
-    "mentoring_exp_as_mentor",
-    "mentoring_exp_as_mentor_pt",
-    "mentoring_exp_as_student",
-    "mentoring_exp_as_student_pt",
+    "business_industry",
+    "business_age",
     "business_description",
-    "business_description_pt",
-    "mentoring_exp_detail",
-    "mentoring_exp_detail_pt",
-    "motivation",
-    "motivation_pt",
-    "additional_comments",
     "professional_expertise",
-    "professional_expertise_pt",
-    "score_exp",
+    "motivation",
+    "why_good_mentor",
+    "additional_comments",
+    "availability_grid",
     "grading_rubric",
 ]
 
@@ -392,44 +391,60 @@ def grade_single_row(
     )
     flag_color = red_flag_color(red_flags, row.get("prior_participation"))
 
+    full_name = _pick_row_value(row, "certificate_name", "preferred_name", "full_name", "name")
+    whatsapp = _pick_row_value(row, "whatsapp")
+    email = _pick_row_value(row, "email")
+    id_value = _pick_row_value(row, "id_number", "cedula")
+    age_range = _pick_row_value(row, "age_range")
+    country_residence = _pick_row_value(row, "country_residence")
+    country_birth = _pick_row_value(row, "country_birth", "birth_country", "country_of_birth")
+    req_interner = _pick_row_value(row, "req_basic_internet_device", "internet_access")
+    weekly_time = _pick_row_value(row, "weekly_time", "req_avail_2hrs_week", "hours_per_week")
+    participated_before = _pick_row_value(row, "prior_participation", "participated_before")
+    owned_business = _pick_row_value(row, "owned_business")
+    business_industry = _pick_row_value(row, "business_industry", "industry", "business_sector")
+    business_age = _pick_row_value(row, "business_age", "business_years")
+    business_description = _pick_row_value(row, "business_description")
+    professional_expertise = _pick_row_value(row, "professional_expertise")
+    motivation = _pick_row_value(row, "motivation")
+    why_good_mentor = _pick_row_value(row, "why_good_mentor", "mentoring_exp_detail")
+    additional_comments = _pick_row_value(row, "additional_comments")
+    availability_grid = _pick_row_value(
+        row,
+        "availability_grid",
+        "availability",
+        "availability_options",
+        "weekly_availability",
+    )
+
     if not meets_all:
-        return {
-            "total_pts": "NA",
-            "status": status,
-            "certificate_name": row.get("certificate_name"),
-            "preferred_name": row.get("preferred_name"),
-            "id_number": row.get("id_number"),
-            "email": row.get("email"),
-            "whatsapp": row.get("whatsapp"),
-            "country_residence": row.get("country_residence"),
-            "age_range": row.get("age_range"),
-            "flag_color": flag_color,
-            "meets_all_req": "no",
-            "req_explain": row.get("req_explain", ""),
-            "owned_business": row.get("owned_business"),
-            "owned_business_pt": "",
-            "prior_participation": row.get("prior_participation"),
-            "prior_participation_pt": "",
-            "business_years": row.get("business_years"),
-            "business_years_pt": "",
-            "has_employees": row.get("has_employees"),
-            "has_employees_pt": "",
-            "professional_expertise": row.get("professional_expertise"),
-            "professional_expertise_pt": "",
-            "mentoring_exp_as_mentor": row.get("mentoring_exp_as_mentor"),
-            "mentoring_exp_as_mentor_pt": "",
-            "mentoring_exp_as_student": row.get("mentoring_exp_as_student"),
-            "mentoring_exp_as_student_pt": "",
-            "business_description": row.get("business_description"),
-            "business_description_pt": "",
-            "mentoring_exp_detail": row.get("mentoring_exp_detail"),
-            "mentoring_exp_detail_pt": "",
-            "motivation": row.get("motivation"),
-            "motivation_pt": "",
-            "additional_comments": row.get("additional_comments"),
-            "score_exp": "Disqualified: " + ", ".join(disqual_reasons),
-            "grading_rubric": "Disqualified before scoring. Total score set to NA.",
-        }
+        return [
+            status,
+            "NA",
+            "Disqualified: " + ", ".join(disqual_reasons),
+            full_name,
+            whatsapp,
+            email,
+            id_value,
+            age_range,
+            country_residence,
+            country_birth,
+            flag_color,
+            "no",
+            req_interner,
+            weekly_time,
+            participated_before,
+            owned_business,
+            business_industry,
+            business_age,
+            business_description,
+            professional_expertise,
+            motivation,
+            why_good_mentor,
+            additional_comments,
+            availability_grid,
+            "Disqualified before scoring. Total score set to NA.",
+        ]
 
     score_exp = []
 
@@ -456,45 +471,33 @@ def grade_single_row(
     total_pts_pct = _format_total_percentage(total_pts)
     score_exp.append(f"total_score - {total_pts}/{MAX_TOTAL_SCORE} ({total_pts_pct})")
 
-    return {
-        "total_pts": total_pts_pct,
-        "status": status,
-        "certificate_name": row.get("certificate_name"),
-        "preferred_name": row.get("preferred_name"),
-        "id_number": row.get("id_number"),
-        "email": row.get("email"),
-        "whatsapp": row.get("whatsapp"),
-        "country_residence": row.get("country_residence"),
-        "age_range": row.get("age_range"),
-        "flag_color": flag_color,
-        "meets_all_req": "yes",
-        "req_explain": row.get("req_explain", ""),
-        "owned_business": row.get("owned_business"),
-        "owned_business_pt": owned_pt,
-        "prior_participation": row.get("prior_participation"),
-        "prior_participation_pt": "",
-        "business_years": row.get("business_years"),
-        "business_years_pt": years_pt,
-        "has_employees": row.get("has_employees"),
-        "has_employees_pt": emp_pt,
-        "professional_expertise": row.get("professional_expertise"),
-        "professional_expertise_pt": prof_struct_pt,
-        "mentoring_exp_as_mentor": row.get("mentoring_exp_as_mentor"),
-        "mentoring_exp_as_mentor_pt": mentor_pt,
-        "mentoring_exp_as_student": row.get("mentoring_exp_as_student"),
-        "mentoring_exp_as_student_pt": student_pt,
-        "business_description": row.get("business_description"),
-        "business_description_pt": bd_raw * W["business_description"],
-        "mentoring_exp_detail": row.get("mentoring_exp_detail"),
-        "mentoring_exp_detail_pt": med_raw * W["mentoring_exp_detail"],
-        "motivation": row.get("motivation"),
-        "motivation_pt": mot_raw * W["motivation"],
-        "additional_comments": row.get("additional_comments"),
-        "professional_expertise": row.get("professional_expertise"),
-        "professional_expertise_pt": prof_raw * W["professional_expertise"],
-        "score_exp": "\n".join(score_exp),
-        "grading_rubric": "Weighted rubric applied; unstructured responses scored 1–5. Total score shown as percentage.",
-    }
+    return [
+        status,
+        total_pts_pct,
+        "\n".join(score_exp),
+        full_name,
+        whatsapp,
+        email,
+        id_value,
+        age_range,
+        country_residence,
+        country_birth,
+        flag_color,
+        "yes",
+        req_interner,
+        weekly_time,
+        participated_before,
+        owned_business,
+        business_industry,
+        business_age,
+        business_description,
+        professional_expertise,
+        motivation,
+        why_good_mentor,
+        additional_comments,
+        availability_grid,
+        "Weighted rubric applied; unstructured responses scored 1–5. Total score shown as percentage.",
+    ]
 
 # -----------------------
 # Grade FULL dataframe
@@ -551,7 +554,7 @@ def grade_from_dataframe(
         )
 
     out_df = pd.DataFrame(out, columns=COLUMNS)
-    out_df, removed = _dedupe_scored_rows(out_df, "total_pts", ["email", "cedula", "id_number"])
+    out_df, removed = _dedupe_scored_rows(out_df, "score", ["email", "cedula", "id_number"])
     if removed and log_fn:
         log_fn(f"→ Removed {removed} duplicate mentora rows, keeping the highest score per person")
     return out_df

@@ -184,6 +184,17 @@ def _is_active_participant_email(row: dict, active_participant_emails: set[str] 
     return bool(email and email in active_participant_emails)
 
 
+def _pick_row_value(row: dict, *keys: str):
+    for key in keys:
+        value = row.get(key)
+        if value is None:
+            continue
+        text = str(value).strip()
+        if text:
+            return value
+    return ""
+
+
 # ==================================================
 # Red flag detection
 # ==================================================
@@ -285,51 +296,33 @@ Explanation: <2–3 sentences justifying the score>
 
 
 # ==================================================
-# Output layout (EXACT)
+# Output layout
 # ==================================================
 
-CATEGORY_ROW = [
-    "TOTAL",
-    "",
-    "", "", "", "", "",
-    "FLAGS",
-    "TABLESTAKES",
-    "NICE TO HAVE", "",
-    "NICE TO HAVE", "",
-    "NICE TO HAVE", "",
-    "NICE TO HAVE", "",
-    "INSIGHT", "",
-    "INSIGHT", "",
-    "INSIGHT", "",
-    "", "EXPLANATION", "RUBRIC"
-]
-
 COLUMNS = [
-    "total_score",
-    "status",
+    "Status",
+    "score",
+    "score_exp",
     "full_name",
     "whatsapp",
     "email",
-    "cedula",
+    "ID",
+    "age_range",
     "country_residence",
+    "country_birth",
     "flag_color",
     "meets_all_req",
-    "prior_mentoring",
-    "prior_mentoring_pt",
     "business_age",
-    "business_age_pt",
-    "has_employees",
-    "has_employees_pt",
+    "Req_Interner",
+    "weekly_time",
     "participated_before",
-    "participated_before_pt",
+    "business_industry",
+    "business_age",
     "business_description",
-    "business_description_pt",
     "growth_how",
-    "growth_how_pt",
     "biggest_challenge",
-    "biggest_challenge_pt",
     "additional_comments",
-    "score_exp",
+    "availability_grid",
     "grading_rubric",
 ]
 
@@ -373,27 +366,56 @@ def grade_single_row(
     )
     flag_color = red_flag_color(red_flags, row.get("participated_before"))
 
+    full_name = _pick_row_value(row, "full_name", "name")
+    whatsapp = _pick_row_value(row, "whatsapp")
+    email = _pick_row_value(row, "email")
+    id_value = _pick_row_value(row, "cedula", "id_number")
+    age_range = _pick_row_value(row, "age_range")
+    country_residence = _pick_row_value(row, "country_residence")
+    country_birth = _pick_row_value(row, "country_birth", "birth_country", "country_of_birth")
+    business_age_value = _pick_row_value(row, "business_age")
+    req_interner = _pick_row_value(row, "internet_access", "req_basic_internet_device")
+    weekly_time = _pick_row_value(row, "hours_per_week", "weekly_time", "req_avail_2hrs_week")
+    participated_before = _pick_row_value(row, "participated_before", "prior_participation")
+    business_industry = _pick_row_value(row, "business_industry", "industry", "business_sector")
+    business_description = _pick_row_value(row, "business_description")
+    growth_how = _pick_row_value(row, "growth_how")
+    biggest_challenge = _pick_row_value(row, "biggest_challenge")
+    additional_comments = _pick_row_value(row, "additional_comments")
+    availability_grid = _pick_row_value(
+        row,
+        "availability_grid",
+        "availability",
+        "availability_options",
+        "weekly_availability",
+    )
+
     if disqual_reasons:
         reason_text = "Disqualified: " + ", ".join(disqual_reasons)
         return [
-            "NA",
             status,
-            row.get("full_name"),
-            row.get("whatsapp"),
-            row.get("email"),
-            row.get("cedula"),
-            row.get("country_residence"),
+            "NA",
+            reason_text,
+            full_name,
+            whatsapp,
+            email,
+            id_value,
+            age_range,
+            country_residence,
+            country_birth,
             flag_color,
             "no",
-            row.get("prior_mentoring"), "",
-            row.get("business_age"), "",
-            row.get("has_employees"), "",
-            row.get("participated_before"), "",
-            row.get("business_description"), "",
-            row.get("growth_how"), "",
-            row.get("biggest_challenge"), "",
-            row.get("additional_comments"),
-            reason_text,
+            business_age_value,
+            req_interner,
+            weekly_time,
+            participated_before,
+            business_industry,
+            business_age_value,
+            business_description,
+            growth_how,
+            biggest_challenge,
+            additional_comments,
+            availability_grid,
             "Disqualified before scoring. Total score set to NA.",
         ]
 
@@ -423,24 +445,29 @@ def grade_single_row(
     score_exp_lines.append(f"total_score - {total_score}/{MAX_TOTAL_SCORE} ({total_score_pct})")
 
     return [
-        total_score_pct,
         status,
-        row.get("full_name"),
-        row.get("whatsapp"),
-        row.get("email"),
-        row.get("cedula"),
-        row.get("country_residence"),
+        total_score_pct,
+        "\n".join(score_exp_lines),
+        full_name,
+        whatsapp,
+        email,
+        id_value,
+        age_range,
+        country_residence,
+        country_birth,
         flag_color,
         "yes",
-        row.get("prior_mentoring"), prior_pt,
-        row.get("business_age"), business_age_pt,
-        row.get("has_employees"), employees_pt,
-        row.get("participated_before"), "",
-        row.get("business_description"), bd_pt,
-        row.get("growth_how"), gh_pt,
-        row.get("biggest_challenge"), bc_pt,
-        row.get("additional_comments"),
-        "\n".join(score_exp_lines),
+        business_age_value,
+        req_interner,
+        weekly_time,
+        participated_before,
+        business_industry,
+        business_age_value,
+        business_description,
+        growth_how,
+        biggest_challenge,
+        additional_comments,
+        availability_grid,
         "Applicants must meet all tablestakes; structured fields are deterministic; unstructured responses scored 1–5 and weighted. Total score shown as percentage.",
     ]
 
@@ -485,12 +512,7 @@ def grade_from_dataframe(
         rows.append(out)
 
     out_df = pd.DataFrame(rows, columns=COLUMNS)
-    out_df, removed = _dedupe_scored_rows(out_df, "total_score", ["email", "cedula", "id_number"])
+    out_df, removed = _dedupe_scored_rows(out_df, "score", ["email", "cedula", "id_number"])
     if removed and log_fn:
         log_fn(f"→ Removed {removed} duplicate emprendedora rows, keeping the highest score per person")
-
-    # CATEGORY ROW GOES ONCE, AT TOP
-    return pd.concat(
-        [pd.DataFrame([CATEGORY_ROW], columns=COLUMNS), out_df],
-        ignore_index=True,
-    )
+    return out_df

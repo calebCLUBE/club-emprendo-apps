@@ -93,6 +93,7 @@ PREVIOUS_APPLICATION_DOC_SLUGS = (
     "numerodedocumento",
 )
 PERCENT_SCORE_HEADERS = {
+    "score",
     "totalscore",
     "totalpts",
     "overallscore",
@@ -617,12 +618,17 @@ def _run_grade_job(job_id: int):
         if graded_df is None or graded_df.empty:
             raise RuntimeError("Grader returned empty output")
 
-        if "status" not in graded_df.columns:
+        normalized_cols = {
+            _normalized_header_key(col): col
+            for col in graded_df.columns
+        }
+        if "status" not in normalized_cols:
             fallback_status = ""
-            if "recommendation" in graded_df.columns:
-                fallback_status = graded_df["recommendation"].fillna("").astype(str)
-            graded_df.insert(1, "status", fallback_status)
-            _job_log(job, "⚠️ Grader output had no status column. Inserted fallback status column before saving.")
+            rec_col = normalized_cols.get("recommendation")
+            if rec_col:
+                fallback_status = graded_df[rec_col].fillna("").astype(str)
+            graded_df.insert(0, "Status", fallback_status)
+            _job_log(job, "⚠️ Grader output had no status column. Inserted fallback Status column before saving.")
 
         # ----------------------------------
         # STORE GRADED FILE (keep latest per form slug)

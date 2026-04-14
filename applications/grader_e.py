@@ -208,8 +208,6 @@ def _disqualification_reasons(row: dict) -> list[str]:
     reasons = []
     if row.get("internet_access") != "yes_ok":
         reasons.append("internet_access")
-    if row.get("hours_per_week") == "lt_2":
-        reasons.append("hours_per_week")
     if not yes(row.get("commit_3_months")):
         reasons.append("commit_3_months")
     if str(row.get("business_age", "")).strip().lower() == "idea":

@@ -1,0 +1,20 @@
+/* applications/static/applications/club_emprendo.css */
+
+/* Kill the pink "pill" chips that say Mentoras / Emprendedoras */
+.ce-role-chips,
+.ce-chip,
+.role-chips,
+.role-chip,
+.badge,
+.pill,
+.chip,
+.tag {
+  display: none !important;
+}
+
+/* If the pill container still takes up space somewhere */
+.ce-role-chips {
+  height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}

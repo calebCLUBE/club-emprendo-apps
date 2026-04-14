@@ -1,8 +1,10 @@
 {% extends "admin/base_site.html" %}
-{% load static %}
+{% load inline_static %}
 
 {% block content %}
-<link rel="stylesheet" href="{% static 'vendor/x-data-spreadsheet/xspreadsheet.css' %}">
+<style>
+{% inline_static 'vendor/x-data-spreadsheet/xspreadsheet.css' %}
+</style>
 <div class="ce-admin-wrap">
   <style>
     .ce-sheet-shell {
@@ -120,7 +122,9 @@
 
 {{ headers|json_script:"grading-sheet-headers" }}
 {{ rows|json_script:"grading-sheet-rows" }}
-<script src="{% static 'vendor/x-data-spreadsheet/xspreadsheet.js' %}"></script>
+<script>
+{% inline_static 'vendor/x-data-spreadsheet/xspreadsheet.js' %}
+</script>
 <script>
   (function () {
     const sheetRoot = document.getElementById('live-sheet-canvas');

@@ -1,6 +1,8 @@
-{% load static %}
+{% load inline_static %}
 {% with root_id=sheet_id|add:"-root" headers_id=sheet_id|add:"-headers" rows_id=sheet_id|add:"-rows" %}
-<link rel="stylesheet" href="{% static 'vendor/x-data-spreadsheet/xspreadsheet.css' %}">
+<style>
+{% inline_static 'vendor/x-data-spreadsheet/xspreadsheet.css' %}
+</style>
 <style>
   .ce-sheet-preview-wrap {
     border: 1px solid #ddd;
@@ -47,7 +49,9 @@
 
 {{ sheet_headers|json_script:headers_id }}
 {{ sheet_rows|json_script:rows_id }}
-<script src="{% static 'vendor/x-data-spreadsheet/xspreadsheet.js' %}"></script>
+<script>
+{% inline_static 'vendor/x-data-spreadsheet/xspreadsheet.js' %}
+</script>
 <script>
   (function () {
     const root = document.getElementById('{{ root_id }}');

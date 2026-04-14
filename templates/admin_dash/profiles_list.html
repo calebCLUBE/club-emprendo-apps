@@ -205,12 +205,33 @@
       </div>
     </form>
 
-    <section style="margin: 6px 0 16px;">
-      <div style="font-weight:700; margin-bottom:8px;">Profiles sheet</div>
-      {% include "admin_dash/includes/xsheet_preview.html" with sheet_id="profiles-list-sheet" sheet_headers=profiles_sheet_headers sheet_rows=profiles_sheet_rows sheet_height=580 sheet_deferred=True %}
-      <div class="ce-muted">Use the Profile URL column to open a specific profile page.</div>
-    </section>
+    {% if show_sheet %}
+      <section style="margin: 6px 0 16px;">
+        <div style="display:flex; gap:10px; align-items:center; justify-content:space-between; flex-wrap:wrap; margin-bottom:8px;">
+          <div style="font-weight:700;">Profiles sheet</div>
+          <a
+            class="ce-btn ce-btn--ghost"
+            href="?q={{ query|urlencode }}&group={{ group_filter|urlencode }}&grading={{ status_filter|urlencode }}"
+          >
+            Back to list
+          </a>
+        </div>
+        {% include "admin_dash/includes/xsheet_preview.html" with sheet_id="profiles-list-sheet" sheet_headers=profiles_sheet_headers sheet_rows=profiles_sheet_rows sheet_height=580 sheet_deferred=True %}
+        <div class="ce-muted">Use the Profile URL column to open a specific profile page.</div>
+      </section>
+    {% else %}
+      <section style="margin: 6px 0 16px;">
+        <a
+          class="ce-btn ce-btn--ghost"
+          href="?q={{ query|urlencode }}&group={{ group_filter|urlencode }}&grading={{ status_filter|urlencode }}&view=sheet"
+        >
+          Open Profiles Sheet
+        </a>
+        <div class="ce-muted" style="margin-top:8px;">Loads the Excel-style profiles sheet in a dedicated view for better performance.</div>
+      </section>
+    {% endif %}
 
+    {% if not show_sheet %}
     <table class="ce-table">
       <thead>
         <tr>
@@ -259,6 +280,7 @@
         {% endfor %}
       </tbody>
     </table>
+    {% endif %}
   </div>
 </div>
 {% endblock %}

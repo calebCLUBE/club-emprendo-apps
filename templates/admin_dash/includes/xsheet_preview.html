@@ -1,4 +1,5 @@
 {% with root_id=sheet_id|add:"-root" headers_id=sheet_id|add:"-headers" rows_id=sheet_id|add:"-rows" %}
+<link rel="stylesheet" href="https://unpkg.com/x-data-spreadsheet@1.1.5/dist/xspreadsheet.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/x-data-spreadsheet@1.1.5/dist/xspreadsheet.css">
 <style>
   .ce-sheet-preview-wrap {
@@ -46,7 +47,6 @@
 
 {{ sheet_headers|json_script:headers_id }}
 {{ sheet_rows|json_script:rows_id }}
-<script src="https://cdn.jsdelivr.net/npm/x-data-spreadsheet@1.1.5/dist/xspreadsheet.js"></script>
 <script>
   (function () {
     const root = document.getElementById('{{ root_id }}');
@@ -112,7 +112,66 @@
       };
     }
 
+    function ensureSpreadsheetLib() {
+      if (typeof window.x_spreadsheet === 'function') {
+        return Promise.resolve(true);
+      }
+      if (window.__ceXSpreadsheetLoading && typeof window.__ceXSpreadsheetLoading.then === 'function') {
+        return window.__ceXSpreadsheetLoading;
+      }
+
+      const candidates = [
+        'https://unpkg.com/x-data-spreadsheet@1.1.5/dist/xspreadsheet.js',
+        'https://cdn.jsdelivr.net/npm/x-data-spreadsheet@1.1.5/dist/xspreadsheet.js',
+      ];
+
+      window.__ceXSpreadsheetLoading = new Promise((resolve) => {
+        function tryAt(index) {
+          if (typeof window.x_spreadsheet === 'function') {
+            resolve(true);
+            return;
+          }
+          if (index >= candidates.length) {
+            resolve(false);
+            return;
+          }
+          const existing = document.querySelector(`script[data-ce-xsheet="${index}"]`);
+          if (existing) {
+            existing.addEventListener('load', () => resolve(typeof window.x_spreadsheet === 'function'));
+            existing.addEventListener('error', () => tryAt(index + 1));
+            return;
+          }
+          const script = document.createElement('script');
+          script.src = candidates[index];
+          script.async = true;
+          script.setAttribute('data-ce-xsheet', String(index));
+          script.onload = function () {
+            if (typeof window.x_spreadsheet === 'function') {
+              resolve(true);
+            } else {
+              tryAt(index + 1);
+            }
+          };
+          script.onerror = function () {
+            tryAt(index + 1);
+          };
+          document.head.appendChild(script);
+        }
+        tryAt(0);
+      });
+
+      return window.__ceXSpreadsheetLoading;
+    }
+
     function renderFallback(matrix) {
+      const warn = document.createElement('div');
+      warn.style.padding = '10px 12px';
+      warn.style.borderBottom = '1px solid #fde68a';
+      warn.style.background = '#fffbeb';
+      warn.style.color = '#92400e';
+      warn.style.fontSize = '12px';
+      warn.textContent = 'Excel-style toolbar could not load from CDN. Showing basic preview fallback.';
+
       const table = document.createElement('table');
       table.className = 'ce-sheet-fallback';
       const thead = document.createElement('thead');
@@ -140,47 +199,49 @@
 
       root.innerHTML = '';
       root.style.overflow = 'auto';
+      root.appendChild(warn);
       root.appendChild(table);
     }
 
     const seedMatrix = seedMatrixFromCsv();
     const payload = toSpreadsheetPayload(seedMatrix);
 
-    if (typeof window.x_spreadsheet !== 'function') {
-      renderFallback(seedMatrix);
-      return;
-    }
-
-    try {
-      const spreadsheet = x_spreadsheet('#{{ root_id }}', {
-        mode: 'edit',
-        showToolbar: true,
-        showGrid: true,
-        showContextmenu: true,
-        row: {
-          len: Math.max(1, seedMatrix.length),
-          height: 28,
-        },
-        col: {
-          len: Math.max(1, seedMatrix[0] ? seedMatrix[0].length : 1),
-          width: 140,
-          minWidth: 64,
-          indexWidth: 50,
-        },
-        view: {
-          height: function () {
-            return {{ sheet_height|default:560 }};
-          },
-        },
-      });
-      try {
-        spreadsheet.loadData([payload]);
-      } catch (err) {
-        spreadsheet.loadData(payload);
+    ensureSpreadsheetLib().finally(function () {
+      if (typeof window.x_spreadsheet !== 'function') {
+        renderFallback(seedMatrix);
+        return;
       }
-    } catch (err) {
-      renderFallback(seedMatrix);
-    }
+      try {
+        const spreadsheet = x_spreadsheet('#{{ root_id }}', {
+          mode: 'edit',
+          showToolbar: true,
+          showGrid: true,
+          showContextmenu: true,
+          row: {
+            len: Math.max(1, seedMatrix.length),
+            height: 28,
+          },
+          col: {
+            len: Math.max(1, seedMatrix[0] ? seedMatrix[0].length : 1),
+            width: 140,
+            minWidth: 64,
+            indexWidth: 50,
+          },
+          view: {
+            height: function () {
+              return {{ sheet_height|default:560 }};
+            },
+          },
+        });
+        try {
+          spreadsheet.loadData([payload]);
+        } catch (err) {
+          spreadsheet.loadData(payload);
+        }
+      } catch (err) {
+        renderFallback(seedMatrix);
+      }
+    });
   })();
 </script>
 {% endwith %}

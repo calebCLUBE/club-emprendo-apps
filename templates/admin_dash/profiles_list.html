@@ -198,7 +198,33 @@
             Back to list
           </a>
         </div>
-        {% include "admin_dash/includes/xsheet_preview.html" with sheet_id="profiles-list-sheet" sheet_headers=profiles_sheet_headers sheet_rows=profiles_sheet_rows sheet_height=580 sheet_deferred=False %}
+        <div class="ce-muted" style="margin-bottom:8px;">
+          {% if sheet_total_rows %}
+            Showing {{ sheet_start_index|add:1 }}-{{ sheet_end_index }} of {{ sheet_total_rows }} profile row{{ sheet_total_rows|pluralize }}.
+          {% else %}
+            No profiles to display in sheet view.
+          {% endif %}
+        </div>
+        <div class="ce-actions" style="margin: 0 0 10px;">
+          {% if sheet_page > 1 %}
+            <a
+              class="ce-btn ce-btn--ghost"
+              href="?q={{ query|urlencode }}&group={{ group_filter|urlencode }}&grading={{ status_filter|urlencode }}&view=sheet&sheet_page={{ sheet_page|add:'-1' }}"
+            >
+              Previous page
+            </a>
+          {% endif %}
+          <span class="ce-muted" style="align-self:center;">Page {{ sheet_page }} of {{ sheet_total_pages }}</span>
+          {% if sheet_page < sheet_total_pages %}
+            <a
+              class="ce-btn ce-btn--ghost"
+              href="?q={{ query|urlencode }}&group={{ group_filter|urlencode }}&grading={{ status_filter|urlencode }}&view=sheet&sheet_page={{ sheet_page|add:'1' }}"
+            >
+              Next page
+            </a>
+          {% endif %}
+        </div>
+        {% include "admin_dash/includes/xsheet_preview.html" with sheet_id="profiles-list-sheet" sheet_headers=profiles_sheet_headers sheet_rows=profiles_sheet_rows sheet_height=580 sheet_deferred=True %}
         <div class="ce-muted">Use the Profile URL column to open a specific profile page.</div>
       </section>
     {% else %}

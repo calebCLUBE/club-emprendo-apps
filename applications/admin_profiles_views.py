@@ -1035,6 +1035,11 @@ def profiles_list(request):
     status_filter = (request.GET.get("grading") or "").strip()
     view_mode = (request.GET.get("view") or "sheet").strip().lower()
     show_sheet = view_mode != "list"
+    sheet_page_raw = (request.GET.get("sheet_page") or "1").strip()
+    sheet_page = int(sheet_page_raw) if sheet_page_raw.isdigit() else 1
+    if sheet_page < 1:
+        sheet_page = 1
+    sheet_page_size = 300
     if status_filter not in {"all", "graded", "not_graded"}:
         status_filter = "all"
 
@@ -1052,7 +1057,26 @@ def profiles_list(request):
 
     sheet_headers: list[str] = []
     sheet_rows: list[list[str]] = []
+    sheet_total_rows = 0
+    sheet_total_pages = 1
+    sheet_start_index = 0
+    sheet_end_index = 0
     if show_sheet:
+        sheet_total_rows = len(filtered)
+        if sheet_total_rows:
+            sheet_total_pages = (sheet_total_rows + sheet_page_size - 1) // sheet_page_size
+            if sheet_page > sheet_total_pages:
+                sheet_page = sheet_total_pages
+            sheet_start_index = (sheet_page - 1) * sheet_page_size
+            sheet_end_index = min(sheet_start_index + sheet_page_size, sheet_total_rows)
+            sheet_profiles = filtered[sheet_start_index:sheet_end_index]
+        else:
+            sheet_profiles = []
+            sheet_page = 1
+            sheet_total_pages = 1
+            sheet_start_index = 0
+            sheet_end_index = 0
+
         sheet_headers = [
             "Cedula",
             "Email",
@@ -1064,7 +1088,7 @@ def profiles_list(request):
             "Participated",
             "Profile URL",
         ]
-        for p in filtered:
+        for p in sheet_profiles:
             group_label = f"Group {p['group_num']}" if p.get("group_num") else "Ungrouped"
             form_label = str(p.get("form_slug") or "—")
             track = str(p.get("track") or "").strip()
@@ -1103,6 +1127,12 @@ def profiles_list(request):
         "show_sheet": show_sheet,
         "profiles_sheet_headers": sheet_headers,
         "profiles_sheet_rows": sheet_rows,
+        "sheet_page": sheet_page,
+        "sheet_page_size": sheet_page_size,
+        "sheet_total_rows": sheet_total_rows,
+        "sheet_total_pages": sheet_total_pages,
+        "sheet_start_index": sheet_start_index,
+        "sheet_end_index": sheet_end_index,
     }
     return render(request, "admin_dash/profiles_list.html", context)
 

@@ -129,33 +129,60 @@
       return matrix;
     }
 
-    function hydrateSpreadsheet(spreadsheet, matrix) {
-      if (!spreadsheet || typeof spreadsheet.cellText !== 'function') {
-        return;
+    function colLabelFromIndex(idx) {
+      let n = Number(idx);
+      if (!Number.isFinite(n) || n < 0) {
+        return 'A';
       }
-      const tasks = [];
-      for (let r = 0; r < matrix.length; r += 1) {
-        const row = Array.isArray(matrix[r]) ? matrix[r] : [];
-        for (let c = 0; c < row.length; c += 1) {
-          const text = String(row[c] == null ? '' : row[c]);
+      let out = '';
+      while (n >= 0) {
+        out = String.fromCharCode((n % 26) + 65) + out;
+        n = Math.floor(n / 26) - 1;
+      }
+      return out || 'A';
+    }
+
+    function buildSheetPayload(matrix) {
+      const rowCount = Math.max(1, Array.isArray(matrix) ? matrix.length : 1);
+      const colCount = Math.max(1, Array.isArray(matrix[0]) ? matrix[0].length : 1);
+      const rowsObj = { len: rowCount };
+      const colsObj = { len: colCount };
+
+      for (let r = 0; r < rowCount; r += 1) {
+        const srcRow = Array.isArray(matrix[r]) ? matrix[r] : [];
+        const cells = {};
+        for (let c = 0; c < colCount; c += 1) {
+          const text = String(c < srcRow.length ? (srcRow[c] == null ? '' : srcRow[c]) : '');
           if (!text) {
             continue;
           }
-          tasks.push([r, c, text]);
+          cells[c] = { text };
+        }
+        if (Object.keys(cells).length || r === 0) {
+          rowsObj[r] = { cells };
         }
       }
-      let idx = 0;
-      const step = function () {
-        const end = Math.min(idx + 1200, tasks.length);
-        for (; idx < end; idx += 1) {
-          const item = tasks[idx];
-          spreadsheet.cellText(item[0], item[1], item[2], 0);
-        }
-        if (idx < tasks.length) {
-          window.requestAnimationFrame(step);
-        }
-      };
-      step();
+
+      const payload = [{
+        name: 'Sheet1',
+        freeze: 'A1',
+        styles: [],
+        merges: [],
+        rows: rowsObj,
+        cols: colsObj,
+        validations: [],
+        autofilter: {},
+      }];
+
+      if (rowCount > 1 && colCount > 0) {
+        const lastColLabel = colLabelFromIndex(colCount - 1);
+        payload[0].autofilter = {
+          ref: `A1:${lastColLabel}${rowCount}`,
+          filters: [],
+          sort: null,
+        };
+      }
+      return payload;
     }
 
     function ensureSpreadsheetLib() {
@@ -248,7 +275,9 @@
               },
             },
           });
-          hydrateSpreadsheet(spreadsheet, matrix);
+          if (typeof spreadsheet.loadData === 'function') {
+            spreadsheet.loadData(buildSheetPayload(matrix));
+          }
         } catch (err) {
           renderFallback(matrix);
         }

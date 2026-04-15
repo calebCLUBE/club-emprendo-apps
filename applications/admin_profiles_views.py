@@ -1033,8 +1033,8 @@ def profiles_list(request):
     query_lower = query.lower()
     group_filter = (request.GET.get("group") or "").strip()
     status_filter = (request.GET.get("grading") or "").strip()
-    view_mode = (request.GET.get("view") or "list").strip().lower()
-    show_sheet = view_mode == "sheet"
+    view_mode = (request.GET.get("view") or "sheet").strip().lower()
+    show_sheet = view_mode != "list"
     if status_filter not in {"all", "graded", "not_graded"}:
         status_filter = "all"
 

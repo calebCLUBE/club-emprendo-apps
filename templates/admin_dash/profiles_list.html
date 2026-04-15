@@ -5,12 +5,14 @@
   <div class="ce-admin-card ce-admin-card--wide">
     <style>
       .ce-admin-wrap {
-        padding: 22px 18px;
+        width: 100%;
+        box-sizing: border-box;
+        padding: 14px;
       }
       .ce-admin-card.ce-admin-card--wide {
         box-sizing: border-box;
-        width: min(1700px, calc(100vw - 36px));
-        max-width: min(1700px, calc(100vw - 36px));
+        width: 100%;
+        max-width: none;
         margin-left: auto;
         margin-right: auto;
       }
@@ -116,8 +118,8 @@
           padding: 14px 12px;
         }
         .ce-admin-card.ce-admin-card--wide {
-          width: calc(100vw - 24px);
-          max-width: calc(100vw - 24px);
+          width: 100%;
+          max-width: none;
         }
       }
     </style>
@@ -196,7 +198,7 @@
             Back to list
           </a>
         </div>
-        {% include "admin_dash/includes/xsheet_preview.html" with sheet_id="profiles-list-sheet" sheet_headers=profiles_sheet_headers sheet_rows=profiles_sheet_rows sheet_height=580 sheet_deferred=True %}
+        {% include "admin_dash/includes/xsheet_preview.html" with sheet_id="profiles-list-sheet" sheet_headers=profiles_sheet_headers sheet_rows=profiles_sheet_rows sheet_height=580 sheet_deferred=False %}
         <div class="ce-muted">Use the Profile URL column to open a specific profile page.</div>
       </section>
     {% else %}

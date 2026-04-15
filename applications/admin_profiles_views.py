@@ -1017,56 +1017,6 @@ def _build_profiles():
 
 @staff_member_required
 def profiles_list(request):
-    if request.method == "POST":
-        raw_emails = (request.POST.get("emails") or "").strip()
-        participated_raw = (request.POST.get("participated") or "yes").strip().lower()
-        participated_flag = participated_raw in {"yes", "true", "1", "y"}
-        valid_emails, invalid_emails = _parse_email_list(raw_emails)
-
-        if not valid_emails:
-            messages.error(request, "Enter at least one valid email.")
-        else:
-            created_count = 0
-            updated_count = 0
-            unchanged_count = 0
-            for email in valid_emails:
-                obj, created = ParticipantEmailStatus.objects.get_or_create(
-                    email=email,
-                    defaults={"participated": participated_flag},
-                )
-                if created:
-                    created_count += 1
-                    continue
-                if obj.participated != participated_flag:
-                    obj.participated = participated_flag
-                    obj.save(update_fields=["participated", "updated_at"])
-                    updated_count += 1
-                else:
-                    unchanged_count += 1
-
-            state_label = "Yes" if participated_flag else "No"
-            messages.success(
-                request,
-                (
-                    f"Participation updated to {state_label}: "
-                    f"{created_count} new, {updated_count} changed, {unchanged_count} unchanged."
-                ),
-            )
-
-        if invalid_emails:
-            preview = ", ".join(invalid_emails[:8])
-            extra = "" if len(invalid_emails) <= 8 else ", ..."
-            messages.warning(
-                request,
-                f"Ignored invalid emails ({len(invalid_emails)}): {preview}{extra}",
-            )
-
-        redirect_url = reverse("admin_profiles_list")
-        query_string = (request.META.get("QUERY_STRING") or "").strip()
-        if query_string:
-            redirect_url = f"{redirect_url}?{query_string}"
-        return redirect(redirect_url)
-
     profiles = _build_profiles()
     participation_map = {
         _email_status_key(row.email): row.participated
@@ -1150,8 +1100,6 @@ def profiles_list(request):
         "visible_profiles": len(filtered),
         "graded_profiles": sum(1 for p in profiles if p["is_graded"]),
         "participated_profiles": sum(1 for p in profiles if p["participated"]),
-        "bulk_participation_default": "yes",
-        "bulk_email_text": "",
         "show_sheet": show_sheet,
         "profiles_sheet_headers": sheet_headers,
         "profiles_sheet_rows": sheet_rows,

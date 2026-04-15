@@ -4,6 +4,16 @@
 <div class="ce-admin-wrap">
   <div class="ce-admin-card ce-admin-card--wide">
     <style>
+      .ce-admin-wrap {
+        padding: 22px 18px;
+      }
+      .ce-admin-card.ce-admin-card--wide {
+        box-sizing: border-box;
+        width: min(1700px, calc(100vw - 36px));
+        max-width: min(1700px, calc(100vw - 36px));
+        margin-left: auto;
+        margin-right: auto;
+      }
       .ce-actions {
         display: flex;
         gap: 8px;
@@ -53,35 +63,6 @@
         align-items: end;
         margin: 12px 0 16px;
       }
-      .ce-bulk {
-        margin: 8px 0 16px;
-        padding: 12px;
-        border: 1px solid #e9e9e9;
-        border-radius: 10px;
-        background: #fafafa;
-      }
-      .ce-bulk-grid {
-        display: grid;
-        grid-template-columns: minmax(320px, 2fr) minmax(180px, 1fr) auto;
-        gap: 10px;
-        align-items: end;
-      }
-      .ce-bulk textarea,
-      .ce-bulk select {
-        width: 100%;
-        box-sizing: border-box;
-        padding: 8px;
-        min-height: 42px;
-      }
-      .ce-bulk textarea {
-        min-height: 90px;
-        resize: vertical;
-      }
-      .ce-bulk label {
-        display: block;
-        font-weight: 600;
-        margin-bottom: 4px;
-      }
       .ce-filter label {
         display: block;
         font-weight: 600;
@@ -95,8 +76,13 @@
         min-height: 42px;
         line-height: 1.45;
       }
+      .ce-table-wrap {
+        width: 100%;
+        overflow-x: auto;
+      }
       .ce-table {
         width: 100%;
+        min-width: 1000px;
         border-collapse: collapse;
       }
       .ce-table th,
@@ -124,8 +110,14 @@
         .ce-filter {
           grid-template-columns: 1fr;
         }
-        .ce-bulk-grid {
-          grid-template-columns: 1fr;
+      }
+      @media (max-width: 680px) {
+        .ce-admin-wrap {
+          padding: 14px 12px;
+        }
+        .ce-admin-card.ce-admin-card--wide {
+          width: calc(100vw - 24px);
+          max-width: calc(100vw - 24px);
         }
       }
     </style>
@@ -157,26 +149,14 @@
       </div>
     </div>
 
-    <form method="post" class="ce-bulk">
-      {% csrf_token %}
-      <div class="ce-bulk-grid">
-        <div>
-          <label for="emails">Update participation by email</label>
-          <textarea id="emails" name="emails" placeholder="one email per line or comma-separated">{{ bulk_email_text }}</textarea>
-          <div class="ce-muted">Emails entered here will be saved and used in the Participated column.</div>
-        </div>
-        <div>
-          <label for="participated">Participated</label>
-          <select id="participated" name="participated">
-            <option value="yes" {% if bulk_participation_default == "yes" %}selected{% endif %}>Yes</option>
-            <option value="no" {% if bulk_participation_default == "no" %}selected{% endif %}>No</option>
-          </select>
-        </div>
-        <div>
-          <button class="ce-btn" type="submit">Save emails</button>
-        </div>
+    <section style="margin: 8px 0 16px;">
+      <a class="ce-btn ce-btn--ghost" href="{% url 'admin_profiles_participants' %}">
+        Manage participants by group
+      </a>
+      <div class="ce-muted" style="margin-top:8px;">
+        Participation is managed only on the Participants page by group.
       </div>
-    </form>
+    </section>
 
     <form method="get" class="ce-filter">
       <div>
@@ -232,6 +212,7 @@
     {% endif %}
 
     {% if not show_sheet %}
+    <div class="ce-table-wrap">
     <table class="ce-table">
       <thead>
         <tr>
@@ -280,6 +261,7 @@
         {% endfor %}
       </tbody>
     </table>
+    </div>
     {% endif %}
   </div>
 </div>

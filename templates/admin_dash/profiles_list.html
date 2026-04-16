@@ -149,6 +149,10 @@
         <div class="ce-summary-k">Participated (yes)</div>
         <div class="ce-summary-v">{{ participated_profiles }}</div>
       </div>
+      <div class="ce-summary-card">
+        <div class="ce-summary-k">Contracts signed</div>
+        <div class="ce-summary-v">{{ contract_signed_profiles }}</div>
+      </div>
     </div>
 
     <section style="margin: 8px 0 16px;">
@@ -251,6 +255,7 @@
           <th>Calificación status</th>
           <th>Score</th>
           <th>Participated</th>
+          <th>Contract signed</th>
           <th>Actions</th>
         </tr>
       </thead>
@@ -279,12 +284,18 @@
             <td>{{ p.overall_score|default:"—" }}</td>
             <td>{% if p.participated %}Yes{% else %}No{% endif %}</td>
             <td>
+              {% if p.contract_signed %}Yes{% else %}No{% endif %}
+              {% if p.contract_signed_at %}
+                <div class="ce-muted">{{ p.contract_signed_at }}</div>
+              {% endif %}
+            </td>
+            <td>
               <a class="ce-btn ce-btn--ghost" href="{% url 'admin_profile_detail' p.profile_key %}">View profile</a>
             </td>
           </tr>
         {% empty %}
           <tr>
-            <td colspan="8">No profiles match this filter yet.</td>
+            <td colspan="9">No profiles match this filter yet.</td>
           </tr>
         {% endfor %}
       </tbody>

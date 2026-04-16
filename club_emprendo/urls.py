@@ -53,6 +53,13 @@ urlpatterns = [
     ),
     path("admin/profiles/<str:identity_key>/", admin_profiles_views.profile_detail, name="admin_profile_detail"),
 
+    # Dropbox Sign webhook (contract signed auto-marking)
+    path(
+        "webhooks/dropbox-sign/",
+        admin_profiles_views.dropbox_sign_webhook,
+        name="dropbox_sign_webhook",
+    ),
+
     # ============================
     # DATABASE
     # ============================

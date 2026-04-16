@@ -492,6 +492,10 @@ class TaskType(models.Model):
 class ParticipantEmailStatus(models.Model):
     email = models.EmailField(unique=True, db_index=True)
     participated = models.BooleanField(default=True)
+    contract_signed = models.BooleanField(default=False, db_index=True)
+    contract_signed_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    contract_signature_request_id = models.CharField(max_length=120, blank=True, default="")
+    contract_source = models.CharField(max_length=40, blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -503,6 +507,29 @@ class ParticipantEmailStatus(models.Model):
     def __str__(self) -> str:
         state = "yes" if self.participated else "no"
         return f"{self.email} ({state})"
+
+
+class DropboxSignWebhookEvent(models.Model):
+    event_type = models.CharField(max_length=120, db_index=True)
+    event_time = models.CharField(max_length=64, blank=True, default="")
+    event_hash = models.CharField(max_length=128, blank=True, default="")
+    signature_request_id = models.CharField(max_length=120, blank=True, default="", db_index=True)
+    signer_emails_text = models.TextField(blank=True, default="")
+    payload_json = models.JSONField(default=dict, blank=True)
+    payload_digest = models.CharField(max_length=64, unique=True, db_index=True)
+    hash_verified = models.BooleanField(default=False, db_index=True)
+    processed = models.BooleanField(default=False, db_index=True)
+    marked_count = models.PositiveIntegerField(default=0)
+    process_note = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        verbose_name = "Dropbox Sign Webhook Event"
+        verbose_name_plural = "Dropbox Sign Webhook Events"
+
+    def __str__(self) -> str:
+        return f"{self.event_type or 'event'} · {self.signature_request_id or 'no-request-id'}"
 
 
 class GroupParticipantList(models.Model):

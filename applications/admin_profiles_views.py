@@ -3,22 +3,27 @@ import io
 import json
 import re
 import zipfile
+import hashlib
 from collections import defaultdict
 from io import BytesIO
 from xml.sax.saxutils import escape
 
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.admin.views.decorators import staff_member_required
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
-from django.http import HttpResponse
+from django.http import HttpResponse, JsonResponse, HttpResponseNotAllowed
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils.dateparse import parse_datetime
+from django.utils import timezone
+from django.views.decorators.csrf import csrf_exempt
 
 from .models import (
     Answer,
     Application,
+    DropboxSignWebhookEvent,
     FormGroup,
     GradedFile,
     GroupParticipantList,
@@ -44,6 +49,17 @@ CSV_TABLESTAKES_KEYS = ("tablestakesscore",)
 CSV_COMMITMENT_KEYS = ("commitmentscore",)
 CSV_NICE_TO_HAVE_KEYS = ("nicetohavescore",)
 EMAIL_SPLIT_RE = re.compile(r"[,\s;]+")
+DBS_SIGN_EVENT_TYPES = {"signature_request_signed", "signature_request_all_signed"}
+_FORM_SIGNER_EMAIL_RE = re.compile(
+    r"^signature_request\[signatures\]\[(\d+)\]\[signer_email_address\]$"
+)
+_FORM_METADATA_RE = re.compile(r"^signature_request\[metadata\]\[(.+?)\]$")
+_FORM_CUSTOM_FIELD_NAME_RE = re.compile(
+    r"^signature_request\[custom_fields\]\[(\d+)\]\[name\]$"
+)
+_FORM_CUSTOM_FIELD_VALUE_RE = re.compile(
+    r"^signature_request\[custom_fields\]\[(\d+)\]\[value\]$"
+)
 
 PROFILE_OVERVIEW_FIELDS = [
     ("full_name", "Full name"),
@@ -100,6 +116,8 @@ MENTORAS_COL_WIDTHS = [6.88, 14.38, 5.63, 31.5, 13.63, 28.13, 14.25, 12.5, 10.5,
 EMPRENDEDORAS_COL_WIDTHS = [7.25, 14.38, 5.75, 18.38, 17.75, 32.13, 15.25, 12.5, 10.5, 7, 9, 12, 14, 12, 8]
 MENTORAS_EMAIL_COL = 5
 EMPRENDEDORAS_EMAIL_COL = 5
+MENTORAS_ACTA_COL = 9
+EMPRENDEDORAS_ACTA_COL = 9
 MENTORAS_BOOLEAN_COLS = [9, 10, 11, 12, 13, 14, 15]
 EMPRENDEDORAS_BOOLEAN_COLS = [9, 10, 11, 12, 13, 14]
 MENTORAS_STATUS_OPTIONS = ["NFA", "NCC", "INCP", "INCPP", "CP", "DC", "D", "P", "E/T", "G", "SG"]
@@ -216,6 +234,242 @@ def _parse_email_list(raw_value: str) -> tuple[list[str], list[str]]:
     return valid, invalid
 
 
+def _normalize_dropbox_sign_payload(request) -> dict:
+    raw_body = request.body or b""
+    decoded = raw_body.decode("utf-8", errors="replace")
+    payload_json: dict | list | str | None = None
+    metadata: dict[str, str] = {}
+    signer_emails: list[str] = []
+    custom_fields: dict[str, str] = {}
+
+    # 1) JSON body / json form field
+    try:
+        if decoded.strip():
+            parsed = json.loads(decoded)
+            if isinstance(parsed, dict):
+                payload_json = parsed
+    except Exception:
+        payload_json = None
+
+    if payload_json is None:
+        json_field = (request.POST.get("json") or "").strip()
+        if json_field:
+            try:
+                parsed = json.loads(json_field)
+                if isinstance(parsed, dict):
+                    payload_json = parsed
+            except Exception:
+                payload_json = None
+
+    event_type = ""
+    event_time = ""
+    event_hash = ""
+    signature_request_id = ""
+    signature_title = ""
+
+    if isinstance(payload_json, dict):
+        event = payload_json.get("event") or {}
+        if isinstance(event, dict):
+            event_type = str(event.get("event_type") or "")
+            event_time = str(event.get("event_time") or "")
+            event_hash = str(event.get("event_hash") or "")
+        sig_req = payload_json.get("signature_request") or {}
+        if isinstance(sig_req, dict):
+            signature_request_id = str(sig_req.get("signature_request_id") or "")
+            signature_title = str(sig_req.get("title") or "")
+            raw_metadata = sig_req.get("metadata") or {}
+            if isinstance(raw_metadata, dict):
+                metadata = {
+                    str(k).strip(): str(v).strip()
+                    for k, v in raw_metadata.items()
+                    if str(v or "").strip()
+                }
+            raw_signatures = sig_req.get("signatures") or []
+            if isinstance(raw_signatures, list):
+                for row in raw_signatures:
+                    if not isinstance(row, dict):
+                        continue
+                    email = _normalize_email(row.get("signer_email_address"))
+                    if email:
+                        signer_emails.append(email)
+            raw_custom_fields = sig_req.get("custom_fields") or []
+            if isinstance(raw_custom_fields, list):
+                for row in raw_custom_fields:
+                    if not isinstance(row, dict):
+                        continue
+                    name = str(row.get("name") or "").strip()
+                    value = str(row.get("value") or "").strip()
+                    if name and value:
+                        custom_fields[name] = value
+            elif isinstance(raw_custom_fields, dict):
+                for k, v in raw_custom_fields.items():
+                    name = str(k or "").strip()
+                    value = str(v or "").strip()
+                    if name and value:
+                        custom_fields[name] = value
+
+    # 2) Form encoded fallback
+    if not event_type:
+        event_type = str(request.POST.get("event[event_type]") or "").strip()
+    if not event_time:
+        event_time = str(request.POST.get("event[event_time]") or "").strip()
+    if not event_hash:
+        event_hash = str(request.POST.get("event[event_hash]") or "").strip()
+    if not signature_request_id:
+        signature_request_id = str(
+            request.POST.get("signature_request[signature_request_id]") or ""
+        ).strip()
+    if not signature_title:
+        signature_title = str(request.POST.get("signature_request[title]") or "").strip()
+
+    if not signer_emails:
+        indexed: dict[int, str] = {}
+        for key, value in request.POST.items():
+            m = _FORM_SIGNER_EMAIL_RE.match(key)
+            if not m:
+                continue
+            idx = int(m.group(1))
+            email = _normalize_email(value)
+            if email:
+                indexed[idx] = email
+        signer_emails = [indexed[idx] for idx in sorted(indexed)]
+
+    if not metadata:
+        for key, value in request.POST.items():
+            m = _FORM_METADATA_RE.match(key)
+            if not m:
+                continue
+            k = str(m.group(1) or "").strip()
+            v = str(value or "").strip()
+            if k and v:
+                metadata[k] = v
+
+    if not custom_fields:
+        field_names: dict[int, str] = {}
+        field_values: dict[int, str] = {}
+        for key, value in request.POST.items():
+            name_match = _FORM_CUSTOM_FIELD_NAME_RE.match(key)
+            if name_match:
+                field_names[int(name_match.group(1))] = str(value or "").strip()
+                continue
+            value_match = _FORM_CUSTOM_FIELD_VALUE_RE.match(key)
+            if value_match:
+                field_values[int(value_match.group(1))] = str(value or "").strip()
+        for idx, name in field_names.items():
+            val = field_values.get(idx, "")
+            if name and val:
+                custom_fields[name] = val
+
+    deduped_emails: list[str] = []
+    seen_emails: set[str] = set()
+    for email in signer_emails:
+        norm = _normalize_email(email)
+        if not norm or norm in seen_emails:
+            continue
+        try:
+            validate_email(norm)
+        except ValidationError:
+            continue
+        seen_emails.add(norm)
+        deduped_emails.append(norm)
+
+    return {
+        "event_type": event_type,
+        "event_time": event_time,
+        "event_hash": event_hash,
+        "signature_request_id": signature_request_id,
+        "signature_title": signature_title,
+        "signer_emails": deduped_emails,
+        "metadata": metadata,
+        "custom_fields": custom_fields,
+        "payload_json": payload_json if isinstance(payload_json, dict) else {},
+        "raw_body_text": decoded[:10000],
+    }
+
+
+def _dropbox_sign_hash_is_valid(event_time: str, event_type: str, event_hash: str) -> bool:
+    api_key = (getattr(settings, "DROPBOX_SIGN_API_KEY", "") or "").strip()
+    if not api_key:
+        return True
+    if not event_time or not event_type or not event_hash:
+        return False
+    candidate = hashlib.sha256(f"{api_key}{event_time}{event_type}".encode("utf-8")).hexdigest()
+    return candidate == event_hash
+
+
+def _candidate_identity_values(metadata: dict, custom_fields: dict) -> list[str]:
+    out: list[str] = []
+    keys = [*metadata.keys(), *custom_fields.keys()]
+    for key in keys:
+        key_norm = _normalize_header(str(key or ""))
+        if not key_norm:
+            continue
+        if not any(token in key_norm for token in ("cedula", "id", "document", "identidad")):
+            continue
+        value = metadata.get(key) if key in metadata else custom_fields.get(key)
+        raw = str(value or "").strip()
+        if raw:
+            out.append(raw)
+    # preserve order; dedupe
+    seen = set()
+    deduped = []
+    for v in out:
+        n = _normalize_identity(v)
+        if not n or n in seen:
+            continue
+        seen.add(n)
+        deduped.append(v)
+    return deduped
+
+
+def _emails_for_identity_value(identity_value: str) -> list[str]:
+    identity_norm = _normalize_identity(identity_value)
+    if not identity_norm:
+        return []
+
+    matched_app_ids: set[int] = set()
+    for app_id, raw_value in Answer.objects.filter(
+        question__slug__in=IDENTITY_SLUGS
+    ).values_list("application_id", "value"):
+        if _normalize_identity(raw_value) == identity_norm:
+            matched_app_ids.add(int(app_id))
+    if not matched_app_ids:
+        return []
+
+    emails: list[str] = []
+    seen: set[str] = set()
+
+    for raw_email in Application.objects.filter(id__in=matched_app_ids).values_list("email", flat=True):
+        email = _normalize_email(raw_email)
+        if not email or email in seen:
+            continue
+        try:
+            validate_email(email)
+        except ValidationError:
+            continue
+        seen.add(email)
+        emails.append(email)
+
+    if emails:
+        return emails
+
+    # Fallback: email answer field in matched applications.
+    for app_id, raw_value in Answer.objects.filter(
+        application_id__in=matched_app_ids,
+        question__slug__in=EMAIL_SLUGS,
+    ).values_list("application_id", "value"):
+        email = _normalize_email(raw_value)
+        if not email or email in seen:
+            continue
+        try:
+            validate_email(email)
+        except ValidationError:
+            continue
+        seen.add(email)
+        emails.append(email)
+    return emails
+
+
 def _build_profile_key(identity_norm: str, email_norm: str, app_id: int) -> str:
     if identity_norm:
         return _normalize_profile_key(f"id_{identity_norm.lower()}")
@@ -305,6 +559,50 @@ def _emails_from_sheet_rows(rows: list[list], email_col: int) -> list[str]:
             continue
         seen.add(email_norm)
         out.append(email_norm)
+    return out
+
+
+def _contract_signed_email_map(emails: list[str]) -> dict[str, bool]:
+    normalized_emails: list[str] = []
+    seen: set[str] = set()
+    for raw in emails:
+        email = _normalize_email(raw)
+        if not email or email in seen:
+            continue
+        seen.add(email)
+        normalized_emails.append(email)
+
+    if not normalized_emails:
+        return {}
+
+    signed_rows = ParticipantEmailStatus.objects.filter(
+        email__in=normalized_emails,
+        contract_signed=True,
+    ).values_list("email", flat=True)
+    signed_set = {_normalize_email(v) for v in signed_rows if _normalize_email(v)}
+    return {email: (email in signed_set) for email in normalized_emails}
+
+
+def _apply_contract_signed_to_rows(
+    rows: list[list],
+    email_col: int,
+    acta_col: int,
+) -> list[list]:
+    if not rows:
+        return []
+    emails = _emails_from_sheet_rows(rows, email_col)
+    signed_map = _contract_signed_email_map(emails)
+    out: list[list] = []
+    for row in rows:
+        row_copy = list(row)
+        if email_col >= len(row_copy):
+            out.append(row_copy)
+            continue
+        email_norm = _normalize_email(row_copy[email_col])
+        signed = bool(signed_map.get(email_norm, False))
+        if acta_col < len(row_copy):
+            row_copy[acta_col] = signed
+        out.append(row_copy)
     return out
 
 
@@ -1018,16 +1316,31 @@ def _build_profiles():
 @staff_member_required
 def profiles_list(request):
     profiles = _build_profiles()
-    participation_map = {
-        _email_status_key(row.email): row.participated
-        for row in ParticipantEmailStatus.objects.only("email", "participated")
+    status_map = {
+        _email_status_key(row.email): row
+        for row in ParticipantEmailStatus.objects.only(
+            "email",
+            "participated",
+            "contract_signed",
+            "contract_signed_at",
+        )
     }
     participant_list_email_keys = _participant_list_email_keys()
     for email_key in participant_list_email_keys:
-        participation_map[email_key] = True
+        row = status_map.get(email_key)
+        if row is None:
+            status_map[email_key] = ParticipantEmailStatus(
+                email=email_key,
+                participated=True,
+            )
+            continue
+        row.participated = True
     for profile in profiles:
         profile_email_key = _email_status_key(profile.get("email"))
-        profile["participated"] = bool(participation_map.get(profile_email_key, False))
+        row = status_map.get(profile_email_key)
+        profile["participated"] = bool(getattr(row, "participated", False))
+        profile["contract_signed"] = bool(getattr(row, "contract_signed", False))
+        profile["contract_signed_at"] = getattr(row, "contract_signed_at", None)
 
     query = (request.GET.get("q") or "").strip()
     query_lower = query.lower()
@@ -1086,6 +1399,8 @@ def profiles_list(request):
             "Calificacion status",
             "Score",
             "Participated",
+            "Contract signed",
+            "Contract signed at",
             "Profile URL",
         ]
         for p in sheet_profiles:
@@ -1105,6 +1420,8 @@ def profiles_list(request):
                     str(p.get("calificacion_status") or ""),
                     str(p.get("overall_score") or "—"),
                     "Yes" if p.get("participated") else "No",
+                    "Yes" if p.get("contract_signed") else "No",
+                    str(p.get("contract_signed_at") or ""),
                     profile_url,
                 ]
             )
@@ -1124,6 +1441,7 @@ def profiles_list(request):
         "visible_profiles": len(filtered),
         "graded_profiles": sum(1 for p in profiles if p["is_graded"]),
         "participated_profiles": sum(1 for p in profiles if p["participated"]),
+        "contract_signed_profiles": sum(1 for p in profiles if p.get("contract_signed")),
         "show_sheet": show_sheet,
         "profiles_sheet_headers": sheet_headers,
         "profiles_sheet_rows": sheet_rows,
@@ -1215,6 +1533,18 @@ def profiles_participants(request):
                     EMPRENDEDORAS_EMAIL_COL,
                 )
 
+        # Acta is source-of-truth from Dropbox Sign contract status.
+        mentoras_rows = _apply_contract_signed_to_rows(
+            mentoras_rows,
+            email_col=MENTORAS_EMAIL_COL,
+            acta_col=MENTORAS_ACTA_COL,
+        )
+        emprendedoras_rows = _apply_contract_signed_to_rows(
+            emprendedoras_rows,
+            email_col=EMPRENDEDORAS_EMAIL_COL,
+            acta_col=EMPRENDEDORAS_ACTA_COL,
+        )
+
         mentoras_rows = _number_sheet_rows(mentoras_rows, number_col=2)
         emprendedoras_rows = _number_sheet_rows(emprendedoras_rows, number_col=2)
 
@@ -1290,6 +1620,18 @@ def profiles_participants(request):
                 number_col=2,
             )
 
+    # Acta is source-of-truth from Dropbox Sign contract status.
+    mentoras_rows = _apply_contract_signed_to_rows(
+        mentoras_rows,
+        email_col=MENTORAS_EMAIL_COL,
+        acta_col=MENTORAS_ACTA_COL,
+    )
+    emprendedoras_rows = _apply_contract_signed_to_rows(
+        emprendedoras_rows,
+        email_col=EMPRENDEDORAS_EMAIL_COL,
+        acta_col=EMPRENDEDORAS_ACTA_COL,
+    )
+
     mentoras_emails = _emails_from_sheet_rows(mentoras_rows, MENTORAS_EMAIL_COL)
     emprendedoras_emails = _emails_from_sheet_rows(emprendedoras_rows, EMPRENDEDORAS_EMAIL_COL)
     has_list = bool(participant_list and (mentoras_rows or emprendedoras_rows))
@@ -1346,6 +1688,17 @@ def profiles_participants_download(request, group_num: int):
         emprendedoras_emails = _norm_email_list(participant_list.emprendedoras_emails_text or "")
         emprendedoras_rows = _build_emprendedoras_rows(group.number, emprendedoras_emails)
 
+    mentoras_rows = _apply_contract_signed_to_rows(
+        mentoras_rows,
+        email_col=MENTORAS_EMAIL_COL,
+        acta_col=MENTORAS_ACTA_COL,
+    )
+    emprendedoras_rows = _apply_contract_signed_to_rows(
+        emprendedoras_rows,
+        email_col=EMPRENDEDORAS_EMAIL_COL,
+        acta_col=EMPRENDEDORAS_ACTA_COL,
+    )
+
     workbook_bytes = _participants_workbook_bytes(
         mentoras_rows=_number_sheet_rows(mentoras_rows, number_col=2),
         emprendedoras_rows=_number_sheet_rows(emprendedoras_rows, number_col=2),
@@ -1361,6 +1714,152 @@ def profiles_participants_download(request, group_num: int):
     return response
 
 
+@csrf_exempt
+def dropbox_sign_webhook(request):
+    if request.method != "POST":
+        return HttpResponseNotAllowed(["POST"])
+
+    raw_body = request.body or b""
+    payload_digest = hashlib.sha256(raw_body).hexdigest()
+    existing = DropboxSignWebhookEvent.objects.filter(payload_digest=payload_digest).first()
+    if existing:
+        return JsonResponse(
+            {
+                "ok": True,
+                "duplicate": True,
+                "event_id": existing.id,
+                "marked": existing.marked_count,
+            },
+            status=200,
+        )
+
+    normalized = _normalize_dropbox_sign_payload(request)
+    event_type = str(normalized.get("event_type") or "").strip()
+    event_time = str(normalized.get("event_time") or "").strip()
+    event_hash = str(normalized.get("event_hash") or "").strip()
+    signature_request_id = str(normalized.get("signature_request_id") or "").strip()
+    signer_emails = list(normalized.get("signer_emails") or [])
+    metadata = dict(normalized.get("metadata") or {})
+    custom_fields = dict(normalized.get("custom_fields") or {})
+    payload_json = dict(normalized.get("payload_json") or {})
+
+    hash_ok = _dropbox_sign_hash_is_valid(event_time, event_type, event_hash)
+    event = DropboxSignWebhookEvent.objects.create(
+        event_type=event_type or "unknown",
+        event_time=event_time,
+        event_hash=event_hash,
+        signature_request_id=signature_request_id,
+        signer_emails_text=", ".join(signer_emails),
+        payload_json={
+            "event_type": event_type,
+            "event_time": event_time,
+            "signature_request_id": signature_request_id,
+            "signer_emails": signer_emails,
+            "metadata": metadata,
+            "custom_fields": custom_fields,
+            "payload": payload_json,
+        },
+        payload_digest=payload_digest,
+        hash_verified=hash_ok,
+        processed=False,
+    )
+
+    if not hash_ok:
+        event.process_note = "Rejected: event hash verification failed."
+        event.save(update_fields=["process_note"])
+        return JsonResponse({"ok": False, "error": "invalid_event_hash"}, status=403)
+
+    if event_type == "account_callback_test":
+        event.processed = True
+        event.process_note = "Dropbox Sign callback test acknowledged."
+        event.save(update_fields=["processed", "process_note"])
+        return HttpResponse("Hello API Event Received", status=200, content_type="text/plain")
+
+    if event_type not in DBS_SIGN_EVENT_TYPES:
+        event.processed = True
+        event.process_note = f"Ignored event type: {event_type or 'unknown'}"
+        event.save(update_fields=["processed", "process_note"])
+        return JsonResponse({"ok": True, "ignored": True, "event_type": event_type}, status=200)
+
+    resolved_emails: list[str] = list(signer_emails)
+    if not resolved_emails:
+        for identity_candidate in _candidate_identity_values(metadata, custom_fields):
+            resolved_emails.extend(_emails_for_identity_value(identity_candidate))
+
+    # Final dedupe + validation
+    clean_emails: list[str] = []
+    seen: set[str] = set()
+    for raw_email in resolved_emails:
+        email = _normalize_email(raw_email)
+        if not email or email in seen:
+            continue
+        try:
+            validate_email(email)
+        except ValidationError:
+            continue
+        seen.add(email)
+        clean_emails.append(email)
+
+    if not clean_emails:
+        event.processed = True
+        event.process_note = "No signer emails resolved from webhook payload."
+        event.save(update_fields=["processed", "process_note"])
+        return JsonResponse({"ok": True, "marked": 0, "note": event.process_note}, status=200)
+
+    now = timezone.now()
+    marked_count = 0
+    for email in clean_emails:
+        row, created = ParticipantEmailStatus.objects.get_or_create(
+            email=email,
+            defaults={
+                "participated": False,
+            },
+        )
+        changed = False
+        if not row.contract_signed:
+            row.contract_signed = True
+            changed = True
+        if not row.contract_signed_at:
+            row.contract_signed_at = now
+            changed = True
+        if signature_request_id and row.contract_signature_request_id != signature_request_id:
+            row.contract_signature_request_id = signature_request_id
+            changed = True
+        if row.contract_source != "dropbox_sign":
+            row.contract_source = "dropbox_sign"
+            changed = True
+        if changed or created:
+            row.save(
+                update_fields=[
+                    "contract_signed",
+                    "contract_signed_at",
+                    "contract_signature_request_id",
+                    "contract_source",
+                    "updated_at",
+                ]
+            )
+            marked_count += 1
+
+    event.processed = True
+    event.marked_count = marked_count
+    event.signer_emails_text = ", ".join(clean_emails)
+    event.process_note = (
+        f"Marked contract signed for {marked_count} email(s)."
+        if marked_count
+        else "All resolved emails were already marked as signed."
+    )
+    event.save(update_fields=["processed", "marked_count", "signer_emails_text", "process_note"])
+    return JsonResponse(
+        {
+            "ok": True,
+            "event_id": event.id,
+            "marked": marked_count,
+            "emails": clean_emails,
+        },
+        status=200,
+    )
+
+
 @staff_member_required
 def profile_detail(request, identity_key: str):
     requested_key = _normalize_profile_key(identity_key)
@@ -1371,15 +1870,17 @@ def profile_detail(request, identity_key: str):
     profile = next((p for p in profiles if p["profile_key"] == requested_key), None)
     if profile:
         email_key = _email_status_key(profile.get("email"))
-        participation_value = None
+        status_row = None
         if email_key:
-            participation_value = (
-                ParticipantEmailStatus.objects.filter(email=email_key)
-                .values_list("participated", flat=True)
-                .first()
-            )
+            status_row = ParticipantEmailStatus.objects.filter(email=email_key).first()
+        participation_value = getattr(status_row, "participated", None)
         from_participant_list = email_key in _participant_list_email_keys() if email_key else False
         profile["participated"] = (
             bool(participation_value) if participation_value is not None else from_participant_list
+        )
+        profile["contract_signed"] = bool(getattr(status_row, "contract_signed", False))
+        profile["contract_signed_at"] = getattr(status_row, "contract_signed_at", None)
+        profile["contract_signature_request_id"] = getattr(
+            status_row, "contract_signature_request_id", ""
         )
     return render(request, "admin_dash/profile_detail.html", {"profile": profile})

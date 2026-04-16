@@ -169,5 +169,9 @@ EMAIL_TIMEOUT = int(os.environ.get("EMAIL_TIMEOUT", "10"))
 
 SITE_URL = os.environ.get("SITE_URL", "http://127.0.0.1:8000")
 
+# Dropbox Sign webhook verification:
+# event_hash = sha256(api_key + event_time + event_type)
+DROPBOX_SIGN_API_KEY = os.environ.get("DROPBOX_SIGN_API_KEY", "").strip()
+
 SITE_ID = 1
 AUTH_USER_MODEL = "accounts.User"

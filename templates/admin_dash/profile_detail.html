@@ -97,6 +97,17 @@
             <div class="ce-k">Participated</div>
             <div class="ce-v">{% if profile.participated %}Yes{% else %}No{% endif %}</div>
 
+            <div class="ce-k">Contract signed</div>
+            <div class="ce-v">
+              {% if profile.contract_signed %}Yes{% else %}No{% endif %}
+              {% if profile.contract_signed_at %}
+                <div class="ce-k">{{ profile.contract_signed_at }}</div>
+              {% endif %}
+            </div>
+
+            <div class="ce-k">Signature request ID</div>
+            <div class="ce-v">{{ profile.contract_signature_request_id|default:"—" }}</div>
+
             <div class="ce-k">Group</div>
             <div class="ce-v">{% if profile.group_num %}Group {{ profile.group_num }}{% else %}Ungrouped{% endif %}</div>
 

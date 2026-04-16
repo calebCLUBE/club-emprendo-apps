@@ -8,7 +8,17 @@ import json
 from django.http import HttpResponseRedirect
 
 from .forms_admin import TaskTypeAdminForm
-from .models import FormDefinition, Question, Choice, Application, Section, TaskType
+from .models import (
+    Application,
+    Choice,
+    DropboxSignWebhookEvent,
+    FormDefinition,
+    GroupParticipantList,
+    ParticipantEmailStatus,
+    Question,
+    Section,
+    TaskType,
+)
 
 
 # =========================
@@ -558,3 +568,61 @@ class TaskTypeAdmin(admin.ModelAdmin):
     list_filter = ("is_active", "is_revision_type")
     search_fields = ("name", "slug")
     ordering = ("position", "name", "id")
+
+
+@admin.register(ParticipantEmailStatus)
+class ParticipantEmailStatusAdmin(admin.ModelAdmin):
+    list_display = (
+        "email",
+        "participated",
+        "contract_signed",
+        "contract_signed_at",
+        "contract_source",
+        "updated_at",
+    )
+    list_filter = ("participated", "contract_signed", "contract_source")
+    search_fields = ("email", "contract_signature_request_id")
+    ordering = ("email",)
+
+
+@admin.register(DropboxSignWebhookEvent)
+class DropboxSignWebhookEventAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "event_type",
+        "signature_request_id",
+        "hash_verified",
+        "processed",
+        "marked_count",
+        "created_at",
+    )
+    list_filter = ("event_type", "hash_verified", "processed")
+    search_fields = ("signature_request_id", "signer_emails_text", "payload_digest")
+    readonly_fields = (
+        "event_type",
+        "event_time",
+        "event_hash",
+        "signature_request_id",
+        "signer_emails_text",
+        "payload_json",
+        "payload_digest",
+        "hash_verified",
+        "processed",
+        "marked_count",
+        "process_note",
+        "created_at",
+    )
+    ordering = ("-created_at", "-id")
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(GroupParticipantList)
+class GroupParticipantListAdmin(admin.ModelAdmin):
+    list_display = ("group", "updated_at", "created_at")
+    search_fields = ("group__number",)
+    ordering = ("-group__number",)

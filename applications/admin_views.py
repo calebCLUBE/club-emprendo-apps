@@ -3522,18 +3522,15 @@ def database_create_assigned_group(request):
         for master_slug, fd in source_forms_by_master.items()
         if master_slug.startswith(f"{selected_track}_")
     }
-    if not source_forms_by_master:
-        messages.error(
-            request,
-            f"Source application pool '{source_label}' has no {track_label} forms to copy.",
-        )
-        return _database_next_redirect(request, fallback_name="admin_database")
 
     copied_apps = 0
     copied_answers = 0
     skipped_existing = 0
     skipped_no_match = 0
     unmatched_email_count = 0
+    unmatched_emails: list[str] = []
+    unmatched_inserted = 0
+    unmatched_already_present = 0
     matched_emails: set[str] = set()
     assigned_track_emails: dict[str, set[str]] = {"E": set(), "M": set()}
 
@@ -3569,7 +3566,8 @@ def database_create_assigned_group(request):
             if update_fields:
                 target_group.save(update_fields=update_fields)
 
-            for master_slug in sorted(source_forms_by_master.keys()):
+            required_master_slugs = [f"{selected_track}_A1", f"{selected_track}_A2"]
+            for master_slug in required_master_slugs:
                 if master_slug not in MASTER_SLUGS:
                     continue
                 target_slug = f"G{target_group_num}_{master_slug}"
@@ -3600,6 +3598,16 @@ def database_create_assigned_group(request):
                 existing_target_emails_by_master[master_slug] = {
                     (e or "").strip().lower() for e in existing_target_emails if (e or "").strip()
                 }
+
+            if not existing_target_emails_by_master:
+                messages.error(
+                    request,
+                    (
+                        f"Could not prepare target dataset for Group {target_group_num} "
+                        f"({track_label})."
+                    ),
+                )
+                return _database_next_redirect(request, fallback_name="admin_database")
 
             for master_slug, source_form in source_forms_by_master.items():
                 if not master_slug.startswith(f"{selected_track}_"):
@@ -3634,7 +3642,37 @@ def database_create_assigned_group(request):
                     if track:
                         assigned_track_emails[track].add(email_norm)
 
-            unmatched_email_count = len(wanted_emails - matched_emails)
+            unmatched_emails = sorted(wanted_emails - matched_emails)
+            unmatched_email_count = len(unmatched_emails)
+
+            placeholder_master_slug = (
+                f"{selected_track}_A1"
+                if f"{selected_track}_A1" in existing_target_emails_by_master
+                else f"{selected_track}_A2"
+            )
+            placeholder_form = target_forms_by_master.get(placeholder_master_slug)
+            existing_for_placeholder = existing_target_emails_by_master.setdefault(
+                placeholder_master_slug,
+                set(),
+            )
+            existing_any_target_track = set()
+            for vals in existing_target_emails_by_master.values():
+                existing_any_target_track.update(vals)
+
+            if placeholder_form:
+                for email in unmatched_emails:
+                    assigned_track_emails[selected_track].add(email)
+                    if email in existing_any_target_track:
+                        unmatched_already_present += 1
+                        continue
+                    Application.objects.create(
+                        form=placeholder_form,
+                        name=(email or "")[:200],
+                        email=email,
+                    )
+                    unmatched_inserted += 1
+                    existing_for_placeholder.add(email)
+                    existing_any_target_track.add(email)
 
             participant_list, _ = GroupParticipantList.objects.get_or_create(group=target_group)
             current_mentoras = set(_norm_email_list(participant_list.mentoras_emails_text or ""))
@@ -3678,7 +3716,8 @@ def database_create_assigned_group(request):
         request,
         (
             f"Copied {copied_apps} application(s), {copied_answers} answer(s). "
-            f"{track_label} seeded: {seeded_count}."
+            f"{track_label} seeded: {seeded_count}. "
+            f"Unmatched emails added as email-only rows: {unmatched_inserted}."
         ),
     )
     if skipped_existing:
@@ -3697,11 +3736,26 @@ def database_create_assigned_group(request):
     if unmatched_email_count:
         messages.warning(
             request,
-            (
-                f"{unmatched_email_count} pasted email(s) did not match any application in "
-                f"{source_label}."
-            ),
+            f"{unmatched_email_count} pasted email(s) did not match any application in {source_label}.",
         )
+        preview_limit = 40
+        preview = unmatched_emails[:preview_limit]
+        remainder = max(0, len(unmatched_emails) - preview_limit)
+        preview_text = ", ".join(preview)
+        if remainder:
+            preview_text = f"{preview_text}, ... (+{remainder} more)"
+        messages.warning(
+            request,
+            f"Unmatched emails: {preview_text}",
+        )
+        if unmatched_already_present:
+            messages.info(
+                request,
+                (
+                    f"{unmatched_already_present} unmatched email(s) were already present in the "
+                    f"Group {target_group_num} {track_label} dataset."
+                ),
+            )
     return _database_next_redirect(request, fallback_name="admin_database")
 
 

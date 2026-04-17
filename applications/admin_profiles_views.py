@@ -1778,7 +1778,7 @@ def dropbox_sign_webhook(request):
 
     # Dropbox Sign callback tests should always return success.
     # Keep strict hash enforcement for real production events.
-    if event_type == "account_callback_test":
+    if event_type in {"account_callback_test", "callback_test"}:
         event.processed = True
         event.process_note = (
             "Dropbox Sign callback test acknowledged."

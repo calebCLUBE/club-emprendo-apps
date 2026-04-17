@@ -13,7 +13,7 @@
         <option value="">All groups</option>
         {% for g in group_options %}
           <option value="{{ g }}" {% if selected_group == g %}selected{% endif %}>
-            {% if g == 8 %}April Recruitment{% else %}Group {{ g }}{% endif %}
+            {% if g == 800 %}April Recruitment{% else %}Group {{ g }}{% endif %}
           </option>
         {% endfor %}
       </select>
@@ -66,7 +66,7 @@
               <input type="checkbox" name="app_ids" value="{{ a.id }}" data-submission-checkbox style="margin-top:3px;">
               <span>
                 <a href="{% url 'admin_database_submission_detail' a.id %}">
-                  #{{ a.id }} — {% if a.form.group.number == 8 %}April Recruitment{% else %}Group {{ a.form.group.number|default:"?" }}{% endif %} — {{ a.form.slug }} — {{ a.created_at }} — {{ a.name }} ({{ a.email }})
+                  #{{ a.id }} — {% if a.form.group.number == 800 %}April Recruitment{% else %}Group {{ a.form.group.number|default:"?" }}{% endif %} — {{ a.form.slug }} — {{ a.created_at }} — {{ a.name }} ({{ a.email }})
                 </a>
               </span>
             </label>

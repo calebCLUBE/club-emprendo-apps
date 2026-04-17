@@ -101,7 +101,7 @@ PERCENT_SCORE_HEADERS = {
 RECRUITMENT_POOL_SOURCES = {
     "april_recruitment": {
         "label": "April Recruitment",
-        "group_num": 8,
+        "group_num": 800,
     },
 }
 
@@ -3189,7 +3189,13 @@ def database_home(request):
     transfer_form_options.sort(key=lambda x: (-x["group_num"], x["slug"]))
 
     source_pool_default_key = "april_recruitment"
-    next_group_num = max([g.number for g in groups], default=8) + 1
+    pool_group_numbers = {
+        int(cfg.get("group_num"))
+        for cfg in RECRUITMENT_POOL_SOURCES.values()
+        if str(cfg.get("group_num", "")).isdigit()
+    }
+    cohort_numbers = [g.number for g in groups if g.number not in pool_group_numbers]
+    next_group_num = max(cohort_numbers, default=8) + 1
     pool_assignment_defaults = {
         "source_pool": source_pool_default_key,
         "track": PoolAssignmentForm.TRACK_EMPRENDEDORAS,

@@ -60,6 +60,111 @@
 
 <details style="margin: 10px 0 18px; padding: 10px; border: 1px solid #ddd; border-radius: 10px;">
   <summary style="cursor:pointer; font-weight:600;">
+    Assign Applicants To New Group (Paste Emails)
+  </summary>
+
+  <form method="post" action="{% url 'admin_database_create_assigned_group' %}" style="margin-top:12px; display:grid; gap:10px; max-width:960px;">
+    {% csrf_token %}
+    <input type="hidden" name="next" value="{{ database_next }}">
+
+    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:10px;">
+      <label>
+        Source pool group
+        <select name="source_group_num" required style="width:100%;">
+          {% for g in pool_source_groups %}
+            <option value="{{ g.number }}" {% if g.number == pool_assignment_defaults.source_group_num %}selected{% endif %}>
+              Group {{ g.number }}
+            </option>
+          {% empty %}
+            <option value="8" selected>Group 8</option>
+          {% endfor %}
+        </select>
+      </label>
+
+      <label>
+        New group number
+        <input
+          type="number"
+          min="1"
+          required
+          name="target_group_num"
+          value="{{ pool_assignment_defaults.target_group_num }}"
+          style="width:100%;"
+        >
+      </label>
+
+      <label>
+        Start day
+        <input
+          type="number"
+          min="1"
+          max="31"
+          required
+          name="start_day"
+          value="{{ pool_assignment_defaults.start_day }}"
+          style="width:100%;"
+        >
+      </label>
+
+      <label>
+        Start month
+        <select name="start_month" required style="width:100%;">
+          {% for month_value, month_label in pool_month_choices %}
+            <option value="{{ month_value }}" {% if month_value == pool_assignment_defaults.start_month %}selected{% endif %}>
+              {{ month_label|title }}
+            </option>
+          {% endfor %}
+        </select>
+      </label>
+
+      <label>
+        End month
+        <select name="end_month" required style="width:100%;">
+          {% for month_value, month_label in pool_month_choices %}
+            <option value="{{ month_value }}" {% if month_value == pool_assignment_defaults.end_month %}selected{% endif %}>
+              {{ month_label|title }}
+            </option>
+          {% endfor %}
+        </select>
+      </label>
+
+      <label>
+        Year
+        <input
+          type="number"
+          min="2020"
+          max="2100"
+          required
+          name="year"
+          value="{{ pool_assignment_defaults.year }}"
+          style="width:100%;"
+        >
+      </label>
+    </div>
+
+    <label>
+      Applicant emails
+      <textarea
+        name="emails_text"
+        rows="8"
+        required
+        style="width:100%; max-width:920px;"
+        placeholder="one email per line, or comma/semicolon separated"
+      ></textarea>
+    </label>
+
+    <button type="submit" class="button" style="width:max-content;">
+      Create Assigned Group
+    </button>
+
+    <p style="margin:0; color:#666;">
+      This creates or updates the target group, copies matching applications from the source pool group, and seeds that group's participant list.
+    </p>
+  </form>
+</details>
+
+<details style="margin: 10px 0 18px; padding: 10px; border: 1px solid #ddd; border-radius: 10px;">
+  <summary style="cursor:pointer; font-weight:600;">
     Graded Files
   </summary>
 

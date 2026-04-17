@@ -1818,6 +1818,47 @@ class CreateGroupForm(forms.Form):
         return cleaned
 
 
+class PoolAssignmentForm(forms.Form):
+    source_group_num = forms.IntegerField(
+        min_value=1,
+        initial=8,
+        label="Source pool group",
+    )
+    target_group_num = forms.IntegerField(
+        min_value=1,
+        label="New group number",
+    )
+    start_day = forms.IntegerField(min_value=1, max_value=31, label="Start day")
+    start_month = forms.ChoiceField(choices=MONTH_CHOICES_ES, label="Start month")
+    end_month = forms.ChoiceField(choices=MONTH_CHOICES_ES, label="End month")
+    year = forms.IntegerField(min_value=2020, max_value=2100, label="Year")
+    emails_text = forms.CharField(
+        required=True,
+        label="Applicant emails",
+        widget=forms.Textarea(
+            attrs={
+                "rows": 7,
+                "placeholder": "paste one email per line, or comma/semicolon separated",
+            }
+        ),
+    )
+
+    def clean(self):
+        cleaned = super().clean()
+        source_group_num = cleaned.get("source_group_num")
+        target_group_num = cleaned.get("target_group_num")
+        emails_text = cleaned.get("emails_text") or ""
+        normalized_emails = _norm_email_list(emails_text)
+
+        if source_group_num and target_group_num and int(source_group_num) == int(target_group_num):
+            raise forms.ValidationError("Source pool group and target group must be different.")
+        if not normalized_emails:
+            raise forms.ValidationError("Paste at least one valid email.")
+
+        cleaned["normalized_emails"] = normalized_emails
+        return cleaned
+
+
 # ----------------------------
 # Helpers
 # ----------------------------
@@ -3135,6 +3176,19 @@ def database_home(request):
         )
     transfer_form_options.sort(key=lambda x: (-x["group_num"], x["slug"]))
 
+    source_pool_group = FormGroup.objects.filter(number=8).first()
+    if not source_pool_group and groups:
+        source_pool_group = groups[-1]
+    next_group_num = max([g.number for g in groups], default=8) + 1
+    pool_assignment_defaults = {
+        "source_group_num": getattr(source_pool_group, "number", 8),
+        "target_group_num": next_group_num,
+        "start_day": getattr(source_pool_group, "start_day", 1),
+        "start_month": getattr(source_pool_group, "start_month", "abril"),
+        "end_month": getattr(source_pool_group, "end_month", "junio"),
+        "year": getattr(source_pool_group, "year", timezone.localdate().year),
+    }
+
     return render(
         request,
         "admin_dash/database_home.html",
@@ -3152,6 +3206,9 @@ def database_home(request):
             "graded_files_other": graded_files_other,
             "pairing_files": pairing_files,
             "transfer_form_options": transfer_form_options,
+            "pool_source_groups": groups,
+            "pool_month_choices": MONTH_CHOICES_ES,
+            "pool_assignment_defaults": pool_assignment_defaults,
             "database_next": request.get_full_path(),
         },
     )
@@ -3186,6 +3243,94 @@ def _sync_drive_for_group_number(group_num: int) -> list[tuple[str, str, str]]:
             out.append(("error", slug, str(exc)))
 
     return out
+
+
+def _group_forms_by_master_slug(group: FormGroup) -> dict[str, FormDefinition]:
+    out: dict[str, FormDefinition] = {}
+    forms_for_group = FormDefinition.objects.filter(group=group, is_master=False).order_by("slug", "id")
+    for fd in forms_for_group:
+        m = GROUP_SLUG_RE.match((fd.slug or "").strip())
+        if not m:
+            continue
+        master_slug = (m.group("master") or "").strip().upper()
+        if master_slug and master_slug not in out:
+            out[master_slug] = fd
+    return out
+
+
+def _latest_apps_by_normalized_email_for_form(
+    form_def: FormDefinition,
+    target_emails: set[str],
+) -> dict[str, Application]:
+    if not target_emails:
+        return {}
+
+    qs = (
+        Application.objects.filter(form=form_def)
+        .exclude(email__isnull=True)
+        .exclude(email__exact="")
+        .annotate(_email_norm=Lower("email"))
+        .filter(_email_norm__in=target_emails)
+        .prefetch_related("answers__question")
+        .order_by("_email_norm", "-created_at", "-id")
+    )
+
+    out: dict[str, Application] = {}
+    for app in qs:
+        email_norm = (getattr(app, "_email_norm", "") or "").strip().lower()
+        if not email_norm or email_norm in out:
+            continue
+        out[email_norm] = app
+    return out
+
+
+def _copy_application_to_form(source_app: Application, target_form: FormDefinition) -> tuple[Application, int, int]:
+    source_answers = list(source_app.answers.select_related("question"))
+    target_questions = {
+        q.slug: q
+        for q in target_form.questions.order_by("position", "id")
+    }
+
+    prepared_answers: list[tuple[Question, str]] = []
+    skipped_answers = 0
+    for ans in source_answers:
+        src_slug = getattr(getattr(ans, "question", None), "slug", "")
+        if not src_slug:
+            continue
+        tgt_q = target_questions.get(src_slug)
+        if not tgt_q:
+            skipped_answers += 1
+            continue
+        prepared_answers.append((tgt_q, ans.value or ""))
+
+    if not prepared_answers:
+        raise ValueError("No matching question slugs were found between source and target forms.")
+
+    new_app = Application.objects.create(
+        form=target_form,
+        name=source_app.name,
+        email=source_app.email,
+        tablestakes_score=source_app.tablestakes_score,
+        commitment_score=source_app.commitment_score,
+        nice_to_have_score=source_app.nice_to_have_score,
+        overall_score=source_app.overall_score,
+        recommendation=source_app.recommendation,
+        invite_token=None,
+        invited_to_second_stage=source_app.invited_to_second_stage,
+        second_stage_reminder_due_at=source_app.second_stage_reminder_due_at,
+        second_stage_reminder_sent_at=source_app.second_stage_reminder_sent_at,
+    )
+    Answer.objects.bulk_create(
+        [
+            Answer(
+                application=new_app,
+                question=question,
+                value=value,
+            )
+            for question, value in prepared_answers
+        ]
+    )
+    return new_app, len(prepared_answers), skipped_answers
 
 
 @staff_member_required
@@ -3306,6 +3451,208 @@ def database_copy_application(request):
         messages.info(
             request,
             f"Skipped {skipped_answers} answers because those question slugs do not exist in {target_form.slug}.",
+        )
+    return _database_next_redirect(request, fallback_name="admin_database")
+
+
+@staff_member_required
+@require_POST
+def database_create_assigned_group(request):
+    form = PoolAssignmentForm(request.POST)
+    if not form.is_valid():
+        for _field, errs in form.errors.items():
+            for err in errs:
+                messages.error(request, str(err))
+        return _database_next_redirect(request, fallback_name="admin_database")
+
+    source_group_num = int(form.cleaned_data["source_group_num"])
+    target_group_num = int(form.cleaned_data["target_group_num"])
+    start_day = int(form.cleaned_data["start_day"])
+    start_month = str(form.cleaned_data["start_month"]).strip().lower()
+    end_month = str(form.cleaned_data["end_month"]).strip().lower()
+    year = int(form.cleaned_data["year"])
+    wanted_emails = {
+        e.strip().lower()
+        for e in (form.cleaned_data.get("normalized_emails") or [])
+        if str(e or "").strip()
+    }
+
+    source_group = FormGroup.objects.filter(number=source_group_num).first()
+    if not source_group:
+        messages.error(request, f"Source pool group {source_group_num} was not found.")
+        return _database_next_redirect(request, fallback_name="admin_database")
+
+    source_forms_by_master = _group_forms_by_master_slug(source_group)
+    if not source_forms_by_master:
+        messages.error(
+            request,
+            f"Source pool group {source_group_num} has no copyable group forms.",
+        )
+        return _database_next_redirect(request, fallback_name="admin_database")
+
+    copied_apps = 0
+    copied_answers = 0
+    skipped_existing = 0
+    skipped_no_match = 0
+    unmatched_email_count = 0
+    matched_emails: set[str] = set()
+    assigned_track_emails: dict[str, set[str]] = {"E": set(), "M": set()}
+
+    try:
+        with transaction.atomic():
+            target_group, created_group = FormGroup.objects.get_or_create(
+                number=target_group_num,
+                defaults={
+                    "start_day": start_day,
+                    "start_month": start_month,
+                    "end_month": end_month,
+                    "year": year,
+                    "use_combined_application": True,
+                },
+            )
+
+            update_fields: list[str] = []
+            if target_group.start_day != start_day:
+                target_group.start_day = start_day
+                update_fields.append("start_day")
+            if target_group.start_month != start_month:
+                target_group.start_month = start_month
+                update_fields.append("start_month")
+            if target_group.end_month != end_month:
+                target_group.end_month = end_month
+                update_fields.append("end_month")
+            if target_group.year != year:
+                target_group.year = year
+                update_fields.append("year")
+            if not target_group.use_combined_application:
+                target_group.use_combined_application = True
+                update_fields.append("use_combined_application")
+            if update_fields:
+                target_group.save(update_fields=update_fields)
+
+            for master_slug in sorted(source_forms_by_master.keys()):
+                if master_slug not in MASTER_SLUGS:
+                    continue
+                target_slug = f"G{target_group_num}_{master_slug}"
+                if FormDefinition.objects.filter(slug=target_slug).exists():
+                    continue
+                master_form = FormDefinition.objects.filter(slug=master_slug).first()
+                if master_form:
+                    _clone_form(master_form, target_group)
+
+            FormDefinition.objects.filter(group=target_group).update(
+                is_public=False,
+                accepting_responses=False,
+            )
+
+            target_forms_by_master = _group_forms_by_master_slug(target_group)
+            existing_target_emails_by_master: dict[str, set[str]] = {}
+            for master_slug, target_form in target_forms_by_master.items():
+                existing_target_emails = set(
+                    Application.objects.filter(form=target_form)
+                    .exclude(email__isnull=True)
+                    .exclude(email__exact="")
+                    .annotate(_email_norm=Lower("email"))
+                    .values_list("_email_norm", flat=True)
+                )
+                existing_target_emails_by_master[master_slug] = {
+                    (e or "").strip().lower() for e in existing_target_emails if (e or "").strip()
+                }
+
+            for master_slug, source_form in source_forms_by_master.items():
+                target_form = target_forms_by_master.get(master_slug)
+                if not target_form:
+                    continue
+
+                source_apps_by_email = _latest_apps_by_normalized_email_for_form(
+                    source_form,
+                    wanted_emails,
+                )
+                track = "E" if master_slug.startswith("E_") else ("M" if master_slug.startswith("M_") else "")
+                existing_target_emails = existing_target_emails_by_master.setdefault(master_slug, set())
+
+                for email_norm, source_app in source_apps_by_email.items():
+                    matched_emails.add(email_norm)
+                    if email_norm in existing_target_emails:
+                        skipped_existing += 1
+                        if track:
+                            assigned_track_emails[track].add(email_norm)
+                        continue
+                    try:
+                        _new_app, copied_count, skipped_count = _copy_application_to_form(source_app, target_form)
+                    except ValueError:
+                        skipped_no_match += 1
+                        continue
+                    copied_apps += 1
+                    copied_answers += copied_count
+                    skipped_no_match += skipped_count
+                    existing_target_emails.add(email_norm)
+                    if track:
+                        assigned_track_emails[track].add(email_norm)
+
+            unmatched_email_count = len(wanted_emails - matched_emails)
+
+            participant_list, _ = GroupParticipantList.objects.get_or_create(group=target_group)
+            current_mentoras = set(_norm_email_list(participant_list.mentoras_emails_text or ""))
+            current_emprendedoras = set(_norm_email_list(participant_list.emprendedoras_emails_text or ""))
+
+            merged_mentoras = sorted(current_mentoras | assigned_track_emails["M"])
+            merged_emprendedoras = sorted(current_emprendedoras | assigned_track_emails["E"])
+
+            participant_updates: list[str] = []
+            new_mentoras_text = "\n".join(merged_mentoras)
+            new_emprendedoras_text = "\n".join(merged_emprendedoras)
+            if participant_list.mentoras_emails_text != new_mentoras_text:
+                participant_list.mentoras_emails_text = new_mentoras_text
+                participant_updates.append("mentoras_emails_text")
+            if participant_list.emprendedoras_emails_text != new_emprendedoras_text:
+                participant_list.emprendedoras_emails_text = new_emprendedoras_text
+                participant_updates.append("emprendedoras_emails_text")
+            if participant_updates:
+                participant_list.save(update_fields=participant_updates + ["updated_at"])
+
+    except Exception as exc:
+        messages.error(request, f"Could not create assigned group: {exc}")
+        return _database_next_redirect(request, fallback_name="admin_database")
+
+    if created_group:
+        messages.success(
+            request,
+            f"Created Group {target_group_num} from pool Group {source_group_num}.",
+        )
+    else:
+        messages.success(
+            request,
+            f"Updated Group {target_group_num} from pool Group {source_group_num}.",
+        )
+    messages.success(
+        request,
+        (
+            f"Copied {copied_apps} application(s), {copied_answers} answer(s). "
+            f"Mentoras seeded: {len(assigned_track_emails['M'])}, "
+            f"Emprendedoras seeded: {len(assigned_track_emails['E'])}."
+        ),
+    )
+    if skipped_existing:
+        messages.info(
+            request,
+            f"Skipped {skipped_existing} already-existing application(s) in the target group.",
+        )
+    if skipped_no_match:
+        messages.warning(
+            request,
+            (
+                f"Skipped {skipped_no_match} item(s) because source and target forms "
+                "did not share matching question slugs."
+            ),
+        )
+    if unmatched_email_count:
+        messages.warning(
+            request,
+            (
+                f"{unmatched_email_count} pasted email(s) did not match any application in "
+                f"Group {source_group_num}."
+            ),
         )
     return _database_next_redirect(request, fallback_name="admin_database")
 

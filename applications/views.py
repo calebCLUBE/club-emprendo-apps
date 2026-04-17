@@ -50,7 +50,11 @@ A1_TO_A2_REMINDER_RUN_LOCK_TTL_SECONDS = 60 * 15
 # -------------------------
 # Utilities
 # -------------------------
-def _latest_group_form_slug(suffix: str, combined_only: bool | None = None) -> str | None:
+def _latest_group_form_slug(
+    suffix: str,
+    combined_only: bool | None = None,
+    public_only: bool = False,
+) -> str | None:
     pattern = re.compile(rf"^G(?P<num>\d+)_{re.escape(suffix)}$")
     best = None
     best_num = -1
@@ -58,6 +62,8 @@ def _latest_group_form_slug(suffix: str, combined_only: bool | None = None) -> s
     for fd in FormDefinition.objects.filter(slug__endswith=suffix).select_related("group"):
         m = pattern.match(fd.slug or "")
         if not m:
+            continue
+        if public_only and not bool(getattr(fd, "is_public", False)):
             continue
         if combined_only is not None:
             use_combined = bool(getattr(getattr(fd, "group", None), "use_combined_application", False))
@@ -1185,7 +1191,7 @@ def apply_emprendedora_first(request):
             invite_token=token,
         )
 
-    latest = _latest_group_form_slug("E_A1")
+    latest = _latest_group_form_slug("E_A1", public_only=True)
     target_slug = latest or "E_A1"
     return _handle_application_form(
         request,
@@ -1210,7 +1216,7 @@ def apply_mentora_first(request):
             invite_token=token,
         )
 
-    latest = _latest_group_form_slug("M_A1")
+    latest = _latest_group_form_slug("M_A1", public_only=True)
     target_slug = latest or "M_A1"
     return _handle_application_form(
         request,
@@ -1235,7 +1241,7 @@ def apply_emprendedora_combined(request):
             invite_token=token,
         )
 
-    latest = _latest_group_form_slug("E_A1", combined_only=True)
+    latest = _latest_group_form_slug("E_A1", combined_only=True, public_only=True)
     return _handle_application_form(
         request,
         latest or "E_A1",
@@ -1259,7 +1265,7 @@ def apply_mentora_combined(request):
             invite_token=token,
         )
 
-    latest = _latest_group_form_slug("M_A1", combined_only=True)
+    latest = _latest_group_form_slug("M_A1", combined_only=True, public_only=True)
     return _handle_application_form(
         request,
         latest or "M_A1",

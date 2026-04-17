@@ -100,54 +100,6 @@
           style="width:100%;"
         >
       </label>
-
-      <label>
-        Start day
-        <input
-          type="number"
-          min="1"
-          max="31"
-          required
-          name="start_day"
-          value="{{ pool_assignment_defaults.start_day }}"
-          style="width:100%;"
-        >
-      </label>
-
-      <label>
-        Start month
-        <select name="start_month" required style="width:100%;">
-          {% for month_value, month_label in pool_month_choices %}
-            <option value="{{ month_value }}" {% if month_value == pool_assignment_defaults.start_month %}selected{% endif %}>
-              {{ month_label|title }}
-            </option>
-          {% endfor %}
-        </select>
-      </label>
-
-      <label>
-        End month
-        <select name="end_month" required style="width:100%;">
-          {% for month_value, month_label in pool_month_choices %}
-            <option value="{{ month_value }}" {% if month_value == pool_assignment_defaults.end_month %}selected{% endif %}>
-              {{ month_label|title }}
-            </option>
-          {% endfor %}
-        </select>
-      </label>
-
-      <label>
-        Year
-        <input
-          type="number"
-          min="2020"
-          max="2100"
-          required
-          name="year"
-          value="{{ pool_assignment_defaults.year }}"
-          style="width:100%;"
-        >
-      </label>
     </div>
 
     <label>
@@ -167,6 +119,7 @@
 
     <p style="margin:0; color:#666;">
       This creates or updates the target group, copies matching applications from the source pool group, and seeds that group's participant list.
+      Date values are copied automatically from the selected source pool group.
     </p>
   </form>
 </details>

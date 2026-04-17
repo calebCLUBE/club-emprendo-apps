@@ -1840,10 +1840,6 @@ class PoolAssignmentForm(forms.Form):
         min_value=1,
         label="New group number",
     )
-    start_day = forms.IntegerField(min_value=1, max_value=31, label="Start day")
-    start_month = forms.ChoiceField(choices=MONTH_CHOICES_ES, label="Start month")
-    end_month = forms.ChoiceField(choices=MONTH_CHOICES_ES, label="End month")
-    year = forms.IntegerField(min_value=2020, max_value=2100, label="Year")
     emails_text = forms.CharField(
         required=True,
         label="Applicant emails",
@@ -3196,10 +3192,6 @@ def database_home(request):
         "source_group_num": getattr(source_pool_group, "number", 8),
         "track": PoolAssignmentForm.TRACK_EMPRENDEDORAS,
         "target_group_num": next_group_num,
-        "start_day": getattr(source_pool_group, "start_day", 1),
-        "start_month": getattr(source_pool_group, "start_month", "abril"),
-        "end_month": getattr(source_pool_group, "end_month", "junio"),
-        "year": getattr(source_pool_group, "year", timezone.localdate().year),
     }
 
     return render(
@@ -3220,7 +3212,6 @@ def database_home(request):
             "pairing_files": pairing_files,
             "transfer_form_options": transfer_form_options,
             "pool_source_groups": groups,
-            "pool_month_choices": MONTH_CHOICES_ES,
             "pool_assignment_defaults": pool_assignment_defaults,
             "database_next": request.get_full_path(),
         },
@@ -3482,10 +3473,6 @@ def database_create_assigned_group(request):
     selected_track = str(form.cleaned_data["track"]).strip().upper()
     track_label = "Emprendedoras" if selected_track == "E" else "Mentoras"
     target_group_num = int(form.cleaned_data["target_group_num"])
-    start_day = int(form.cleaned_data["start_day"])
-    start_month = str(form.cleaned_data["start_month"]).strip().lower()
-    end_month = str(form.cleaned_data["end_month"]).strip().lower()
-    year = int(form.cleaned_data["year"])
     wanted_emails = {
         e.strip().lower()
         for e in (form.cleaned_data.get("normalized_emails") or [])
@@ -3495,6 +3482,24 @@ def database_create_assigned_group(request):
     source_group = FormGroup.objects.filter(number=source_group_num).first()
     if not source_group:
         messages.error(request, f"Source pool group {source_group_num} was not found.")
+        return _database_next_redirect(request, fallback_name="admin_database")
+
+    try:
+        start_day = int(getattr(source_group, "start_day", 0) or 0)
+        year = int(getattr(source_group, "year", 0) or 0)
+    except (TypeError, ValueError):
+        start_day = 0
+        year = 0
+    start_month = str(getattr(source_group, "start_month", "") or "").strip().lower()
+    end_month = str(getattr(source_group, "end_month", "") or "").strip().lower()
+    if not (start_day and year and start_month and end_month):
+        messages.error(
+            request,
+            (
+                f"Source pool group {source_group_num} is missing date configuration. "
+                "Update that group first, then assign applicants."
+            ),
+        )
         return _database_next_redirect(request, fallback_name="admin_database")
 
     source_forms_by_master = _group_forms_by_master_slug(source_group)

@@ -1,0 +1,146 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+  <style>
+    .ce-sheet-page {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 12px;
+    }
+    .ce-sheet-shell {
+      max-width: none;
+      margin: 0 auto;
+      background: #fff;
+      border: 1px solid #ddd;
+      border-radius: 12px;
+      padding: 12px;
+      box-sizing: border-box;
+    }
+    .ce-sheet-top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 10px;
+    }
+    .ce-sheet-top h1 {
+      margin: 0;
+      font-size: 22px;
+      line-height: 1.25;
+    }
+    .ce-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .ce-filter {
+      display: grid;
+      grid-template-columns: minmax(220px, 1fr) minmax(260px, 1.2fr) auto;
+      gap: 10px;
+      align-items: end;
+      margin: 8px 0 12px;
+    }
+    .ce-filter label {
+      display: block;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+    .ce-filter select {
+      width: 100%;
+      box-sizing: border-box;
+      min-height: 40px;
+      padding: 8px;
+      line-height: 1.35;
+    }
+    .ce-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 8px 12px;
+      border-radius: 8px;
+      border: 1px solid #223413;
+      background: #223413;
+      color: #fff !important;
+      text-decoration: none;
+      font-weight: 600;
+      min-height: 38px;
+      box-sizing: border-box;
+    }
+    .ce-btn--ghost {
+      background: #fff;
+      color: #223413 !important;
+    }
+    .ce-muted {
+      color: #666;
+      font-size: 12px;
+      margin: 0 0 8px;
+    }
+    .ce-kpi {
+      margin: 8px 0 12px;
+      padding: 8px 10px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      background: #fafafa;
+      font-size: 13px;
+    }
+    @media (max-width: 980px) {
+      .ce-filter {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+
+  <div class="ce-sheet-page">
+    <div class="ce-sheet-shell">
+      <div class="ce-sheet-top">
+        <h1>{{ track_label }} Combined Sheet</h1>
+        <div class="ce-actions">
+          <a class="ce-btn ce-btn--ghost" href="{% url 'admin_database_track_detail' track %}{% if selected_group %}?group={{ selected_group }}{% if completion_filter %}&completion={{ completion_filter }}{% endif %}{% elif completion_filter %}?completion={{ completion_filter }}{% endif %}">Back to submissions</a>
+          <a class="ce-btn ce-btn--ghost" href="{% url 'admin_database_track_master_csv' track %}{% if selected_group %}?group={{ selected_group }}{% endif %}">Download CSV</a>
+        </div>
+      </div>
+
+      <p class="ce-kpi">
+        <strong>Completaron la segunda parte (A2):</strong>
+        {{ second_part_completed_count|default:0 }}
+        {% if selected_group %}
+          {% if selected_group == 800 %}en April Recruitment{% else %}en Group {{ selected_group }}{% endif %}
+        {% endif %}
+      </p>
+
+      <form method="get" class="ce-filter">
+        <div>
+          <label for="group_filter"><strong>Filter by group</strong></label>
+          <select id="group_filter" name="group">
+            <option value="">All groups</option>
+            {% for g in group_options %}
+              <option value="{{ g }}" {% if selected_group == g %}selected{% endif %}>
+                {% if g == 800 %}April Recruitment{% else %}Group {{ g }}{% endif %}
+              </option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label for="completion_filter"><strong>Filter by completion</strong></label>
+          <select id="completion_filter" name="completion">
+            <option value="" {% if not completion_filter %}selected{% endif %}>All</option>
+            <option value="a1_only" {% if completion_filter == "a1_only" %}selected{% endif %}>
+              Show only A1 (hide anyone with A2)
+            </option>
+            <option value="a1_a2" {% if completion_filter == "a1_a2" %}selected{% endif %}>
+              Show only A2 (completed both A1 and A2)
+            </option>
+          </select>
+        </div>
+        <div class="ce-actions">
+          <button type="submit" class="ce-btn">Apply</button>
+          <a class="ce-btn ce-btn--ghost" href="{% url 'admin_database_track_sheet' track %}">Clear</a>
+        </div>
+      </form>
+
+      <p class="ce-muted">Showing all filtered rows: {{ rows_count }}.</p>
+      {% include "admin_dash/includes/xsheet_preview.html" with sheet_id="db-track-full-sheet" sheet_headers=sheet_headers sheet_rows=sheet_rows sheet_height=760 sheet_deferred=True %}
+    </div>
+  </div>
+{% endblock %}

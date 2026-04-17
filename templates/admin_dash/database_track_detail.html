@@ -48,14 +48,11 @@
     <a class="button" href="{% url 'admin_database_track_master_csv' track %}{% if selected_group %}?group={{ selected_group }}{% endif %}">
       Download CSV
     </a>
+    &nbsp;
+    <a class="button" href="{% url 'admin_database_track_sheet' track %}{% if selected_group %}?group={{ selected_group }}{% if completion_filter %}&completion={{ completion_filter }}{% endif %}{% elif completion_filter %}?completion={{ completion_filter }}{% endif %}">
+      Open Sheet
+    </a>
   </p>
-
-  <details style="margin-top:12px;">
-    <summary style="cursor:pointer; font-weight:600;">Sheet Preview (click to expand/collapse)</summary>
-    <div style="margin-top:10px;">
-      {% include "admin_dash/includes/xsheet_preview.html" with sheet_id="db-track-preview" sheet_headers=sheet_headers sheet_rows=sheet_rows sheet_height=560 %}
-    </div>
-  </details>
 
   <h2 style="margin-top:18px;">Submissions ({{ apps|length }})</h2>
   {% if apps %}

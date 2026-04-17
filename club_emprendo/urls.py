@@ -41,6 +41,7 @@ urlpatterns = [
     # PROFILES
     # ============================
     path("admin/profiles/", admin_profiles_views.profiles_list, name="admin_profiles_list"),
+    path("admin/profiles/sheet/", admin_profiles_views.profiles_sheet, name="admin_profiles_sheet"),
     path(
         "admin/profiles/participants/",
         admin_profiles_views.profiles_participants,
@@ -65,10 +66,13 @@ urlpatterns = [
     # ============================
     path("admin/database/", admin_views.database_home, name="admin_database"),
     path("admin/database/form/<slug:form_slug>/", admin_views.database_form_detail, name="admin_database_form_detail"),
+    path("admin/database/form/<slug:form_slug>/sheet/", admin_views.database_form_sheet, name="admin_database_form_sheet"),
     path("admin/database/form/<slug:form_slug>/master.csv", admin_views.database_form_master_csv, name="admin_database_form_master_csv"),
     path("admin/database/type/<slug:app_type>/", admin_views.database_type_detail, name="admin_database_type_detail"),
+    path("admin/database/type/<slug:app_type>/sheet/", admin_views.database_type_sheet, name="admin_database_type_sheet"),
     path("admin/database/type/<slug:app_type>/master.csv", admin_views.database_type_master_csv, name="admin_database_type_master_csv"),
     path("admin/database/combined/<slug:track>/", admin_views.database_track_detail, name="admin_database_track_detail"),
+    path("admin/database/combined/<slug:track>/sheet/", admin_views.database_track_sheet, name="admin_database_track_sheet"),
     path("admin/database/combined/<slug:track>/master.csv", admin_views.database_track_master_csv, name="admin_database_track_master_csv"),
     path("admin/database/submission/<int:app_id>/", admin_views.database_submission_detail, name="admin_database_submission_detail"),
     path("admin/database/export/<slug:form_slug>.csv", admin_views.export_form_csv, name="admin_export_form_csv"),

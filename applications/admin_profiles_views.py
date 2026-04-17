@@ -1325,8 +1325,7 @@ def _build_profiles():
     return profiles
 
 
-@staff_member_required
-def profiles_list(request):
+def _profiles_filtered_payload(request):
     profiles = _build_profiles()
     status_map = {
         _email_status_key(row.email): row
@@ -1358,13 +1357,6 @@ def profiles_list(request):
     query_lower = query.lower()
     group_filter = (request.GET.get("group") or "").strip()
     status_filter = (request.GET.get("grading") or "").strip()
-    view_mode = (request.GET.get("view") or "sheet").strip().lower()
-    show_sheet = view_mode != "list"
-    sheet_page_raw = (request.GET.get("sheet_page") or "1").strip()
-    sheet_page = int(sheet_page_raw) if sheet_page_raw.isdigit() else 1
-    if sheet_page < 1:
-        sheet_page = 1
-    sheet_page_size = 300
     if status_filter not in {"all", "graded", "not_graded"}:
         status_filter = "all"
 
@@ -1380,71 +1372,13 @@ def profiles_list(request):
     elif status_filter == "not_graded":
         filtered = [p for p in filtered if not p["is_graded"]]
 
-    sheet_headers: list[str] = []
-    sheet_rows: list[list[str]] = []
-    sheet_total_rows = 0
-    sheet_total_pages = 1
-    sheet_start_index = 0
-    sheet_end_index = 0
-    if show_sheet:
-        sheet_total_rows = len(filtered)
-        if sheet_total_rows:
-            sheet_total_pages = (sheet_total_rows + sheet_page_size - 1) // sheet_page_size
-            if sheet_page > sheet_total_pages:
-                sheet_page = sheet_total_pages
-            sheet_start_index = (sheet_page - 1) * sheet_page_size
-            sheet_end_index = min(sheet_start_index + sheet_page_size, sheet_total_rows)
-            sheet_profiles = filtered[sheet_start_index:sheet_end_index]
-        else:
-            sheet_profiles = []
-            sheet_page = 1
-            sheet_total_pages = 1
-            sheet_start_index = 0
-            sheet_end_index = 0
-
-        sheet_headers = [
-            "Cedula",
-            "Email",
-            "Applicant",
-            "Group",
-            "Form",
-            "Calificacion status",
-            "Score",
-            "Participated",
-            "Contract signed",
-            "Contract signed at",
-            "Profile URL",
-        ]
-        for p in sheet_profiles:
-            group_label = f"Group {p['group_num']}" if p.get("group_num") else "Ungrouped"
-            form_label = str(p.get("form_slug") or "—")
-            track = str(p.get("track") or "").strip()
-            if track and track != "—":
-                form_label = f"{form_label} · {track}"
-            profile_url = reverse("admin_profile_detail", args=[p["profile_key"]])
-            sheet_rows.append(
-                [
-                    str(p.get("identity_display") or ""),
-                    str(p.get("email") or ""),
-                    str(p.get("applicant_name") or ""),
-                    group_label,
-                    form_label,
-                    str(p.get("calificacion_status") or ""),
-                    str(p.get("overall_score") or "—"),
-                    "Yes" if p.get("participated") else "No",
-                    "Yes" if p.get("contract_signed") else "No",
-                    str(p.get("contract_signed_at") or ""),
-                    profile_url,
-                ]
-            )
-
     group_options = sorted(
         {p["group_num"] for p in profiles if p["group_num"] is not None},
         reverse=True,
     )
-
-    context = {
-        "profiles": filtered,
+    return {
+        "profiles": profiles,
+        "filtered": filtered,
         "query": query,
         "group_filter": group_filter,
         "status_filter": status_filter,
@@ -1454,17 +1388,92 @@ def profiles_list(request):
         "graded_profiles": sum(1 for p in profiles if p["is_graded"]),
         "participated_profiles": sum(1 for p in profiles if p["participated"]),
         "contract_signed_profiles": sum(1 for p in profiles if p.get("contract_signed")),
-        "show_sheet": show_sheet,
-        "profiles_sheet_headers": sheet_headers,
-        "profiles_sheet_rows": sheet_rows,
-        "sheet_page": sheet_page,
-        "sheet_page_size": sheet_page_size,
-        "sheet_total_rows": sheet_total_rows,
-        "sheet_total_pages": sheet_total_pages,
-        "sheet_start_index": sheet_start_index,
-        "sheet_end_index": sheet_end_index,
+    }
+
+
+def _build_profiles_sheet_data(filtered_profiles):
+    headers = [
+        "Cedula",
+        "Email",
+        "Applicant",
+        "Group",
+        "Form",
+        "Calificacion status",
+        "Score",
+        "Participated",
+        "Contract signed",
+        "Contract signed at",
+        "Profile URL",
+    ]
+    rows = []
+    for p in filtered_profiles:
+        group_label = f"Group {p['group_num']}" if p.get("group_num") else "Ungrouped"
+        form_label = str(p.get("form_slug") or "—")
+        track = str(p.get("track") or "").strip()
+        if track and track != "—":
+            form_label = f"{form_label} · {track}"
+        profile_url = reverse("admin_profile_detail", args=[p["profile_key"]])
+        rows.append(
+            [
+                str(p.get("identity_display") or ""),
+                str(p.get("email") or ""),
+                str(p.get("applicant_name") or ""),
+                group_label,
+                form_label,
+                str(p.get("calificacion_status") or ""),
+                str(p.get("overall_score") or "—"),
+                "Yes" if p.get("participated") else "No",
+                "Yes" if p.get("contract_signed") else "No",
+                str(p.get("contract_signed_at") or ""),
+                profile_url,
+            ]
+        )
+    return headers, rows
+
+
+@staff_member_required
+def profiles_list(request):
+    view_mode = (request.GET.get("view") or "").strip().lower()
+    if view_mode == "sheet":
+        params = request.GET.copy()
+        params.pop("view", None)
+        params.pop("sheet_page", None)
+        target = reverse("admin_profiles_sheet")
+        query = params.urlencode()
+        if query:
+            target = f"{target}?{query}"
+        return redirect(target)
+
+    payload = _profiles_filtered_payload(request)
+    context = {
+        "profiles": payload["filtered"],
+        "query": payload["query"],
+        "group_filter": payload["group_filter"],
+        "status_filter": payload["status_filter"],
+        "group_options": payload["group_options"],
+        "total_profiles": payload["total_profiles"],
+        "visible_profiles": payload["visible_profiles"],
+        "graded_profiles": payload["graded_profiles"],
+        "participated_profiles": payload["participated_profiles"],
+        "contract_signed_profiles": payload["contract_signed_profiles"],
     }
     return render(request, "admin_dash/profiles_list.html", context)
+
+
+@staff_member_required
+def profiles_sheet(request):
+    payload = _profiles_filtered_payload(request)
+    sheet_headers, sheet_rows = _build_profiles_sheet_data(payload["filtered"])
+    context = {
+        "query": payload["query"],
+        "group_filter": payload["group_filter"],
+        "status_filter": payload["status_filter"],
+        "group_options": payload["group_options"],
+        "rows_count": len(sheet_rows),
+        "sheet_headers": sheet_headers,
+        "sheet_rows": sheet_rows,
+    }
+    return render(request, "admin_dash/profiles_sheet.html", context)
 
 
 @staff_member_required

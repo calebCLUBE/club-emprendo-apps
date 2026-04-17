@@ -3974,9 +3974,6 @@ def database_form_detail(request, form_slug: str):
         else None
     )
 
-    headers, rows = _build_csv_for_form(form_def)
-    preview_html = _csv_preview_html(headers, rows, max_rows=None)
-
     return render(
         request,
         "admin_dash/database_form_detail.html",
@@ -3986,7 +3983,19 @@ def database_form_detail(request, form_slug: str):
             "submission_count": submission_count,
             "is_first_application": is_first_application,
             "second_stage_sent_count": second_stage_sent_count,
-            "preview_html": preview_html,
+        },
+    )
+
+
+@staff_member_required
+def database_form_sheet(request, form_slug: str):
+    form_def = get_object_or_404(FormDefinition, slug=form_slug)
+    headers, rows = _build_csv_for_form(form_def)
+    return render(
+        request,
+        "admin_dash/database_form_sheet.html",
+        {
+            "form_def": form_def,
             "sheet_headers": headers,
             "sheet_rows": rows,
         },
@@ -4009,14 +4018,19 @@ def database_type_detail(request, app_type: str):
     group_raw = (request.GET.get("group") or "").strip()
     selected_group: int | None = int(group_raw) if group_raw.isdigit() else None
 
-    headers, rows, forms = _build_csv_for_app_type(
-        app_type,
-        selected_group,
-        include_combined_groups=False,
-    )
-    preview_html = _csv_preview_html(headers, rows, max_rows=None)
-
     all_forms = _group_forms_for_app_type(app_type, include_combined_groups=False)
+    if selected_group is None:
+        forms = list(all_forms)
+    else:
+        filtered_forms: list[FormDefinition] = []
+        for fd in all_forms:
+            gnum = getattr(getattr(fd, "group", None), "number", None)
+            if gnum is None:
+                gnum = _group_number_from_slug(fd.slug or "")
+            if gnum == selected_group:
+                filtered_forms.append(fd)
+        forms = filtered_forms
+
     group_options = sorted(
         g
         for g in {
@@ -4041,7 +4055,43 @@ def database_type_detail(request, app_type: str):
             "selected_group": selected_group,
             "group_options": group_options,
             "apps": apps,
-            "preview_html": preview_html,
+        },
+    )
+
+
+@staff_member_required
+def database_type_sheet(request, app_type: str):
+    app_type = (app_type or "").upper().strip()
+    if app_type not in MASTER_SLUGS:
+        raise Http404("Unsupported application type")
+
+    group_raw = (request.GET.get("group") or "").strip()
+    selected_group: int | None = int(group_raw) if group_raw.isdigit() else None
+
+    headers, rows, _forms = _build_csv_for_app_type(
+        app_type,
+        selected_group,
+        include_combined_groups=False,
+    )
+
+    all_forms = _group_forms_for_app_type(app_type, include_combined_groups=False)
+    group_options = sorted(
+        g
+        for g in {
+            getattr(getattr(fd, "group", None), "number", None)
+            or _group_number_from_slug(fd.slug or "")
+            for fd in all_forms
+        }
+        if g is not None
+    )
+
+    return render(
+        request,
+        "admin_dash/database_type_sheet.html",
+        {
+            "app_type": app_type,
+            "selected_group": selected_group,
+            "group_options": group_options,
             "rows_count": len(rows),
             "sheet_headers": headers,
             "sheet_rows": rows,
@@ -4073,6 +4123,92 @@ def database_type_master_csv(request, app_type: str):
 
 @staff_member_required
 def database_track_detail(request, track: str):
+    track = (track or "").upper().strip()
+    if track not in {"E", "M"}:
+        raise Http404("Unsupported combined track")
+
+    group_raw = (request.GET.get("group") or "").strip()
+    selected_group: int | None = int(group_raw) if group_raw.isdigit() else None
+    completion_filter = (request.GET.get("completion") or "").strip().lower()
+    if completion_filter == TRACK_COMPLETION_FILTER_EXCLUDE_A2_ONLY:
+        completion_filter = TRACK_COMPLETION_FILTER_A1_ONLY
+    if completion_filter not in {
+        TRACK_COMPLETION_FILTER_ALL,
+        TRACK_COMPLETION_FILTER_A1_ONLY,
+        TRACK_COMPLETION_FILTER_A1_A2,
+    }:
+        completion_filter = TRACK_COMPLETION_FILTER_ALL
+
+    all_forms = _group_forms_for_track(track)
+    if selected_group is None:
+        forms = list(all_forms)
+    else:
+        filtered_forms: list[FormDefinition] = []
+        for fd in all_forms:
+            gnum = getattr(getattr(fd, "group", None), "number", None)
+            if gnum is None:
+                gnum = _group_number_from_slug(fd.slug or "")
+            if gnum == selected_group:
+                filtered_forms.append(fd)
+        forms = filtered_forms
+
+    second_part_forms = [
+        fd for fd in forms
+        if (fd.slug or "").strip().upper().endswith(f"{track}_A2")
+    ]
+    second_part_completed_count = (
+        Application.objects.filter(form__in=second_part_forms)
+        .exclude(email__isnull=True)
+        .exclude(email__exact="")
+        .annotate(_email_norm=Lower("email"))
+        .values("_email_norm")
+        .distinct()
+        .count()
+        if second_part_forms
+        else 0
+    )
+
+    group_options = sorted(
+        g
+        for g in {
+            getattr(getattr(fd, "group", None), "number", None)
+            or _group_number_from_slug(fd.slug or "")
+            for fd in all_forms
+        }
+        if g is not None
+    )
+
+    apps_qs = (
+        Application.objects.filter(form__in=forms)
+        .select_related("form", "form__group")
+        .order_by("-created_at", "-id")
+    ) if forms else Application.objects.none()
+
+    if completion_filter == TRACK_COMPLETION_FILTER_A1_ONLY:
+        apps_qs = apps_qs.filter(form__slug__iendswith=f"{track}_A1")
+    elif completion_filter == TRACK_COMPLETION_FILTER_A1_A2:
+        apps_qs = apps_qs.filter(form__slug__iendswith=f"{track}_A2")
+
+    apps = list(apps_qs)
+
+    track_label = "Emprendedoras" if track == "E" else "Mentoras"
+    return render(
+        request,
+        "admin_dash/database_track_detail.html",
+        {
+            "track": track,
+            "track_label": track_label,
+            "selected_group": selected_group,
+            "completion_filter": completion_filter,
+            "group_options": group_options,
+            "apps": apps,
+            "second_part_completed_count": second_part_completed_count,
+        },
+    )
+
+
+@staff_member_required
+def database_track_sheet(request, track: str):
     track = (track or "").upper().strip()
     if track not in {"E", "M"}:
         raise Http404("Unsupported combined track")
@@ -4130,7 +4266,6 @@ def database_track_detail(request, track: str):
         apps_qs = apps_qs.filter(form__slug__iendswith=f"{track}_A2")
 
     apps = list(apps_qs)
-
     if completion_filter in {TRACK_COMPLETION_FILTER_A1_ONLY, TRACK_COMPLETION_FILTER_A1_A2} and rows:
         allowed_app_ids = {app.id for app in apps}
         app_id_idx = headers.index("application_id") if "application_id" in headers else -1
@@ -4144,21 +4279,17 @@ def database_track_detail(request, track: str):
                     filtered_rows.append(row)
             rows = filtered_rows
 
-    preview_html = _csv_preview_html(headers, rows, max_rows=None)
-
     track_label = "Emprendedoras" if track == "E" else "Mentoras"
     return render(
         request,
-        "admin_dash/database_track_detail.html",
+        "admin_dash/database_track_sheet.html",
         {
             "track": track,
             "track_label": track_label,
             "selected_group": selected_group,
             "completion_filter": completion_filter,
             "group_options": group_options,
-            "apps": apps,
             "second_part_completed_count": second_part_completed_count,
-            "preview_html": preview_html,
             "rows_count": len(rows),
             "sheet_headers": headers,
             "sheet_rows": rows,

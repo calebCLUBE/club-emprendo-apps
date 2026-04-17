@@ -1,0 +1,75 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+  <style>
+    .ce-sheet-page {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 12px;
+    }
+    .ce-sheet-shell {
+      max-width: none;
+      margin: 0 auto;
+      background: #fff;
+      border: 1px solid #ddd;
+      border-radius: 12px;
+      padding: 12px;
+      box-sizing: border-box;
+    }
+    .ce-sheet-top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 10px;
+    }
+    .ce-sheet-top h1 {
+      margin: 0;
+      font-size: 22px;
+      line-height: 1.25;
+    }
+    .ce-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .ce-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 8px 12px;
+      border-radius: 8px;
+      border: 1px solid #223413;
+      background: #223413;
+      color: #fff !important;
+      text-decoration: none;
+      font-weight: 600;
+      min-height: 38px;
+      box-sizing: border-box;
+    }
+    .ce-btn--ghost {
+      background: #fff;
+      color: #223413 !important;
+    }
+    .ce-muted {
+      color: #666;
+      font-size: 12px;
+      margin: 0 0 8px;
+    }
+  </style>
+
+  <div class="ce-sheet-page">
+    <div class="ce-sheet-shell">
+      <div class="ce-sheet-top">
+        <h1>{{ form_def.slug }} Sheet</h1>
+        <div class="ce-actions">
+          <a class="ce-btn ce-btn--ghost" href="{% url 'admin_database_form_detail' form_def.slug %}">Back to submissions</a>
+          <a class="ce-btn ce-btn--ghost" href="{% url 'admin_export_form_csv' form_def.slug %}">Download CSV</a>
+        </div>
+      </div>
+      <p class="ce-muted">{{ form_def.name }} · Showing all rows.</p>
+      {% include "admin_dash/includes/xsheet_preview.html" with sheet_id="db-form-full-sheet" sheet_headers=sheet_headers sheet_rows=sheet_rows sheet_height=760 sheet_deferred=True %}
+    </div>
+  </div>
+{% endblock %}

@@ -231,12 +231,16 @@
         Emprendedoras — combined ({{ combined_track_counts.E|default:0 }})
       </a>
       &nbsp; — &nbsp;
+      <a href="{% url 'admin_database_track_sheet' 'E' %}">Sheet</a>
+      &nbsp; — &nbsp;
       <a href="{% url 'admin_database_track_master_csv' 'E' %}">CSV</a>
     </li>
     <li style="margin:6px 0;">
       <a href="{% url 'admin_database_track_detail' 'M' %}">
         Mentoras — combined ({{ combined_track_counts.M|default:0 }})
       </a>
+      &nbsp; — &nbsp;
+      <a href="{% url 'admin_database_track_sheet' 'M' %}">Sheet</a>
       &nbsp; — &nbsp;
       <a href="{% url 'admin_database_track_master_csv' 'M' %}">CSV</a>
     </li>
@@ -251,12 +255,16 @@
         E_A1 — old groups ({{ legacy_type_counts.E_A1|default:0 }})
       </a>
       &nbsp; — &nbsp;
+      <a href="{% url 'admin_database_type_sheet' 'E_A1' %}">Sheet</a>
+      &nbsp; — &nbsp;
       <a href="{% url 'admin_database_type_master_csv' 'E_A1' %}">CSV</a>
     </li>
     <li style="margin:6px 0;">
       <a href="{% url 'admin_database_type_detail' 'E_A2' %}">
         E_A2 — old groups ({{ legacy_type_counts.E_A2|default:0 }})
       </a>
+      &nbsp; — &nbsp;
+      <a href="{% url 'admin_database_type_sheet' 'E_A2' %}">Sheet</a>
       &nbsp; — &nbsp;
       <a href="{% url 'admin_database_type_master_csv' 'E_A2' %}">CSV</a>
     </li>
@@ -265,12 +273,16 @@
         M_A1 — old groups ({{ legacy_type_counts.M_A1|default:0 }})
       </a>
       &nbsp; — &nbsp;
+      <a href="{% url 'admin_database_type_sheet' 'M_A1' %}">Sheet</a>
+      &nbsp; — &nbsp;
       <a href="{% url 'admin_database_type_master_csv' 'M_A1' %}">CSV</a>
     </li>
     <li style="margin:6px 0;">
       <a href="{% url 'admin_database_type_detail' 'M_A2' %}">
         M_A2 — old groups ({{ legacy_type_counts.M_A2|default:0 }})
       </a>
+      &nbsp; — &nbsp;
+      <a href="{% url 'admin_database_type_sheet' 'M_A2' %}">Sheet</a>
       &nbsp; — &nbsp;
       <a href="{% url 'admin_database_type_master_csv' 'M_A2' %}">CSV</a>
     </li>
@@ -311,12 +323,16 @@
               Emprendedoras — combined ({{ block.track_counts.E|default:0 }})
             </a>
             &nbsp; — &nbsp;
+            <a href="{% url 'admin_database_track_sheet' 'E' %}?group={{ block.group.number }}">Sheet</a>
+            &nbsp; — &nbsp;
             <a href="{% url 'admin_database_track_master_csv' 'E' %}?group={{ block.group.number }}">CSV</a>
           </li>
           <li style="margin:6px 0;">
             <a href="{% url 'admin_database_track_detail' 'M' %}?group={{ block.group.number }}">
               Mentoras — combined ({{ block.track_counts.M|default:0 }})
             </a>
+            &nbsp; — &nbsp;
+            <a href="{% url 'admin_database_track_sheet' 'M' %}?group={{ block.group.number }}">Sheet</a>
             &nbsp; — &nbsp;
             <a href="{% url 'admin_database_track_master_csv' 'M' %}?group={{ block.group.number }}">CSV</a>
           </li>
@@ -329,6 +345,8 @@
                 <a href="{% url 'admin_database_form_detail' fd.slug %}">
                   {{ fd.slug }} — {{ fd.name }} ({{ fd.submission_count|default:0 }})
                 </a>
+                &nbsp; — &nbsp;
+                <a href="{% url 'admin_database_form_sheet' fd.slug %}">Sheet</a>
                 &nbsp; — &nbsp;
                 <a href="{% url 'admin_export_form_csv' fd.slug %}">CSV</a>
                 {% if fd.admin_edit_url %}
@@ -365,6 +383,9 @@
             </a>
 
             &nbsp; — &nbsp;
+            <a href="{% url 'admin_database_form_sheet' s.slug %}">Sheet</a>
+
+            &nbsp; — &nbsp;
             <a href="{% url 'admin_export_form_csv' s.slug %}">CSV</a>
 
             {% if s.admin_edit_url %}
@@ -389,6 +410,9 @@
             <a href="{% url 'admin_database_form_detail' s.slug %}">
               {{ s.name }} ({{ s.slug }}) — {{ s.submission_count|default:0 }}
             </a>
+
+            &nbsp; — &nbsp;
+            <a href="{% url 'admin_database_form_sheet' s.slug %}">Sheet</a>
 
             &nbsp; — &nbsp;
             <a href="{% url 'admin_export_form_csv' s.slug %}">CSV</a>

@@ -64,6 +64,9 @@
           onsubmit="return confirm('¿Eliminar las submissions seleccionadas? Esto borrará las respuestas y no se puede deshacer.');">
       {% csrf_token %}
       <input type="hidden" name="next" value="{{ request.get_full_path }}">
+      {% if selected_group %}
+        <input type="hidden" name="scope_group" value="{{ selected_group }}">
+      {% endif %}
 
       <div style="margin:10px 0; padding:10px; border:1px solid #ddd; border-radius:10px; display:flex; gap:16px; align-items:center; flex-wrap:wrap;">
         <label style="display:flex; align-items:center; gap:8px; margin:0;">

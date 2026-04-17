@@ -65,6 +65,7 @@ logger = logging.getLogger(__name__)
 MASTER_SLUGS = ["E_A1", "E_A2", "M_A1", "M_A2"]
 GROUP_SLUG_RE = re.compile(r"^G(?P<num>\d+)_(?P<master>E_A1|E_A2|M_A1|M_A2)$")
 GRADED_GROUP_RE = re.compile(r"^G(?P<num>\d+)_")
+EMAIL_EXTRACT_RE = re.compile(r"[A-Z0-9._%+\-']+@[A-Z0-9.\-]+\.[A-Z]{2,}", re.IGNORECASE)
 TEST_E_A2_SLUG = "TEST_E_A2"
 TEST_M_A2_SLUG = "TEST_M_A2"
 A2_FORM_RE = re.compile(r"^(G\d+_)?(E_A2|M_A2)$")
@@ -768,11 +769,11 @@ TIME_MAP_ES_TO_EN = {
 def _norm_email_list(s: str) -> list[str]:
     if not s:
         return []
-    # Accept one email per line (paste from docs/sheets), commas, or semicolons.
-    raw_parts = re.split(r"[\n\r,;]+", s)
+    # Extract only valid-looking email addresses from pasted text.
+    matches = EMAIL_EXTRACT_RE.findall(s)
     out: list[str] = []
     seen: set[str] = set()
-    for part in raw_parts:
+    for part in matches:
         email = (part or "").strip().lower()
         if not email or email in seen:
             continue
@@ -3537,6 +3538,8 @@ def database_create_assigned_group(request):
     unmatched_emails: list[str] = []
     unmatched_inserted = 0
     unmatched_already_present = 0
+    removed_not_requested = 0
+    removed_duplicates = 0
     matched_emails: set[str] = set()
     assigned_track_emails: dict[str, set[str]] = {"E": set(), "M": set()}
 
@@ -3552,6 +3555,12 @@ def database_create_assigned_group(request):
                     "use_combined_application": True,
                 },
             )
+            if target_group.id == source_group.id:
+                messages.error(
+                    request,
+                    "Target group must be different from the source applications pool.",
+                )
+                return _database_next_redirect(request, fallback_name="admin_database")
 
             update_fields: list[str] = []
             if target_group.start_day != start_day:
@@ -3590,6 +3599,66 @@ def database_create_assigned_group(request):
                 )
 
             target_forms_by_master = _group_forms_by_master_slug(target_group)
+            selected_target_forms = [
+                fd
+                for master_slug, fd in target_forms_by_master.items()
+                if master_slug.startswith(f"{selected_track}_")
+            ]
+            selected_target_form_ids = [fd.id for fd in selected_target_forms]
+            if not selected_target_form_ids:
+                messages.error(
+                    request,
+                    (
+                        f"Could not prepare target dataset for Group {target_group_num} "
+                        f"({track_label})."
+                    ),
+                )
+                return _database_next_redirect(request, fallback_name="admin_database")
+
+            # Keep target track synchronized to the pasted email list.
+            # Anything outside the requested set is removed from this target track.
+            empty_email_qs = Application.objects.filter(form_id__in=selected_target_form_ids).filter(
+                Q(email__isnull=True) | Q(email__exact="")
+            )
+            removed_empty_email = empty_email_qs.count()
+            if removed_empty_email:
+                empty_email_qs.delete()
+            removed_not_requested += removed_empty_email
+
+            not_wanted_qs = (
+                Application.objects.filter(form_id__in=selected_target_form_ids)
+                .annotate(_email_norm=Lower("email"))
+                .exclude(_email_norm__in=wanted_emails)
+            )
+            deleted_not_wanted = not_wanted_qs.count()
+            if deleted_not_wanted:
+                not_wanted_qs.delete()
+            removed_not_requested += deleted_not_wanted
+
+            dedupe_candidates = (
+                Application.objects.filter(form_id__in=selected_target_form_ids)
+                .exclude(email__isnull=True)
+                .exclude(email__exact="")
+                .annotate(_email_norm=Lower("email"))
+                .order_by("_email_norm", "-created_at", "-id")
+            )
+            seen_dedupe_emails: set[str] = set()
+            duplicate_ids: list[int] = []
+            for app in dedupe_candidates:
+                email_norm = (getattr(app, "_email_norm", "") or "").strip().lower()
+                if not email_norm:
+                    duplicate_ids.append(app.id)
+                    continue
+                if email_norm in seen_dedupe_emails:
+                    duplicate_ids.append(app.id)
+                    continue
+                seen_dedupe_emails.add(email_norm)
+            if duplicate_ids:
+                duplicate_qs = Application.objects.filter(id__in=duplicate_ids)
+                removed_duplicates = duplicate_qs.count()
+                if removed_duplicates:
+                    duplicate_qs.delete()
+
             existing_target_emails_by_master: dict[str, set[str]] = {}
             for master_slug, target_form in target_forms_by_master.items():
                 if not master_slug.startswith(f"{selected_track}_"):
@@ -3615,38 +3684,66 @@ def database_create_assigned_group(request):
                 )
                 return _database_next_redirect(request, fallback_name="admin_database")
 
+            source_best_app_by_email: dict[str, Application] = {}
             for master_slug, source_form in source_forms_by_master.items():
                 if not master_slug.startswith(f"{selected_track}_"):
                     continue
-                target_form = target_forms_by_master.get(master_slug)
-                if not target_form:
-                    continue
-
                 source_apps_by_email = _latest_apps_by_normalized_email_for_form(
                     source_form,
                     wanted_emails,
                 )
-                track = "E" if master_slug.startswith("E_") else ("M" if master_slug.startswith("M_") else "")
-                existing_target_emails = existing_target_emails_by_master.setdefault(master_slug, set())
-
                 for email_norm, source_app in source_apps_by_email.items():
-                    matched_emails.add(email_norm)
-                    if email_norm in existing_target_emails:
-                        skipped_existing += 1
-                        if track:
-                            assigned_track_emails[track].add(email_norm)
+                    existing_app = source_best_app_by_email.get(email_norm)
+                    if existing_app is None:
+                        source_best_app_by_email[email_norm] = source_app
                         continue
-                    try:
-                        _new_app, copied_count, skipped_count = _copy_application_to_form(source_app, target_form)
-                    except ValueError:
-                        skipped_no_match += 1
-                        continue
-                    copied_apps += 1
-                    copied_answers += copied_count
-                    skipped_no_match += skipped_count
-                    existing_target_emails.add(email_norm)
-                    if track:
-                        assigned_track_emails[track].add(email_norm)
+                    existing_key = (getattr(existing_app, "created_at", None), int(getattr(existing_app, "id", 0) or 0))
+                    candidate_key = (getattr(source_app, "created_at", None), int(getattr(source_app, "id", 0) or 0))
+                    if candidate_key > existing_key:
+                        source_best_app_by_email[email_norm] = source_app
+
+            existing_any_target_track: set[str] = set()
+            for vals in existing_target_emails_by_master.values():
+                existing_any_target_track.update(vals)
+
+            for email_norm, source_app in source_best_app_by_email.items():
+                matched_emails.add(email_norm)
+                if email_norm in existing_any_target_track:
+                    skipped_existing += 1
+                    assigned_track_emails[selected_track].add(email_norm)
+                    continue
+
+                source_form_slug = str(getattr(getattr(source_app, "form", None), "slug", "") or "").upper()
+                preferred_master = (
+                    f"{selected_track}_A2"
+                    if source_form_slug.endswith(f"{selected_track}_A2")
+                    else f"{selected_track}_A1"
+                )
+                fallback_master = (
+                    f"{selected_track}_A1"
+                    if preferred_master.endswith("_A2")
+                    else f"{selected_track}_A2"
+                )
+                target_master = preferred_master
+                target_form = target_forms_by_master.get(target_master)
+                if target_form is None:
+                    target_master = fallback_master
+                    target_form = target_forms_by_master.get(target_master)
+                if target_form is None:
+                    skipped_no_match += 1
+                    continue
+
+                try:
+                    _new_app, copied_count, skipped_count = _copy_application_to_form(source_app, target_form)
+                except ValueError:
+                    skipped_no_match += 1
+                    continue
+                copied_apps += 1
+                copied_answers += copied_count
+                skipped_no_match += skipped_count
+                existing_any_target_track.add(email_norm)
+                existing_target_emails_by_master.setdefault(target_master, set()).add(email_norm)
+                assigned_track_emails[selected_track].add(email_norm)
 
             unmatched_emails = sorted(wanted_emails - matched_emails)
             unmatched_email_count = len(unmatched_emails)
@@ -3661,9 +3758,6 @@ def database_create_assigned_group(request):
                 placeholder_master_slug,
                 set(),
             )
-            existing_any_target_track = set()
-            for vals in existing_target_emails_by_master.values():
-                existing_any_target_track.update(vals)
 
             if placeholder_form:
                 for email in unmatched_emails:
@@ -3684,11 +3778,15 @@ def database_create_assigned_group(request):
             current_mentoras = set(_norm_email_list(participant_list.mentoras_emails_text or ""))
             current_emprendedoras = set(_norm_email_list(participant_list.emprendedoras_emails_text or ""))
 
-            merged_mentoras = sorted(
-                current_mentoras | (assigned_track_emails["M"] if selected_track == "M" else set())
+            merged_mentoras = (
+                sorted(wanted_emails)
+                if selected_track == "M"
+                else sorted(current_mentoras)
             )
-            merged_emprendedoras = sorted(
-                current_emprendedoras | (assigned_track_emails["E"] if selected_track == "E" else set())
+            merged_emprendedoras = (
+                sorted(wanted_emails)
+                if selected_track == "E"
+                else sorted(current_emprendedoras)
             )
 
             participant_updates: list[str] = []
@@ -3730,6 +3828,22 @@ def database_create_assigned_group(request):
         messages.info(
             request,
             f"Skipped {skipped_existing} already-existing application(s) in the target group.",
+        )
+    if removed_not_requested:
+        messages.info(
+            request,
+            (
+                f"Removed {removed_not_requested} existing {track_label.lower()} row(s) from "
+                f"Group {target_group_num} because they were not in the pasted list."
+            ),
+        )
+    if removed_duplicates:
+        messages.info(
+            request,
+            (
+                f"Removed {removed_duplicates} duplicate {track_label.lower()} row(s) in "
+                f"Group {target_group_num}."
+            ),
         )
     if skipped_no_match:
         messages.warning(
@@ -4180,6 +4294,37 @@ def bulk_delete_submissions(request):
         messages.info(request, "Las submissions seleccionadas ya no existen.")
         return _database_next_redirect(request)
 
+    scope_group_raw = (request.POST.get("scope_group") or "").strip()
+    scope_group: int | None = int(scope_group_raw) if scope_group_raw.isdigit() else None
+    scope_form_slug = (request.POST.get("scope_form_slug") or "").strip()
+    scope_filtered_out = 0
+
+    if scope_group is not None:
+        scoped_apps: list[Application] = []
+        slug_prefix = f"G{scope_group}_".upper()
+        for app in apps:
+            form = getattr(app, "form", None)
+            slug = str(getattr(form, "slug", "") or "")
+            form_group_num = getattr(getattr(form, "group", None), "number", None)
+            in_scope = (form_group_num == scope_group) or slug.upper().startswith(slug_prefix)
+            if in_scope:
+                scoped_apps.append(app)
+            else:
+                scope_filtered_out += 1
+        apps = scoped_apps
+
+    if scope_form_slug:
+        scoped_apps = [app for app in apps if str(getattr(getattr(app, "form", None), "slug", "") or "") == scope_form_slug]
+        scope_filtered_out += max(0, len(apps) - len(scoped_apps))
+        apps = scoped_apps
+
+    if not apps:
+        messages.warning(
+            request,
+            "No selected submissions matched the current group/form scope, so nothing was deleted.",
+        )
+        return _database_next_redirect(request)
+
     deleted_count = 0
     deleted_storage = 0
     fallback_form_slug = apps[0].form.slug if len({app.form.slug for app in apps}) == 1 else None
@@ -4192,6 +4337,14 @@ def bulk_delete_submissions(request):
     if deleted_storage:
         msg += f" Archivos eliminados del storage: {deleted_storage}."
     messages.success(request, msg)
+    if scope_filtered_out:
+        messages.info(
+            request,
+            (
+                f"{scope_filtered_out} selected submission(s) were outside the current "
+                "group/form scope and were not deleted."
+            ),
+        )
 
     if fallback_form_slug:
         return _database_next_redirect(

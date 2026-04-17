@@ -31,6 +31,7 @@
   .x-spreadsheet-suggest,
   .x-spreadsheet-contextmenu {
     background: #ffffff !important;
+    z-index: 4000 !important;
   }
   .x-spreadsheet-filter .x-spreadsheet-item .label {
     color: #475569 !important;
@@ -44,12 +45,12 @@
     border: 1px solid #ddd;
     border-radius: 10px;
     background: #fff;
-    overflow: hidden;
-    min-height: 420px;
+    overflow: visible;
+    min-height: 620px;
   }
   .ce-sheet-preview-canvas {
     width: 100%;
-    min-height: 420px;
+    min-height: 620px;
     height: 100%;
   }
   .ce-sheet-preview-note {
@@ -97,6 +98,63 @@
 
     const headers = JSON.parse(document.getElementById('{{ headers_id }}').textContent || '[]');
     const rows = JSON.parse(document.getElementById('{{ rows_id }}').textContent || '[]');
+
+    function shieldPopupEvents() {
+      const stopForPopup = function (ev) {
+        const target = ev.target;
+        if (!(target instanceof Element)) {
+          return;
+        }
+        if (
+          target.closest('.x-spreadsheet-sort-filter') ||
+          target.closest('.x-spreadsheet-filter') ||
+          target.closest('.x-spreadsheet-suggest') ||
+          target.closest('.x-spreadsheet-contextmenu')
+        ) {
+          ev.stopPropagation();
+          if (typeof ev.stopImmediatePropagation === 'function') {
+            ev.stopImmediatePropagation();
+          }
+        }
+      };
+      if (document.body) {
+        document.body.addEventListener('click', stopForPopup, false);
+      }
+    }
+
+    function patchSortFilterOutsideClick(spreadsheet) {
+      try {
+        const sortFilter =
+          spreadsheet &&
+          spreadsheet.sheet &&
+          spreadsheet.sheet.sortFilter;
+        if (!sortFilter || sortFilter.__ceOutsideClickPatched) {
+          return;
+        }
+        const originalSetOffset =
+          typeof sortFilter.setOffset === 'function'
+            ? sortFilter.setOffset.bind(sortFilter)
+            : null;
+        if (!originalSetOffset) {
+          return;
+        }
+        sortFilter.setOffset = function patchedSetOffset(offset) {
+          try {
+            const holder = this.el;
+            if (holder && holder.xclickoutside) {
+              document.body.removeEventListener('click', holder.xclickoutside);
+              delete holder.xclickoutside;
+            }
+          } catch (err) {
+            // no-op: defensive guard around third-party internals
+          }
+          return originalSetOffset(offset);
+        };
+        sortFilter.__ceOutsideClickPatched = true;
+      } catch (err) {
+        // no-op: defensive guard around third-party internals
+      }
+    }
 
     function seedMatrixFromCsv() {
       const width = Math.max(1, Array.isArray(headers) ? headers.length : 0);
@@ -180,11 +238,11 @@
       const wrap = root.closest('.ce-sheet-preview-wrap');
       const rect = root.getBoundingClientRect();
       const viewport = window.innerHeight || document.documentElement.clientHeight || 900;
-      const available = Math.max(380, Math.floor(viewport - rect.top - 14));
+      const available = Math.max(620, Math.floor(viewport - rect.top - 6));
       if (wrap) {
         wrap.style.height = `${available}px`;
       }
-      root.style.height = `${Math.max(360, available - 2)}px`;
+      root.style.height = `${Math.max(600, available - 2)}px`;
     }
 
     function ensureSpreadsheetLib() {
@@ -297,6 +355,7 @@
               },
             },
           });
+          patchSortFilterOutsideClick(spreadsheet);
           if (typeof spreadsheet.loadData === 'function') {
             spreadsheet.loadData(buildSheetPayload(matrix));
             hydrateSpreadsheet(spreadsheet, matrix);
@@ -309,6 +368,7 @@
     }
 
     const seedMatrix = seedMatrixFromCsv();
+    shieldPopupEvents();
     fitToViewport();
     initSpreadsheet(seedMatrix);
   })();

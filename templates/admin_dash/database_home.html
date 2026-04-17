@@ -73,10 +73,10 @@
         <select name="source_group_num" required style="width:100%;">
           {% for g in pool_source_groups %}
             <option value="{{ g.number }}" {% if g.number == pool_assignment_defaults.source_group_num %}selected{% endif %}>
-              Group {{ g.number }}
+              {% if g.number == 8 %}April Recruitment{% else %}Group {{ g.number }}{% endif %}
             </option>
           {% empty %}
-            <option value="8" selected>Group 8</option>
+            <option value="8" selected>April Recruitment</option>
           {% endfor %}
         </select>
       </label>

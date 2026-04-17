@@ -273,6 +273,12 @@ def _normalize_dropbox_sign_payload(request) -> dict:
             event_type = str(event.get("event_type") or "")
             event_time = str(event.get("event_time") or "")
             event_hash = str(event.get("event_hash") or "")
+        if not event_type:
+            event_type = str(payload_json.get("event_type") or "")
+        if not event_time:
+            event_time = str(payload_json.get("event_time") or "")
+        if not event_hash:
+            event_hash = str(payload_json.get("event_hash") or "")
         sig_req = payload_json.get("signature_request") or {}
         if isinstance(sig_req, dict):
             signature_request_id = str(sig_req.get("signature_request_id") or "")
@@ -311,10 +317,16 @@ def _normalize_dropbox_sign_payload(request) -> dict:
     # 2) Form encoded fallback
     if not event_type:
         event_type = str(request.POST.get("event[event_type]") or "").strip()
+    if not event_type:
+        event_type = str(request.POST.get("event_type") or "").strip()
     if not event_time:
         event_time = str(request.POST.get("event[event_time]") or "").strip()
+    if not event_time:
+        event_time = str(request.POST.get("event_time") or "").strip()
     if not event_hash:
         event_hash = str(request.POST.get("event[event_hash]") or "").strip()
+    if not event_hash:
+        event_hash = str(request.POST.get("event_hash") or "").strip()
     if not signature_request_id:
         signature_request_id = str(
             request.POST.get("signature_request[signature_request_id]") or ""
@@ -1776,16 +1788,16 @@ def dropbox_sign_webhook(request):
         event.save(update_fields=["processed", "process_note"])
         return HttpResponse("Hello API Event Received", status=200, content_type="text/plain")
 
-    if not hash_ok:
-        event.process_note = "Rejected: event hash verification failed."
-        event.save(update_fields=["process_note"])
-        return JsonResponse({"ok": False, "error": "invalid_event_hash"}, status=403)
-
     if event_type not in DBS_SIGN_EVENT_TYPES:
         event.processed = True
         event.process_note = f"Ignored event type: {event_type or 'unknown'}"
         event.save(update_fields=["processed", "process_note"])
         return JsonResponse({"ok": True, "ignored": True, "event_type": event_type}, status=200)
+
+    if not hash_ok:
+        event.process_note = "Rejected: event hash verification failed."
+        event.save(update_fields=["process_note"])
+        return JsonResponse({"ok": False, "error": "invalid_event_hash"}, status=403)
 
     resolved_emails: list[str] = list(signer_emails)
     if not resolved_emails:

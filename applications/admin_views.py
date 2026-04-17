@@ -98,6 +98,12 @@ PERCENT_SCORE_HEADERS = {
     "totalpts",
     "overallscore",
 }
+RECRUITMENT_POOL_SOURCES = {
+    "april_recruitment": {
+        "label": "April Recruitment",
+        "group_num": 8,
+    },
+}
 
 
 def _reminder_lock_key(form_slug: str) -> str:
@@ -1826,10 +1832,13 @@ class PoolAssignmentForm(forms.Form):
         (TRACK_MENTORAS, "Mentoras"),
     ]
 
-    source_group_num = forms.IntegerField(
-        min_value=1,
-        initial=8,
-        label="Source pool group",
+    source_pool = forms.ChoiceField(
+        choices=[
+            (key, cfg["label"])
+            for key, cfg in RECRUITMENT_POOL_SOURCES.items()
+        ],
+        initial="april_recruitment",
+        label="Source applications",
     )
     track = forms.ChoiceField(
         choices=TRACK_CHOICES,
@@ -1853,13 +1862,8 @@ class PoolAssignmentForm(forms.Form):
 
     def clean(self):
         cleaned = super().clean()
-        source_group_num = cleaned.get("source_group_num")
-        target_group_num = cleaned.get("target_group_num")
         emails_text = cleaned.get("emails_text") or ""
         normalized_emails = _norm_email_list(emails_text)
-
-        if source_group_num and target_group_num and int(source_group_num) == int(target_group_num):
-            raise forms.ValidationError("Source pool group and target group must be different.")
         if not normalized_emails:
             raise forms.ValidationError("Paste at least one valid email.")
 
@@ -3184,12 +3188,10 @@ def database_home(request):
         )
     transfer_form_options.sort(key=lambda x: (-x["group_num"], x["slug"]))
 
-    source_pool_group = FormGroup.objects.filter(number=8).first()
-    if not source_pool_group and groups:
-        source_pool_group = groups[-1]
+    source_pool_default_key = "april_recruitment"
     next_group_num = max([g.number for g in groups], default=8) + 1
     pool_assignment_defaults = {
-        "source_group_num": getattr(source_pool_group, "number", 8),
+        "source_pool": source_pool_default_key,
         "track": PoolAssignmentForm.TRACK_EMPRENDEDORAS,
         "target_group_num": next_group_num,
     }
@@ -3211,7 +3213,10 @@ def database_home(request):
             "graded_files_other": graded_files_other,
             "pairing_files": pairing_files,
             "transfer_form_options": transfer_form_options,
-            "pool_source_groups": groups,
+            "pool_source_choices": [
+                {"value": key, "label": cfg["label"]}
+                for key, cfg in RECRUITMENT_POOL_SOURCES.items()
+            ],
             "pool_assignment_defaults": pool_assignment_defaults,
             "database_next": request.get_full_path(),
         },
@@ -3469,7 +3474,13 @@ def database_create_assigned_group(request):
                 messages.error(request, str(err))
         return _database_next_redirect(request, fallback_name="admin_database")
 
-    source_group_num = int(form.cleaned_data["source_group_num"])
+    source_pool = str(form.cleaned_data["source_pool"]).strip()
+    source_cfg = RECRUITMENT_POOL_SOURCES.get(source_pool)
+    if not source_cfg:
+        messages.error(request, "Invalid source application pool selected.")
+        return _database_next_redirect(request, fallback_name="admin_database")
+    source_group_num = int(source_cfg["group_num"])
+    source_label = str(source_cfg["label"])
     selected_track = str(form.cleaned_data["track"]).strip().upper()
     track_label = "Emprendedoras" if selected_track == "E" else "Mentoras"
     target_group_num = int(form.cleaned_data["target_group_num"])
@@ -3481,7 +3492,10 @@ def database_create_assigned_group(request):
 
     source_group = FormGroup.objects.filter(number=source_group_num).first()
     if not source_group:
-        messages.error(request, f"Source pool group {source_group_num} was not found.")
+        messages.error(
+            request,
+            f"Source application pool '{source_label}' is not configured correctly.",
+        )
         return _database_next_redirect(request, fallback_name="admin_database")
 
     try:
@@ -3496,7 +3510,7 @@ def database_create_assigned_group(request):
         messages.error(
             request,
             (
-                f"Source pool group {source_group_num} is missing date configuration. "
+                f"Source application pool '{source_label}' is missing date configuration. "
                 "Update that group first, then assign applicants."
             ),
         )
@@ -3511,7 +3525,7 @@ def database_create_assigned_group(request):
     if not source_forms_by_master:
         messages.error(
             request,
-            f"Source pool group {source_group_num} has no {track_label} forms to copy.",
+            f"Source application pool '{source_label}' has no {track_label} forms to copy.",
         )
         return _database_next_redirect(request, fallback_name="admin_database")
 
@@ -3565,10 +3579,11 @@ def database_create_assigned_group(request):
                 if master_form:
                     _clone_form(master_form, target_group)
 
-            FormDefinition.objects.filter(group=target_group).update(
-                is_public=False,
-                accepting_responses=False,
-            )
+            if target_group.id != source_group.id:
+                FormDefinition.objects.filter(group=target_group).update(
+                    is_public=False,
+                    accepting_responses=False,
+                )
 
             target_forms_by_master = _group_forms_by_master_slug(target_group)
             existing_target_emails_by_master: dict[str, set[str]] = {}
@@ -3651,12 +3666,12 @@ def database_create_assigned_group(request):
     if created_group:
         messages.success(
             request,
-            f"Created Group {target_group_num} from pool Group {source_group_num} ({track_label}).",
+            f"Created Group {target_group_num} from {source_label} ({track_label}).",
         )
     else:
         messages.success(
             request,
-            f"Updated Group {target_group_num} from pool Group {source_group_num} ({track_label}).",
+            f"Updated Group {target_group_num} from {source_label} ({track_label}).",
         )
     seeded_count = len(assigned_track_emails["E"] if selected_track == "E" else assigned_track_emails["M"])
     messages.success(
@@ -3684,7 +3699,7 @@ def database_create_assigned_group(request):
             request,
             (
                 f"{unmatched_email_count} pasted email(s) did not match any application in "
-                f"Group {source_group_num}."
+                f"{source_label}."
             ),
         )
     return _database_next_redirect(request, fallback_name="admin_database")

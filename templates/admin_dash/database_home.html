@@ -69,14 +69,12 @@
 
     <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:10px;">
       <label>
-        Source pool group
-        <select name="source_group_num" required style="width:100%;">
-          {% for g in pool_source_groups %}
-            <option value="{{ g.number }}" {% if g.number == pool_assignment_defaults.source_group_num %}selected{% endif %}>
-              {% if g.number == 8 %}April Recruitment{% else %}Group {{ g.number }}{% endif %}
+        Source applications
+        <select name="source_pool" required style="width:100%;">
+          {% for src in pool_source_choices %}
+            <option value="{{ src.value }}" {% if src.value == pool_assignment_defaults.source_pool %}selected{% endif %}>
+              {{ src.label }}
             </option>
-          {% empty %}
-            <option value="8" selected>April Recruitment</option>
           {% endfor %}
         </select>
       </label>
@@ -99,6 +97,9 @@
           value="{{ pool_assignment_defaults.target_group_num }}"
           style="width:100%;"
         >
+        <div style="font-size:12px; color:#666; margin-top:4px;">
+          You can choose any target group number.
+        </div>
       </label>
     </div>
 

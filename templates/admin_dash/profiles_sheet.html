@@ -1,10 +1,22 @@
 {% extends "admin/base_site.html" %}
 {% block content %}
   <style>
+    html, body {
+      height: 100%;
+      overflow: hidden;
+    }
+    #container, .main, #content, #content-main {
+      height: 100%;
+    }
+    #content {
+      overflow: hidden;
+    }
     .ce-sheet-page {
       width: 100%;
       box-sizing: border-box;
       padding: 12px;
+      height: calc(100vh - 120px);
+      overflow: hidden;
     }
     .ce-sheet-shell {
       max-width: none;
@@ -14,6 +26,10 @@
       border-radius: 12px;
       padding: 12px;
       box-sizing: border-box;
+      height: 100%;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
     }
     .ce-sheet-top {
       display: flex;

@@ -16,6 +16,26 @@
   .x-spreadsheet-header {
     color: #1f2937 !important;
   }
+  .x-spreadsheet-sort-filter,
+  .x-spreadsheet-sort-filter *,
+  .x-spreadsheet-filter,
+  .x-spreadsheet-filter *,
+  .x-spreadsheet-suggest,
+  .x-spreadsheet-suggest *,
+  .x-spreadsheet-contextmenu,
+  .x-spreadsheet-contextmenu * {
+    color: #1f2937 !important;
+  }
+  .x-spreadsheet-sort-filter,
+  .x-spreadsheet-filter,
+  .x-spreadsheet-suggest,
+  .x-spreadsheet-contextmenu {
+    background: #ffffff !important;
+  }
+  .x-spreadsheet-filter .x-spreadsheet-item .label {
+    color: #475569 !important;
+    opacity: 0.95 !important;
+  }
   .x-spreadsheet-icon .x-spreadsheet-icon-img {
     opacity: 0.72;
   }
@@ -25,10 +45,12 @@
     border-radius: 10px;
     background: #fff;
     overflow: hidden;
+    min-height: 420px;
   }
   .ce-sheet-preview-canvas {
     width: 100%;
     min-height: 420px;
+    height: 100%;
   }
   .ce-sheet-preview-note {
     margin: 8px 0 0;
@@ -54,40 +76,11 @@
     z-index: 1;
     background: #f9fafb;
   }
-  .ce-sheet-deferred {
-    padding: 12px;
-    border-bottom: 1px solid #e5e7eb;
-    background: #f8fafc;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px;
-    align-items: center;
-  }
-  .ce-sheet-deferred-msg {
-    color: #334155;
-    font-size: 12px;
-  }
-  .ce-sheet-deferred-btn {
-    border: 1px solid #cbd5e1;
-    background: #fff;
-    color: #0f172a;
-    border-radius: 8px;
-    height: 34px;
-    padding: 0 12px;
-    font-weight: 600;
-    cursor: pointer;
-  }
-  .ce-sheet-deferred-btn:hover {
-    background: #f8fafc;
-  }
 </style>
 
 <div class="ce-sheet-preview-wrap">
   <div id="{{ root_id }}" class="ce-sheet-preview-canvas"></div>
 </div>
-<p class="ce-sheet-preview-note">
-  Excel-style preview. You can sort/filter/format for analysis here.
-</p>
 
 {{ sheet_headers|json_script:headers_id }}
 {{ sheet_rows|json_script:rows_id }}
@@ -97,8 +90,6 @@
 <script>
   (function () {
     const LOCAL_XSHEET_JS_URL = "{% static 'vendor/x-data-spreadsheet/xspreadsheet.js' %}";
-    const MAX_AUTO_CELLS = 25000;
-    const FORCE_DEFERRED = {{ sheet_deferred|yesno:"true,false,false" }};
     const root = document.getElementById('{{ root_id }}');
     if (!root) {
       return;
@@ -185,6 +176,17 @@
       return payload;
     }
 
+    function fitToViewport() {
+      const wrap = root.closest('.ce-sheet-preview-wrap');
+      const rect = root.getBoundingClientRect();
+      const viewport = window.innerHeight || document.documentElement.clientHeight || 900;
+      const available = Math.max(380, Math.floor(viewport - rect.top - 14));
+      if (wrap) {
+        wrap.style.height = `${available}px`;
+      }
+      root.style.height = `${Math.max(360, available - 2)}px`;
+    }
+
     function ensureSpreadsheetLib() {
       if (typeof window.x_spreadsheet === 'function') {
         return Promise.resolve(true);
@@ -247,6 +249,22 @@
       root.appendChild(table);
     }
 
+    function hydrateSpreadsheet(spreadsheet, matrix) {
+      if (!spreadsheet || typeof spreadsheet.cellText !== 'function') {
+        return;
+      }
+      for (let r = 0; r < matrix.length; r += 1) {
+        const row = Array.isArray(matrix[r]) ? matrix[r] : [];
+        for (let c = 0; c < row.length; c += 1) {
+          const text = String(row[c] == null ? '' : row[c]);
+          if (!text) {
+            continue;
+          }
+          spreadsheet.cellText(r, c, text, 0);
+        }
+      }
+    }
+
     function initSpreadsheet(matrix) {
       ensureSpreadsheetLib().finally(function () {
         if (typeof window.x_spreadsheet !== 'function') {
@@ -254,6 +272,7 @@
           return;
         }
         try {
+          fitToViewport();
           const spreadsheet = x_spreadsheet('#{{ root_id }}', {
             mode: 'edit',
             showToolbar: true,
@@ -271,52 +290,26 @@
             },
             view: {
               height: function () {
-                return {{ sheet_height|default:560 }};
+                return Math.max(
+                  360,
+                  root.clientHeight || {{ sheet_height|default:560 }}
+                );
               },
             },
           });
           if (typeof spreadsheet.loadData === 'function') {
             spreadsheet.loadData(buildSheetPayload(matrix));
+            hydrateSpreadsheet(spreadsheet, matrix);
           }
+          window.addEventListener('resize', fitToViewport, { passive: true });
         } catch (err) {
           renderFallback(matrix);
         }
       });
     }
 
-    function renderDeferredLoader(matrix, totalCells) {
-      const wrap = document.createElement('div');
-      wrap.className = 'ce-sheet-deferred';
-
-      const msg = document.createElement('div');
-      msg.className = 'ce-sheet-deferred-msg';
-      msg.textContent = `Large dataset detected (${totalCells.toLocaleString()} cells). Click to load the full Excel-style sheet.`;
-
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'ce-sheet-deferred-btn';
-      btn.textContent = 'Load Excel-style sheet';
-      btn.addEventListener('click', function () {
-        root.innerHTML = '';
-        initSpreadsheet(matrix);
-      });
-
-      wrap.appendChild(msg);
-      wrap.appendChild(btn);
-      root.innerHTML = '';
-      root.style.overflow = 'auto';
-      root.appendChild(wrap);
-    }
-
     const seedMatrix = seedMatrixFromCsv();
-    const rowCount = Math.max(0, seedMatrix.length - 1);
-    const colCount = Math.max(0, seedMatrix[0] ? seedMatrix[0].length : 0);
-    const totalCells = rowCount * colCount;
-
-    if (FORCE_DEFERRED || totalCells > MAX_AUTO_CELLS) {
-      renderDeferredLoader(seedMatrix, totalCells);
-      return;
-    }
+    fitToViewport();
     initSpreadsheet(seedMatrix);
   })();
 </script>

@@ -1764,16 +1764,22 @@ def dropbox_sign_webhook(request):
         processed=False,
     )
 
+    # Dropbox Sign callback tests should always return success.
+    # Keep strict hash enforcement for real production events.
+    if event_type == "account_callback_test":
+        event.processed = True
+        event.process_note = (
+            "Dropbox Sign callback test acknowledged."
+            if hash_ok
+            else "Dropbox Sign callback test acknowledged (hash not enforced for test event)."
+        )
+        event.save(update_fields=["processed", "process_note"])
+        return HttpResponse("Hello API Event Received", status=200, content_type="text/plain")
+
     if not hash_ok:
         event.process_note = "Rejected: event hash verification failed."
         event.save(update_fields=["process_note"])
         return JsonResponse({"ok": False, "error": "invalid_event_hash"}, status=403)
-
-    if event_type == "account_callback_test":
-        event.processed = True
-        event.process_note = "Dropbox Sign callback test acknowledged."
-        event.save(update_fields=["processed", "process_note"])
-        return HttpResponse("Hello API Event Received", status=200, content_type="text/plain")
 
     if event_type not in DBS_SIGN_EVENT_TYPES:
         event.processed = True

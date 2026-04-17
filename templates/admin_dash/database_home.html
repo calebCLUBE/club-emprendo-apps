@@ -173,7 +173,7 @@
       <details style="margin:10px 0 0 0; padding:8px; border:1px solid #eee; border-radius:8px;">
         <summary style="cursor:pointer; font-weight:600;">
           {% if bucket.group_num == 8 %}
-            April Recruitment (Group 8) ({{ bucket.files|length }})
+            April Recruitment ({{ bucket.files|length }})
           {% else %}
             Group {{ bucket.group_num }} ({{ bucket.files|length }})
           {% endif %}
@@ -322,7 +322,7 @@
     <details style="margin: 10px 0; padding: 10px; border: 1px solid #ddd; border-radius: 10px;">
       <summary style="cursor:pointer;">
         {% if block.group.number == 8 %}
-          <strong>April Recruitment (Group 8)</strong>
+          <strong>April Recruitment</strong>
         {% else %}
           <strong>Group {{ block.group.number }}</strong>
         {% endif %}
@@ -335,7 +335,7 @@
         <input type="hidden" name="next" value="{{ database_next }}">
         <button type="submit" class="button">
           {% if block.group.number == 8 %}
-            Sync April Recruitment (Group 8) To Drive
+            Sync April Recruitment To Drive
           {% else %}
             Sync Group {{ block.group.number }} To Drive
           {% endif %}

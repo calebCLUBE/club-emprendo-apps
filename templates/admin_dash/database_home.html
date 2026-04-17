@@ -82,6 +82,14 @@
       </label>
 
       <label>
+        Applicant type
+        <select name="track" required style="width:100%;">
+          <option value="E" {% if pool_assignment_defaults.track == "E" %}selected{% endif %}>Emprendedoras</option>
+          <option value="M" {% if pool_assignment_defaults.track == "M" %}selected{% endif %}>Mentoras</option>
+        </select>
+      </label>
+
+      <label>
         New group number
         <input
           type="number"

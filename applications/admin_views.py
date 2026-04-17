@@ -1819,10 +1819,22 @@ class CreateGroupForm(forms.Form):
 
 
 class PoolAssignmentForm(forms.Form):
+    TRACK_EMPRENDEDORAS = "E"
+    TRACK_MENTORAS = "M"
+    TRACK_CHOICES = [
+        (TRACK_EMPRENDEDORAS, "Emprendedoras"),
+        (TRACK_MENTORAS, "Mentoras"),
+    ]
+
     source_group_num = forms.IntegerField(
         min_value=1,
         initial=8,
         label="Source pool group",
+    )
+    track = forms.ChoiceField(
+        choices=TRACK_CHOICES,
+        initial=TRACK_EMPRENDEDORAS,
+        label="Applicant type",
     )
     target_group_num = forms.IntegerField(
         min_value=1,
@@ -3182,6 +3194,7 @@ def database_home(request):
     next_group_num = max([g.number for g in groups], default=8) + 1
     pool_assignment_defaults = {
         "source_group_num": getattr(source_pool_group, "number", 8),
+        "track": PoolAssignmentForm.TRACK_EMPRENDEDORAS,
         "target_group_num": next_group_num,
         "start_day": getattr(source_pool_group, "start_day", 1),
         "start_month": getattr(source_pool_group, "start_month", "abril"),
@@ -3466,6 +3479,8 @@ def database_create_assigned_group(request):
         return _database_next_redirect(request, fallback_name="admin_database")
 
     source_group_num = int(form.cleaned_data["source_group_num"])
+    selected_track = str(form.cleaned_data["track"]).strip().upper()
+    track_label = "Emprendedoras" if selected_track == "E" else "Mentoras"
     target_group_num = int(form.cleaned_data["target_group_num"])
     start_day = int(form.cleaned_data["start_day"])
     start_month = str(form.cleaned_data["start_month"]).strip().lower()
@@ -3483,10 +3498,15 @@ def database_create_assigned_group(request):
         return _database_next_redirect(request, fallback_name="admin_database")
 
     source_forms_by_master = _group_forms_by_master_slug(source_group)
+    source_forms_by_master = {
+        master_slug: fd
+        for master_slug, fd in source_forms_by_master.items()
+        if master_slug.startswith(f"{selected_track}_")
+    }
     if not source_forms_by_master:
         messages.error(
             request,
-            f"Source pool group {source_group_num} has no copyable group forms.",
+            f"Source pool group {source_group_num} has no {track_label} forms to copy.",
         )
         return _database_next_redirect(request, fallback_name="admin_database")
 
@@ -3548,6 +3568,8 @@ def database_create_assigned_group(request):
             target_forms_by_master = _group_forms_by_master_slug(target_group)
             existing_target_emails_by_master: dict[str, set[str]] = {}
             for master_slug, target_form in target_forms_by_master.items():
+                if not master_slug.startswith(f"{selected_track}_"):
+                    continue
                 existing_target_emails = set(
                     Application.objects.filter(form=target_form)
                     .exclude(email__isnull=True)
@@ -3560,6 +3582,8 @@ def database_create_assigned_group(request):
                 }
 
             for master_slug, source_form in source_forms_by_master.items():
+                if not master_slug.startswith(f"{selected_track}_"):
+                    continue
                 target_form = target_forms_by_master.get(master_slug)
                 if not target_form:
                     continue
@@ -3596,8 +3620,12 @@ def database_create_assigned_group(request):
             current_mentoras = set(_norm_email_list(participant_list.mentoras_emails_text or ""))
             current_emprendedoras = set(_norm_email_list(participant_list.emprendedoras_emails_text or ""))
 
-            merged_mentoras = sorted(current_mentoras | assigned_track_emails["M"])
-            merged_emprendedoras = sorted(current_emprendedoras | assigned_track_emails["E"])
+            merged_mentoras = sorted(
+                current_mentoras | (assigned_track_emails["M"] if selected_track == "M" else set())
+            )
+            merged_emprendedoras = sorted(
+                current_emprendedoras | (assigned_track_emails["E"] if selected_track == "E" else set())
+            )
 
             participant_updates: list[str] = []
             new_mentoras_text = "\n".join(merged_mentoras)
@@ -3618,19 +3646,19 @@ def database_create_assigned_group(request):
     if created_group:
         messages.success(
             request,
-            f"Created Group {target_group_num} from pool Group {source_group_num}.",
+            f"Created Group {target_group_num} from pool Group {source_group_num} ({track_label}).",
         )
     else:
         messages.success(
             request,
-            f"Updated Group {target_group_num} from pool Group {source_group_num}.",
+            f"Updated Group {target_group_num} from pool Group {source_group_num} ({track_label}).",
         )
+    seeded_count = len(assigned_track_emails["E"] if selected_track == "E" else assigned_track_emails["M"])
     messages.success(
         request,
         (
             f"Copied {copied_apps} application(s), {copied_answers} answer(s). "
-            f"Mentoras seeded: {len(assigned_track_emails['M'])}, "
-            f"Emprendedoras seeded: {len(assigned_track_emails['E'])}."
+            f"{track_label} seeded: {seeded_count}."
         ),
     )
     if skipped_existing:

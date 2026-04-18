@@ -44,13 +44,6 @@
   .x-spreadsheet-selector .x-spreadsheet-selector-corner,
   .x-spreadsheet-selector-corner {
     display: block !important;
-    width: 8px !important;
-    height: 8px !important;
-    border-radius: 2px;
-    background: #2563eb !important;
-    border: 1px solid #ffffff !important;
-    box-shadow: 0 0 0 1px #2563eb;
-    z-index: 4600 !important;
   }
 
   .ce-sheet-preview-wrap {
@@ -247,7 +240,7 @@
   }
   .ce-validation-cell-dropdown {
     position: absolute;
-    z-index: 4500;
+    z-index: 9;
     min-width: 72px;
     max-width: 280px;
     height: 24px;
@@ -269,7 +262,7 @@
   }
   .ce-validation-cell-checkbox-editor {
     position: absolute;
-    z-index: 4500;
+    z-index: 9;
     display: none;
     align-items: center;
     justify-content: center;
@@ -291,7 +284,7 @@
     position: absolute;
     inset: 0;
     pointer-events: none;
-    z-index: 4400;
+    z-index: 8;
   }
   .ce-validation-cell-bubble {
     position: absolute;
@@ -1951,6 +1944,97 @@
       }
     }
 
+    function mountAutofillCornerFallback(spreadsheet) {
+      if (!spreadsheet || !spreadsheet.sheet || spreadsheet.sheet.__ceAutofillFallbackMounted) {
+        return;
+      }
+      const sheet = spreadsheet.sheet;
+      const overlayer = root.querySelector('.x-spreadsheet-overlayer');
+      if (!overlayer) {
+        return;
+      }
+
+      let draggingFromCorner = false;
+
+      const eventToSheetCell = function (ev) {
+        if (!activeSheetData || typeof activeSheetData.getCellRectByXY !== 'function') {
+          return null;
+        }
+        const rect = overlayer.getBoundingClientRect();
+        const x = ev.clientX - rect.left;
+        const y = ev.clientY - rect.top;
+        if (!Number.isFinite(x) || !Number.isFinite(y)) {
+          return null;
+        }
+        try {
+          return activeSheetData.getCellRectByXY(x, y);
+        } catch (err) {
+          return null;
+        }
+      };
+
+      overlayer.addEventListener('mousedown', function (ev) {
+        const target = ev.target;
+        if (!(target instanceof Element) || !target.classList.contains('x-spreadsheet-selector-corner')) {
+          return;
+        }
+        if (!activeSheetData || !sheet.selector) {
+          return;
+        }
+        draggingFromCorner = true;
+        hideValidationCellDropdown();
+        const hit = eventToSheetCell(ev);
+        if (hit && Number.isFinite(hit.ri) && Number.isFinite(hit.ci) && typeof sheet.selector.showAutofill === 'function') {
+          sheet.selector.showAutofill(hit.ri, hit.ci);
+        }
+        ev.preventDefault();
+        ev.stopPropagation();
+        if (typeof ev.stopImmediatePropagation === 'function') {
+          ev.stopImmediatePropagation();
+        }
+      }, true);
+
+      window.addEventListener('mousemove', function (ev) {
+        if (!draggingFromCorner || !sheet.selector || typeof sheet.selector.showAutofill !== 'function') {
+          return;
+        }
+        const hit = eventToSheetCell(ev);
+        if (!hit || !Number.isFinite(hit.ri) || !Number.isFinite(hit.ci)) {
+          return;
+        }
+        sheet.selector.showAutofill(hit.ri, hit.ci);
+        ev.preventDefault();
+      }, true);
+
+      window.addEventListener('mouseup', function () {
+        if (!draggingFromCorner) {
+          return;
+        }
+        draggingFromCorner = false;
+        try {
+          if (
+            activeSheetData &&
+            sheet.selector &&
+            sheet.selector.arange &&
+            typeof activeSheetData.autofill === 'function'
+          ) {
+            const ok = activeSheetData.autofill(sheet.selector.arange, 'all', function () { return null; });
+            if (ok && sheet.table && typeof sheet.table.render === 'function') {
+              sheet.table.render();
+            }
+          }
+        } catch (err) {
+          // ignore autofill fallback errors
+        }
+        if (sheet.selector && typeof sheet.selector.hideAutofill === 'function') {
+          sheet.selector.hideAutofill();
+        }
+        scheduleValidationCellDropdownRefresh();
+      }, true);
+
+      sheet.__ceAutofillFallbackMounted = true;
+    }
+
     function seedMatrixFromCsv() {
       const width = Math.max(1, Array.isArray(headers) ? headers.length : 0);
       const headerRow = [];
@@ -2877,6 +2961,7 @@
             spreadsheet.loadData(buildSheetPayload(matrix));
           }
           initValidationDrawer(spreadsheet);
+          mountAutofillCornerFallback(spreadsheet);
           setSheetRegistryEntry({
             isFallback: false,
             getSpreadsheet: function () {

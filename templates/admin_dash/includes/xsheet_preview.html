@@ -1,5 +1,5 @@
 {% load static inline_static %}
-{% with root_id=sheet_id|add:"-root" headers_id=sheet_id|add:"-headers" rows_id=sheet_id|add:"-rows" drawer_id=sheet_id|add:"-validation-drawer" drawer_backdrop_id=sheet_id|add:"-validation-backdrop" drawer_range_id=sheet_id|add:"-validation-range" drawer_mode_id=sheet_id|add:"-validation-mode" drawer_options_id=sheet_id|add:"-validation-options" drawer_add_option_id=sheet_id|add:"-validation-add-option" drawer_done_id=sheet_id|add:"-validation-done" drawer_clear_id=sheet_id|add:"-validation-clear" drawer_close_id=sheet_id|add:"-validation-close" drawer_status_id=sheet_id|add:"-validation-status" %}
+{% with root_id=sheet_id|add:"-root" headers_id=sheet_id|add:"-headers" rows_id=sheet_id|add:"-rows" drawer_id=sheet_id|add:"-validation-drawer" drawer_backdrop_id=sheet_id|add:"-validation-backdrop" drawer_range_id=sheet_id|add:"-validation-range" drawer_apply_mode_id=sheet_id|add:"-validation-apply-mode" drawer_criteria_id=sheet_id|add:"-validation-criteria" drawer_operator_id=sheet_id|add:"-validation-operator" drawer_value1_id=sheet_id|add:"-validation-value-1" drawer_value2_id=sheet_id|add:"-validation-value-2" drawer_condition_wrap_id=sheet_id|add:"-validation-condition-wrap" drawer_options_wrap_id=sheet_id|add:"-validation-options-wrap" drawer_options_id=sheet_id|add:"-validation-options" drawer_add_option_id=sheet_id|add:"-validation-add-option" drawer_done_id=sheet_id|add:"-validation-done" drawer_clear_id=sheet_id|add:"-validation-clear" drawer_close_id=sheet_id|add:"-validation-close" drawer_status_id=sheet_id|add:"-validation-status" %}
 <link rel="stylesheet" href="{% static 'vendor/x-data-spreadsheet/xspreadsheet.css' %}">
 <style>
   /* Keep toolbar text/icons readable across Django admin theme overrides */
@@ -159,6 +159,53 @@
   .ce-gs-menubar-status.is-ok {
     color: #166534;
   }
+  .ce-hidden {
+    display: none !important;
+  }
+
+  .ce-formula-bar {
+    height: 34px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border-bottom: 1px solid #e5e7eb;
+    background: #fff;
+    padding: 0 8px;
+    position: relative;
+    z-index: 2050;
+  }
+  .ce-formula-name {
+    width: 96px;
+    height: 26px;
+    border: 1px solid #d1d5db;
+    border-radius: 4px;
+    padding: 0 8px;
+    font-size: 12px;
+    color: #1f2937;
+    background: #fff;
+  }
+  .ce-formula-fx {
+    font-size: 13px;
+    color: #6b7280;
+    font-weight: 700;
+    line-height: 1;
+  }
+  .ce-formula-input {
+    flex: 1 1 auto;
+    height: 26px;
+    border: 1px solid #d1d5db;
+    border-radius: 4px;
+    padding: 0 8px;
+    font-size: 12px;
+    color: #111827;
+    background: #fff;
+  }
+  .ce-formula-input:focus,
+  .ce-formula-name:focus {
+    outline: none;
+    border-color: #60a5fa;
+    box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.25);
+  }
 
   .ce-validation-toolbar-btn {
     display: inline-flex;
@@ -272,6 +319,11 @@
     font-size: 14px;
     background: #fff;
     color: #111827;
+  }
+  .ce-validation-condition-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
   }
 
   .ce-validation-options {
@@ -420,14 +472,42 @@
       <input id="{{ drawer_range_id }}" type="text" value="A1" placeholder="A1 or A1:C100">
     </div>
     <div class="ce-validation-field">
-      <label for="{{ drawer_mode_id }}">Criterios</label>
-      <select id="{{ drawer_mode_id }}">
-        <option value="cell" selected>Menú desplegable (rango de celdas)</option>
-        <option value="column">Menú desplegable (columnas)</option>
-        <option value="row">Menú desplegable (filas)</option>
+      <label for="{{ drawer_apply_mode_id }}">Aplicar a</label>
+      <select id="{{ drawer_apply_mode_id }}">
+        <option value="cell" selected>Rango de celdas</option>
+        <option value="column">Columnas completas</option>
+        <option value="row">Filas completas</option>
       </select>
     </div>
     <div class="ce-validation-field">
+      <label for="{{ drawer_criteria_id }}">Criterios</label>
+      <select id="{{ drawer_criteria_id }}">
+        <option value="list" selected>Menú desplegable</option>
+        <option value="checkbox">Casilla de verificación</option>
+        <option value="number">Número</option>
+        <option value="date">Fecha</option>
+        <option value="email">Texto es un correo válido</option>
+        <option value="phone">Texto es un teléfono válido</option>
+      </select>
+    </div>
+    <div id="{{ drawer_condition_wrap_id }}" class="ce-validation-field ce-hidden">
+      <label for="{{ drawer_operator_id }}">Condición</label>
+      <div class="ce-validation-condition-grid">
+        <select id="{{ drawer_operator_id }}">
+          <option value="be">Está entre</option>
+          <option value="nbe">No está entre</option>
+          <option value="eq">Es igual a</option>
+          <option value="neq">No es igual a</option>
+          <option value="lt">Menor que</option>
+          <option value="lte">Menor o igual que</option>
+          <option value="gt">Mayor que</option>
+          <option value="gte">Mayor o igual que</option>
+        </select>
+        <input id="{{ drawer_value1_id }}" type="text" placeholder="Valor 1">
+        <input id="{{ drawer_value2_id }}" type="text" placeholder="Valor 2" class="ce-hidden">
+      </div>
+    </div>
+    <div id="{{ drawer_options_wrap_id }}" class="ce-validation-field">
       <label>Opciones</label>
       <div id="{{ drawer_options_id }}" class="ce-validation-options"></div>
       <button id="{{ drawer_add_option_id }}" type="button" class="ce-validation-add-option">+ Agregar opción</button>
@@ -458,7 +538,13 @@
     const drawer = document.getElementById('{{ drawer_id }}');
     const drawerBackdrop = document.getElementById('{{ drawer_backdrop_id }}');
     const drawerRangeInput = document.getElementById('{{ drawer_range_id }}');
-    const drawerModeInput = document.getElementById('{{ drawer_mode_id }}');
+    const drawerApplyModeInput = document.getElementById('{{ drawer_apply_mode_id }}');
+    const drawerCriteriaInput = document.getElementById('{{ drawer_criteria_id }}');
+    const drawerOperatorInput = document.getElementById('{{ drawer_operator_id }}');
+    const drawerValue1Input = document.getElementById('{{ drawer_value1_id }}');
+    const drawerValue2Input = document.getElementById('{{ drawer_value2_id }}');
+    const drawerConditionWrap = document.getElementById('{{ drawer_condition_wrap_id }}');
+    const drawerOptionsWrap = document.getElementById('{{ drawer_options_wrap_id }}');
     const drawerOptions = document.getElementById('{{ drawer_options_id }}');
     const drawerAddOptionBtn = document.getElementById('{{ drawer_add_option_id }}');
     const drawerDoneBtn = document.getElementById('{{ drawer_done_id }}');
@@ -473,10 +559,13 @@
       '#f4b183', '#f7d774', '#f5c2b8', '#9ec5e5', '#c6dcb0',
       '#d2c2e5', '#2a5db0', '#315f72', '#2f855a', '#5b3f9b',
     ];
-    const colorRules = [];
+    let colorRules = [];
     let validationToolbarButton = null;
     let googleMenuRoot = null;
     let googleMenuStatus = null;
+    let formulaBarRoot = null;
+    let formulaNameInput = null;
+    let formulaInput = null;
     let activeSpreadsheet = null;
     let activeSheetData = null;
 
@@ -706,11 +795,16 @@
       return row;
     }
 
-    function seedDefaultOptionRows() {
+    function seedDefaultOptionRows(criteria) {
       if (!drawerOptions) {
         return;
       }
       drawerOptions.innerHTML = '';
+      if (criteria === 'checkbox') {
+        drawerOptions.appendChild(createOptionRow('TRUE', '#2f855a'));
+        drawerOptions.appendChild(createOptionRow('FALSE', '#ef4444'));
+        return;
+      }
       const defaults = ['NFA', 'NCC', 'INCP', 'INCPP', 'CP'];
       defaults.forEach(function (text, idx) {
         drawerOptions.appendChild(createOptionRow(text, defaultPalette[idx % defaultPalette.length]));
@@ -739,6 +833,83 @@
       return rowsOut;
     }
 
+    function ruleKey(mode, ref) {
+      return `${mode}::${ref}`;
+    }
+
+    function clearColorRulesFor(mode, ref) {
+      const key = ruleKey(mode, ref);
+      colorRules = colorRules.filter(function (item) {
+        return ruleKey(item.mode, item.ref) !== key;
+      });
+    }
+
+    function normalizeCriteriaOperator() {
+      const op = drawerOperatorInput && drawerOperatorInput.value ? drawerOperatorInput.value : 'be';
+      return ['be', 'nbe', 'eq', 'neq', 'lt', 'lte', 'gt', 'gte'].includes(op) ? op : 'be';
+    }
+
+    function updateOperatorValueVisibility() {
+      const op = normalizeCriteriaOperator();
+      const needsTwoValues = op === 'be' || op === 'nbe';
+      if (drawerValue2Input) {
+        drawerValue2Input.classList.toggle('ce-hidden', !needsTwoValues);
+      }
+    }
+
+    function updateCriteriaUI() {
+      const criteria = drawerCriteriaInput && drawerCriteriaInput.value ? drawerCriteriaInput.value : 'list';
+      const isListLike = criteria === 'list' || criteria === 'checkbox';
+      const isComparison = criteria === 'number' || criteria === 'date';
+
+      if (drawerOptionsWrap) {
+        drawerOptionsWrap.classList.toggle('ce-hidden', !isListLike);
+      }
+      if (drawerConditionWrap) {
+        drawerConditionWrap.classList.toggle('ce-hidden', !isComparison);
+      }
+
+      if (drawerValue1Input) {
+        if (criteria === 'number') {
+          drawerValue1Input.type = 'number';
+          drawerValue1Input.step = 'any';
+          drawerValue1Input.placeholder = 'Valor numérico';
+        } else if (criteria === 'date') {
+          drawerValue1Input.type = 'date';
+          drawerValue1Input.removeAttribute('step');
+          drawerValue1Input.placeholder = '';
+        } else {
+          drawerValue1Input.type = 'text';
+          drawerValue1Input.removeAttribute('step');
+          drawerValue1Input.placeholder = 'Valor';
+        }
+      }
+      if (drawerValue2Input) {
+        if (criteria === 'number') {
+          drawerValue2Input.type = 'number';
+          drawerValue2Input.step = 'any';
+          drawerValue2Input.placeholder = 'Segundo valor';
+        } else if (criteria === 'date') {
+          drawerValue2Input.type = 'date';
+          drawerValue2Input.removeAttribute('step');
+          drawerValue2Input.placeholder = '';
+        } else {
+          drawerValue2Input.type = 'text';
+          drawerValue2Input.removeAttribute('step');
+          drawerValue2Input.placeholder = 'Segundo valor';
+        }
+      }
+
+      if (isComparison) {
+        updateOperatorValueVisibility();
+      }
+
+      if (criteria === 'checkbox' && drawerOptions && !drawerOptions.children.length) {
+        drawerOptions.appendChild(createOptionRow('TRUE', '#2f855a'));
+        drawerOptions.appendChild(createOptionRow('FALSE', '#ef4444'));
+      }
+    }
+
     function getActiveSheetData(spreadsheet) {
       if (!spreadsheet || !Array.isArray(spreadsheet.datas) || !spreadsheet.datas.length) {
         return null;
@@ -758,6 +929,7 @@
         return;
       }
       syncDrawerRangeFromSelection();
+      updateCriteriaUI();
       setDrawerStatus('', null);
       drawer.classList.add('is-open');
       drawerBackdrop.classList.add('is-open');
@@ -791,8 +963,8 @@
         return;
       }
       const ref = normalizeRangeRef(drawerRangeInput && drawerRangeInput.value);
-      const mode = drawerModeInput && drawerModeInput.value ? drawerModeInput.value : 'cell';
-      const options = readOptionRows();
+      const mode = drawerApplyModeInput && drawerApplyModeInput.value ? drawerApplyModeInput.value : 'cell';
+      const criteria = drawerCriteriaInput && drawerCriteriaInput.value ? drawerCriteriaInput.value : 'list';
 
       if (!ref) {
         setDrawerStatus('Add a valid range, for example A1:C50.', 'warn');
@@ -803,28 +975,69 @@
         setDrawerStatus('Invalid range format. Use A1 or A1:C50.', 'error');
         return;
       }
-      if (!options.length) {
-        setDrawerStatus('Add at least one dropdown option.', 'warn');
-        return;
-      }
 
       try {
-        activeSheetData.addValidation(mode, ref, {
-          type: 'list',
-          required: false,
-          value: options.map(function (item) { return item.label; }).join(','),
-        });
+        let validator = null;
+        let colorByLabel = {};
 
-        const colorByLabel = {};
-        options.forEach(function (item) {
-          colorByLabel[item.label] = item.color;
-        });
-        upsertColorRule({
-          mode,
-          ref,
-          range,
-          colorByLabel,
-        });
+        if (criteria === 'list' || criteria === 'checkbox') {
+          let options = readOptionRows();
+          if (!options.length && criteria === 'checkbox') {
+            options = [
+              { label: 'TRUE', color: '#2f855a' },
+              { label: 'FALSE', color: '#ef4444' },
+            ];
+          }
+          if (!options.length) {
+            setDrawerStatus('Add at least one dropdown option.', 'warn');
+            return;
+          }
+          validator = {
+            type: 'list',
+            required: false,
+            value: options.map(function (item) { return item.label; }).join(','),
+          };
+          options.forEach(function (item) {
+            colorByLabel[item.label] = item.color;
+          });
+        } else if (criteria === 'number' || criteria === 'date') {
+          const operator = normalizeCriteriaOperator();
+          const value1 = String(drawerValue1Input && drawerValue1Input.value ? drawerValue1Input.value : '').trim();
+          const needsTwo = operator === 'be' || operator === 'nbe';
+          const value2 = String(drawerValue2Input && drawerValue2Input.value ? drawerValue2Input.value : '').trim();
+          if (!value1 || (needsTwo && !value2)) {
+            setDrawerStatus('Fill in the required comparison values.', 'warn');
+            return;
+          }
+          validator = {
+            type: criteria,
+            required: false,
+            operator,
+            value: needsTwo ? [value1, value2] : value1,
+          };
+        } else if (criteria === 'email' || criteria === 'phone') {
+          validator = {
+            type: criteria,
+            required: false,
+            value: '',
+          };
+        }
+
+        if (!validator) {
+          setDrawerStatus('Select a valid criteria type.', 'warn');
+          return;
+        }
+
+        activeSheetData.addValidation(mode, ref, validator);
+        clearColorRulesFor(mode, ref);
+        if (Object.keys(colorByLabel).length) {
+          upsertColorRule({
+            mode,
+            ref,
+            range,
+            colorByLabel,
+          });
+        }
 
         setDrawerStatus(`Rule saved for ${ref}.`, 'ok');
         closeValidationDrawer();
@@ -839,7 +1052,24 @@
         return;
       }
       try {
+        const selectedRef = normalizeRangeRef(currentSelectedRef(activeSheetData));
+        const selectedRange = parseA1Range(selectedRef);
         activeSheetData.removeValidation();
+        if (selectedRange) {
+          colorRules = colorRules.filter(function (rule) {
+            const r = rule.range;
+            if (!r) {
+              return true;
+            }
+            const intersects = !(
+              r.eri < selectedRange.sri ||
+              r.sri > selectedRange.eri ||
+              r.eci < selectedRange.sci ||
+              r.sci > selectedRange.eci
+            );
+            return !intersects;
+          });
+        }
         setDrawerStatus('Validation removed from selected range.', 'ok');
       } catch (err) {
         setDrawerStatus('Could not remove validation. Select cells and try again.', 'error');
@@ -1452,6 +1682,109 @@
       });
     }
 
+    function selectedSingleCellRef() {
+      const ref = currentSelectedRef(activeSheetData);
+      if (!ref) {
+        return 'A1';
+      }
+      return ref.split(':')[0] || ref;
+    }
+
+    function selectedCellCoords() {
+      if (!activeSheetData || !activeSheetData.selector) {
+        return { ri: 0, ci: 0 };
+      }
+      return {
+        ri: Number.isFinite(activeSheetData.selector.ri) ? activeSheetData.selector.ri : 0,
+        ci: Number.isFinite(activeSheetData.selector.ci) ? activeSheetData.selector.ci : 0,
+      };
+    }
+
+    function cellTextAt(ri, ci) {
+      if (!activeSheetData || typeof activeSheetData.getCell !== 'function') {
+        return '';
+      }
+      const cell = activeSheetData.getCell(ri, ci);
+      return cell && cell.text != null ? String(cell.text) : '';
+    }
+
+    function syncFormulaBarFromSelection() {
+      if (!formulaNameInput || !formulaInput) {
+        return;
+      }
+      const coords = selectedCellCoords();
+      formulaNameInput.value = selectedSingleCellRef();
+      formulaInput.value = cellTextAt(coords.ri, coords.ci);
+    }
+
+    function applyFormulaBarValue() {
+      if (!formulaInput || !activeSpreadsheet || !activeSheetData) {
+        return;
+      }
+      const coords = selectedCellCoords();
+      const nextText = String(formulaInput.value == null ? '' : formulaInput.value);
+      try {
+        if (typeof activeSpreadsheet.cellText === 'function') {
+          activeSpreadsheet.cellText(coords.ri, coords.ci, nextText, 0);
+        } else if (typeof activeSheetData.setCellText === 'function') {
+          activeSheetData.setCellText(coords.ri, coords.ci, nextText, 'finished');
+        }
+        if (typeof activeSpreadsheet.reRender === 'function') {
+          activeSpreadsheet.reRender();
+        }
+        setMenuStatus('Cell updated from formula bar.', 'ok');
+      } catch (err) {
+        setMenuStatus('Could not update cell from formula bar.', 'error');
+      }
+    }
+
+    function mountFormulaBar(spreadsheet) {
+      if (!spreadsheet || formulaBarRoot) {
+        return;
+      }
+      const sheetEl = root.querySelector('.x-spreadsheet');
+      if (!sheetEl) {
+        return;
+      }
+      const toolbar = sheetEl.querySelector('.x-spreadsheet-toolbar');
+      if (!toolbar) {
+        return;
+      }
+
+      const bar = document.createElement('div');
+      bar.className = 'ce-formula-bar';
+      const name = document.createElement('input');
+      name.type = 'text';
+      name.className = 'ce-formula-name';
+      name.readOnly = true;
+      const fx = document.createElement('span');
+      fx.className = 'ce-formula-fx';
+      fx.textContent = 'fx';
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.className = 'ce-formula-input';
+      input.placeholder = 'Select a cell to see/edit its value';
+      input.addEventListener('keydown', function (ev) {
+        if (ev.key === 'Enter') {
+          ev.preventDefault();
+          applyFormulaBarValue();
+        }
+      });
+      input.addEventListener('blur', function () {
+        applyFormulaBarValue();
+      });
+
+      bar.appendChild(name);
+      bar.appendChild(fx);
+      bar.appendChild(input);
+
+      toolbar.insertAdjacentElement('afterend', bar);
+      formulaBarRoot = bar;
+      formulaNameInput = name;
+      formulaInput = input;
+      syncFormulaBarFromSelection();
+    }
+
     function fitToViewport() {
       const wrap = root.closest('.ce-sheet-preview-wrap');
       const rect = root.getBoundingClientRect();
@@ -1568,8 +1901,10 @@
       activeSpreadsheet = spreadsheet;
       activeSheetData = getActiveSheetData(spreadsheet);
       mountGoogleSheetsMenu(spreadsheet);
+      mountFormulaBar(spreadsheet);
       mountValidationToolbarButton(spreadsheet);
-      seedDefaultOptionRows();
+      seedDefaultOptionRows(drawerCriteriaInput && drawerCriteriaInput.value);
+      updateCriteriaUI();
       syncDrawerRangeFromSelection();
 
       if (drawerAddOptionBtn) {
@@ -1592,17 +1927,41 @@
       if (drawerBackdrop) {
         drawerBackdrop.addEventListener('click', closeValidationDrawer);
       }
+      if (drawerCriteriaInput) {
+        drawerCriteriaInput.addEventListener('change', function () {
+          if (drawerCriteriaInput.value === 'checkbox') {
+            seedDefaultOptionRows('checkbox');
+          } else if (drawerCriteriaInput.value === 'list' && (!drawerOptions || !drawerOptions.children.length)) {
+            seedDefaultOptionRows('list');
+          }
+          updateCriteriaUI();
+        });
+      }
+      if (drawerOperatorInput) {
+        drawerOperatorInput.addEventListener('change', updateOperatorValueVisibility);
+      }
 
       if (typeof spreadsheet.on === 'function') {
-        spreadsheet.on('cell-selected', syncDrawerRangeFromSelection);
-        spreadsheet.on('cells-selected', syncDrawerRangeFromSelection);
+        spreadsheet.on('cell-selected', function () {
+          syncDrawerRangeFromSelection();
+          syncFormulaBarFromSelection();
+        });
+        spreadsheet.on('cells-selected', function () {
+          syncDrawerRangeFromSelection();
+          syncFormulaBarFromSelection();
+        });
         spreadsheet.on('cell-edited', function (text, ri, ci) {
+          syncFormulaBarFromSelection();
           const color = findColorForCellValue(ri, ci, text);
           if (!color || !activeSheetData) {
             return;
           }
           applyCellColor(activeSheetData, ri, ci, color);
         });
+      }
+
+      if (typeof spreadsheet.reRender === 'function') {
+        spreadsheet.reRender();
       }
     }
 
@@ -1631,9 +1990,12 @@
             },
             view: {
               height: function () {
+                const menuHeight = googleMenuRoot ? googleMenuRoot.offsetHeight : 0;
+                const formulaHeight = formulaBarRoot ? formulaBarRoot.offsetHeight : 0;
+                const raw = (root.clientHeight || {{ sheet_height|default:560 }}) - menuHeight - formulaHeight;
                 return Math.max(
-                  320,
-                  root.clientHeight || {{ sheet_height|default:560 }}
+                  260,
+                  raw
                 );
               },
             },

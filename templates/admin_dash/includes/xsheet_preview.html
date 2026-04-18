@@ -1,5 +1,5 @@
 {% load static inline_static %}
-{% with root_id=sheet_id|add:"-root" headers_id=sheet_id|add:"-headers" rows_id=sheet_id|add:"-rows" %}
+{% with root_id=sheet_id|add:"-root" headers_id=sheet_id|add:"-headers" rows_id=sheet_id|add:"-rows" validation_bar_id=sheet_id|add:"-validation-bar" validation_range_id=sheet_id|add:"-validation-range" validation_mode_id=sheet_id|add:"-validation-mode" validation_values_id=sheet_id|add:"-validation-values" validation_apply_id=sheet_id|add:"-validation-apply" validation_clear_id=sheet_id|add:"-validation-clear" validation_msg_id=sheet_id|add:"-validation-msg" %}
 <link rel="stylesheet" href="{% static 'vendor/x-data-spreadsheet/xspreadsheet.css' %}">
 <style>
   /* Keep toolbar text/icons readable across Django admin theme overrides */
@@ -46,12 +46,93 @@
     border-radius: 10px;
     background: #fff;
     overflow: visible;
-    min-height: 620px;
+    min-height: 0;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
   }
   .ce-sheet-preview-canvas {
     width: 100%;
-    min-height: 620px;
+    min-height: 320px;
     height: 100%;
+    flex: 1 1 auto;
+  }
+  .ce-sheet-toolbar {
+    display: grid;
+    grid-template-columns: minmax(140px, 180px) minmax(130px, 160px) minmax(220px, 1fr) auto auto;
+    gap: 8px;
+    align-items: end;
+    margin: 0 0 8px;
+  }
+  .ce-sheet-toolbar .ce-field label {
+    display: block;
+    font-size: 11px;
+    color: #4b5563;
+    margin-bottom: 2px;
+    font-weight: 600;
+  }
+  .ce-sheet-toolbar input,
+  .ce-sheet-toolbar select {
+    width: 100%;
+    box-sizing: border-box;
+    height: 34px;
+    border: 1px solid #cfd6dd;
+    border-radius: 6px;
+    padding: 6px 8px;
+    font-size: 12px;
+    background: #fff;
+    color: #111827;
+  }
+  .ce-sheet-toolbar .ce-values-input {
+    min-width: 220px;
+  }
+  .ce-sheet-toolbar .ce-btn-mini {
+    height: 34px;
+    border-radius: 6px;
+    border: 1px solid #cfd6dd;
+    background: #fff;
+    color: #1f2937;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 0 10px;
+    cursor: pointer;
+  }
+  .ce-sheet-toolbar .ce-btn-mini:hover {
+    background: #f8fafc;
+  }
+  .ce-sheet-toolbar-title {
+    margin: 0 0 6px;
+    font-size: 12px;
+    color: #374151;
+    font-weight: 700;
+  }
+  .ce-sheet-toolbar-note {
+    margin: 0 0 8px;
+    color: #6b7280;
+    font-size: 11px;
+  }
+  .ce-sheet-toolbar-status {
+    margin: 6px 0 8px;
+    font-size: 12px;
+    color: #1f2937;
+    min-height: 16px;
+  }
+  .ce-sheet-toolbar-status--ok {
+    color: #0f5132;
+  }
+  .ce-sheet-toolbar-status--warn {
+    color: #7c2d12;
+  }
+  .ce-sheet-toolbar-status--error {
+    color: #991b1b;
+  }
+  @media (max-width: 1080px) {
+    .ce-sheet-toolbar {
+      grid-template-columns: 1fr 1fr;
+    }
+    .ce-sheet-toolbar .ce-btn-mini {
+      width: 100%;
+    }
   }
   .ce-sheet-preview-note {
     margin: 8px 0 0;
@@ -79,6 +160,32 @@
   }
 </style>
 
+<div id="{{ validation_bar_id }}">
+  <p class="ce-sheet-toolbar-title">Reglas de validación de datos</p>
+  <p class="ce-sheet-toolbar-note">Create a dropdown list like Google Sheets for selected cells or a typed range.</p>
+  <div class="ce-sheet-toolbar">
+    <div class="ce-field">
+      <label for="{{ validation_range_id }}">Range</label>
+      <input id="{{ validation_range_id }}" type="text" value="A1" placeholder="A1 or A1:C20">
+    </div>
+    <div class="ce-field">
+      <label for="{{ validation_mode_id }}">Mode</label>
+      <select id="{{ validation_mode_id }}">
+        <option value="cell" selected>Cell range</option>
+        <option value="column">Column</option>
+        <option value="row">Row</option>
+      </select>
+    </div>
+    <div class="ce-field">
+      <label for="{{ validation_values_id }}">Dropdown options</label>
+      <input id="{{ validation_values_id }}" class="ce-values-input" type="text" placeholder="Yes,No or P1,P2,P3,P4">
+    </div>
+    <button id="{{ validation_apply_id }}" type="button" class="ce-btn-mini">Apply Dropdown</button>
+    <button id="{{ validation_clear_id }}" type="button" class="ce-btn-mini">Clear Validation</button>
+  </div>
+  <div id="{{ validation_msg_id }}" class="ce-sheet-toolbar-status"></div>
+</div>
+
 <div class="ce-sheet-preview-wrap">
   <div id="{{ root_id }}" class="ce-sheet-preview-canvas"></div>
 </div>
@@ -95,6 +202,13 @@
     if (!root) {
       return;
     }
+    const validationBar = document.getElementById('{{ validation_bar_id }}');
+    const rangeInput = document.getElementById('{{ validation_range_id }}');
+    const modeSelect = document.getElementById('{{ validation_mode_id }}');
+    const valuesInput = document.getElementById('{{ validation_values_id }}');
+    const applyValidationBtn = document.getElementById('{{ validation_apply_id }}');
+    const clearValidationBtn = document.getElementById('{{ validation_clear_id }}');
+    const validationMessage = document.getElementById('{{ validation_msg_id }}');
 
     const headers = JSON.parse(document.getElementById('{{ headers_id }}').textContent || '[]');
     const rows = JSON.parse(document.getElementById('{{ rows_id }}').textContent || '[]');
@@ -238,11 +352,136 @@
       const wrap = root.closest('.ce-sheet-preview-wrap');
       const rect = root.getBoundingClientRect();
       const viewport = window.innerHeight || document.documentElement.clientHeight || 900;
-      const available = Math.max(620, Math.floor(viewport - rect.top - 6));
+      const shell = root.closest('.ce-sheet-shell');
+      const shellBottom = shell ? shell.getBoundingClientRect().bottom : viewport;
+      const availableByViewport = Math.floor(viewport - rect.top - 10);
+      const availableByShell = Math.floor(shellBottom - rect.top - 8);
+      const available = Math.max(320, Math.min(availableByViewport, availableByShell));
       if (wrap) {
         wrap.style.height = `${available}px`;
       }
-      root.style.height = `${Math.max(600, available - 2)}px`;
+      root.style.height = `${Math.max(300, available - 2)}px`;
+    }
+
+    function normalizeRangeRef(value) {
+      return String(value == null ? '' : value)
+        .trim()
+        .toUpperCase()
+        .replace(/\s+/g, '');
+    }
+
+    function getActiveSheetData(spreadsheet) {
+      if (!spreadsheet || !Array.isArray(spreadsheet.datas) || !spreadsheet.datas.length) {
+        return null;
+      }
+      return spreadsheet.datas[0];
+    }
+
+    function currentSelectedRef(sheetData) {
+      try {
+        const range = sheetData && sheetData.selector && sheetData.selector.range;
+        if (range && typeof range.toString === 'function') {
+          return normalizeRangeRef(range.toString());
+        }
+      } catch (err) {
+        // no-op
+      }
+      return 'A1';
+    }
+
+    function setValidationMessage(text, level) {
+      if (!validationMessage) {
+        return;
+      }
+      validationMessage.textContent = text || '';
+      validationMessage.className = 'ce-sheet-toolbar-status';
+      if (level === 'ok') {
+        validationMessage.classList.add('ce-sheet-toolbar-status--ok');
+      } else if (level === 'warn') {
+        validationMessage.classList.add('ce-sheet-toolbar-status--warn');
+      } else if (level === 'error') {
+        validationMessage.classList.add('ce-sheet-toolbar-status--error');
+      }
+    }
+
+    function parseValidationOptions(rawText) {
+      const source = String(rawText == null ? '' : rawText);
+      const seen = new Set();
+      const out = [];
+      source
+        .split(/[\n,]+/)
+        .map((value) => value.trim())
+        .filter((value) => value.length > 0)
+        .forEach((value) => {
+          if (!seen.has(value)) {
+            seen.add(value);
+            out.push(value);
+          }
+        });
+      return out;
+    }
+
+    function attachValidationTools(spreadsheet) {
+      if (!validationBar || !rangeInput || !modeSelect || !valuesInput || !applyValidationBtn || !clearValidationBtn) {
+        return;
+      }
+      const data = getActiveSheetData(spreadsheet);
+      if (!data || typeof data.addValidation !== 'function') {
+        validationBar.style.display = 'none';
+        return;
+      }
+
+      const syncRangeInput = function () {
+        rangeInput.value = currentSelectedRef(data);
+      };
+      syncRangeInput();
+
+      if (typeof spreadsheet.on === 'function') {
+        spreadsheet.on('cell-selected', syncRangeInput);
+        spreadsheet.on('cells-selected', syncRangeInput);
+      }
+
+      applyValidationBtn.addEventListener('click', function () {
+        const ref = normalizeRangeRef(rangeInput.value || currentSelectedRef(data));
+        const options = parseValidationOptions(valuesInput.value);
+        if (!ref) {
+          setValidationMessage('Select a valid range first (example: A1:C20).', 'warn');
+          return;
+        }
+        if (!options.length) {
+          setValidationMessage('Add at least one dropdown option.', 'warn');
+          return;
+        }
+        try {
+          data.addValidation(modeSelect.value || 'cell', ref, {
+            type: 'list',
+            required: false,
+            value: options.join(','),
+          });
+          if (typeof spreadsheet.reRender === 'function') {
+            spreadsheet.reRender();
+          }
+          setValidationMessage(`Dropdown validation applied to ${ref}.`, 'ok');
+        } catch (err) {
+          setValidationMessage('Could not apply validation. Check range and try again.', 'error');
+        }
+      });
+
+      clearValidationBtn.addEventListener('click', function () {
+        try {
+          if (typeof data.removeValidation === 'function') {
+            data.removeValidation();
+            if (typeof spreadsheet.reRender === 'function') {
+              spreadsheet.reRender();
+            }
+            setValidationMessage('Validation removed for the currently selected range.', 'ok');
+            return;
+          }
+          setValidationMessage('Validation removal is not available on this sheet.', 'warn');
+        } catch (err) {
+          setValidationMessage('Could not remove validation. Select the range and try again.', 'error');
+        }
+      });
     }
 
     function ensureSpreadsheetLib() {
@@ -268,6 +507,9 @@
     }
 
     function renderFallback(matrix) {
+      if (validationBar) {
+        validationBar.style.display = 'none';
+      }
       const warn = document.createElement('div');
       warn.style.padding = '10px 12px';
       warn.style.borderBottom = '1px solid #fde68a';
@@ -360,6 +602,7 @@
             spreadsheet.loadData(buildSheetPayload(matrix));
             hydrateSpreadsheet(spreadsheet, matrix);
           }
+          attachValidationTools(spreadsheet);
           window.addEventListener('resize', fitToViewport, { passive: true });
         } catch (err) {
           renderFallback(matrix);

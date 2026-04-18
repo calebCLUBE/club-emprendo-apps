@@ -79,7 +79,7 @@
     <button class="ce-btn ce-btn-primary" type="submit">Save Sheet</button>
     <a class="ce-btn" href="{% url 'admin_grading_download_csv' graded_file.id %}">Download CSV</a>
     <a class="ce-btn" href="{% url 'admin_grading_download_excel' graded_file.id %}">Download Excel</a>
-    <a class="ce-btn" href="{% url 'admin_grading_home' %}">Back to Grading</a>
+    <a class="ce-btn" href="{{ back_url }}">{{ back_label }}</a>
     <span style="color:#6b7280; font-size:12px; margin-left:auto;">
       {{ form_slug }} · Last generated {{ graded_file.created_at|date:"Y-m-d H:i" }}
     </span>

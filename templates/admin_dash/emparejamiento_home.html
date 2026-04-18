@@ -88,7 +88,7 @@
     {% for f in pairing_files %}
       <li>
         {{ f.created_at }} — {{ f.form_slug }} —
-        <a href="{% url 'admin_grading_live_sheet' f.form_slug %}">Sheet</a>
+        <a href="{% url 'admin_grading_live_sheet_file' f.id %}">Sheet</a>
         —
         <a href="{% url 'admin_grading_download_csv' f.id %}">Download CSV</a>
         —

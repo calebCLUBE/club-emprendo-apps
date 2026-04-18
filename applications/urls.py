@@ -121,5 +121,10 @@ urlpatterns = [
         admin_views.grading_live_sheet,
         name="admin_grading_live_sheet",
     ),
+    path(
+        "admin/grading/sheet-file/<int:graded_file_id>/",
+        admin_views.grading_live_sheet_file,
+        name="admin_grading_live_sheet_file",
+    ),
 
 ]

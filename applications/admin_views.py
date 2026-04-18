@@ -4669,22 +4669,19 @@ def grading_home(request):
 
 
 @staff_member_required
-def grading_live_sheet(request, form_slug: str):
-    latest_file = (
-        GradedFile.objects.filter(form_slug=form_slug)
-        .order_by("-created_at", "-id")
-        .first()
-    )
-    if not latest_file:
-        messages.error(request, f"No graded file found for {form_slug}.")
-        return redirect("admin_grading_home")
-
-    headers, rows = _csv_text_to_grid(latest_file.csv_text or "")
-
+def _render_grading_live_sheet(
+    request,
+    graded_file: GradedFile,
+    form_slug: str,
+    *,
+    back_url_name: str,
+    back_label: str,
+):
+    headers, rows = _csv_text_to_grid(graded_file.csv_text or "")
     if request.method == "POST":
         if not headers:
             messages.error(request, "This graded file has no header row and cannot be edited in-sheet.")
-            return redirect("admin_grading_live_sheet", form_slug=form_slug)
+            return redirect(request.path)
 
         headers_raw = (request.POST.get("headers_json") or "").strip()
         edited_headers = list(headers)
@@ -4693,30 +4690,30 @@ def grading_live_sheet(request, form_slug: str):
                 headers_payload = json.loads(headers_raw)
             except json.JSONDecodeError:
                 messages.error(request, "Could not read sheet columns. Please try again.")
-                return redirect("admin_grading_live_sheet", form_slug=form_slug)
+                return redirect(request.path)
 
             if not isinstance(headers_payload, list):
                 messages.error(request, "Sheet columns were out of sync. Please reload and try again.")
-                return redirect("admin_grading_live_sheet", form_slug=form_slug)
+                return redirect(request.path)
 
             edited_headers = ["" if h is None else str(h) for h in headers_payload]
 
         if not edited_headers:
             messages.error(request, "The sheet must have at least one column.")
-            return redirect("admin_grading_live_sheet", form_slug=form_slug)
+            return redirect(request.path)
 
         rows_raw = (request.POST.get("rows_json") or "").strip()
         try:
             rows_payload = json.loads(rows_raw) if rows_raw else []
         except json.JSONDecodeError:
             messages.error(request, "Could not read sheet edits. Please try again.")
-            return redirect("admin_grading_live_sheet", form_slug=form_slug)
+            return redirect(request.path)
 
         rows = _normalize_csv_data_rows(rows_payload, len(edited_headers))
         csv_text = _grid_to_csv_text(edited_headers, rows)
 
-        latest_file.csv_text = csv_text
-        latest_file.save(update_fields=["csv_text"])
+        graded_file.csv_text = csv_text
+        graded_file.save(update_fields=["csv_text"])
 
         try:
             drive_sync = sync_generated_csv_artifact(form_slug, csv_text)
@@ -4731,17 +4728,54 @@ def grading_live_sheet(request, form_slug: str):
                 "Saved sheet edits, but Drive sync failed. You can retry from Database > Sync.",
             )
 
-        return redirect("admin_grading_live_sheet", form_slug=form_slug)
+        return redirect(request.path)
 
     return render(
         request,
         "admin_dash/grading_live_sheet.html",
         {
             "form_slug": form_slug,
-            "graded_file": latest_file,
+            "graded_file": graded_file,
             "headers": headers,
             "rows": rows,
+            "back_url": reverse(back_url_name),
+            "back_label": back_label,
         },
+    )
+
+
+@staff_member_required
+def grading_live_sheet(request, form_slug: str):
+    latest_file = (
+        GradedFile.objects.filter(form_slug=form_slug)
+        .order_by("-created_at", "-id")
+        .first()
+    )
+    if not latest_file:
+        messages.error(request, f"No graded file found for {form_slug}.")
+        return redirect("admin_grading_home")
+    return _render_grading_live_sheet(
+        request,
+        latest_file,
+        form_slug,
+        back_url_name="admin_grading_home",
+        back_label="Back to Grading",
+    )
+
+
+@staff_member_required
+def grading_live_sheet_file(request, graded_file_id: int):
+    graded_file = get_object_or_404(GradedFile, id=graded_file_id)
+    form_slug = (graded_file.form_slug or "").strip()
+    if not form_slug:
+        messages.error(request, "This graded file has no form slug and cannot be opened in sheet mode.")
+        return redirect("admin_database")
+    return _render_grading_live_sheet(
+        request,
+        graded_file,
+        form_slug,
+        back_url_name="admin_database",
+        back_label="Back to Database",
     )
 
 

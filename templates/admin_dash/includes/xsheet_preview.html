@@ -627,6 +627,7 @@
     let validationRefreshTimers = [];
     let validationBubbleRefreshFrame = null;
     let validationBubbleRefreshTimers = [];
+    let validationRectAdjust = { x: 0, y: 0 };
     let activeSpreadsheet = null;
     let activeSheetData = null;
 
@@ -842,7 +843,7 @@
       validationBubbleLayer.innerHTML = '';
     }
 
-    function getCellRectByIndexes(ri, ci) {
+    function getCellRectByIndexesRaw(ri, ci) {
       if (!activeSheetData || !Number.isFinite(ri) || !Number.isFinite(ci)) {
         return null;
       }
@@ -895,6 +896,19 @@
         top: baseTop + rect.top,
         width: rect.width,
         height: rect.height,
+      };
+    }
+
+    function getCellRectByIndexes(ri, ci) {
+      const raw = getCellRectByIndexesRaw(ri, ci);
+      if (!raw) {
+        return null;
+      }
+      return {
+        left: raw.left + (validationRectAdjust.x || 0),
+        top: raw.top + (validationRectAdjust.y || 0),
+        width: raw.width,
+        height: raw.height,
       };
     }
 
@@ -1199,7 +1213,30 @@
         return;
       }
 
-      const areaRect = getCellRectByIndexes(coords.ri, coords.ci);
+      const rootRect = root.getBoundingClientRect();
+      let areaRect = null;
+      const selectorArea = root.querySelector('.x-spreadsheet-selector .x-spreadsheet-selector-area');
+      if (selectorArea) {
+        const probe = selectorArea.getBoundingClientRect();
+        if (probe.width > 2 && probe.height > 2) {
+          areaRect = {
+            left: probe.left - rootRect.left,
+            top: probe.top - rootRect.top,
+            width: probe.width,
+            height: probe.height,
+          };
+          const rawRect = getCellRectByIndexesRaw(coords.ri, coords.ci);
+          if (rawRect && rawRect.width > 2 && rawRect.height > 2) {
+            validationRectAdjust = {
+              x: areaRect.left - rawRect.left,
+              y: areaRect.top - rawRect.top,
+            };
+          }
+        }
+      }
+      if (!areaRect) {
+        areaRect = getCellRectByIndexes(coords.ri, coords.ci);
+      }
       if (!areaRect) {
         hideValidationCellDropdown();
         return;

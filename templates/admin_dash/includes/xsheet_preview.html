@@ -295,6 +295,8 @@
     background-position: calc(100% - 12px) 10px, calc(100% - 7px) 10px;
     background-size: 5px 5px, 5px 5px;
     background-repeat: no-repeat;
+    box-sizing: border-box;
+    overflow: hidden;
   }
   .ce-validation-cell-checkbox-editor {
     position: absolute;
@@ -340,6 +342,7 @@
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
+    box-sizing: border-box;
   }
   .ce-validation-cell-bubble .ce-validation-cell-bubble-arrow {
     font-size: 10px;
@@ -1212,10 +1215,24 @@
             ) ||
             '#e5e7eb';
           const label = currentValue || 'Seleccionar...';
-          const horizontalInset = Math.max(2, Math.round(Math.min(8, rect.width * 0.06)));
-          const width = Math.max(18, Math.round(rect.width - (horizontalInset * 2)));
-          const height = Math.max(22, Math.round(Math.min(rect.height - 8, 24)));
-          const top = Math.max(0, Math.round(rect.top + Math.max(3, Math.floor((rect.height - height) / 2))));
+          const horizontalInset = Math.max(2, Math.round(Math.min(6, rect.width * 0.05)));
+          const verticalInset = Math.max(1, Math.round(Math.min(3, rect.height * 0.12)));
+          const width = Math.max(
+            12,
+            Math.min(
+              Math.max(12, Math.round(rect.width - 2)),
+              Math.round(rect.width - (horizontalInset * 2))
+            )
+          );
+          const height = Math.max(
+            12,
+            Math.min(
+              22,
+              Math.max(12, Math.round(rect.height - 2)),
+              Math.round(rect.height - (verticalInset * 2))
+            )
+          );
+          const top = Math.max(0, Math.round(rect.top + Math.floor((rect.height - height) / 2)));
           const left = Math.max(0, Math.round(rect.left + Math.floor((rect.width - width) / 2)));
 
           const bubble = document.createElement('div');
@@ -1517,10 +1534,24 @@
 
       const left = Math.max(0, Math.round(areaRect.left));
       const top = Math.max(0, Math.round(areaRect.top));
-      const horizontalInset = Math.max(2, Math.round(Math.min(8, areaRect.width * 0.06)));
-      const width = Math.max(18, Math.round(areaRect.width - (horizontalInset * 2)));
-      const height = Math.max(22, Math.round(Math.min(areaRect.height - 8, 24)));
-      const centeredTop = top + Math.max(3, Math.floor((areaRect.height - height) / 2));
+      const horizontalInset = Math.max(2, Math.round(Math.min(6, areaRect.width * 0.05)));
+      const verticalInset = Math.max(1, Math.round(Math.min(3, areaRect.height * 0.12)));
+      const width = Math.max(
+        12,
+        Math.min(
+          Math.max(12, Math.round(areaRect.width - 2)),
+          Math.round(areaRect.width - (horizontalInset * 2))
+        )
+      );
+      const height = Math.max(
+        12,
+        Math.min(
+          22,
+          Math.max(12, Math.round(areaRect.height - 2)),
+          Math.round(areaRect.height - (verticalInset * 2))
+        )
+      );
+      const centeredTop = top + Math.floor((areaRect.height - height) / 2);
       const chipLeft = Math.max(0, Math.round(left + Math.floor((areaRect.width - width) / 2)));
 
       validationCellDropdown.style.left = `${chipLeft}px`;

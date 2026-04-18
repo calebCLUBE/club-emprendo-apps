@@ -1,5 +1,5 @@
 {% load static inline_static %}
-{% with root_id=sheet_id|add:"-root" headers_id=sheet_id|add:"-headers" rows_id=sheet_id|add:"-rows" validation_bar_id=sheet_id|add:"-validation-bar" validation_range_id=sheet_id|add:"-validation-range" validation_mode_id=sheet_id|add:"-validation-mode" validation_values_id=sheet_id|add:"-validation-values" validation_apply_id=sheet_id|add:"-validation-apply" validation_clear_id=sheet_id|add:"-validation-clear" validation_msg_id=sheet_id|add:"-validation-msg" %}
+{% with root_id=sheet_id|add:"-root" headers_id=sheet_id|add:"-headers" rows_id=sheet_id|add:"-rows" drawer_id=sheet_id|add:"-validation-drawer" drawer_backdrop_id=sheet_id|add:"-validation-backdrop" drawer_range_id=sheet_id|add:"-validation-range" drawer_mode_id=sheet_id|add:"-validation-mode" drawer_options_id=sheet_id|add:"-validation-options" drawer_add_option_id=sheet_id|add:"-validation-add-option" drawer_done_id=sheet_id|add:"-validation-done" drawer_clear_id=sheet_id|add:"-validation-clear" drawer_close_id=sheet_id|add:"-validation-close" drawer_status_id=sheet_id|add:"-validation-status" %}
 <link rel="stylesheet" href="{% static 'vendor/x-data-spreadsheet/xspreadsheet.css' %}">
 <style>
   /* Keep toolbar text/icons readable across Django admin theme overrides */
@@ -53,142 +53,292 @@
   }
   .ce-sheet-preview-canvas {
     width: 100%;
-    min-height: 320px;
+    min-height: 300px;
     height: 100%;
     flex: 1 1 auto;
   }
-  .ce-sheet-toolbar {
-    display: grid;
-    grid-template-columns: minmax(140px, 180px) minmax(130px, 160px) minmax(220px, 1fr) auto auto;
-    gap: 8px;
-    align-items: end;
-    margin: 0 0 8px;
-  }
-  .ce-sheet-toolbar .ce-field label {
-    display: block;
-    font-size: 11px;
-    color: #4b5563;
-    margin-bottom: 2px;
+
+  .ce-validation-toolbar-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    min-height: 28px;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    background: #fff;
+    color: #1f2937;
+    font-size: 12px;
     font-weight: 600;
+    padding: 0 8px;
+    margin-left: 8px;
+    cursor: pointer;
   }
-  .ce-sheet-toolbar input,
-  .ce-sheet-toolbar select {
+  .ce-validation-toolbar-btn:hover {
+    background: #f8fafc;
+  }
+  .ce-validation-toolbar-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 999px;
+    background: linear-gradient(135deg, #3b82f6, #9333ea);
+    display: inline-block;
+  }
+
+  .ce-validation-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.18);
+    z-index: 4300;
+    display: none;
+  }
+  .ce-validation-backdrop.is-open {
+    display: block;
+  }
+
+  .ce-validation-drawer {
+    position: fixed;
+    right: 0;
+    top: 56px;
+    width: min(390px, 94vw);
+    height: calc(100vh - 56px);
+    background: #f5f6f7;
+    border-left: 1px solid #d1d5db;
+    box-shadow: -6px 0 24px rgba(15, 23, 42, 0.18);
+    z-index: 4310;
+    display: flex;
+    flex-direction: column;
+    transform: translateX(100%);
+    transition: transform 160ms ease;
+  }
+  .ce-validation-drawer.is-open {
+    transform: translateX(0);
+  }
+  .ce-validation-drawer-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 14px 14px 10px;
+    border-bottom: 1px solid #d5dbe1;
+    background: #f5f6f7;
+  }
+  .ce-validation-drawer-title {
+    margin: 0;
+    font-size: 24px;
+    line-height: 1.25;
+    font-weight: 700;
+    color: #1f2937;
+  }
+  .ce-validation-drawer-close {
+    width: 28px;
+    height: 28px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: #4b5563;
+    font-size: 20px;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .ce-validation-drawer-close:hover {
+    background: #e5e7eb;
+  }
+
+  .ce-validation-drawer-body {
+    padding: 12px 14px;
+    overflow: auto;
+    flex: 1 1 auto;
+  }
+  .ce-validation-field {
+    margin: 0 0 12px;
+  }
+  .ce-validation-field label {
+    display: block;
+    font-size: 16px;
+    color: #374151;
+    font-weight: 600;
+    margin-bottom: 6px;
+  }
+  .ce-validation-field input,
+  .ce-validation-field select {
     width: 100%;
     box-sizing: border-box;
     height: 34px;
     border: 1px solid #cfd6dd;
     border-radius: 6px;
     padding: 6px 8px;
-    font-size: 12px;
+    font-size: 14px;
     background: #fff;
     color: #111827;
   }
-  .ce-sheet-toolbar .ce-values-input {
-    min-width: 220px;
+
+  .ce-validation-options {
+    display: grid;
+    gap: 8px;
+    margin-bottom: 10px;
   }
-  .ce-sheet-toolbar .ce-btn-mini {
-    height: 34px;
-    border-radius: 6px;
+  .ce-validation-option-row {
+    display: grid;
+    grid-template-columns: 20px 52px minmax(120px, 1fr) 26px;
+    gap: 8px;
+    align-items: center;
+  }
+  .ce-validation-grip {
+    border: 0;
+    background: transparent;
+    color: #9ca3af;
+    font-size: 13px;
+    cursor: default;
+    padding: 0;
+  }
+  .ce-validation-color-wrap {
+    position: relative;
     border: 1px solid #cfd6dd;
+    border-radius: 6px;
+    background: #fff;
+    height: 34px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .ce-validation-color-dot {
+    width: 18px;
+    height: 18px;
+    border-radius: 999px;
+    border: 1px solid #cbd5e1;
+    pointer-events: none;
+    box-sizing: border-box;
+  }
+  .ce-validation-color {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    cursor: pointer;
+  }
+  .ce-validation-label {
+    height: 34px;
+    border: 1px solid #cfd6dd;
+    border-radius: 6px;
+    padding: 6px 8px;
+    font-size: 13px;
+    color: #111827;
+    background: #fff;
+  }
+  .ce-validation-remove-option {
+    width: 26px;
+    height: 26px;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: #6b7280;
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .ce-validation-remove-option:hover {
+    background: #e5e7eb;
+  }
+  .ce-validation-add-option {
+    width: 100%;
+    min-height: 32px;
+    border: 1px dashed #9ca3af;
+    border-radius: 6px;
+    background: #fff;
+    color: #374151;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .ce-validation-add-option:hover {
+    background: #f8fafc;
+  }
+
+  .ce-validation-drawer-footer {
+    border-top: 1px solid #d5dbe1;
+    padding: 10px 14px 12px;
+    background: #f5f6f7;
+  }
+  .ce-validation-status {
+    min-height: 16px;
+    font-size: 12px;
+    color: #374151;
+    margin-bottom: 8px;
+  }
+  .ce-validation-status--ok {
+    color: #166534;
+  }
+  .ce-validation-status--warn {
+    color: #7c2d12;
+  }
+  .ce-validation-status--error {
+    color: #991b1b;
+  }
+  .ce-validation-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+  }
+  .ce-validation-btn {
+    height: 34px;
+    border: 1px solid #cfd6dd;
+    border-radius: 6px;
+    padding: 0 12px;
     background: #fff;
     color: #1f2937;
     font-size: 12px;
-    font-weight: 600;
-    padding: 0 10px;
+    font-weight: 700;
     cursor: pointer;
   }
-  .ce-sheet-toolbar .ce-btn-mini:hover {
-    background: #f8fafc;
+  .ce-validation-btn:hover {
+    background: #eef2f7;
   }
-  .ce-sheet-toolbar-title {
-    margin: 0 0 6px;
-    font-size: 12px;
-    color: #374151;
-    font-weight: 700;
+  .ce-validation-btn--primary {
+    border-color: #166534;
+    background: #166534;
+    color: #fff;
   }
-  .ce-sheet-toolbar-note {
-    margin: 0 0 8px;
-    color: #6b7280;
-    font-size: 11px;
-  }
-  .ce-sheet-toolbar-status {
-    margin: 6px 0 8px;
-    font-size: 12px;
-    color: #1f2937;
-    min-height: 16px;
-  }
-  .ce-sheet-toolbar-status--ok {
-    color: #0f5132;
-  }
-  .ce-sheet-toolbar-status--warn {
-    color: #7c2d12;
-  }
-  .ce-sheet-toolbar-status--error {
-    color: #991b1b;
-  }
-  @media (max-width: 1080px) {
-    .ce-sheet-toolbar {
-      grid-template-columns: 1fr 1fr;
-    }
-    .ce-sheet-toolbar .ce-btn-mini {
-      width: 100%;
-    }
-  }
-  .ce-sheet-preview-note {
-    margin: 8px 0 0;
-    color: #666;
-    font-size: 12px;
-  }
-  .ce-sheet-fallback {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 12px;
-  }
-  .ce-sheet-fallback th,
-  .ce-sheet-fallback td {
-    border: 1px solid #e5e7eb;
-    padding: 6px 8px;
-    vertical-align: top;
-    text-align: left;
-    white-space: nowrap;
-  }
-  .ce-sheet-fallback thead th {
-    position: sticky;
-    top: 0;
-    z-index: 1;
-    background: #f9fafb;
+  .ce-validation-btn--primary:hover {
+    background: #14532d;
   }
 </style>
-
-<div id="{{ validation_bar_id }}">
-  <p class="ce-sheet-toolbar-title">Reglas de validación de datos</p>
-  <p class="ce-sheet-toolbar-note">Create a dropdown list like Google Sheets for selected cells or a typed range.</p>
-  <div class="ce-sheet-toolbar">
-    <div class="ce-field">
-      <label for="{{ validation_range_id }}">Range</label>
-      <input id="{{ validation_range_id }}" type="text" value="A1" placeholder="A1 or A1:C20">
-    </div>
-    <div class="ce-field">
-      <label for="{{ validation_mode_id }}">Mode</label>
-      <select id="{{ validation_mode_id }}">
-        <option value="cell" selected>Cell range</option>
-        <option value="column">Column</option>
-        <option value="row">Row</option>
-      </select>
-    </div>
-    <div class="ce-field">
-      <label for="{{ validation_values_id }}">Dropdown options</label>
-      <input id="{{ validation_values_id }}" class="ce-values-input" type="text" placeholder="Yes,No or P1,P2,P3,P4">
-    </div>
-    <button id="{{ validation_apply_id }}" type="button" class="ce-btn-mini">Apply Dropdown</button>
-    <button id="{{ validation_clear_id }}" type="button" class="ce-btn-mini">Clear Validation</button>
-  </div>
-  <div id="{{ validation_msg_id }}" class="ce-sheet-toolbar-status"></div>
-</div>
 
 <div class="ce-sheet-preview-wrap">
   <div id="{{ root_id }}" class="ce-sheet-preview-canvas"></div>
 </div>
+
+<div id="{{ drawer_backdrop_id }}" class="ce-validation-backdrop"></div>
+<aside id="{{ drawer_id }}" class="ce-validation-drawer" aria-hidden="true">
+  <div class="ce-validation-drawer-header">
+    <h3 class="ce-validation-drawer-title">Reglas de validación de datos</h3>
+    <button id="{{ drawer_close_id }}" type="button" class="ce-validation-drawer-close" aria-label="Close">×</button>
+  </div>
+  <div class="ce-validation-drawer-body">
+    <div class="ce-validation-field">
+      <label for="{{ drawer_range_id }}">Aplicar a la columna/rango</label>
+      <input id="{{ drawer_range_id }}" type="text" value="A1" placeholder="A1 or A1:C100">
+    </div>
+    <div class="ce-validation-field">
+      <label for="{{ drawer_mode_id }}">Criterios</label>
+      <select id="{{ drawer_mode_id }}">
+        <option value="cell" selected>Menú desplegable (rango de celdas)</option>
+        <option value="column">Menú desplegable (columnas)</option>
+        <option value="row">Menú desplegable (filas)</option>
+      </select>
+    </div>
+    <div class="ce-validation-field">
+      <label>Opciones</label>
+      <div id="{{ drawer_options_id }}" class="ce-validation-options"></div>
+      <button id="{{ drawer_add_option_id }}" type="button" class="ce-validation-add-option">+ Agregar opción</button>
+    </div>
+  </div>
+  <div class="ce-validation-drawer-footer">
+    <div id="{{ drawer_status_id }}" class="ce-validation-status"></div>
+    <div class="ce-validation-actions">
+      <button id="{{ drawer_clear_id }}" type="button" class="ce-validation-btn">Quitar regla</button>
+      <button id="{{ drawer_done_id }}" type="button" class="ce-validation-btn ce-validation-btn--primary">Hecho</button>
+    </div>
+  </div>
+</aside>
 
 {{ sheet_headers|json_script:headers_id }}
 {{ sheet_rows|json_script:rows_id }}
@@ -202,16 +352,378 @@
     if (!root) {
       return;
     }
-    const validationBar = document.getElementById('{{ validation_bar_id }}');
-    const rangeInput = document.getElementById('{{ validation_range_id }}');
-    const modeSelect = document.getElementById('{{ validation_mode_id }}');
-    const valuesInput = document.getElementById('{{ validation_values_id }}');
-    const applyValidationBtn = document.getElementById('{{ validation_apply_id }}');
-    const clearValidationBtn = document.getElementById('{{ validation_clear_id }}');
-    const validationMessage = document.getElementById('{{ validation_msg_id }}');
+
+    const drawer = document.getElementById('{{ drawer_id }}');
+    const drawerBackdrop = document.getElementById('{{ drawer_backdrop_id }}');
+    const drawerRangeInput = document.getElementById('{{ drawer_range_id }}');
+    const drawerModeInput = document.getElementById('{{ drawer_mode_id }}');
+    const drawerOptions = document.getElementById('{{ drawer_options_id }}');
+    const drawerAddOptionBtn = document.getElementById('{{ drawer_add_option_id }}');
+    const drawerDoneBtn = document.getElementById('{{ drawer_done_id }}');
+    const drawerClearBtn = document.getElementById('{{ drawer_clear_id }}');
+    const drawerCloseBtn = document.getElementById('{{ drawer_close_id }}');
+    const drawerStatus = document.getElementById('{{ drawer_status_id }}');
 
     const headers = JSON.parse(document.getElementById('{{ headers_id }}').textContent || '[]');
     const rows = JSON.parse(document.getElementById('{{ rows_id }}').textContent || '[]');
+
+    const defaultPalette = [
+      '#f4b183', '#f7d774', '#f5c2b8', '#9ec5e5', '#c6dcb0',
+      '#d2c2e5', '#2a5db0', '#315f72', '#2f855a', '#5b3f9b',
+    ];
+    const colorRules = [];
+    let validationToolbarButton = null;
+    let activeSpreadsheet = null;
+    let activeSheetData = null;
+
+    function colIndexFromLabel(label) {
+      let out = 0;
+      for (let i = 0; i < label.length; i += 1) {
+        out = out * 26 + (label.charCodeAt(i) - 64);
+      }
+      return out - 1;
+    }
+
+    function parseA1Range(refText) {
+      const normalized = String(refText || '').trim().toUpperCase().replace(/\s+/g, '');
+      if (!normalized) {
+        return null;
+      }
+      const pieces = normalized.split(':');
+      const parseCell = function (token) {
+        const m = /^([A-Z]+)(\d+)$/.exec(token || '');
+        if (!m) {
+          return null;
+        }
+        return {
+          ci: colIndexFromLabel(m[1]),
+          ri: Math.max(0, Number(m[2]) - 1),
+        };
+      };
+      const start = parseCell(pieces[0]);
+      const end = parseCell(pieces[1] || pieces[0]);
+      if (!start || !end) {
+        return null;
+      }
+      return {
+        ref: normalized,
+        sri: Math.min(start.ri, end.ri),
+        sci: Math.min(start.ci, end.ci),
+        eri: Math.max(start.ri, end.ri),
+        eci: Math.max(start.ci, end.ci),
+      };
+    }
+
+    function cellInRule(rule, ri, ci) {
+      if (!rule || !rule.range) {
+        return false;
+      }
+      const range = rule.range;
+      if (rule.mode === 'column') {
+        return ci >= range.sci && ci <= range.eci;
+      }
+      if (rule.mode === 'row') {
+        return ri >= range.sri && ri <= range.eri;
+      }
+      return ri >= range.sri && ri <= range.eri && ci >= range.sci && ci <= range.eci;
+    }
+
+    function readableTextColor(hexColor) {
+      const color = String(hexColor || '').replace('#', '');
+      if (color.length !== 6) {
+        return '#111827';
+      }
+      const r = parseInt(color.slice(0, 2), 16);
+      const g = parseInt(color.slice(2, 4), 16);
+      const b = parseInt(color.slice(4, 6), 16);
+      const luminance = (0.299 * r) + (0.587 * g) + (0.114 * b);
+      return luminance > 150 ? '#111827' : '#f9fafb';
+    }
+
+    function setDrawerStatus(text, level) {
+      if (!drawerStatus) {
+        return;
+      }
+      drawerStatus.textContent = text || '';
+      drawerStatus.className = 'ce-validation-status';
+      if (level === 'ok') {
+        drawerStatus.classList.add('ce-validation-status--ok');
+      } else if (level === 'warn') {
+        drawerStatus.classList.add('ce-validation-status--warn');
+      } else if (level === 'error') {
+        drawerStatus.classList.add('ce-validation-status--error');
+      }
+    }
+
+    function normalizeRangeRef(value) {
+      return String(value == null ? '' : value)
+        .trim()
+        .toUpperCase()
+        .replace(/\s+/g, '');
+    }
+
+    function currentSelectedRef(sheetData) {
+      try {
+        const range = sheetData && sheetData.selector && sheetData.selector.range;
+        if (range && typeof range.toString === 'function') {
+          return normalizeRangeRef(range.toString());
+        }
+      } catch (err) {
+        // no-op
+      }
+      return 'A1';
+    }
+
+    function applyCellColor(sheetData, ri, ci, color) {
+      if (!sheetData || !color) {
+        return;
+      }
+      try {
+        sheetData.changeData(function () {
+          const cell = sheetData.rows.getCellOrNew(ri, ci);
+          const currentStyle = (
+            Number.isInteger(cell.style) &&
+            Array.isArray(sheetData.styles) &&
+            sheetData.styles[cell.style]
+          ) ? sheetData.styles[cell.style] : {};
+          const nextStyle = Object.assign({}, currentStyle, {
+            bgcolor: color,
+            color: readableTextColor(color),
+          });
+          cell.style = sheetData.addStyle(nextStyle);
+        });
+      } catch (err) {
+        // ignore styling failures
+      }
+    }
+
+    function findColorForCellValue(ri, ci, value) {
+      const key = String(value == null ? '' : value).trim();
+      if (!key) {
+        return null;
+      }
+      for (let i = colorRules.length - 1; i >= 0; i -= 1) {
+        const rule = colorRules[i];
+        if (!cellInRule(rule, ri, ci)) {
+          continue;
+        }
+        if (rule.colorByLabel && Object.prototype.hasOwnProperty.call(rule.colorByLabel, key)) {
+          return rule.colorByLabel[key];
+        }
+      }
+      return null;
+    }
+
+    function createOptionRow(labelText, colorHex) {
+      const row = document.createElement('div');
+      row.className = 'ce-validation-option-row';
+
+      const grip = document.createElement('button');
+      grip.type = 'button';
+      grip.className = 'ce-validation-grip';
+      grip.textContent = '⋮⋮';
+      grip.tabIndex = -1;
+      row.appendChild(grip);
+
+      const colorWrap = document.createElement('div');
+      colorWrap.className = 'ce-validation-color-wrap';
+      const colorDot = document.createElement('span');
+      colorDot.className = 'ce-validation-color-dot';
+      colorDot.style.background = colorHex;
+      const colorInput = document.createElement('input');
+      colorInput.type = 'color';
+      colorInput.className = 'ce-validation-color';
+      colorInput.value = colorHex;
+      colorInput.addEventListener('input', function () {
+        colorDot.style.background = colorInput.value;
+      });
+      colorWrap.appendChild(colorDot);
+      colorWrap.appendChild(colorInput);
+      row.appendChild(colorWrap);
+
+      const labelInput = document.createElement('input');
+      labelInput.type = 'text';
+      labelInput.className = 'ce-validation-label';
+      labelInput.value = labelText || '';
+      labelInput.placeholder = 'Option label';
+      row.appendChild(labelInput);
+
+      const removeBtn = document.createElement('button');
+      removeBtn.type = 'button';
+      removeBtn.className = 'ce-validation-remove-option';
+      removeBtn.textContent = '🗑';
+      removeBtn.title = 'Remove option';
+      removeBtn.addEventListener('click', function () {
+        row.remove();
+        if (drawerOptions && !drawerOptions.children.length) {
+          drawerOptions.appendChild(createOptionRow('', defaultPalette[0]));
+        }
+      });
+      row.appendChild(removeBtn);
+
+      return row;
+    }
+
+    function seedDefaultOptionRows() {
+      if (!drawerOptions) {
+        return;
+      }
+      drawerOptions.innerHTML = '';
+      const defaults = ['NFA', 'NCC', 'INCP', 'INCPP', 'CP'];
+      defaults.forEach(function (text, idx) {
+        drawerOptions.appendChild(createOptionRow(text, defaultPalette[idx % defaultPalette.length]));
+      });
+    }
+
+    function readOptionRows() {
+      if (!drawerOptions) {
+        return [];
+      }
+      const rowsOut = [];
+      const seen = new Set();
+      Array.from(drawerOptions.children).forEach(function (row) {
+        const labelInput = row.querySelector('.ce-validation-label');
+        const colorInput = row.querySelector('.ce-validation-color');
+        const label = String(labelInput && labelInput.value ? labelInput.value : '').trim();
+        if (!label || seen.has(label)) {
+          return;
+        }
+        seen.add(label);
+        rowsOut.push({
+          label,
+          color: (colorInput && colorInput.value) || '#9ec5e5',
+        });
+      });
+      return rowsOut;
+    }
+
+    function getActiveSheetData(spreadsheet) {
+      if (!spreadsheet || !Array.isArray(spreadsheet.datas) || !spreadsheet.datas.length) {
+        return null;
+      }
+      return spreadsheet.datas[0];
+    }
+
+    function syncDrawerRangeFromSelection() {
+      if (!drawerRangeInput || !activeSheetData) {
+        return;
+      }
+      drawerRangeInput.value = currentSelectedRef(activeSheetData);
+    }
+
+    function openValidationDrawer() {
+      if (!drawer || !drawerBackdrop) {
+        return;
+      }
+      syncDrawerRangeFromSelection();
+      setDrawerStatus('', null);
+      drawer.classList.add('is-open');
+      drawerBackdrop.classList.add('is-open');
+      drawer.setAttribute('aria-hidden', 'false');
+    }
+
+    function closeValidationDrawer() {
+      if (!drawer || !drawerBackdrop) {
+        return;
+      }
+      drawer.classList.remove('is-open');
+      drawerBackdrop.classList.remove('is-open');
+      drawer.setAttribute('aria-hidden', 'true');
+    }
+
+    function upsertColorRule(rule) {
+      const key = `${rule.mode}::${rule.ref}`;
+      const index = colorRules.findIndex(function (item) {
+        return `${item.mode}::${item.ref}` === key;
+      });
+      if (index >= 0) {
+        colorRules[index] = rule;
+      } else {
+        colorRules.push(rule);
+      }
+    }
+
+    function applyValidationRuleAndClose() {
+      if (!activeSheetData) {
+        setDrawerStatus('Sheet is not ready yet.', 'warn');
+        return;
+      }
+      const ref = normalizeRangeRef(drawerRangeInput && drawerRangeInput.value);
+      const mode = drawerModeInput && drawerModeInput.value ? drawerModeInput.value : 'cell';
+      const options = readOptionRows();
+
+      if (!ref) {
+        setDrawerStatus('Add a valid range, for example A1:C50.', 'warn');
+        return;
+      }
+      const range = parseA1Range(ref);
+      if (!range) {
+        setDrawerStatus('Invalid range format. Use A1 or A1:C50.', 'error');
+        return;
+      }
+      if (!options.length) {
+        setDrawerStatus('Add at least one dropdown option.', 'warn');
+        return;
+      }
+
+      try {
+        activeSheetData.addValidation(mode, ref, {
+          type: 'list',
+          required: false,
+          value: options.map(function (item) { return item.label; }).join(','),
+        });
+
+        const colorByLabel = {};
+        options.forEach(function (item) {
+          colorByLabel[item.label] = item.color;
+        });
+        upsertColorRule({
+          mode,
+          ref,
+          range,
+          colorByLabel,
+        });
+
+        setDrawerStatus(`Rule saved for ${ref}.`, 'ok');
+        closeValidationDrawer();
+      } catch (err) {
+        setDrawerStatus('Could not save the validation rule.', 'error');
+      }
+    }
+
+    function clearValidationForSelection() {
+      if (!activeSheetData || typeof activeSheetData.removeValidation !== 'function') {
+        setDrawerStatus('Validation removal is not available.', 'warn');
+        return;
+      }
+      try {
+        activeSheetData.removeValidation();
+        setDrawerStatus('Validation removed from selected range.', 'ok');
+      } catch (err) {
+        setDrawerStatus('Could not remove validation. Select cells and try again.', 'error');
+      }
+    }
+
+    function mountValidationToolbarButton(spreadsheet) {
+      if (!spreadsheet || validationToolbarButton) {
+        return;
+      }
+      const toolbarBtns = root.parentElement &&
+        root.parentElement.querySelector('.x-spreadsheet-toolbar .x-spreadsheet-toolbar-btns');
+      if (!toolbarBtns) {
+        return;
+      }
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'ce-validation-toolbar-btn';
+      btn.innerHTML = '<span class="ce-validation-toolbar-dot"></span><span>Reglas</span>';
+      btn.title = 'Reglas de validación de datos';
+      btn.addEventListener('click', function () {
+        openValidationDrawer();
+      });
+      toolbarBtns.appendChild(btn);
+      validationToolbarButton = btn;
+    }
 
     function shieldPopupEvents() {
       const stopForPopup = function (ev) {
@@ -260,13 +772,13 @@
               delete holder.xclickoutside;
             }
           } catch (err) {
-            // no-op: defensive guard around third-party internals
+            // no-op
           }
           return originalSetOffset(offset);
         };
         sortFilter.__ceOutsideClickPatched = true;
       } catch (err) {
-        // no-op: defensive guard around third-party internals
+        // no-op
       }
     }
 
@@ -354,134 +866,13 @@
       const viewport = window.innerHeight || document.documentElement.clientHeight || 900;
       const shell = root.closest('.ce-sheet-shell');
       const shellBottom = shell ? shell.getBoundingClientRect().bottom : viewport;
-      const availableByViewport = Math.floor(viewport - rect.top - 10);
+      const availableByViewport = Math.floor(viewport - rect.top - 8);
       const availableByShell = Math.floor(shellBottom - rect.top - 8);
-      const available = Math.max(320, Math.min(availableByViewport, availableByShell));
+      const available = Math.max(280, Math.min(availableByViewport, availableByShell));
       if (wrap) {
         wrap.style.height = `${available}px`;
       }
-      root.style.height = `${Math.max(300, available - 2)}px`;
-    }
-
-    function normalizeRangeRef(value) {
-      return String(value == null ? '' : value)
-        .trim()
-        .toUpperCase()
-        .replace(/\s+/g, '');
-    }
-
-    function getActiveSheetData(spreadsheet) {
-      if (!spreadsheet || !Array.isArray(spreadsheet.datas) || !spreadsheet.datas.length) {
-        return null;
-      }
-      return spreadsheet.datas[0];
-    }
-
-    function currentSelectedRef(sheetData) {
-      try {
-        const range = sheetData && sheetData.selector && sheetData.selector.range;
-        if (range && typeof range.toString === 'function') {
-          return normalizeRangeRef(range.toString());
-        }
-      } catch (err) {
-        // no-op
-      }
-      return 'A1';
-    }
-
-    function setValidationMessage(text, level) {
-      if (!validationMessage) {
-        return;
-      }
-      validationMessage.textContent = text || '';
-      validationMessage.className = 'ce-sheet-toolbar-status';
-      if (level === 'ok') {
-        validationMessage.classList.add('ce-sheet-toolbar-status--ok');
-      } else if (level === 'warn') {
-        validationMessage.classList.add('ce-sheet-toolbar-status--warn');
-      } else if (level === 'error') {
-        validationMessage.classList.add('ce-sheet-toolbar-status--error');
-      }
-    }
-
-    function parseValidationOptions(rawText) {
-      const source = String(rawText == null ? '' : rawText);
-      const seen = new Set();
-      const out = [];
-      source
-        .split(/[\n,]+/)
-        .map((value) => value.trim())
-        .filter((value) => value.length > 0)
-        .forEach((value) => {
-          if (!seen.has(value)) {
-            seen.add(value);
-            out.push(value);
-          }
-        });
-      return out;
-    }
-
-    function attachValidationTools(spreadsheet) {
-      if (!validationBar || !rangeInput || !modeSelect || !valuesInput || !applyValidationBtn || !clearValidationBtn) {
-        return;
-      }
-      const data = getActiveSheetData(spreadsheet);
-      if (!data || typeof data.addValidation !== 'function') {
-        validationBar.style.display = 'none';
-        return;
-      }
-
-      const syncRangeInput = function () {
-        rangeInput.value = currentSelectedRef(data);
-      };
-      syncRangeInput();
-
-      if (typeof spreadsheet.on === 'function') {
-        spreadsheet.on('cell-selected', syncRangeInput);
-        spreadsheet.on('cells-selected', syncRangeInput);
-      }
-
-      applyValidationBtn.addEventListener('click', function () {
-        const ref = normalizeRangeRef(rangeInput.value || currentSelectedRef(data));
-        const options = parseValidationOptions(valuesInput.value);
-        if (!ref) {
-          setValidationMessage('Select a valid range first (example: A1:C20).', 'warn');
-          return;
-        }
-        if (!options.length) {
-          setValidationMessage('Add at least one dropdown option.', 'warn');
-          return;
-        }
-        try {
-          data.addValidation(modeSelect.value || 'cell', ref, {
-            type: 'list',
-            required: false,
-            value: options.join(','),
-          });
-          if (typeof spreadsheet.reRender === 'function') {
-            spreadsheet.reRender();
-          }
-          setValidationMessage(`Dropdown validation applied to ${ref}.`, 'ok');
-        } catch (err) {
-          setValidationMessage('Could not apply validation. Check range and try again.', 'error');
-        }
-      });
-
-      clearValidationBtn.addEventListener('click', function () {
-        try {
-          if (typeof data.removeValidation === 'function') {
-            data.removeValidation();
-            if (typeof spreadsheet.reRender === 'function') {
-              spreadsheet.reRender();
-            }
-            setValidationMessage('Validation removed for the currently selected range.', 'ok');
-            return;
-          }
-          setValidationMessage('Validation removal is not available on this sheet.', 'warn');
-        } catch (err) {
-          setValidationMessage('Could not remove validation. Select the range and try again.', 'error');
-        }
-      });
+      root.style.height = `${Math.max(260, available - 2)}px`;
     }
 
     function ensureSpreadsheetLib() {
@@ -507,9 +898,13 @@
     }
 
     function renderFallback(matrix) {
-      if (validationBar) {
-        validationBar.style.display = 'none';
+      if (drawer) {
+        drawer.style.display = 'none';
       }
+      if (drawerBackdrop) {
+        drawerBackdrop.style.display = 'none';
+      }
+
       const warn = document.createElement('div');
       warn.style.padding = '10px 12px';
       warn.style.borderBottom = '1px solid #fde68a';
@@ -519,7 +914,11 @@
       warn.textContent = 'Excel-style toolbar library did not load. Showing basic preview fallback.';
 
       const table = document.createElement('table');
-      table.className = 'ce-sheet-fallback';
+      table.style.borderCollapse = 'collapse';
+      table.style.width = '100%';
+      table.style.fontSize = '12px';
+      table.style.minWidth = '960px';
+
       const thead = document.createElement('thead');
       const tbody = document.createElement('tbody');
       table.appendChild(thead);
@@ -529,6 +928,12 @@
       (matrix[0] || []).forEach((header) => {
         const th = document.createElement('th');
         th.textContent = String(header == null ? '' : header);
+        th.style.border = '1px solid #e5e7eb';
+        th.style.padding = '6px 8px';
+        th.style.background = '#f9fafb';
+        th.style.textAlign = 'left';
+        th.style.position = 'sticky';
+        th.style.top = '0';
         headerTr.appendChild(th);
       });
       thead.appendChild(headerTr);
@@ -538,6 +943,8 @@
         (matrix[r] || []).forEach((cell) => {
           const td = document.createElement('td');
           td.textContent = String(cell == null ? '' : cell);
+          td.style.border = '1px solid #e5e7eb';
+          td.style.padding = '6px 8px';
           tr.appendChild(td);
         });
         tbody.appendChild(tr);
@@ -562,6 +969,47 @@
           }
           spreadsheet.cellText(r, c, text, 0);
         }
+      }
+    }
+
+    function initValidationDrawer(spreadsheet) {
+      activeSpreadsheet = spreadsheet;
+      activeSheetData = getActiveSheetData(spreadsheet);
+      mountValidationToolbarButton(spreadsheet);
+      seedDefaultOptionRows();
+      syncDrawerRangeFromSelection();
+
+      if (drawerAddOptionBtn) {
+        drawerAddOptionBtn.addEventListener('click', function () {
+          const idx = drawerOptions ? drawerOptions.children.length : 0;
+          if (drawerOptions) {
+            drawerOptions.appendChild(createOptionRow('', defaultPalette[idx % defaultPalette.length]));
+          }
+        });
+      }
+      if (drawerDoneBtn) {
+        drawerDoneBtn.addEventListener('click', applyValidationRuleAndClose);
+      }
+      if (drawerClearBtn) {
+        drawerClearBtn.addEventListener('click', clearValidationForSelection);
+      }
+      if (drawerCloseBtn) {
+        drawerCloseBtn.addEventListener('click', closeValidationDrawer);
+      }
+      if (drawerBackdrop) {
+        drawerBackdrop.addEventListener('click', closeValidationDrawer);
+      }
+
+      if (typeof spreadsheet.on === 'function') {
+        spreadsheet.on('cell-selected', syncDrawerRangeFromSelection);
+        spreadsheet.on('cells-selected', syncDrawerRangeFromSelection);
+        spreadsheet.on('cell-edited', function (text, ri, ci) {
+          const color = findColorForCellValue(ri, ci, text);
+          if (!color || !activeSheetData) {
+            return;
+          }
+          applyCellColor(activeSheetData, ri, ci, color);
+        });
       }
     }
 
@@ -591,7 +1039,7 @@
             view: {
               height: function () {
                 return Math.max(
-                  360,
+                  320,
                   root.clientHeight || {{ sheet_height|default:560 }}
                 );
               },
@@ -602,7 +1050,7 @@
             spreadsheet.loadData(buildSheetPayload(matrix));
             hydrateSpreadsheet(spreadsheet, matrix);
           }
-          attachValidationTools(spreadsheet);
+          initValidationDrawer(spreadsheet);
           window.addEventListener('resize', fitToViewport, { passive: true });
         } catch (err) {
           renderFallback(matrix);

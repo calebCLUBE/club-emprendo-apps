@@ -627,7 +627,6 @@
     let validationRefreshTimers = [];
     let validationBubbleRefreshFrame = null;
     let validationBubbleRefreshTimers = [];
-    let validationRectAdjust = { x: 0, y: 0 };
     let activeSpreadsheet = null;
     let activeSheetData = null;
 
@@ -843,11 +842,58 @@
       validationBubbleLayer.innerHTML = '';
     }
 
+    function getGridViewportOffset() {
+      const rootRect = root.getBoundingClientRect();
+      const overlayContent = root.querySelector('.x-spreadsheet-overlayer-content');
+      if (overlayContent) {
+        const rect = overlayContent.getBoundingClientRect();
+        if (
+          Number.isFinite(rect.left) &&
+          Number.isFinite(rect.top)
+        ) {
+          return {
+            left: rect.left - rootRect.left,
+            top: rect.top - rootRect.top,
+          };
+        }
+      }
+
+      const sheetBody = root.querySelector('.x-spreadsheet-sheet');
+      if (sheetBody) {
+        const rect = sheetBody.getBoundingClientRect();
+        const indexWidth = (
+          activeSheetData &&
+          activeSheetData.cols &&
+          Number.isFinite(activeSheetData.cols.indexWidth)
+        ) ? Number(activeSheetData.cols.indexWidth) : 50;
+        const headerHeight = (
+          activeSheetData &&
+          activeSheetData.rows &&
+          Number.isFinite(activeSheetData.rows.height)
+        ) ? Number(activeSheetData.rows.height) : 25;
+        return {
+          left: (rect.left - rootRect.left) + indexWidth,
+          top: (rect.top - rootRect.top) + headerHeight,
+        };
+      }
+
+      const fallbackIndexWidth = (
+        activeSheetData &&
+        activeSheetData.cols &&
+        Number.isFinite(activeSheetData.cols.indexWidth)
+      ) ? Number(activeSheetData.cols.indexWidth) : 50;
+      const fallbackHeaderHeight = (
+        activeSheetData &&
+        activeSheetData.rows &&
+        Number.isFinite(activeSheetData.rows.height)
+      ) ? Number(activeSheetData.rows.height) : 25;
+      return { left: fallbackIndexWidth, top: fallbackHeaderHeight };
+    }
+
     function getCellRectByIndexesRaw(ri, ci) {
       if (!activeSheetData || !Number.isFinite(ri) || !Number.isFinite(ci)) {
         return null;
       }
-      const rootRect = root.getBoundingClientRect();
       let rect = null;
       try {
         if (typeof activeSheetData.getRect === 'function') {
@@ -868,48 +914,17 @@
       if (!rect) {
         return null;
       }
-
-      const overlayer = root.querySelector('.x-spreadsheet-overlayer');
-      if (overlayer) {
-        const overRect = overlayer.getBoundingClientRect();
-        return {
-          left: (overRect.left - rootRect.left) + rect.left,
-          top: (overRect.top - rootRect.top) + rect.top,
-          width: rect.width,
-          height: rect.height,
-        };
-      }
-
-      let baseLeft = 0;
-      let baseTop = 0;
-      try {
-        if (activeSpreadsheet && activeSpreadsheet.sheet && typeof activeSpreadsheet.sheet.getTableOffset === 'function') {
-          const off = activeSpreadsheet.sheet.getTableOffset();
-          baseLeft = Number.isFinite(off && off.left) ? off.left : 0;
-          baseTop = Number.isFinite(off && off.top) ? off.top : 0;
-        }
-      } catch (err) {
-        // no-op
-      }
+      const origin = getGridViewportOffset();
       return {
-        left: baseLeft + rect.left,
-        top: baseTop + rect.top,
+        left: origin.left + rect.left,
+        top: origin.top + rect.top,
         width: rect.width,
         height: rect.height,
       };
     }
 
     function getCellRectByIndexes(ri, ci) {
-      const raw = getCellRectByIndexesRaw(ri, ci);
-      if (!raw) {
-        return null;
-      }
-      return {
-        left: raw.left + (validationRectAdjust.x || 0),
-        top: raw.top + (validationRectAdjust.y || 0),
-        width: raw.width,
-        height: raw.height,
-      };
+      return getCellRectByIndexesRaw(ri, ci);
     }
 
     function hideValidationCellDropdown() {
@@ -1225,13 +1240,6 @@
             width: probe.width,
             height: probe.height,
           };
-          const rawRect = getCellRectByIndexesRaw(coords.ri, coords.ci);
-          if (rawRect && rawRect.width > 2 && rawRect.height > 2) {
-            validationRectAdjust = {
-              x: areaRect.left - rawRect.left,
-              y: areaRect.top - rawRect.top,
-            };
-          }
         }
       }
       if (!areaRect) {

@@ -277,8 +277,8 @@
   .ce-validation-cell-dropdown {
     position: absolute;
     z-index: 4500;
-    min-width: 72px;
-    max-width: 280px;
+    min-width: 0;
+    max-width: none;
     height: 24px;
     border: 1px solid #cbd5e1;
     border-radius: 999px;
@@ -324,8 +324,8 @@
   }
   .ce-validation-cell-bubble {
     position: absolute;
-    min-width: 56px;
-    max-width: 240px;
+    min-width: 0;
+    max-width: none;
     height: 22px;
     border-radius: 999px;
     border: 1px solid rgba(15, 23, 42, 0.14);
@@ -1212,12 +1212,11 @@
             ) ||
             '#e5e7eb';
           const label = currentValue || 'Seleccionar...';
-          const textWidth = Math.max(54, Math.min(220, (String(label).length * 8) + 36));
-          const maxChipWidth = Math.max(72, Math.round((rect.width * 0.76)));
-          const width = Math.min(maxChipWidth, textWidth);
+          const horizontalInset = Math.max(2, Math.round(Math.min(8, rect.width * 0.06)));
+          const width = Math.max(18, Math.round(rect.width - (horizontalInset * 2)));
           const height = Math.max(22, Math.round(Math.min(rect.height - 8, 24)));
           const top = Math.max(0, Math.round(rect.top + Math.max(3, Math.floor((rect.height - height) / 2))));
-          const left = Math.max(0, Math.round(rect.left + 6));
+          const left = Math.max(0, Math.round(rect.left + Math.floor((rect.width - width) / 2)));
 
           const bubble = document.createElement('div');
           bubble.className = 'ce-validation-cell-bubble';
@@ -1518,13 +1517,11 @@
 
       const left = Math.max(0, Math.round(areaRect.left));
       const top = Math.max(0, Math.round(areaRect.top));
-      const label = currentValue || (options[0] || '');
-      const textWidth = Math.max(54, Math.min(220, (String(label).length * 8) + 36));
-      const maxChipWidth = Math.max(72, Math.round((areaRect.width * 0.76)));
-      const width = Math.min(maxChipWidth, textWidth);
+      const horizontalInset = Math.max(2, Math.round(Math.min(8, areaRect.width * 0.06)));
+      const width = Math.max(18, Math.round(areaRect.width - (horizontalInset * 2)));
       const height = Math.max(22, Math.round(Math.min(areaRect.height - 8, 24)));
       const centeredTop = top + Math.max(3, Math.floor((areaRect.height - height) / 2));
-      const chipLeft = left + 6;
+      const chipLeft = Math.max(0, Math.round(left + Math.floor((areaRect.width - width) / 2)));
 
       validationCellDropdown.style.left = `${chipLeft}px`;
       validationCellDropdown.style.top = `${centeredTop}px`;

@@ -1,4 +1,4 @@
-{% load static inline_static %}
+{% load static %}
 {% with root_id=sheet_id|add:"-root" headers_id=sheet_id|add:"-headers" rows_id=sheet_id|add:"-rows" drawer_id=sheet_id|add:"-validation-drawer" drawer_backdrop_id=sheet_id|add:"-validation-backdrop" drawer_range_id=sheet_id|add:"-validation-range" drawer_apply_mode_id=sheet_id|add:"-validation-apply-mode" drawer_criteria_id=sheet_id|add:"-validation-criteria" drawer_operator_id=sheet_id|add:"-validation-operator" drawer_value1_id=sheet_id|add:"-validation-value-1" drawer_value2_id=sheet_id|add:"-validation-value-2" drawer_condition_wrap_id=sheet_id|add:"-validation-condition-wrap" drawer_options_wrap_id=sheet_id|add:"-validation-options-wrap" drawer_options_id=sheet_id|add:"-validation-options" drawer_add_option_id=sheet_id|add:"-validation-add-option" drawer_done_id=sheet_id|add:"-validation-done" drawer_clear_id=sheet_id|add:"-validation-clear" drawer_close_id=sheet_id|add:"-validation-close" drawer_status_id=sheet_id|add:"-validation-status" %}
 <link rel="stylesheet" href="{% static 'vendor/x-data-spreadsheet/xspreadsheet.css' %}">
 <style>
@@ -552,9 +552,6 @@
 {{ sheet_headers|json_script:headers_id }}
 {{ sheet_rows|json_script:rows_id }}
 <script>
-{% inline_static 'vendor/x-data-spreadsheet/xspreadsheet.js' %}
-</script>
-<script>
   (function () {
     const LOCAL_XSHEET_JS_URL = "{% static 'vendor/x-data-spreadsheet/xspreadsheet.js' %}";
     const SHEET_INSTANCE_ID = '{{ sheet_id }}';
@@ -961,19 +958,18 @@
         return;
       }
 
+      const rootRect = root.getBoundingClientRect();
       let areaRect = null;
       const selectorArea = root.querySelector('.x-spreadsheet-selector .x-spreadsheet-selector-area');
       if (selectorArea) {
-        const styleLeft = Number.parseFloat(selectorArea.style.left || '');
-        const styleTop = Number.parseFloat(selectorArea.style.top || '');
-        const styleWidth = Number.parseFloat(selectorArea.style.width || '');
-        const styleHeight = Number.parseFloat(selectorArea.style.height || '');
-        const left = Number.isFinite(styleLeft) ? styleLeft : selectorArea.offsetLeft;
-        const top = Number.isFinite(styleTop) ? styleTop : selectorArea.offsetTop;
-        const width = Number.isFinite(styleWidth) ? styleWidth : selectorArea.offsetWidth;
-        const height = Number.isFinite(styleHeight) ? styleHeight : selectorArea.offsetHeight;
-        if (width > 2 && height > 2) {
-          areaRect = { left, top, width, height };
+        const probe = selectorArea.getBoundingClientRect();
+        if (probe.width > 2 && probe.height > 2) {
+          areaRect = {
+            left: probe.left - rootRect.left,
+            top: probe.top - rootRect.top,
+            width: probe.width,
+            height: probe.height,
+          };
         }
       }
       if (!areaRect) {
@@ -981,17 +977,17 @@
           if (activeSheetData && typeof activeSheetData.getSelectedRect === 'function') {
             const sel = activeSheetData.getSelectedRect();
             if (sel && Number.isFinite(sel.left) && Number.isFinite(sel.top) && Number.isFinite(sel.width) && Number.isFinite(sel.height)) {
-              const indexWidth = (
-                activeSheetData.cols &&
-                Number.isFinite(activeSheetData.cols.indexWidth)
-              ) ? activeSheetData.cols.indexWidth : 50;
-              const headerHeight = (
-                activeSheetData.rows &&
-                Number.isFinite(activeSheetData.rows.height)
-              ) ? activeSheetData.rows.height : 25;
+              const overlayer = root.querySelector('.x-spreadsheet-overlayer');
+              let gridLeft = 0;
+              let gridTop = 0;
+              if (overlayer) {
+                const overRect = overlayer.getBoundingClientRect();
+                gridLeft = overRect.left - rootRect.left;
+                gridTop = overRect.top - rootRect.top;
+              }
               areaRect = {
-                left: indexWidth + sel.left,
-                top: headerHeight + sel.top,
+                left: gridLeft + sel.left,
+                top: gridTop + sel.top,
                 width: sel.width,
                 height: sel.height,
               };
@@ -2266,22 +2262,6 @@
       });
     }
 
-    function hydrateSpreadsheet(spreadsheet, matrix) {
-      if (!spreadsheet || typeof spreadsheet.cellText !== 'function') {
-        return;
-      }
-      for (let r = 0; r < matrix.length; r += 1) {
-        const row = Array.isArray(matrix[r]) ? matrix[r] : [];
-        for (let c = 0; c < row.length; c += 1) {
-          const text = String(row[c] == null ? '' : row[c]);
-          if (!text) {
-            continue;
-          }
-          spreadsheet.cellText(r, c, text, 0);
-        }
-      }
-    }
-
     function initValidationDrawer(spreadsheet) {
       activeSpreadsheet = spreadsheet;
       activeSheetData = getActiveSheetData(spreadsheet);
@@ -2388,7 +2368,6 @@
           patchSortFilterOutsideClick(spreadsheet);
           if (typeof spreadsheet.loadData === 'function') {
             spreadsheet.loadData(buildSheetPayload(matrix));
-            hydrateSpreadsheet(spreadsheet, matrix);
           }
           initValidationDrawer(spreadsheet);
           setSheetRegistryEntry({

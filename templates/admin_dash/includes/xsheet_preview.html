@@ -259,6 +259,35 @@
     background-size: 5px 5px, 5px 5px;
     background-repeat: no-repeat;
   }
+  .ce-validation-bubble-layer {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 4400;
+  }
+  .ce-validation-cell-bubble {
+    position: absolute;
+    min-width: 56px;
+    max-width: 240px;
+    height: 22px;
+    border-radius: 999px;
+    border: 1px solid rgba(15, 23, 42, 0.14);
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 8px 0 10px;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  .ce-validation-cell-bubble .ce-validation-cell-bubble-arrow {
+    font-size: 10px;
+    opacity: 0.75;
+  }
 
   .ce-validation-backdrop {
     position: fixed;
@@ -593,8 +622,11 @@
     let formulaNameInput = null;
     let formulaInput = null;
     let validationCellDropdown = null;
+    let validationBubbleLayer = null;
     let validationRefreshFrame = null;
     let validationRefreshTimers = [];
+    let validationBubbleRefreshFrame = null;
+    let validationBubbleRefreshTimers = [];
     let activeSpreadsheet = null;
     let activeSheetData = null;
 
@@ -792,6 +824,80 @@
         .filter(function (v) { return v.length > 0; });
     }
 
+    function ensureValidationBubbleLayer() {
+      if (validationBubbleLayer) {
+        return validationBubbleLayer;
+      }
+      const layer = document.createElement('div');
+      layer.className = 'ce-validation-bubble-layer';
+      root.appendChild(layer);
+      validationBubbleLayer = layer;
+      return layer;
+    }
+
+    function clearValidationBubbles() {
+      if (!validationBubbleLayer) {
+        return;
+      }
+      validationBubbleLayer.innerHTML = '';
+    }
+
+    function getCellRectByIndexes(ri, ci) {
+      if (!activeSheetData || !Number.isFinite(ri) || !Number.isFinite(ci)) {
+        return null;
+      }
+      const rootRect = root.getBoundingClientRect();
+      let rect = null;
+      try {
+        if (typeof activeSheetData.getRect === 'function') {
+          const raw = activeSheetData.getRect({ sri: ri, sci: ci, eri: ri, eci: ci });
+          if (raw && Number.isFinite(raw.left) && Number.isFinite(raw.top) && Number.isFinite(raw.width) && Number.isFinite(raw.height)) {
+            rect = {
+              left: raw.left,
+              top: raw.top,
+              width: raw.width,
+              height: raw.height,
+            };
+          }
+        }
+      } catch (err) {
+        rect = null;
+      }
+
+      if (!rect) {
+        return null;
+      }
+
+      const overlayer = root.querySelector('.x-spreadsheet-overlayer');
+      if (overlayer) {
+        const overRect = overlayer.getBoundingClientRect();
+        return {
+          left: (overRect.left - rootRect.left) + rect.left,
+          top: (overRect.top - rootRect.top) + rect.top,
+          width: rect.width,
+          height: rect.height,
+        };
+      }
+
+      let baseLeft = 0;
+      let baseTop = 0;
+      try {
+        if (activeSpreadsheet && activeSpreadsheet.sheet && typeof activeSpreadsheet.sheet.getTableOffset === 'function') {
+          const off = activeSpreadsheet.sheet.getTableOffset();
+          baseLeft = Number.isFinite(off && off.left) ? off.left : 0;
+          baseTop = Number.isFinite(off && off.top) ? off.top : 0;
+        }
+      } catch (err) {
+        // no-op
+      }
+      return {
+        left: baseLeft + rect.left,
+        top: baseTop + rect.top,
+        width: rect.width,
+        height: rect.height,
+      };
+    }
+
     function hideValidationCellDropdown() {
       if (validationCellDropdown) {
         validationCellDropdown.style.display = 'none';
@@ -818,12 +924,147 @@
         runNow();
       }
 
-      [70, 150, 280].forEach(function (delay) {
+      [120].forEach(function (delay) {
         const id = window.setTimeout(function () {
           refreshValidationCellDropdown();
         }, delay);
         validationRefreshTimers.push(id);
       });
+      scheduleValidationBubblesRefresh();
+    }
+
+    function scheduleValidationBubblesRefresh() {
+      if (validationBubbleRefreshFrame != null && typeof window.cancelAnimationFrame === 'function') {
+        window.cancelAnimationFrame(validationBubbleRefreshFrame);
+      }
+      if (validationBubbleRefreshTimers.length) {
+        validationBubbleRefreshTimers.forEach(function (id) {
+          window.clearTimeout(id);
+        });
+        validationBubbleRefreshTimers = [];
+      }
+      const run = function () {
+        refreshValidationBubbles();
+      };
+      if (typeof window.requestAnimationFrame === 'function') {
+        validationBubbleRefreshFrame = window.requestAnimationFrame(run);
+      } else {
+        run();
+      }
+      [140].forEach(function (delay) {
+        const id = window.setTimeout(function () {
+          refreshValidationBubbles();
+        }, delay);
+        validationBubbleRefreshTimers.push(id);
+      });
+    }
+
+    function refreshValidationBubbles() {
+      if (!activeSheetData || !activeSpreadsheet) {
+        clearValidationBubbles();
+        return;
+      }
+      const layer = ensureValidationBubbleLayer();
+      if (!layer) {
+        return;
+      }
+      layer.innerHTML = '';
+
+      const validations = activeSheetData.validations;
+      if (!validations || typeof validations.get !== 'function') {
+        return;
+      }
+
+      const rowLen = Number.isFinite(activeSheetData.rows && activeSheetData.rows.len)
+        ? Number(activeSheetData.rows.len)
+        : 0;
+      const colLen = Number.isFinite(activeSheetData.cols && activeSheetData.cols.len)
+        ? Number(activeSheetData.cols.len)
+        : 0;
+      if (rowLen <= 0 || colLen <= 0) {
+        return;
+      }
+
+      const scroll = activeSheetData.scroll || {};
+      const startRi = Math.max(0, Number.isFinite(scroll.ri) ? Number(scroll.ri) - 1 : 0);
+      const startCi = Math.max(0, Number.isFinite(scroll.ci) ? Number(scroll.ci) - 1 : 0);
+      const approxVisibleRows = Math.max(12, Math.ceil((root.clientHeight || 700) / 28) + 6);
+      const approxVisibleCols = Math.max(6, Math.ceil((root.clientWidth || 1200) / 140) + 4);
+      const endRi = Math.min(rowLen - 1, startRi + approxVisibleRows);
+      const endCi = Math.min(colLen - 1, startCi + approxVisibleCols);
+
+      const selected = selectedCellCoords();
+      for (let ri = startRi; ri <= endRi; ri += 1) {
+        for (let ci = startCi; ci <= endCi; ci += 1) {
+          if (ri === selected.ri && ci === selected.ci) {
+            continue;
+          }
+          let validation = null;
+          try {
+            validation = validations.get(ri, ci);
+          } catch (err) {
+            validation = null;
+          }
+          const validator = validation && validation.validator ? validation.validator : null;
+          const metaRule = findValidationRuleMetaForCell(ri, ci);
+          let options = parseListValidatorOptions(validator);
+          if (!options.length && metaRule && Array.isArray(metaRule.options)) {
+            options = metaRule.options
+              .map(function (v) { return String(v == null ? '' : v).trim(); })
+              .filter(function (v) { return v.length > 0; });
+          }
+          if (!options.length) {
+            continue;
+          }
+
+          const rect = getCellRectByIndexes(ri, ci);
+          if (!rect || rect.width <= 2 || rect.height <= 2) {
+            continue;
+          }
+          if (rect.top + rect.height < 0 || rect.left + rect.width < 0 || rect.top > root.clientHeight || rect.left > root.clientWidth) {
+            continue;
+          }
+
+          const currentValue = cellTextAt(ri, ci);
+          const chipColor =
+            findColorForCellValue(ri, ci, currentValue) ||
+            findColorFromValidator(validator, currentValue) ||
+            (
+              metaRule &&
+              metaRule.colorByLabel &&
+              Object.prototype.hasOwnProperty.call(metaRule.colorByLabel, currentValue)
+                ? metaRule.colorByLabel[currentValue]
+                : null
+            ) ||
+            '#e5e7eb';
+          const label = currentValue || 'Seleccionar...';
+          const textWidth = Math.max(54, Math.min(220, (String(label).length * 8) + 36));
+          const maxChipWidth = Math.max(72, Math.round((rect.width * 0.76)));
+          const width = Math.min(maxChipWidth, textWidth);
+          const height = Math.max(22, Math.round(Math.min(rect.height - 8, 24)));
+          const top = Math.max(0, Math.round(rect.top + Math.max(3, Math.floor((rect.height - height) / 2))));
+          const left = Math.max(0, Math.round(rect.left + 6));
+
+          const bubble = document.createElement('div');
+          bubble.className = 'ce-validation-cell-bubble';
+          bubble.style.left = `${left}px`;
+          bubble.style.top = `${top}px`;
+          bubble.style.width = `${width}px`;
+          bubble.style.height = `${height}px`;
+          bubble.style.backgroundColor = chipColor;
+          bubble.style.color = readableTextColor(chipColor);
+
+          const labelNode = document.createElement('span');
+          labelNode.textContent = label;
+          const arrowNode = document.createElement('span');
+          arrowNode.className = 'ce-validation-cell-bubble-arrow';
+          arrowNode.textContent = '▼';
+
+          bubble.appendChild(labelNode);
+          bubble.appendChild(arrowNode);
+          layer.appendChild(bubble);
+        }
+      }
     }
 
     function resolveSelectedValidator() {
@@ -958,45 +1199,7 @@
         return;
       }
 
-      const rootRect = root.getBoundingClientRect();
-      let areaRect = null;
-      const selectorArea = root.querySelector('.x-spreadsheet-selector .x-spreadsheet-selector-area');
-      if (selectorArea) {
-        const probe = selectorArea.getBoundingClientRect();
-        if (probe.width > 2 && probe.height > 2) {
-          areaRect = {
-            left: probe.left - rootRect.left,
-            top: probe.top - rootRect.top,
-            width: probe.width,
-            height: probe.height,
-          };
-        }
-      }
-      if (!areaRect) {
-        try {
-          if (activeSheetData && typeof activeSheetData.getSelectedRect === 'function') {
-            const sel = activeSheetData.getSelectedRect();
-            if (sel && Number.isFinite(sel.left) && Number.isFinite(sel.top) && Number.isFinite(sel.width) && Number.isFinite(sel.height)) {
-              const overlayer = root.querySelector('.x-spreadsheet-overlayer');
-              let gridLeft = 0;
-              let gridTop = 0;
-              if (overlayer) {
-                const overRect = overlayer.getBoundingClientRect();
-                gridLeft = overRect.left - rootRect.left;
-                gridTop = overRect.top - rootRect.top;
-              }
-              areaRect = {
-                left: gridLeft + sel.left,
-                top: gridTop + sel.top,
-                width: sel.width,
-                height: sel.height,
-              };
-            }
-          }
-        } catch (err) {
-          areaRect = null;
-        }
-      }
+      const areaRect = getCellRectByIndexes(coords.ri, coords.ci);
       if (!areaRect) {
         hideValidationCellDropdown();
         return;
@@ -2328,6 +2531,14 @@
       }
       scheduleValidationCellDropdownRefresh();
       root.addEventListener('mouseup', scheduleValidationCellDropdownRefresh);
+      root.addEventListener('wheel', scheduleValidationCellDropdownRefresh, { passive: true });
+      document.addEventListener('keydown', function (ev) {
+        const key = String(ev && ev.key ? ev.key : '');
+        if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'PageUp', 'PageDown', 'Home', 'End'].includes(key)) {
+          return;
+        }
+        window.setTimeout(scheduleValidationCellDropdownRefresh, 0);
+      });
     }
 
     function initSpreadsheet(matrix) {

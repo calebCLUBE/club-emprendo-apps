@@ -1975,6 +1975,68 @@
         openValidationDrawer();
         return;
       }
+      if (action === 'insert_checkbox') {
+        if (!activeSheetData) {
+          setMenuStatus('Sheet is not ready yet.', 'error');
+          return;
+        }
+        const mode = 'cell';
+        const ref = normalizeRangeRef(currentSelectedRef(activeSheetData));
+        const range = parseA1Range(ref);
+        if (!ref || !range) {
+          setMenuStatus('Select a cell or range first.', 'error');
+          return;
+        }
+        try {
+          const validator = {
+            type: 'list',
+            required: false,
+            value: 'TRUE,FALSE',
+          };
+          const colorByLabel = {
+            TRUE: '#2f855a',
+            FALSE: '#ef4444',
+          };
+          activeSheetData.addValidation(mode, ref, validator);
+          clearColorRulesFor(mode, ref);
+          validator.colorByLabel = Object.assign({}, colorByLabel);
+          validator.color_map = Object.assign({}, colorByLabel);
+          upsertColorRule({
+            mode,
+            ref,
+            range,
+            colorByLabel,
+          });
+          upsertValidationRuleMeta({
+            mode,
+            ref,
+            range,
+            options: ['TRUE', 'FALSE'],
+            colorByLabel: Object.assign({}, colorByLabel),
+          });
+
+          for (let ri = range.sri; ri <= range.eri; ri += 1) {
+            for (let ci = range.sci; ci <= range.eci; ci += 1) {
+              const current = String(cellTextAt(ri, ci)).trim().toUpperCase();
+              if (!current) {
+                if (typeof activeSheetData.setCellText === 'function') {
+                  activeSheetData.setCellText(ri, ci, 'FALSE', 'finished');
+                } else if (activeSpreadsheet && typeof activeSpreadsheet.cellText === 'function') {
+                  activeSpreadsheet.cellText(ri, ci, 'FALSE', 0);
+                }
+              }
+            }
+          }
+          if (activeSpreadsheet && typeof activeSpreadsheet.reRender === 'function') {
+            activeSpreadsheet.reRender();
+          }
+          scheduleValidationCellDropdownRefresh();
+          setMenuStatus(`Checkbox inserted for ${ref}.`, 'ok');
+        } catch (err) {
+          setMenuStatus('Could not insert checkbox on selection.', 'error');
+        }
+        return;
+      }
       if (action === 'download_csv') {
         triggerDownload('sheet-export.csv', matrixToCsv(getCurrentMatrix()), 'text/csv;charset=utf-8');
         setMenuStatus('CSV downloaded.', 'ok');
@@ -2206,7 +2268,7 @@
             { label: 'Row', action: 'insert_row' },
             { label: 'Column', action: 'insert_column' },
             { separator: true },
-            { label: 'Checkbox', action: 'not_implemented' },
+            { label: 'Checkbox', action: 'insert_checkbox' },
             { label: 'Dropdown', action: 'open_validation' },
             { label: 'Chart', action: 'not_implemented' },
             { label: 'Image', action: 'not_implemented' },

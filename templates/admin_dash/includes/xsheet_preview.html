@@ -40,9 +40,17 @@
   .x-spreadsheet-icon .x-spreadsheet-icon-img {
     opacity: 0.72;
   }
+  /* Keep autofill handle visible (bottom-right drag square like Sheets/Excel) */
   .x-spreadsheet-selector .x-spreadsheet-selector-corner,
   .x-spreadsheet-selector-corner {
-    display: none !important;
+    display: block !important;
+    width: 8px !important;
+    height: 8px !important;
+    border-radius: 2px;
+    background: #2563eb !important;
+    border: 1px solid #ffffff !important;
+    box-shadow: 0 0 0 1px #2563eb;
+    z-index: 4600 !important;
   }
 
   .ce-sheet-preview-wrap {
@@ -259,6 +267,24 @@
     background-size: 5px 5px, 5px 5px;
     background-repeat: no-repeat;
   }
+  .ce-validation-cell-checkbox-editor {
+    position: absolute;
+    z-index: 4500;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: #ffffff;
+    border: 1px solid #dbe3ec;
+    border-radius: 4px;
+    box-sizing: border-box;
+  }
+  .ce-validation-cell-checkbox-input {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    cursor: pointer;
+    accent-color: #166534;
+  }
   .ce-validation-bubble-layer {
     position: absolute;
     inset: 0;
@@ -287,6 +313,38 @@
   .ce-validation-cell-bubble .ce-validation-cell-bubble-arrow {
     font-size: 10px;
     opacity: 0.75;
+  }
+  .ce-validation-cell-checkbox {
+    position: absolute;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #ffffff;
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    border-radius: 4px;
+    box-sizing: border-box;
+  }
+  .ce-validation-cell-checkbox-box {
+    width: 16px;
+    height: 16px;
+    border: 2px solid #64748b;
+    border-radius: 4px;
+    background: #ffffff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1;
+    color: #ffffff;
+    box-sizing: border-box;
+  }
+  .ce-validation-cell-checkbox-box.is-checked {
+    background: #16a34a;
+    border-color: #16a34a;
+  }
+  .ce-validation-cell-checkbox-tick {
+    transform: translateY(-0.5px);
   }
 
   .ce-validation-backdrop {
@@ -622,6 +680,8 @@
     let formulaNameInput = null;
     let formulaInput = null;
     let validationCellDropdown = null;
+    let validationCellCheckboxWrap = null;
+    let validationCellCheckboxInput = null;
     let validationBubbleLayer = null;
     let validationRefreshFrame = null;
     let validationRefreshTimers = [];
@@ -824,6 +884,32 @@
         .filter(function (v) { return v.length > 0; });
     }
 
+    function isCheckboxCheckedValue(value) {
+      const normalized = String(value == null ? '' : value).trim().toUpperCase();
+      return [
+        'TRUE', '1', 'YES', 'SI', 'SÍ', 'CHECKED', 'X', '✓',
+      ].includes(normalized);
+    }
+
+    function isCheckboxValidation(validator, metaRule, options) {
+      if (metaRule && metaRule.criteria === 'checkbox') {
+        return true;
+      }
+      if (validator && validator.type === 'checkbox') {
+        return true;
+      }
+      const candidates = Array.isArray(options) && options.length
+        ? options
+        : parseListValidatorOptions(validator);
+      if (!Array.isArray(candidates) || candidates.length !== 2) {
+        return false;
+      }
+      const values = new Set(candidates.map(function (v) {
+        return String(v == null ? '' : v).trim().toUpperCase();
+      }));
+      return values.has('TRUE') && values.has('FALSE');
+    }
+
     function ensureValidationBubbleLayer() {
       if (validationBubbleLayer) {
         return validationBubbleLayer;
@@ -930,6 +1016,9 @@
     function hideValidationCellDropdown() {
       if (validationCellDropdown) {
         validationCellDropdown.style.display = 'none';
+      }
+      if (validationCellCheckboxWrap) {
+        validationCellCheckboxWrap.style.display = 'none';
       }
     }
 
@@ -1045,6 +1134,7 @@
           if (!options.length) {
             continue;
           }
+          const isCheckbox = isCheckboxValidation(validator, metaRule, options);
 
           const rect = getCellRectByIndexes(ri, ci);
           if (!rect || rect.width <= 2 || rect.height <= 2) {
@@ -1055,6 +1145,30 @@
           }
 
           const currentValue = cellTextAt(ri, ci);
+          if (isCheckbox) {
+            const checkbox = document.createElement('div');
+            checkbox.className = 'ce-validation-cell-checkbox';
+            const top = Math.max(0, Math.round(rect.top + 2));
+            const left = Math.max(0, Math.round(rect.left + 2));
+            const width = Math.max(20, Math.round(rect.width - 4));
+            const height = Math.max(20, Math.round(rect.height - 4));
+            checkbox.style.left = `${left}px`;
+            checkbox.style.top = `${top}px`;
+            checkbox.style.width = `${width}px`;
+            checkbox.style.height = `${height}px`;
+
+            const box = document.createElement('span');
+            box.className = `ce-validation-cell-checkbox-box${isCheckboxCheckedValue(currentValue) ? ' is-checked' : ''}`;
+            if (isCheckboxCheckedValue(currentValue)) {
+              const tick = document.createElement('span');
+              tick.className = 'ce-validation-cell-checkbox-tick';
+              tick.textContent = '✓';
+              box.appendChild(tick);
+            }
+            checkbox.appendChild(box);
+            layer.appendChild(checkbox);
+            continue;
+          }
           const chipColor =
             findColorForCellValue(ri, ci, currentValue) ||
             findColorFromValidator(validator, currentValue) ||
@@ -1189,12 +1303,72 @@
       validationCellDropdown = select;
     }
 
+    function mountValidationCellCheckboxEditor() {
+      if (validationCellCheckboxWrap && validationCellCheckboxInput) {
+        return;
+      }
+      const wrap = document.createElement('div');
+      wrap.className = 'ce-validation-cell-checkbox-editor';
+      wrap.style.display = 'none';
+
+      const input = document.createElement('input');
+      input.type = 'checkbox';
+      input.className = 'ce-validation-cell-checkbox-input';
+
+      wrap.addEventListener('mousedown', function (ev) {
+        ev.stopPropagation();
+      });
+      wrap.addEventListener('mouseup', function (ev) {
+        ev.stopPropagation();
+      });
+      wrap.addEventListener('click', function (ev) {
+        if (ev.target === wrap) {
+          input.checked = !input.checked;
+          input.dispatchEvent(new Event('change'));
+        }
+        ev.stopPropagation();
+      });
+      input.addEventListener('mousedown', function (ev) {
+        ev.stopPropagation();
+      });
+      input.addEventListener('click', function (ev) {
+        ev.stopPropagation();
+      });
+      input.addEventListener('change', function () {
+        if (!activeSpreadsheet || !activeSheetData) {
+          return;
+        }
+        const coords = selectedCellCoords();
+        const value = input.checked ? 'TRUE' : 'FALSE';
+        try {
+          if (typeof activeSpreadsheet.cellText === 'function') {
+            activeSpreadsheet.cellText(coords.ri, coords.ci, value, 0);
+          } else if (typeof activeSheetData.setCellText === 'function') {
+            activeSheetData.setCellText(coords.ri, coords.ci, value, 'finished');
+          }
+          if (typeof activeSpreadsheet.reRender === 'function') {
+            activeSpreadsheet.reRender();
+          }
+          syncFormulaBarFromSelection();
+          refreshValidationCellDropdown();
+          scheduleValidationCellDropdownRefresh();
+        } catch (err) {
+          // ignore set failure
+        }
+      });
+      wrap.appendChild(input);
+      root.appendChild(wrap);
+      validationCellCheckboxWrap = wrap;
+      validationCellCheckboxInput = input;
+    }
+
     function refreshValidationCellDropdown() {
       if (!activeSheetData || !activeSpreadsheet) {
         hideValidationCellDropdown();
         return;
       }
       mountValidationCellDropdown();
+      mountValidationCellCheckboxEditor();
       if (!validationCellDropdown) {
         return;
       }
@@ -1227,6 +1401,7 @@
         hideValidationCellDropdown();
         return;
       }
+      const isCheckbox = isCheckboxValidation(validator, metaRule, options);
 
       const rootRect = root.getBoundingClientRect();
       let areaRect = null;
@@ -1255,6 +1430,29 @@
       }
 
       const currentValue = cellTextAt(coords.ri, coords.ci);
+      if (isCheckbox) {
+        if (validationCellDropdown) {
+          validationCellDropdown.style.display = 'none';
+        }
+        if (!validationCellCheckboxWrap || !validationCellCheckboxInput) {
+          hideValidationCellDropdown();
+          return;
+        }
+        validationCellCheckboxInput.checked = isCheckboxCheckedValue(currentValue);
+        const left = Math.max(0, Math.round(areaRect.left + 1));
+        const top = Math.max(0, Math.round(areaRect.top + 1));
+        const width = Math.max(20, Math.round(areaRect.width - 2));
+        const height = Math.max(20, Math.round(areaRect.height - 2));
+        validationCellCheckboxWrap.style.left = `${left}px`;
+        validationCellCheckboxWrap.style.top = `${top}px`;
+        validationCellCheckboxWrap.style.width = `${width}px`;
+        validationCellCheckboxWrap.style.height = `${height}px`;
+        validationCellCheckboxWrap.style.display = 'flex';
+        return;
+      }
+      if (validationCellCheckboxWrap) {
+        validationCellCheckboxWrap.style.display = 'none';
+      }
       const chipColor =
         findColorForCellValue(coords.ri, coords.ci, currentValue) ||
         findColorFromValidator(validator, currentValue) ||
@@ -1622,6 +1820,7 @@
           mode,
           ref,
           range,
+          criteria,
           options: (validator && Array.isArray(validator.value))
             ? validator.value
             : String(validator && validator.value != null ? validator.value : '')
@@ -2011,6 +2210,7 @@
             mode,
             ref,
             range,
+            criteria: 'checkbox',
             options: ['TRUE', 'FALSE'],
             colorByLabel: Object.assign({}, colorByLabel),
           });

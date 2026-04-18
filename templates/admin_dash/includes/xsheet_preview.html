@@ -597,7 +597,7 @@
     let formulaInput = null;
     let validationCellDropdown = null;
     let validationRefreshFrame = null;
-    let validationRefreshTimer = null;
+    let validationRefreshTimers = [];
     let activeSpreadsheet = null;
     let activeSheetData = null;
 
@@ -805,28 +805,28 @@
       if (validationRefreshFrame != null && typeof window.cancelAnimationFrame === 'function') {
         window.cancelAnimationFrame(validationRefreshFrame);
       }
-      if (validationRefreshTimer != null) {
-        window.clearTimeout(validationRefreshTimer);
+      if (validationRefreshTimers.length) {
+        validationRefreshTimers.forEach(function (id) {
+          window.clearTimeout(id);
+        });
+        validationRefreshTimers = [];
       }
 
-      const run = function () {
+      const runNow = function () {
         refreshValidationCellDropdown();
       };
       if (typeof window.requestAnimationFrame === 'function') {
-        validationRefreshFrame = window.requestAnimationFrame(run);
+        validationRefreshFrame = window.requestAnimationFrame(runNow);
       } else {
-        run();
+        runNow();
       }
 
-      validationRefreshTimer = window.setTimeout(function () {
-        refreshValidationCellDropdown();
-      }, 80);
-      window.setTimeout(function () {
-        refreshValidationCellDropdown();
-      }, 180);
-      window.setTimeout(function () {
-        refreshValidationCellDropdown();
-      }, 360);
+      [70, 150, 280].forEach(function (delay) {
+        const id = window.setTimeout(function () {
+          refreshValidationCellDropdown();
+        }, delay);
+        validationRefreshTimers.push(id);
+      });
     }
 
     function resolveSelectedValidator() {
@@ -912,6 +912,7 @@
             activeSpreadsheet.reRender();
           }
           syncFormulaBarFromSelection();
+          refreshValidationCellDropdown();
           scheduleValidationCellDropdownRefresh();
         } catch (err) {
           // ignore set failure
@@ -960,13 +961,19 @@
         return;
       }
 
-      const rootRect = root.getBoundingClientRect();
       let areaRect = null;
       const selectorArea = root.querySelector('.x-spreadsheet-selector .x-spreadsheet-selector-area');
       if (selectorArea) {
-        const probe = selectorArea.getBoundingClientRect();
-        if (probe.width > 2 && probe.height > 2) {
-          areaRect = probe;
+        const styleLeft = Number.parseFloat(selectorArea.style.left || '');
+        const styleTop = Number.parseFloat(selectorArea.style.top || '');
+        const styleWidth = Number.parseFloat(selectorArea.style.width || '');
+        const styleHeight = Number.parseFloat(selectorArea.style.height || '');
+        const left = Number.isFinite(styleLeft) ? styleLeft : selectorArea.offsetLeft;
+        const top = Number.isFinite(styleTop) ? styleTop : selectorArea.offsetTop;
+        const width = Number.isFinite(styleWidth) ? styleWidth : selectorArea.offsetWidth;
+        const height = Number.isFinite(styleHeight) ? styleHeight : selectorArea.offsetHeight;
+        if (width > 2 && height > 2) {
+          areaRect = { left, top, width, height };
         }
       }
       if (!areaRect) {
@@ -983,8 +990,8 @@
                 Number.isFinite(activeSheetData.rows.height)
               ) ? activeSheetData.rows.height : 25;
               areaRect = {
-                left: rootRect.left + indexWidth + sel.left,
-                top: rootRect.top + headerHeight + sel.top,
+                left: indexWidth + sel.left,
+                top: headerHeight + sel.top,
                 width: sel.width,
                 height: sel.height,
               };
@@ -1049,8 +1056,8 @@
         validationCellDropdown.value = '';
       }
 
-      const left = Math.max(0, Math.round(areaRect.left - rootRect.left));
-      const top = Math.max(0, Math.round(areaRect.top - rootRect.top));
+      const left = Math.max(0, Math.round(areaRect.left));
+      const top = Math.max(0, Math.round(areaRect.top));
       const label = currentValue || (options[0] || '');
       const textWidth = Math.max(54, Math.min(220, (String(label).length * 8) + 36));
       const maxChipWidth = Math.max(72, Math.round((areaRect.width * 0.76)));

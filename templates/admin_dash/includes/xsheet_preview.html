@@ -588,6 +588,7 @@
       '#d2c2e5', '#2a5db0', '#315f72', '#2f855a', '#5b3f9b',
     ];
     let colorRules = [];
+    let validationRuleMeta = [];
     let validationToolbarButton = null;
     let googleMenuRoot = null;
     let googleMenuStatus = null;
@@ -753,6 +754,31 @@
       return null;
     }
 
+    function upsertValidationRuleMeta(rule) {
+      if (!rule || !rule.mode || !rule.ref || !rule.range) {
+        return;
+      }
+      const key = ruleKey(rule.mode, rule.ref);
+      const index = validationRuleMeta.findIndex(function (item) {
+        return ruleKey(item.mode, item.ref) === key;
+      });
+      if (index >= 0) {
+        validationRuleMeta[index] = rule;
+      } else {
+        validationRuleMeta.push(rule);
+      }
+    }
+
+    function findValidationRuleMetaForCell(ri, ci) {
+      for (let i = validationRuleMeta.length - 1; i >= 0; i -= 1) {
+        const rule = validationRuleMeta[i];
+        if (cellInRule(rule, ri, ci)) {
+          return rule;
+        }
+      }
+      return null;
+    }
+
     function parseListValidatorOptions(validator) {
       if (!validator || validator.type !== 'list') {
         return [];
@@ -795,6 +821,12 @@
       validationRefreshTimer = window.setTimeout(function () {
         refreshValidationCellDropdown();
       }, 80);
+      window.setTimeout(function () {
+        refreshValidationCellDropdown();
+      }, 180);
+      window.setTimeout(function () {
+        refreshValidationCellDropdown();
+      }, 360);
     }
 
     function resolveSelectedValidator() {
@@ -915,29 +947,73 @@
       }
 
       const validator = resolveSelectedValidator();
-      const options = parseListValidatorOptions(validator);
+      const coords = selectedCellCoords();
+      const metaRule = findValidationRuleMetaForCell(coords.ri, coords.ci);
+      let options = parseListValidatorOptions(validator);
+      if (!options.length && metaRule && Array.isArray(metaRule.options)) {
+        options = metaRule.options
+          .map(function (v) { return String(v == null ? '' : v).trim(); })
+          .filter(function (v) { return v.length > 0; });
+      }
       if (!options.length) {
         hideValidationCellDropdown();
         return;
       }
 
+      const rootRect = root.getBoundingClientRect();
+      let areaRect = null;
       const selectorArea = root.querySelector('.x-spreadsheet-selector .x-spreadsheet-selector-area');
-      if (!selectorArea) {
+      if (selectorArea) {
+        const probe = selectorArea.getBoundingClientRect();
+        if (probe.width > 2 && probe.height > 2) {
+          areaRect = probe;
+        }
+      }
+      if (!areaRect) {
+        try {
+          if (activeSheetData && typeof activeSheetData.getSelectedRect === 'function') {
+            const sel = activeSheetData.getSelectedRect();
+            if (sel && Number.isFinite(sel.left) && Number.isFinite(sel.top) && Number.isFinite(sel.width) && Number.isFinite(sel.height)) {
+              const indexWidth = (
+                activeSheetData.cols &&
+                Number.isFinite(activeSheetData.cols.indexWidth)
+              ) ? activeSheetData.cols.indexWidth : 50;
+              const headerHeight = (
+                activeSheetData.rows &&
+                Number.isFinite(activeSheetData.rows.height)
+              ) ? activeSheetData.rows.height : 25;
+              areaRect = {
+                left: rootRect.left + indexWidth + sel.left,
+                top: rootRect.top + headerHeight + sel.top,
+                width: sel.width,
+                height: sel.height,
+              };
+            }
+          }
+        } catch (err) {
+          areaRect = null;
+        }
+      }
+      if (!areaRect) {
         hideValidationCellDropdown();
         return;
       }
-      const areaRect = selectorArea.getBoundingClientRect();
-      const rootRect = root.getBoundingClientRect();
       if (areaRect.width <= 2 || areaRect.height <= 2) {
         hideValidationCellDropdown();
         return;
       }
 
-      const coords = selectedCellCoords();
       const currentValue = cellTextAt(coords.ri, coords.ci);
       const chipColor =
         findColorForCellValue(coords.ri, coords.ci, currentValue) ||
         findColorFromValidator(validator, currentValue) ||
+        (
+          metaRule &&
+          metaRule.colorByLabel &&
+          Object.prototype.hasOwnProperty.call(metaRule.colorByLabel, currentValue)
+            ? metaRule.colorByLabel[currentValue]
+            : null
+        ) ||
         '#e5e7eb';
       validationCellDropdown.innerHTML = '';
 
@@ -952,7 +1028,14 @@
         o.textContent = opt;
         const optionColor =
           findColorForCellValue(coords.ri, coords.ci, opt) ||
-          findColorFromValidator(validator, opt);
+          findColorFromValidator(validator, opt) ||
+          (
+            metaRule &&
+            metaRule.colorByLabel &&
+            Object.prototype.hasOwnProperty.call(metaRule.colorByLabel, opt)
+              ? metaRule.colorByLabel[opt]
+              : null
+          );
         if (optionColor) {
           o.style.backgroundColor = optionColor;
           o.style.color = readableTextColor(optionColor);
@@ -1081,6 +1164,9 @@
     function clearColorRulesFor(mode, ref) {
       const key = ruleKey(mode, ref);
       colorRules = colorRules.filter(function (item) {
+        return ruleKey(item.mode, item.ref) !== key;
+      });
+      validationRuleMeta = validationRuleMeta.filter(function (item) {
         return ruleKey(item.mode, item.ref) !== key;
       });
     }
@@ -1281,6 +1367,18 @@
             colorByLabel,
           });
         }
+        upsertValidationRuleMeta({
+          mode,
+          ref,
+          range,
+          options: (validator && Array.isArray(validator.value))
+            ? validator.value
+            : String(validator && validator.value != null ? validator.value : '')
+              .split(',')
+              .map(function (v) { return v.trim(); })
+              .filter(function (v) { return v.length > 0; }),
+          colorByLabel: Object.assign({}, colorByLabel),
+        });
 
         setDrawerStatus(`Rule saved for ${ref}.`, 'ok');
         closeValidationDrawer();
@@ -1301,6 +1399,19 @@
         activeSheetData.removeValidation();
         if (selectedRange) {
           colorRules = colorRules.filter(function (rule) {
+            const r = rule.range;
+            if (!r) {
+              return true;
+            }
+            const intersects = !(
+              r.eri < selectedRange.sri ||
+              r.sri > selectedRange.eri ||
+              r.eci < selectedRange.sci ||
+              r.sci > selectedRange.eci
+            );
+            return !intersects;
+          });
+          validationRuleMeta = validationRuleMeta.filter(function (rule) {
             const r = rule.range;
             if (!r) {
               return true;

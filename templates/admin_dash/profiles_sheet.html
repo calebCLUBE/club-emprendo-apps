@@ -8,138 +8,35 @@
     #container, .main, #content, #content-main {
       height: 100%;
     }
-    #content {
+    #content, #content-main {
+      margin: 0;
+      padding: 0;
       overflow: hidden;
     }
     .ce-sheet-page {
       width: 100%;
       box-sizing: border-box;
-      padding: 8px;
+      padding: 0;
       height: calc(100vh - 66px);
       overflow: hidden;
     }
     .ce-sheet-shell {
-      max-width: none;
-      margin: 0 auto;
+      width: 100%;
+      margin: 0;
       background: #fff;
-      border: 1px solid #ddd;
-      border-radius: 12px;
-      padding: 10px;
+      border: 0;
+      border-radius: 0;
+      padding: 0;
       box-sizing: border-box;
       height: 100%;
       overflow: visible;
       display: flex;
       flex-direction: column;
     }
-    .ce-sheet-top {
-      display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
-      gap: 12px;
-      flex-wrap: wrap;
-      margin-bottom: 10px;
-    }
-    .ce-sheet-top h1 {
-      margin: 0;
-      font-size: 24px;
-      line-height: 1.2;
-    }
-    .ce-actions {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-      align-items: center;
-    }
-    .ce-filter {
-      display: grid;
-      grid-template-columns: minmax(260px, 1.5fr) minmax(180px, 1fr) minmax(180px, 1fr) auto;
-      gap: 10px;
-      align-items: end;
-      margin: 10px 0 12px;
-    }
-    .ce-filter label {
-      display: block;
-      font-weight: 600;
-      margin-bottom: 4px;
-    }
-    .ce-filter input,
-    .ce-filter select {
-      width: 100%;
-      box-sizing: border-box;
-      min-height: 40px;
-      padding: 8px;
-      line-height: 1.35;
-    }
-    .ce-muted {
-      color: #666;
-      font-size: 12px;
-      margin: 0 0 8px;
-    }
-    .ce-btn {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      padding: 8px 12px;
-      border-radius: 8px;
-      border: 1px solid #223413;
-      background: #223413;
-      color: #fff !important;
-      text-decoration: none;
-      font-weight: 600;
-      min-height: 38px;
-      box-sizing: border-box;
-    }
-    .ce-btn--ghost {
-      background: #fff;
-      color: #223413 !important;
-    }
-    @media (max-width: 1024px) {
-      .ce-filter {
-        grid-template-columns: 1fr;
-      }
-    }
   </style>
 
   <div class="ce-sheet-page">
     <div class="ce-sheet-shell">
-      <div class="ce-sheet-top">
-        <h1>Profiles Sheet</h1>
-        <div class="ce-actions">
-          <a class="ce-btn ce-btn--ghost" href="{% url 'admin_profiles_list' %}?q={{ query|urlencode }}&group={{ group_filter|urlencode }}&grading={{ status_filter|urlencode }}">Back to profiles</a>
-        </div>
-      </div>
-
-      <form method="get" class="ce-filter">
-        <div>
-          <label for="q">Search (cédula, name, email)</label>
-          <input id="q" name="q" value="{{ query }}" placeholder="e.g. 123456789 or Ana">
-        </div>
-        <div>
-          <label for="group">Group</label>
-          <select id="group" name="group">
-            <option value="">All groups</option>
-            {% for g in group_options %}
-              <option value="{{ g }}" {% if group_filter == g|stringformat:"s" %}selected{% endif %}>
-                {% if g == 800 %}April Recruitment{% else %}Group {{ g }}{% endif %}
-              </option>
-            {% endfor %}
-          </select>
-        </div>
-        <div>
-          <label for="grading">Calificación</label>
-          <select id="grading" name="grading">
-            <option value="all" {% if status_filter == "all" %}selected{% endif %}>All</option>
-            <option value="graded" {% if status_filter == "graded" %}selected{% endif %}>Graded</option>
-            <option value="not_graded" {% if status_filter == "not_graded" %}selected{% endif %}>Not graded</option>
-          </select>
-        </div>
-        <div class="ce-actions">
-          <button class="ce-btn" type="submit">Apply</button>
-          <a class="ce-btn ce-btn--ghost" href="{% url 'admin_profiles_sheet' %}">Clear</a>
-        </div>
-      </form>
-
-      <p class="ce-muted">Showing all filtered rows: {{ rows_count }}.</p>
       {% include "admin_dash/includes/xsheet_preview.html" with sheet_id="profiles-full-sheet" sheet_headers=sheet_headers sheet_rows=sheet_rows sheet_height=760 sheet_deferred=True %}
     </div>
   </div>

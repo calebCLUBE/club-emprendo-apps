@@ -57,6 +57,108 @@
     height: 100%;
     flex: 1 1 auto;
   }
+  .x-spreadsheet {
+    overflow: visible !important;
+  }
+
+  .ce-gs-menubar {
+    height: 34px;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 0 8px;
+    border-bottom: 1px solid #e5e7eb;
+    background: #fff;
+    user-select: none;
+    position: relative;
+    z-index: 2100;
+  }
+  .ce-gs-menu {
+    position: relative;
+  }
+  .ce-gs-menu-btn {
+    height: 28px;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    background: transparent;
+    color: #1f2937;
+    font-size: 13px;
+    font-weight: 500;
+    padding: 0 8px;
+    cursor: pointer;
+  }
+  .ce-gs-menu-btn:hover,
+  .ce-gs-menu-btn[aria-expanded="true"] {
+    background: #f1f5f9;
+    border-color: #e2e8f0;
+  }
+  .ce-gs-menu-panel {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    min-width: 240px;
+    max-height: 68vh;
+    overflow: auto;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    background: #fff;
+    box-shadow: 0 12px 28px rgba(15, 23, 42, 0.16);
+    padding: 6px 0;
+    display: none;
+    z-index: 4200;
+  }
+  .ce-gs-menu-panel.is-open {
+    display: block;
+  }
+  .ce-gs-menu-item {
+    width: 100%;
+    height: 30px;
+    border: 0;
+    background: transparent;
+    color: #1f2937;
+    font-size: 13px;
+    text-align: left;
+    padding: 0 12px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .ce-gs-menu-item:hover {
+    background: #f8fafc;
+  }
+  .ce-gs-menu-item[disabled] {
+    color: #9ca3af;
+    cursor: default;
+  }
+  .ce-gs-menu-item[disabled]:hover {
+    background: transparent;
+  }
+  .ce-gs-menu-separator {
+    margin: 6px 0;
+    border-top: 1px solid #e5e7eb;
+  }
+  .ce-gs-menu-kbd {
+    color: #6b7280;
+    font-size: 11px;
+    white-space: nowrap;
+  }
+  .ce-gs-menubar-status {
+    margin-left: auto;
+    color: #6b7280;
+    font-size: 12px;
+    max-width: 420px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .ce-gs-menubar-status.is-error {
+    color: #991b1b;
+  }
+  .ce-gs-menubar-status.is-ok {
+    color: #166534;
+  }
 
   .ce-validation-toolbar-btn {
     display: inline-flex;
@@ -373,6 +475,8 @@
     ];
     const colorRules = [];
     let validationToolbarButton = null;
+    let googleMenuRoot = null;
+    let googleMenuStatus = null;
     let activeSpreadsheet = null;
     let activeSheetData = null;
 
@@ -453,6 +557,44 @@
       } else if (level === 'error') {
         drawerStatus.classList.add('ce-validation-status--error');
       }
+    }
+
+    function setMenuStatus(text, level) {
+      if (!googleMenuStatus) {
+        return;
+      }
+      googleMenuStatus.textContent = text || '';
+      googleMenuStatus.className = 'ce-gs-menubar-status';
+      if (level === 'ok') {
+        googleMenuStatus.classList.add('is-ok');
+      } else if (level === 'error') {
+        googleMenuStatus.classList.add('is-error');
+      }
+      if (text) {
+        window.setTimeout(function () {
+          if (!googleMenuStatus) {
+            return;
+          }
+          googleMenuStatus.textContent = '';
+          googleMenuStatus.className = 'ce-gs-menubar-status';
+        }, 2500);
+      }
+    }
+
+    function parseCellText(cell) {
+      if (cell == null) {
+        return '';
+      }
+      if (typeof cell === 'object') {
+        if (cell.text != null) {
+          return String(cell.text);
+        }
+        if (cell.value != null) {
+          return String(cell.value);
+        }
+        return '';
+      }
+      return String(cell);
     }
 
     function normalizeRangeRef(value) {
@@ -860,6 +1002,456 @@
       return payload;
     }
 
+    function payloadToMatrix(payload) {
+      const sheet = Array.isArray(payload)
+        ? (payload.length ? payload[0] : {})
+        : (payload || {});
+      const rowsObj = sheet && typeof sheet.rows === 'object' ? sheet.rows : {};
+      const colsObj = sheet && typeof sheet.cols === 'object' ? sheet.cols : {};
+
+      let maxRow = Number.isFinite(Number(rowsObj.len)) ? Math.max(0, Number(rowsObj.len) - 1) : 0;
+      let maxCol = Number.isFinite(Number(colsObj.len)) ? Math.max(0, Number(colsObj.len) - 1) : 0;
+
+      Object.keys(rowsObj).forEach(function (rowKey) {
+        if (!/^\d+$/.test(rowKey)) {
+          return;
+        }
+        const rowIdx = Number(rowKey);
+        if (rowIdx > maxRow) {
+          maxRow = rowIdx;
+        }
+        const row = rowsObj[rowKey];
+        const cells = row && typeof row.cells === 'object' ? row.cells : {};
+        Object.keys(cells).forEach(function (colKey) {
+          if (!/^\d+$/.test(colKey)) {
+            return;
+          }
+          const colIdx = Number(colKey);
+          if (colIdx > maxCol) {
+            maxCol = colIdx;
+          }
+        });
+      });
+
+      const matrix = Array.from({ length: maxRow + 1 }, function () {
+        return Array(maxCol + 1).fill('');
+      });
+      Object.keys(rowsObj).forEach(function (rowKey) {
+        if (!/^\d+$/.test(rowKey)) {
+          return;
+        }
+        const rowIdx = Number(rowKey);
+        const row = rowsObj[rowKey];
+        const cells = row && typeof row.cells === 'object' ? row.cells : {};
+        Object.keys(cells).forEach(function (colKey) {
+          if (!/^\d+$/.test(colKey)) {
+            return;
+          }
+          const colIdx = Number(colKey);
+          matrix[rowIdx][colIdx] = parseCellText(cells[colKey]);
+        });
+      });
+
+      if (!matrix.length) {
+        return [['']];
+      }
+      if (!matrix[0].length) {
+        return [['']];
+      }
+      return matrix;
+    }
+
+    function getCurrentMatrix() {
+      try {
+        if (activeSpreadsheet && typeof activeSpreadsheet.getData === 'function') {
+          return payloadToMatrix(activeSpreadsheet.getData());
+        }
+      } catch (err) {
+        // no-op
+      }
+      return seedMatrixFromCsv();
+    }
+
+    function csvEscapeCell(value) {
+      const text = String(value == null ? '' : value);
+      if (!/[",\n]/.test(text)) {
+        return text;
+      }
+      return `"${text.replace(/"/g, '""')}"`;
+    }
+
+    function matrixToCsv(matrix) {
+      return matrix
+        .map(function (row) {
+          return (row || []).map(csvEscapeCell).join(',');
+        })
+        .join('\n');
+    }
+
+    function triggerDownload(filename, text, mime) {
+      const blob = new Blob([text], { type: mime || 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(function () {
+        URL.revokeObjectURL(url);
+      }, 1500);
+    }
+
+    function withSheetAction(fn) {
+      if (!activeSheetData) {
+        setMenuStatus('Sheet is not ready yet.', 'error');
+        return;
+      }
+      try {
+        fn();
+        if (activeSpreadsheet && typeof activeSpreadsheet.reRender === 'function') {
+          activeSpreadsheet.reRender();
+        }
+      } catch (err) {
+        setMenuStatus('Action failed.', 'error');
+      }
+    }
+
+    function performMenuAction(action) {
+      if (!action) {
+        return;
+      }
+      if (action === 'not_implemented') {
+        setMenuStatus('This menu item is listed for parity and will be wired next.', 'error');
+        return;
+      }
+      if (action === 'open_validation') {
+        openValidationDrawer();
+        return;
+      }
+      if (action === 'download_csv') {
+        triggerDownload('sheet-export.csv', matrixToCsv(getCurrentMatrix()), 'text/csv;charset=utf-8');
+        setMenuStatus('CSV downloaded.', 'ok');
+        return;
+      }
+      if (action === 'download_json') {
+        const payload = activeSpreadsheet && typeof activeSpreadsheet.getData === 'function'
+          ? activeSpreadsheet.getData()
+          : buildSheetPayload(seedMatrixFromCsv());
+        triggerDownload('sheet-export.json', JSON.stringify(payload, null, 2), 'application/json;charset=utf-8');
+        setMenuStatus('JSON downloaded.', 'ok');
+        return;
+      }
+      if (action === 'paste_plain') {
+        if (!navigator.clipboard || typeof navigator.clipboard.readText !== 'function') {
+          setMenuStatus('Clipboard read not available in this browser.', 'error');
+          return;
+        }
+        navigator.clipboard.readText()
+          .then(function (text) {
+            withSheetAction(function () {
+              activeSheetData.pasteFromText(text || '');
+            });
+            setMenuStatus('Pasted from clipboard.', 'ok');
+          })
+          .catch(function () {
+            setMenuStatus('Clipboard permission denied.', 'error');
+          });
+        return;
+      }
+
+      switch (action) {
+        case 'undo':
+          withSheetAction(function () { activeSheetData.undo(); });
+          break;
+        case 'redo':
+          withSheetAction(function () { activeSheetData.redo(); });
+          break;
+        case 'copy':
+          withSheetAction(function () { activeSheetData.copy(); });
+          setMenuStatus('Selection copied.', 'ok');
+          break;
+        case 'cut':
+          withSheetAction(function () { activeSheetData.cut(); });
+          setMenuStatus('Selection cut.', 'ok');
+          break;
+        case 'paste':
+          withSheetAction(function () { activeSheetData.paste('all'); });
+          break;
+        case 'paste_values':
+          withSheetAction(function () { activeSheetData.paste('text'); });
+          break;
+        case 'paste_format':
+          withSheetAction(function () { activeSheetData.paste('format'); });
+          break;
+        case 'delete_values':
+          withSheetAction(function () { activeSheetData.deleteCell('text'); });
+          break;
+        case 'delete_format':
+          withSheetAction(function () { activeSheetData.deleteCell('format'); });
+          break;
+        case 'insert_row':
+          withSheetAction(function () { activeSheetData.insert('row', 1); });
+          break;
+        case 'insert_column':
+          withSheetAction(function () { activeSheetData.insert('column', 1); });
+          break;
+        case 'delete_row':
+          withSheetAction(function () { activeSheetData.delete('row'); });
+          break;
+        case 'delete_column':
+          withSheetAction(function () { activeSheetData.delete('column'); });
+          break;
+        case 'merge_cells':
+          withSheetAction(function () { activeSheetData.setSelectedCellAttr('merge', true); });
+          break;
+        case 'unmerge_cells':
+          withSheetAction(function () { activeSheetData.setSelectedCellAttr('merge', false); });
+          break;
+        case 'freeze_row': {
+          withSheetAction(function () {
+            const current = Array.isArray(activeSheetData.freeze) ? activeSheetData.freeze : [0, 0];
+            activeSheetData.setFreeze(1, current[1] || 0);
+          });
+          break;
+        }
+        case 'freeze_column': {
+          withSheetAction(function () {
+            const current = Array.isArray(activeSheetData.freeze) ? activeSheetData.freeze : [0, 0];
+            activeSheetData.setFreeze(current[0] || 0, 1);
+          });
+          break;
+        }
+        case 'unfreeze':
+          withSheetAction(function () { activeSheetData.setFreeze(0, 0); });
+          break;
+        case 'toggle_filter':
+          withSheetAction(function () { activeSheetData.autofilter(); });
+          break;
+        default:
+          setMenuStatus('Action not available yet.', 'error');
+      }
+    }
+
+    function closeAllGoogleMenus() {
+      if (!googleMenuRoot) {
+        return;
+      }
+      googleMenuRoot.querySelectorAll('.ce-gs-menu-panel.is-open').forEach(function (panel) {
+        panel.classList.remove('is-open');
+      });
+      googleMenuRoot.querySelectorAll('.ce-gs-menu-btn[aria-expanded="true"]').forEach(function (btn) {
+        btn.setAttribute('aria-expanded', 'false');
+      });
+    }
+
+    function createGoogleMenuNode(model) {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'ce-gs-menu';
+
+      const trigger = document.createElement('button');
+      trigger.type = 'button';
+      trigger.className = 'ce-gs-menu-btn';
+      trigger.textContent = model.label;
+      trigger.setAttribute('aria-expanded', 'false');
+
+      const panel = document.createElement('div');
+      panel.className = 'ce-gs-menu-panel';
+
+      model.items.forEach(function (item) {
+        if (item.separator) {
+          const sep = document.createElement('div');
+          sep.className = 'ce-gs-menu-separator';
+          panel.appendChild(sep);
+          return;
+        }
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'ce-gs-menu-item';
+        btn.innerHTML = `<span>${item.label}</span>${item.kbd ? `<span class="ce-gs-menu-kbd">${item.kbd}</span>` : ''}`;
+        if (item.disabled) {
+          btn.disabled = true;
+        }
+        btn.addEventListener('click', function () {
+          closeAllGoogleMenus();
+          if (!item.disabled) {
+            performMenuAction(item.action);
+          }
+        });
+        panel.appendChild(btn);
+      });
+
+      trigger.addEventListener('click', function (ev) {
+        ev.stopPropagation();
+        const open = panel.classList.contains('is-open');
+        closeAllGoogleMenus();
+        if (!open) {
+          panel.classList.add('is-open');
+          trigger.setAttribute('aria-expanded', 'true');
+        }
+      });
+
+      wrapper.appendChild(trigger);
+      wrapper.appendChild(panel);
+      return wrapper;
+    }
+
+    function mountGoogleSheetsMenu(spreadsheet) {
+      if (!spreadsheet || googleMenuRoot) {
+        return;
+      }
+      const sheetEl = root.querySelector('.x-spreadsheet');
+      if (!sheetEl) {
+        return;
+      }
+      const toolbar = sheetEl.querySelector('.x-spreadsheet-toolbar');
+      if (!toolbar) {
+        return;
+      }
+
+      const menus = [
+        {
+          label: 'File',
+          items: [
+            { label: 'New', action: 'not_implemented' },
+            { label: 'Open', action: 'not_implemented' },
+            { label: 'Import', action: 'not_implemented' },
+            { separator: true },
+            { label: 'Make a copy', action: 'download_json' },
+            { label: 'Download (.csv)', action: 'download_csv' },
+            { label: 'Download (.json)', action: 'download_json' },
+            { separator: true },
+            { label: 'Print', action: 'not_implemented' },
+          ],
+        },
+        {
+          label: 'Edit',
+          items: [
+            { label: 'Undo', action: 'undo', kbd: 'Ctrl+Z' },
+            { label: 'Redo', action: 'redo', kbd: 'Ctrl+Y' },
+            { separator: true },
+            { label: 'Cut', action: 'cut', kbd: 'Ctrl+X' },
+            { label: 'Copy', action: 'copy', kbd: 'Ctrl+C' },
+            { label: 'Paste', action: 'paste', kbd: 'Ctrl+V' },
+            { label: 'Paste values only', action: 'paste_values' },
+            { label: 'Paste format only', action: 'paste_format' },
+            { label: 'Paste plain text', action: 'paste_plain' },
+            { separator: true },
+            { label: 'Delete values', action: 'delete_values' },
+            { label: 'Delete formatting', action: 'delete_format' },
+            { label: 'Find and replace', action: 'not_implemented', kbd: 'Ctrl+H' },
+          ],
+        },
+        {
+          label: 'View',
+          items: [
+            { label: 'Freeze 1 row', action: 'freeze_row' },
+            { label: 'Freeze 1 column', action: 'freeze_column' },
+            { label: 'No freeze', action: 'unfreeze' },
+            { separator: true },
+            { label: 'Toggle filter', action: 'toggle_filter' },
+            { label: 'Full screen', action: 'not_implemented' },
+            { label: 'Zoom', action: 'not_implemented' },
+          ],
+        },
+        {
+          label: 'Insert',
+          items: [
+            { label: 'Row', action: 'insert_row' },
+            { label: 'Column', action: 'insert_column' },
+            { separator: true },
+            { label: 'Checkbox', action: 'not_implemented' },
+            { label: 'Dropdown', action: 'open_validation' },
+            { label: 'Chart', action: 'not_implemented' },
+            { label: 'Image', action: 'not_implemented' },
+            { label: 'Link', action: 'not_implemented' },
+            { label: 'Comment', action: 'not_implemented' },
+          ],
+        },
+        {
+          label: 'Format',
+          items: [
+            { label: 'Merge cells', action: 'merge_cells' },
+            { label: 'Unmerge cells', action: 'unmerge_cells' },
+            { separator: true },
+            { label: 'Number', action: 'not_implemented' },
+            { label: 'Text', action: 'not_implemented' },
+            { label: 'Alignment', action: 'not_implemented' },
+            { label: 'Wrapping', action: 'not_implemented' },
+            { label: 'Conditional formatting', action: 'not_implemented' },
+            { label: 'Alternating colors', action: 'not_implemented' },
+          ],
+        },
+        {
+          label: 'Data',
+          items: [
+            { label: 'Sort sheet', action: 'not_implemented' },
+            { label: 'Sort range', action: 'not_implemented' },
+            { label: 'Create a filter', action: 'toggle_filter' },
+            { label: 'Filter views', action: 'not_implemented' },
+            { separator: true },
+            { label: 'Data validation rules', action: 'open_validation' },
+            { label: 'Named ranges', action: 'not_implemented' },
+            { label: 'Split text to columns', action: 'not_implemented' },
+            { label: 'Data cleanup', action: 'not_implemented' },
+            { label: 'Pivot table', action: 'not_implemented' },
+          ],
+        },
+        {
+          label: 'Tools',
+          items: [
+            { label: 'Spelling and grammar', action: 'not_implemented' },
+            { label: 'Notification rules', action: 'not_implemented' },
+            { label: 'Protect sheets and ranges', action: 'not_implemented' },
+            { label: 'Create a form', action: 'not_implemented' },
+            { label: 'Script editor', action: 'not_implemented' },
+            { label: 'Accessibility settings', action: 'not_implemented' },
+          ],
+        },
+        {
+          label: 'Extensions',
+          items: [
+            { label: 'Add-ons', action: 'not_implemented' },
+            { label: 'Macros', action: 'not_implemented' },
+            { label: 'Apps Script', action: 'not_implemented' },
+          ],
+        },
+        {
+          label: 'Help',
+          items: [
+            { label: 'Help center', action: 'not_implemented' },
+            { label: 'Keyboard shortcuts', action: 'not_implemented' },
+            { label: 'Training', action: 'not_implemented' },
+            { label: 'Updates', action: 'not_implemented' },
+          ],
+        },
+      ];
+
+      const bar = document.createElement('div');
+      bar.className = 'ce-gs-menubar';
+      menus.forEach(function (menu) {
+        bar.appendChild(createGoogleMenuNode(menu));
+      });
+      const status = document.createElement('div');
+      status.className = 'ce-gs-menubar-status';
+      bar.appendChild(status);
+
+      sheetEl.insertBefore(bar, toolbar);
+      googleMenuRoot = bar;
+      googleMenuStatus = status;
+
+      document.addEventListener('click', function (ev) {
+        if (googleMenuRoot && !googleMenuRoot.contains(ev.target)) {
+          closeAllGoogleMenus();
+        }
+      });
+      document.addEventListener('keydown', function (ev) {
+        if (ev.key === 'Escape') {
+          closeAllGoogleMenus();
+        }
+      });
+    }
+
     function fitToViewport() {
       const wrap = root.closest('.ce-sheet-preview-wrap');
       const rect = root.getBoundingClientRect();
@@ -975,6 +1567,7 @@
     function initValidationDrawer(spreadsheet) {
       activeSpreadsheet = spreadsheet;
       activeSheetData = getActiveSheetData(spreadsheet);
+      mountGoogleSheetsMenu(spreadsheet);
       mountValidationToolbarButton(spreadsheet);
       seedDefaultOptionRows();
       syncDrawerRangeFromSelection();

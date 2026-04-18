@@ -1,159 +1,108 @@
 {% extends "admin/base_site.html" %}
-{% load static inline_static %}
 
 {% block content %}
-<link rel="stylesheet" href="{% static 'vendor/x-data-spreadsheet/xspreadsheet.css' %}">
-<div class="ce-admin-wrap">
 <style>
-    /* Keep toolbar text/icons readable across Django admin theme overrides */
-    .x-spreadsheet-toolbar,
-    .x-spreadsheet-bottombar,
-    .x-spreadsheet-toolbar .x-spreadsheet-toolbar-btn,
-    .x-spreadsheet-toolbar .x-spreadsheet-dropdown-title,
-    .x-spreadsheet-menu > li,
-    .x-spreadsheet-menu > li.active,
-    .x-spreadsheet-form-input input,
-    .x-spreadsheet-form-select,
-    .x-spreadsheet-form-select .input-text,
-    .x-spreadsheet-item,
-    .x-spreadsheet-header {
-      color: #1f2937 !important;
-    }
-    .x-spreadsheet-icon .x-spreadsheet-icon-img {
-      opacity: 0.72;
-    }
+  html, body {
+    height: 100%;
+    overflow: hidden;
+  }
+  #container, .main, #content, #content-main {
+    height: 100%;
+  }
+  #content, #content-main {
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+  }
+  .ce-sheet-page {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 0;
+    height: calc(100vh - 66px);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    background: #fff;
+  }
+  .ce-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    padding: 8px 10px;
+    border-bottom: 1px solid #e5e7eb;
+    background: #fff;
+  }
+  .ce-btn {
+    min-height: 34px;
+    padding: 0 12px;
+    border: 1px solid #d0d0d0;
+    border-radius: 8px;
+    background: #fff;
+    color: #111;
+    font-weight: 600;
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+  }
+  .ce-btn:hover {
+    background: #f7f7f7;
+  }
+  .ce-btn-primary {
+    border-color: #2563eb;
+    background: #2563eb;
+    color: #fff;
+  }
+  .ce-btn-primary:hover {
+    background: #1f56cf;
+    border-color: #1f56cf;
+  }
+  .ce-sheet-stage {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+  .ce-empty {
+    padding: 12px;
+    color: #666;
+    font-size: 13px;
+  }
+</style>
 
-    .ce-sheet-shell {
-      max-width: 100%;
-      display: grid;
-      gap: 14px;
-    }
-    .ce-sheet-card {
-      background: #fff;
-      border: 1px solid #ddd;
-      border-radius: 12px;
-      padding: 14px;
-    }
-    .ce-sheet-title {
-      margin: 0;
-      font-size: 24px;
-      line-height: 1.2;
-    }
-    .ce-sheet-sub {
-      margin: 6px 0 0;
-      color: #666;
-      font-size: 13px;
-    }
-    .ce-sheet-actions {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      align-items: center;
-    }
-    .ce-btn {
-      height: 38px;
-      padding: 0 14px;
-      border: 1px solid #d0d0d0;
-      border-radius: 8px;
-      background: #fff;
-      color: #111;
-      font-weight: 600;
-      cursor: pointer;
-      text-decoration: none;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      box-sizing: border-box;
-    }
-    .ce-btn:hover {
-      background: #f7f7f7;
-    }
-    .ce-btn-primary {
-      border-color: #2563eb;
-      background: #2563eb;
-      color: #fff;
-    }
-    .ce-btn-primary:hover {
-      background: #1f56cf;
-      border-color: #1f56cf;
-    }
-    .ce-sheet-wrap {
-      width: 100%;
-      border: 1px solid #ddd;
-      border-radius: 12px;
-      background: #fff;
-      overflow: hidden;
-      min-height: 480px;
-    }
-    #live-sheet-canvas {
-      width: 100%;
-      min-height: 480px;
-    }
-    .ce-sheet-help {
-      margin: 10px 0 0;
-      color: #555;
-      font-size: 12px;
-      line-height: 1.45;
-    }
-    .ce-sheet-help strong {
-      color: #1f2937;
-    }
-  </style>
-
-  <div class="ce-sheet-shell">
-    <div class="ce-sheet-card">
-      <h1 class="ce-sheet-title">Live Grading Sheet - {{ form_slug }}</h1>
-      <p class="ce-sheet-sub">
-        Edit the latest graded file directly in the browser. Last generated:
-        {{ graded_file.created_at|date:"Y-m-d H:i" }}
-      </p>
-    </div>
-
-    <form method="post" id="live-sheet-form" class="ce-sheet-card">
-      {% csrf_token %}
-      <input type="hidden" id="headers_json" name="headers_json" value="">
-      <input type="hidden" id="rows_json" name="rows_json" value="">
-      <div class="ce-sheet-actions">
-        <button class="ce-btn ce-btn-primary" type="submit">Save Sheet</button>
-        <a class="ce-btn" href="{% url 'admin_grading_download_csv' graded_file.id %}">Download CSV</a>
-        <a class="ce-btn" href="{% url 'admin_grading_download_excel' graded_file.id %}">Download Excel</a>
-        <a class="ce-btn" href="{% url 'admin_grading_home' %}">Back to Grading</a>
-      </div>
-
-      {% if headers %}
-        <div class="ce-sheet-wrap" style="margin-top:12px;">
-          <div id="live-sheet-canvas"></div>
-        </div>
-        <p class="ce-sheet-help">
-          <strong>Excel-like controls:</strong> use the top toolbar and right-click context menu to insert/delete rows and columns, resize rows/columns, change fonts and font sizes, apply cell colors, freeze, and hide columns/rows.
-        </p>
-      {% else %}
-        <p style="margin-top:12px; color:#666;">
-          This graded CSV is empty (no headers), so it cannot be edited as a live sheet yet.
-        </p>
-      {% endif %}
-    </form>
+<form method="post" id="live-sheet-form" class="ce-sheet-page">
+  {% csrf_token %}
+  <input type="hidden" id="headers_json" name="headers_json" value="">
+  <input type="hidden" id="rows_json" name="rows_json" value="">
+  <div class="ce-actions">
+    <button class="ce-btn ce-btn-primary" type="submit">Save Sheet</button>
+    <a class="ce-btn" href="{% url 'admin_grading_download_csv' graded_file.id %}">Download CSV</a>
+    <a class="ce-btn" href="{% url 'admin_grading_download_excel' graded_file.id %}">Download Excel</a>
+    <a class="ce-btn" href="{% url 'admin_grading_home' %}">Back to Grading</a>
+    <span style="color:#6b7280; font-size:12px; margin-left:auto;">
+      {{ form_slug }} · Last generated {{ graded_file.created_at|date:"Y-m-d H:i" }}
+    </span>
   </div>
-</div>
 
-{{ headers|json_script:"grading-sheet-headers" }}
-{{ rows|json_script:"grading-sheet-rows" }}
-<script>
-{% inline_static 'vendor/x-data-spreadsheet/xspreadsheet.js' %}
-</script>
+  <div class="ce-sheet-stage">
+    {% if headers %}
+      {% include "admin_dash/includes/xsheet_preview.html" with sheet_id="grading-live-sheet" sheet_headers=headers sheet_rows=rows sheet_height=760 sheet_deferred=True %}
+    {% else %}
+      <p class="ce-empty">This graded CSV is empty (no headers), so it cannot be edited in-sheet yet.</p>
+    {% endif %}
+  </div>
+</form>
+
 <script>
   (function () {
-    const LOCAL_XSHEET_JS_URL = "{% static 'vendor/x-data-spreadsheet/xspreadsheet.js' %}";
-    const sheetRoot = document.getElementById('live-sheet-canvas');
     const formEl = document.getElementById('live-sheet-form');
     const headersInput = document.getElementById('headers_json');
     const rowsInput = document.getElementById('rows_json');
-    if (!sheetRoot || !formEl || !headersInput || !rowsInput) {
+    if (!formEl || !headersInput || !rowsInput) {
       return;
     }
 
-    const headers = JSON.parse(document.getElementById('grading-sheet-headers').textContent || '[]');
-    const seedRows = JSON.parse(document.getElementById('grading-sheet-rows').textContent || '[]');
     const percentHeaderKeys = new Set(['score', 'totalscore', 'totalpts', 'overallscore']);
 
     function normalizeHeaderKey(value) {
@@ -190,243 +139,32 @@
       return `${num.toFixed(2)}%`;
     }
 
-    function parseCellText(cell) {
-      if (cell == null) {
-        return '';
-      }
-      if (typeof cell === 'object') {
-        if (cell.text != null) {
-          return String(cell.text);
-        }
-        if (cell.value != null) {
-          return String(cell.value);
-        }
-        return '';
-      }
-      return String(cell);
-    }
-
-    function seedMatrixFromCsv() {
-      const width = Math.max(1, Array.isArray(headers) ? headers.length : 0);
-      const headerRow = [];
-      const percentCols = getPercentColIndexes(headers);
-      for (let i = 0; i < width; i += 1) {
-        headerRow.push(String(headers[i] == null ? '' : headers[i]));
-      }
-      const matrix = [headerRow];
-      if (!Array.isArray(seedRows)) {
-        return matrix;
-      }
-      seedRows
-        .filter((r) => Array.isArray(r))
-        .forEach((r) => {
-          const out = [];
-          for (let i = 0; i < width; i += 1) {
-            const raw = i < r.length ? String(r[i] == null ? '' : r[i]) : '';
-            out.push(percentCols.has(i) ? formatPercentDisplay(raw) : raw);
-          }
-          matrix.push(out);
-        });
-      return matrix;
-    }
-
-    function hydrateSpreadsheet(spreadsheet, matrix) {
-      if (!spreadsheet || typeof spreadsheet.cellText !== 'function') {
-        return;
-      }
-      for (let r = 0; r < matrix.length; r += 1) {
-        const row = Array.isArray(matrix[r]) ? matrix[r] : [];
-        for (let c = 0; c < row.length; c += 1) {
-          const text = String(row[c] == null ? '' : row[c]);
-          if (!text) {
-            continue;
-          }
-          spreadsheet.cellText(r, c, text, 0);
-        }
-      }
-    }
-
-    function toMatrix(payload) {
-      const sheet = Array.isArray(payload)
-        ? (payload.length ? payload[0] : {})
-        : (payload || {});
-      const rowsObj = sheet && typeof sheet.rows === 'object' ? sheet.rows : {};
-      const colsObj = sheet && typeof sheet.cols === 'object' ? sheet.cols : {};
-
-      let maxRow = Number.isFinite(Number(rowsObj.len)) ? Math.max(0, Number(rowsObj.len) - 1) : 0;
-      let maxCol = Number.isFinite(Number(colsObj.len)) ? Math.max(0, Number(colsObj.len) - 1) : 0;
-
-      Object.keys(rowsObj).forEach((rowKey) => {
-        if (!/^\d+$/.test(rowKey)) {
-          return;
-        }
-        const rowIdx = Number(rowKey);
-        if (rowIdx > maxRow) {
-          maxRow = rowIdx;
-        }
-        const row = rowsObj[rowKey];
-        const cells = row && typeof row.cells === 'object' ? row.cells : {};
-        Object.keys(cells).forEach((colKey) => {
-          if (!/^\d+$/.test(colKey)) {
-            return;
-          }
-          const colIdx = Number(colKey);
-          if (colIdx > maxCol) {
-            maxCol = colIdx;
-          }
-        });
-      });
-
-      const matrix = Array.from({ length: maxRow + 1 }, () => Array(maxCol + 1).fill(''));
-      Object.keys(rowsObj).forEach((rowKey) => {
-        if (!/^\d+$/.test(rowKey)) {
-          return;
-        }
-        const rowIdx = Number(rowKey);
-        const row = rowsObj[rowKey];
-        const cells = row && typeof row.cells === 'object' ? row.cells : {};
-        Object.keys(cells).forEach((colKey) => {
-          if (!/^\d+$/.test(colKey)) {
-            return;
-          }
-          const colIdx = Number(colKey);
-          matrix[rowIdx][colIdx] = parseCellText(cells[colKey]);
-        });
-      });
-
-      if (!matrix.length) {
-        return [['']];
-      }
-      if (!matrix[0].length) {
-        return [['']];
-      }
-      return matrix;
-    }
-
-    function renderFallbackSheet(matrix) {
-      const width = Math.max(1, Array.isArray(matrix[0]) ? matrix[0].length : 1);
-      const normalizedMatrix = matrix.map((row) => {
-        const out = [];
-        for (let i = 0; i < width; i += 1) {
-          out.push(i < row.length ? String(row[i] == null ? '' : row[i]) : '');
-        }
-        return out;
-      });
-
-      const wrapper = document.createElement('div');
-      wrapper.style.maxHeight = '64vh';
-      wrapper.style.overflow = 'auto';
-      wrapper.style.border = '1px solid #e5e7eb';
-      wrapper.style.borderRadius = '8px';
-      wrapper.style.background = '#fff';
-
-      const warn = document.createElement('div');
-      warn.style.padding = '10px 12px';
-      warn.style.borderBottom = '1px solid #fde68a';
-      warn.style.background = '#fffbeb';
-      warn.style.color = '#92400e';
-      warn.style.fontSize = '12px';
-      warn.textContent = 'Excel-style toolbar library did not load. Showing basic editor fallback.';
-
-      const table = document.createElement('table');
-      table.style.borderCollapse = 'collapse';
-      table.style.width = '100%';
-      table.style.minWidth = '960px';
-
-      const thead = document.createElement('thead');
-      const tbody = document.createElement('tbody');
-
-      const trHead = document.createElement('tr');
-      for (let c = 0; c < width; c += 1) {
-        const th = document.createElement('th');
-        th.textContent = normalizedMatrix[0] && normalizedMatrix[0][c] ? normalizedMatrix[0][c] : '';
-        th.style.position = 'sticky';
-        th.style.top = '0';
-        th.style.background = '#f9fafb';
-        th.style.border = '1px solid #e5e7eb';
-        th.style.padding = '8px';
-        th.style.textAlign = 'left';
-        th.style.fontSize = '12px';
-        th.style.fontWeight = '700';
-        trHead.appendChild(th);
-      }
-      thead.appendChild(trHead);
-
-      for (let r = 1; r < normalizedMatrix.length; r += 1) {
-        const tr = document.createElement('tr');
-        for (let c = 0; c < width; c += 1) {
-          const td = document.createElement('td');
-          td.style.border = '1px solid #e5e7eb';
-          td.style.padding = '4px';
-          const input = document.createElement('input');
-          input.type = 'text';
-          input.value = normalizedMatrix[r][c] || '';
-          input.style.width = '100%';
-          input.style.border = '0';
-          input.style.padding = '4px 6px';
-          input.style.boxSizing = 'border-box';
-          input.addEventListener('input', (e) => {
-            normalizedMatrix[r][c] = e.target.value;
-          });
-          td.appendChild(input);
-          tr.appendChild(td);
-        }
-        tbody.appendChild(tr);
-      }
-
-      table.appendChild(thead);
-      table.appendChild(tbody);
-      wrapper.appendChild(warn);
-      wrapper.appendChild(table);
-      sheetRoot.innerHTML = '';
-      sheetRoot.appendChild(wrapper);
-      return {
-        getMatrix: function () {
-          return normalizedMatrix;
-        },
-      };
-    }
-
-    function isRowEmpty(row) {
-      return !row.some((value) => String(value == null ? '' : value).trim() !== '');
-    }
-
     function trimTrailingEmptyRows(matrix) {
       if (!matrix.length) {
         return [['']];
       }
       let last = matrix.length - 1;
+      const isRowEmpty = function (row) {
+        return !row.some((value) => String(value == null ? '' : value).trim() !== '');
+      };
       while (last > 0 && isRowEmpty(matrix[last])) {
         last -= 1;
       }
       return matrix.slice(0, last + 1);
     }
 
-    function ensureSpreadsheetLib() {
-      if (typeof window.x_spreadsheet === 'function') {
-        return Promise.resolve(true);
+    formEl.addEventListener('submit', function () {
+      const registry = window.__ceSheetRegistry || {};
+      const sheet = registry['grading-live-sheet'];
+      if (!sheet || typeof sheet.getMatrix !== 'function') {
+        return;
       }
-      if (window.__ceXSheetLocalLoadPromise && typeof window.__ceXSheetLocalLoadPromise.then === 'function') {
-        return window.__ceXSheetLocalLoadPromise;
-      }
-      window.__ceXSheetLocalLoadPromise = new Promise((resolve) => {
-        const tag = document.createElement('script');
-        tag.src = LOCAL_XSHEET_JS_URL;
-        tag.async = true;
-        tag.onload = function () {
-          resolve(typeof window.x_spreadsheet === 'function');
-        };
-        tag.onerror = function () {
-          resolve(false);
-        };
-        document.head.appendChild(tag);
-      });
-      return window.__ceXSheetLocalLoadPromise;
-    }
 
-    function matrixToSubmission(matrixRaw) {
+      const matrixRaw = sheet.getMatrix();
       const matrix = trimTrailingEmptyRows(
-        matrixRaw.map((row) => row.map((value) => String(value == null ? '' : value)))
+        (Array.isArray(matrixRaw) ? matrixRaw : []).map((row) =>
+          (Array.isArray(row) ? row : []).map((value) => String(value == null ? '' : value))
+        )
       );
 
       if (!matrix.length) {
@@ -458,58 +196,6 @@
 
       headersInput.value = JSON.stringify(normalizedHeaders);
       rowsInput.value = JSON.stringify(outRows);
-    }
-
-    const seedMatrix = seedMatrixFromCsv();
-    let getMatrixForSubmit = function () {
-      return seedMatrix;
-    };
-
-    function initSpreadsheetEditor() {
-      if (typeof window.x_spreadsheet !== 'function') {
-        const fallback = renderFallbackSheet(seedMatrix);
-        getMatrixForSubmit = fallback.getMatrix;
-        return;
-      }
-      try {
-        const initialColCount = Math.max(1, seedMatrix[0] ? seedMatrix[0].length : 1);
-        const spreadsheet = x_spreadsheet('#live-sheet-canvas', {
-          mode: 'edit',
-          showToolbar: true,
-          showGrid: true,
-          showContextmenu: true,
-          row: {
-            len: Math.max(1, seedMatrix.length),
-            height: 28,
-          },
-          col: {
-            len: initialColCount,
-            width: 140,
-            minWidth: 64,
-            indexWidth: 50,
-          },
-          view: {
-            height: function () {
-              return Math.max(480, window.innerHeight - 330);
-            },
-          },
-        });
-        hydrateSpreadsheet(spreadsheet, seedMatrix);
-        getMatrixForSubmit = function () {
-          return toMatrix(spreadsheet.getData());
-        };
-      } catch (err) {
-        const fallback = renderFallbackSheet(seedMatrix);
-        getMatrixForSubmit = fallback.getMatrix;
-      }
-    }
-
-    ensureSpreadsheetLib().finally(function () {
-      initSpreadsheetEditor();
-    });
-
-    formEl.addEventListener('submit', function () {
-      matrixToSubmission(getMatrixForSubmit());
     });
   })();
 </script>

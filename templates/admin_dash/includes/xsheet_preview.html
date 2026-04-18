@@ -60,6 +60,7 @@
     min-height: 300px;
     height: 100%;
     flex: 1 1 auto;
+    position: relative;
   }
   .x-spreadsheet {
     overflow: visible !important;
@@ -239,16 +240,24 @@
   .ce-validation-cell-dropdown {
     position: absolute;
     z-index: 4500;
-    min-width: 88px;
+    min-width: 72px;
     max-width: 280px;
     height: 24px;
-    border: 1px solid #60a5fa;
-    border-radius: 4px;
+    border: 1px solid transparent;
+    border-radius: 999px;
     background: #ffffff;
     color: #111827;
     font-size: 12px;
-    box-shadow: 0 2px 8px rgba(59, 130, 246, 0.15);
-    padding: 0 4px;
+    font-weight: 600;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.14);
+    padding: 0 22px 0 10px;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: linear-gradient(45deg, transparent 50%, #6b7280 50%), linear-gradient(135deg, #6b7280 50%, transparent 50%);
+    background-position: calc(100% - 12px) 10px, calc(100% - 7px) 10px;
+    background-size: 5px 5px, 5px 5px;
+    background-repeat: no-repeat;
   }
 
   .ce-validation-backdrop {
@@ -548,6 +557,7 @@
 <script>
   (function () {
     const LOCAL_XSHEET_JS_URL = "{% static 'vendor/x-data-spreadsheet/xspreadsheet.js' %}";
+    const SHEET_INSTANCE_ID = '{{ sheet_id }}';
     const root = document.getElementById('{{ root_id }}');
     if (!root) {
       return;
@@ -585,6 +595,8 @@
     let formulaNameInput = null;
     let formulaInput = null;
     let validationCellDropdown = null;
+    let validationRefreshFrame = null;
+    let validationRefreshTimer = null;
     let activeSpreadsheet = null;
     let activeSheetData = null;
 
@@ -724,29 +736,6 @@
       return 'A1';
     }
 
-    function applyCellColor(sheetData, ri, ci, color) {
-      if (!sheetData || !color) {
-        return;
-      }
-      try {
-        sheetData.changeData(function () {
-          const cell = sheetData.rows.getCellOrNew(ri, ci);
-          const currentStyle = (
-            Number.isInteger(cell.style) &&
-            Array.isArray(sheetData.styles) &&
-            sheetData.styles[cell.style]
-          ) ? sheetData.styles[cell.style] : {};
-          const nextStyle = Object.assign({}, currentStyle, {
-            bgcolor: color,
-            color: readableTextColor(color),
-          });
-          cell.style = sheetData.addStyle(nextStyle);
-        });
-      } catch (err) {
-        // ignore styling failures
-      }
-    }
-
     function findColorForCellValue(ri, ci, value) {
       const key = String(value == null ? '' : value).trim();
       if (!key) {
@@ -786,6 +775,56 @@
       }
     }
 
+    function scheduleValidationCellDropdownRefresh() {
+      if (validationRefreshFrame != null && typeof window.cancelAnimationFrame === 'function') {
+        window.cancelAnimationFrame(validationRefreshFrame);
+      }
+      if (validationRefreshTimer != null) {
+        window.clearTimeout(validationRefreshTimer);
+      }
+
+      const run = function () {
+        refreshValidationCellDropdown();
+      };
+      if (typeof window.requestAnimationFrame === 'function') {
+        validationRefreshFrame = window.requestAnimationFrame(run);
+      } else {
+        run();
+      }
+
+      validationRefreshTimer = window.setTimeout(function () {
+        refreshValidationCellDropdown();
+      }, 80);
+    }
+
+    function resolveSelectedValidator() {
+      if (!activeSheetData) {
+        return null;
+      }
+      let validator = null;
+      try {
+        if (typeof activeSheetData.getSelectedValidator === 'function') {
+          validator = activeSheetData.getSelectedValidator();
+        }
+      } catch (err) {
+        validator = null;
+      }
+      if (validator) {
+        return validator;
+      }
+      try {
+        if (typeof activeSheetData.getSelectedValidation === 'function') {
+          const selected = activeSheetData.getSelectedValidation();
+          if (selected && selected.validator) {
+            return selected.validator;
+          }
+        }
+      } catch (err) {
+        // ignore fallback failure
+      }
+      return null;
+    }
+
     function mountValidationCellDropdown() {
       if (validationCellDropdown) {
         return;
@@ -793,6 +832,11 @@
       const select = document.createElement('select');
       select.className = 'ce-validation-cell-dropdown';
       select.style.display = 'none';
+      ['mousedown', 'mouseup', 'click', 'dblclick'].forEach(function (evtName) {
+        select.addEventListener(evtName, function (ev) {
+          ev.stopPropagation();
+        });
+      });
       select.addEventListener('change', function () {
         if (!activeSpreadsheet || !activeSheetData) {
           return;
@@ -827,20 +871,7 @@
         return;
       }
 
-      const rangeRef = currentSelectedRef(activeSheetData);
-      if (rangeRef.includes(':')) {
-        hideValidationCellDropdown();
-        return;
-      }
-
-      let validator = null;
-      try {
-        if (typeof activeSheetData.getSelectedValidator === 'function') {
-          validator = activeSheetData.getSelectedValidator();
-        }
-      } catch (err) {
-        validator = null;
-      }
+      const validator = resolveSelectedValidator();
       const options = parseListValidatorOptions(validator);
       if (!options.length) {
         hideValidationCellDropdown();
@@ -859,7 +890,9 @@
         return;
       }
 
-      const currentValue = cellTextAt(selectedCellCoords().ri, selectedCellCoords().ci);
+      const coords = selectedCellCoords();
+      const currentValue = cellTextAt(coords.ri, coords.ci);
+      const chipColor = findColorForCellValue(coords.ri, coords.ci, currentValue) || '#e5e7eb';
       validationCellDropdown.innerHTML = '';
 
       const placeholder = document.createElement('option');
@@ -883,13 +916,21 @@
 
       const left = Math.max(0, Math.round(areaRect.left - rootRect.left));
       const top = Math.max(0, Math.round(areaRect.top - rootRect.top));
-      const width = Math.max(88, Math.round(areaRect.width));
-      const height = Math.max(24, Math.round(Math.min(areaRect.height - 2, 28)));
+      const label = currentValue || (options[0] || '');
+      const textWidth = Math.max(54, Math.min(220, (String(label).length * 8) + 36));
+      const maxChipWidth = Math.max(72, Math.round((areaRect.width * 0.76)));
+      const width = Math.min(maxChipWidth, textWidth);
+      const height = Math.max(22, Math.round(Math.min(areaRect.height - 8, 24)));
+      const centeredTop = top + Math.max(3, Math.floor((areaRect.height - height) / 2));
+      const chipLeft = left + 6;
 
-      validationCellDropdown.style.left = `${left}px`;
-      validationCellDropdown.style.top = `${top}px`;
+      validationCellDropdown.style.left = `${chipLeft}px`;
+      validationCellDropdown.style.top = `${centeredTop}px`;
       validationCellDropdown.style.width = `${width}px`;
       validationCellDropdown.style.height = `${height}px`;
+      validationCellDropdown.style.backgroundColor = chipColor;
+      validationCellDropdown.style.color = readableTextColor(chipColor);
+      validationCellDropdown.style.borderColor = 'transparent';
       validationCellDropdown.style.display = 'block';
     }
 
@@ -1189,7 +1230,7 @@
 
         setDrawerStatus(`Rule saved for ${ref}.`, 'ok');
         closeValidationDrawer();
-        refreshValidationCellDropdown();
+        scheduleValidationCellDropdownRefresh();
       } catch (err) {
         setDrawerStatus('Could not save the validation rule.', 'error');
       }
@@ -1220,7 +1261,7 @@
           });
         }
         setDrawerStatus('Validation removed from selected range.', 'ok');
-        refreshValidationCellDropdown();
+        scheduleValidationCellDropdownRefresh();
       } catch (err) {
         setDrawerStatus('Could not remove validation. Select cells and try again.', 'error');
       }
@@ -1266,7 +1307,9 @@
         }
       };
       if (document.body) {
-        document.body.addEventListener('click', stopForPopup, false);
+        ['mousedown', 'mouseup', 'click'].forEach(function (evtName) {
+          document.body.addEventListener(evtName, stopForPopup, false);
+        });
       }
     }
 
@@ -1480,6 +1523,13 @@
       window.setTimeout(function () {
         URL.revokeObjectURL(url);
       }, 1500);
+    }
+
+    function setSheetRegistryEntry(entry) {
+      if (!window.__ceSheetRegistry || typeof window.__ceSheetRegistry !== 'object') {
+        window.__ceSheetRegistry = {};
+      }
+      window.__ceSheetRegistry[SHEET_INSTANCE_ID] = entry;
     }
 
     function withSheetAction(fn) {
@@ -1882,7 +1932,7 @@
         if (typeof activeSpreadsheet.reRender === 'function') {
           activeSpreadsheet.reRender();
         }
-        refreshValidationCellDropdown();
+        scheduleValidationCellDropdownRefresh();
         setMenuStatus('Cell updated from formula bar.', 'ok');
       } catch (err) {
         setMenuStatus('Could not update cell from formula bar.', 'error');
@@ -2030,6 +2080,18 @@
       root.style.overflow = 'auto';
       root.appendChild(warn);
       root.appendChild(table);
+
+      setSheetRegistryEntry({
+        isFallback: true,
+        getMatrix: function () {
+          return matrix.map(function (row) {
+            return Array.isArray(row) ? row.slice() : [];
+          });
+        },
+        getPayload: function () {
+          return buildSheetPayload(matrix);
+        },
+      });
     }
 
     function hydrateSpreadsheet(spreadsheet, matrix) {
@@ -2096,29 +2158,24 @@
         spreadsheet.on('cell-selected', function () {
           syncDrawerRangeFromSelection();
           syncFormulaBarFromSelection();
-          refreshValidationCellDropdown();
+          scheduleValidationCellDropdownRefresh();
         });
         spreadsheet.on('cells-selected', function () {
           syncDrawerRangeFromSelection();
           syncFormulaBarFromSelection();
-          refreshValidationCellDropdown();
+          scheduleValidationCellDropdownRefresh();
         });
-        spreadsheet.on('cell-edited', function (text, ri, ci) {
+        spreadsheet.on('cell-edited', function () {
           syncFormulaBarFromSelection();
-          const color = findColorForCellValue(ri, ci, text);
-          if (!color || !activeSheetData) {
-            refreshValidationCellDropdown();
-            return;
-          }
-          applyCellColor(activeSheetData, ri, ci, color);
-          refreshValidationCellDropdown();
+          scheduleValidationCellDropdownRefresh();
         });
       }
 
       if (typeof spreadsheet.reRender === 'function') {
         spreadsheet.reRender();
       }
-      refreshValidationCellDropdown();
+      scheduleValidationCellDropdownRefresh();
+      root.addEventListener('mouseup', scheduleValidationCellDropdownRefresh);
     }
 
     function initSpreadsheet(matrix) {
@@ -2162,9 +2219,27 @@
             hydrateSpreadsheet(spreadsheet, matrix);
           }
           initValidationDrawer(spreadsheet);
+          setSheetRegistryEntry({
+            isFallback: false,
+            getSpreadsheet: function () {
+              return spreadsheet;
+            },
+            getPayload: function () {
+              if (typeof spreadsheet.getData === 'function') {
+                return spreadsheet.getData();
+              }
+              return buildSheetPayload(seedMatrixFromCsv());
+            },
+            getMatrix: function () {
+              if (typeof spreadsheet.getData === 'function') {
+                return payloadToMatrix(spreadsheet.getData());
+              }
+              return seedMatrixFromCsv();
+            },
+          });
           window.addEventListener('resize', function () {
             fitToViewport();
-            refreshValidationCellDropdown();
+            scheduleValidationCellDropdownRefresh();
           }, { passive: true });
         } catch (err) {
           renderFallback(matrix);

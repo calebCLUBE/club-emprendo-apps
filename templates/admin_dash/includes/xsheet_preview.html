@@ -1064,7 +1064,6 @@
       const runNow = function () {
         validationRefreshQueued = false;
         refreshValidationCellDropdown();
-        scheduleValidationBubblesRefresh();
       };
       if (typeof window.requestAnimationFrame === 'function') {
         validationRefreshFrame = window.requestAnimationFrame(runNow);
@@ -1123,12 +1122,8 @@
       const endRi = Math.min(rowLen - 1, startRi + approxVisibleRows);
       const endCi = Math.min(colLen - 1, startCi + approxVisibleCols);
 
-      const selected = selectedCellCoords();
       for (let ri = startRi; ri <= endRi; ri += 1) {
         for (let ci = startCi; ci <= endCi; ci += 1) {
-          if (ri === selected.ri && ci === selected.ci) {
-            continue;
-          }
           let validation = null;
           try {
             validation = validations.get(ri, ci);
@@ -1320,6 +1315,7 @@
           syncFormulaBarFromSelection();
           refreshValidationCellDropdown();
           scheduleValidationCellDropdownRefresh();
+          scheduleValidationBubblesRefresh();
         } catch (err) {
           // ignore set failure
         }
@@ -1364,6 +1360,7 @@
           syncFormulaBarFromSelection();
           refreshValidationCellDropdown();
           scheduleValidationCellDropdownRefresh();
+          scheduleValidationBubblesRefresh();
         } catch (err) {
           // ignore set failure
         }
@@ -1857,6 +1854,7 @@
         setDrawerStatus(`Rule saved for ${ref}.`, 'ok');
         closeValidationDrawer();
         scheduleValidationCellDropdownRefresh();
+        scheduleValidationBubblesRefresh();
       } catch (err) {
         setDrawerStatus('Could not save the validation rule.', 'error');
       }
@@ -1901,6 +1899,7 @@
         }
         setDrawerStatus('Validation removed from selected range.', 'ok');
         scheduleValidationCellDropdownRefresh();
+        scheduleValidationBubblesRefresh();
       } catch (err) {
         setDrawerStatus('Could not remove validation. Select cells and try again.', 'error');
       }
@@ -2072,6 +2071,7 @@
           sheet.selector.hideAutofill();
         }
         scheduleValidationCellDropdownRefresh();
+        scheduleValidationBubblesRefresh();
       }, true);
 
       sheet.__ceAutofillFallbackMounted = true;
@@ -2346,6 +2346,7 @@
             activeSpreadsheet.reRender();
           }
           scheduleValidationCellDropdownRefresh();
+          scheduleValidationBubblesRefresh();
           setMenuStatus(`Checkbox inserted for ${ref}.`, 'ok');
         } catch (err) {
           setMenuStatus('Could not insert checkbox on selection.', 'error');
@@ -2945,6 +2946,7 @@
         spreadsheet.on('cell-edited', function () {
           syncFormulaBarFromSelection();
           scheduleValidationCellDropdownRefresh();
+          scheduleValidationBubblesRefresh();
         });
       }
 
@@ -2952,8 +2954,10 @@
         spreadsheet.reRender();
       }
       scheduleValidationCellDropdownRefresh();
+      scheduleValidationBubblesRefresh();
       root.addEventListener('mouseup', scheduleValidationCellDropdownRefresh);
       root.addEventListener('wheel', scheduleValidationCellDropdownRefresh, { passive: true });
+      root.addEventListener('wheel', scheduleValidationBubblesRefresh, { passive: true });
       document.addEventListener('keydown', function (ev) {
         const key = String(ev && ev.key ? ev.key : '');
         if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'PageUp', 'PageDown', 'Home', 'End'].includes(key)) {
@@ -3025,6 +3029,7 @@
           window.addEventListener('resize', function () {
             fitToViewport();
             scheduleValidationCellDropdownRefresh();
+            scheduleValidationBubblesRefresh();
           }, { passive: true });
         } catch (err) {
           renderFallback(matrix);

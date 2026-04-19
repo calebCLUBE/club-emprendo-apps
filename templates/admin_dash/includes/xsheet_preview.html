@@ -718,9 +718,9 @@
     let validationCellCheckboxInput = null;
     let validationBubbleLayer = null;
     let validationRefreshFrame = null;
-    let validationRefreshTimers = [];
+    let validationRefreshQueued = false;
     let validationBubbleRefreshFrame = null;
-    let validationBubbleRefreshTimers = [];
+    let validationBubbleRefreshQueued = false;
     let activeSpreadsheet = null;
     let activeSheetData = null;
 
@@ -1057,45 +1057,29 @@
     }
 
     function scheduleValidationCellDropdownRefresh() {
-      if (validationRefreshFrame != null && typeof window.cancelAnimationFrame === 'function') {
-        window.cancelAnimationFrame(validationRefreshFrame);
+      if (validationRefreshQueued) {
+        return;
       }
-      if (validationRefreshTimers.length) {
-        validationRefreshTimers.forEach(function (id) {
-          window.clearTimeout(id);
-        });
-        validationRefreshTimers = [];
-      }
-
+      validationRefreshQueued = true;
       const runNow = function () {
+        validationRefreshQueued = false;
         refreshValidationCellDropdown();
+        scheduleValidationBubblesRefresh();
       };
       if (typeof window.requestAnimationFrame === 'function') {
         validationRefreshFrame = window.requestAnimationFrame(runNow);
       } else {
         runNow();
       }
-
-      [120].forEach(function (delay) {
-        const id = window.setTimeout(function () {
-          refreshValidationCellDropdown();
-        }, delay);
-        validationRefreshTimers.push(id);
-      });
-      scheduleValidationBubblesRefresh();
     }
 
     function scheduleValidationBubblesRefresh() {
-      if (validationBubbleRefreshFrame != null && typeof window.cancelAnimationFrame === 'function') {
-        window.cancelAnimationFrame(validationBubbleRefreshFrame);
+      if (validationBubbleRefreshQueued) {
+        return;
       }
-      if (validationBubbleRefreshTimers.length) {
-        validationBubbleRefreshTimers.forEach(function (id) {
-          window.clearTimeout(id);
-        });
-        validationBubbleRefreshTimers = [];
-      }
+      validationBubbleRefreshQueued = true;
       const run = function () {
+        validationBubbleRefreshQueued = false;
         refreshValidationBubbles();
       };
       if (typeof window.requestAnimationFrame === 'function') {
@@ -1103,12 +1087,6 @@
       } else {
         run();
       }
-      [140].forEach(function (delay) {
-        const id = window.setTimeout(function () {
-          refreshValidationBubbles();
-        }, delay);
-        validationBubbleRefreshTimers.push(id);
-      });
     }
 
     function refreshValidationBubbles() {
@@ -1140,8 +1118,8 @@
       const scroll = activeSheetData.scroll || {};
       const startRi = Math.max(0, Number.isFinite(scroll.ri) ? Number(scroll.ri) - 1 : 0);
       const startCi = Math.max(0, Number.isFinite(scroll.ci) ? Number(scroll.ci) - 1 : 0);
-      const approxVisibleRows = Math.max(12, Math.ceil((root.clientHeight || 700) / 28) + 6);
-      const approxVisibleCols = Math.max(6, Math.ceil((root.clientWidth || 1200) / 140) + 4);
+      const approxVisibleRows = Math.max(8, Math.ceil((root.clientHeight || 700) / 32) + 2);
+      const approxVisibleCols = Math.max(5, Math.ceil((root.clientWidth || 1200) / 160) + 2);
       const endRi = Math.min(rowLen - 1, startRi + approxVisibleRows);
       const endCi = Math.min(colLen - 1, startCi + approxVisibleCols);
 
@@ -2981,7 +2959,7 @@
         if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'PageUp', 'PageDown', 'Home', 'End'].includes(key)) {
           return;
         }
-        window.setTimeout(scheduleValidationCellDropdownRefresh, 0);
+        scheduleValidationCellDropdownRefresh();
       });
     }
 

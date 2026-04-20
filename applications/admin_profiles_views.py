@@ -49,6 +49,7 @@ CSV_TABLESTAKES_KEYS = ("tablestakesscore",)
 CSV_COMMITMENT_KEYS = ("commitmentscore",)
 CSV_NICE_TO_HAVE_KEYS = ("nicetohavescore",)
 EMAIL_SPLIT_RE = re.compile(r"[,\s;]+")
+IDENTITY_SPLIT_RE = re.compile(r"[,\s;]+")
 DBS_SIGN_EVENT_TYPES = {"signature_request_signed", "signature_request_all_signed"}
 _FORM_SIGNER_EMAIL_RE = re.compile(
     r"^signature_request\[signatures\]\[(\d+)\]\[signer_email_address\]$"
@@ -116,6 +117,8 @@ MENTORAS_COL_WIDTHS = [6.88, 14.38, 5.63, 31.5, 13.63, 28.13, 14.25, 12.5, 10.5,
 EMPRENDEDORAS_COL_WIDTHS = [7.25, 14.38, 5.75, 18.38, 17.75, 32.13, 15.25, 12.5, 10.5, 7, 9, 12, 14, 12, 8]
 MENTORAS_EMAIL_COL = 5
 EMPRENDEDORAS_EMAIL_COL = 5
+MENTORAS_ID_COL = 4
+EMPRENDEDORAS_ID_COL = 4
 MENTORAS_ACTA_COL = 9
 EMPRENDEDORAS_ACTA_COL = 9
 MENTORAS_BOOLEAN_COLS = [9, 10, 11, 12, 13, 14, 15]
@@ -232,6 +235,63 @@ def _parse_email_list(raw_value: str) -> tuple[list[str], list[str]]:
         seen.add(candidate)
         valid.append(candidate)
     return valid, invalid
+
+
+def _parse_identity_list(raw_value: str) -> tuple[list[str], list[str]]:
+    seen = set()
+    valid: list[str] = []
+    invalid: list[str] = []
+    for part in IDENTITY_SPLIT_RE.split(raw_value or ""):
+        candidate_raw = (part or "").strip()
+        if not candidate_raw:
+            continue
+        candidate = _normalize_identity(candidate_raw)
+        if not candidate:
+            invalid.append(candidate_raw)
+            continue
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        valid.append(candidate)
+    return valid, invalid
+
+
+def _row_identity_email_tokens(row: list, id_col: int, email_col: int) -> set[str]:
+    tokens: set[str] = set()
+    if 0 <= id_col < len(row):
+        id_norm = _normalize_identity(str(row[id_col] or ""))
+        if id_norm:
+            tokens.add(f"id:{id_norm}")
+    if 0 <= email_col < len(row):
+        email_norm = _normalize_email(str(row[email_col] or ""))
+        if email_norm:
+            tokens.add(f"email:{email_norm}")
+    return tokens
+
+
+def _append_unique_participant_rows(
+    existing_rows: list[list],
+    incoming_rows: list[list],
+    *,
+    id_col: int,
+    email_col: int,
+) -> tuple[list[list], int, int]:
+    merged_rows: list[list] = [list(row) for row in existing_rows]
+    seen_tokens: set[str] = set()
+    for row in merged_rows:
+        seen_tokens.update(_row_identity_email_tokens(row, id_col=id_col, email_col=email_col))
+
+    added = 0
+    skipped_duplicates = 0
+    for row in incoming_rows:
+        row_tokens = _row_identity_email_tokens(row, id_col=id_col, email_col=email_col)
+        if row_tokens and any(token in seen_tokens for token in row_tokens):
+            skipped_duplicates += 1
+            continue
+        merged_rows.append(list(row))
+        added += 1
+        seen_tokens.update(row_tokens)
+    return merged_rows, added, skipped_duplicates
 
 
 def _normalize_dropbox_sign_payload(request) -> dict:
@@ -1517,21 +1577,142 @@ def profiles_participants(request):
                 return redirect(f"{reverse('admin_profiles_participants')}?group={group_number}")
 
         success_action_text = "Saved"
+        action_detail_text = ""
         mentoras_raw = (request.POST.get("mentoras_emails") or "").strip()
         emprendedoras_raw = (request.POST.get("emprendedoras_emails") or "").strip()
+        mentoras_cedulas_raw = (request.POST.get("mentoras_cedulas") or "").strip()
+        emprendedoras_cedulas_raw = (request.POST.get("emprendedoras_cedulas") or "").strip()
         mentoras_valid: list[str] = []
         emprendedoras_valid: list[str] = []
         mentoras_invalid: list[str] = []
         emprendedoras_invalid: list[str] = []
         mentoras_rows: list[list] = []
         emprendedoras_rows: list[list] = []
+        invalid_entries: list[str] = []
+        unmatched_cedulas: list[str] = []
+        skipped_duplicates_total = 0
 
         if action == "build_from_emails":
             success_action_text = "Created"
             mentoras_valid, mentoras_invalid = _parse_email_list(mentoras_raw)
             emprendedoras_valid, emprendedoras_invalid = _parse_email_list(emprendedoras_raw)
+            invalid_entries.extend(mentoras_invalid)
+            invalid_entries.extend(emprendedoras_invalid)
             mentoras_rows = _build_mentoras_rows(selected_group.number, mentoras_valid)
             emprendedoras_rows = _build_emprendedoras_rows(selected_group.number, emprendedoras_valid)
+        elif action == "add_from_cedulas":
+            success_action_text = "Updated"
+            mentoras_cedulas, mentoras_invalid_cedulas = _parse_identity_list(mentoras_cedulas_raw)
+            emprendedoras_cedulas, emprendedoras_invalid_cedulas = _parse_identity_list(
+                emprendedoras_cedulas_raw
+            )
+            invalid_entries.extend(mentoras_invalid_cedulas)
+            invalid_entries.extend(emprendedoras_invalid_cedulas)
+
+            existing_list = GroupParticipantList.objects.filter(group=selected_group).first()
+
+            mentoras_existing_rows = _normalize_sheet_rows(
+                getattr(existing_list, "mentoras_sheet_rows", []),
+                MENTORAS_HEADERS,
+            )
+            emprendedoras_existing_rows = _normalize_sheet_rows(
+                getattr(existing_list, "emprendedoras_sheet_rows", []),
+                EMPRENDEDORAS_HEADERS,
+            )
+            mentoras_existing_rows = _coerce_bool_columns(
+                mentoras_existing_rows,
+                MENTORAS_BOOLEAN_COLS,
+            )
+            emprendedoras_existing_rows = _coerce_bool_columns(
+                emprendedoras_existing_rows,
+                EMPRENDEDORAS_BOOLEAN_COLS,
+            )
+
+            if not mentoras_existing_rows and existing_list:
+                mentoras_seed = _norm_email_list(getattr(existing_list, "mentoras_emails_text", ""))
+                if mentoras_seed:
+                    mentoras_existing_rows = _build_mentoras_rows(selected_group.number, mentoras_seed)
+            if not emprendedoras_existing_rows and existing_list:
+                emprendedoras_seed = _norm_email_list(
+                    getattr(existing_list, "emprendedoras_emails_text", "")
+                )
+                if emprendedoras_seed:
+                    emprendedoras_existing_rows = _build_emprendedoras_rows(
+                        selected_group.number,
+                        emprendedoras_seed,
+                    )
+
+            mentoras_latest_by_email = _latest_apps_by_email_for_group_track(selected_group.number, "M")
+            mentoras_by_id: dict[str, str] = {}
+            for email_norm, item in mentoras_latest_by_email.items():
+                id_norm = _normalize_identity(item.get("id_value"))
+                if id_norm and id_norm not in mentoras_by_id:
+                    mentoras_by_id[id_norm] = email_norm
+
+            emprendedoras_latest_by_email = _latest_apps_by_email_for_group_track(
+                selected_group.number,
+                "E",
+            )
+            emprendedoras_by_id: dict[str, str] = {}
+            for email_norm, item in emprendedoras_latest_by_email.items():
+                id_norm = _normalize_identity(item.get("id_value"))
+                if id_norm and id_norm not in emprendedoras_by_id:
+                    emprendedoras_by_id[id_norm] = email_norm
+
+            mentoras_matched_emails: list[str] = []
+            seen_mentoras_emails: set[str] = set()
+            for id_norm in mentoras_cedulas:
+                matched_email = mentoras_by_id.get(id_norm)
+                if not matched_email:
+                    unmatched_cedulas.append(id_norm)
+                    continue
+                if matched_email in seen_mentoras_emails:
+                    continue
+                seen_mentoras_emails.add(matched_email)
+                mentoras_matched_emails.append(matched_email)
+
+            emprendedoras_matched_emails: list[str] = []
+            seen_emprendedoras_emails: set[str] = set()
+            for id_norm in emprendedoras_cedulas:
+                matched_email = emprendedoras_by_id.get(id_norm)
+                if not matched_email:
+                    unmatched_cedulas.append(id_norm)
+                    continue
+                if matched_email in seen_emprendedoras_emails:
+                    continue
+                seen_emprendedoras_emails.add(matched_email)
+                emprendedoras_matched_emails.append(matched_email)
+
+            mentoras_incoming_rows = _build_mentoras_rows(selected_group.number, mentoras_matched_emails)
+            emprendedoras_incoming_rows = _build_emprendedoras_rows(
+                selected_group.number,
+                emprendedoras_matched_emails,
+            )
+
+            mentoras_rows, mentoras_added, mentoras_skipped = _append_unique_participant_rows(
+                mentoras_existing_rows,
+                mentoras_incoming_rows,
+                id_col=MENTORAS_ID_COL,
+                email_col=MENTORAS_EMAIL_COL,
+            )
+            emprendedoras_rows, emprendedoras_added, emprendedoras_skipped = (
+                _append_unique_participant_rows(
+                    emprendedoras_existing_rows,
+                    emprendedoras_incoming_rows,
+                    id_col=EMPRENDEDORAS_ID_COL,
+                    email_col=EMPRENDEDORAS_EMAIL_COL,
+                )
+            )
+            skipped_duplicates_total = mentoras_skipped + emprendedoras_skipped
+            action_detail_text = (
+                f"Added by cedula: {mentoras_added} mentoras, {emprendedoras_added} emprendedoras."
+            )
+
+            mentoras_valid = _emails_from_sheet_rows(mentoras_rows, MENTORAS_EMAIL_COL)
+            emprendedoras_valid = _emails_from_sheet_rows(
+                emprendedoras_rows,
+                EMPRENDEDORAS_EMAIL_COL,
+            )
         elif action == "sync_from_group_assignments":
             success_action_text = "Synced"
             mentoras_valid = sorted(_latest_apps_by_email_for_group_track(selected_group.number, "M").keys())
@@ -1565,9 +1746,11 @@ def profiles_participants(request):
 
             if not mentoras_rows and mentoras_raw:
                 mentoras_valid, mentoras_invalid = _parse_email_list(mentoras_raw)
+                invalid_entries.extend(mentoras_invalid)
                 mentoras_rows = _build_mentoras_rows(selected_group.number, mentoras_valid)
             if not emprendedoras_rows and emprendedoras_raw:
                 emprendedoras_valid, emprendedoras_invalid = _parse_email_list(emprendedoras_raw)
+                invalid_entries.extend(emprendedoras_invalid)
                 emprendedoras_rows = _build_emprendedoras_rows(selected_group.number, emprendedoras_valid)
 
             if not mentoras_valid:
@@ -1621,16 +1804,32 @@ def profiles_participants(request):
                 f"Mentoras: {len(mentoras_rows)} rows · Emprendedoras: {len(emprendedoras_rows)} rows. "
                 f"Profile participation set to Yes: {participation_created} new, "
                 f"{participation_updated} changed, {participation_unchanged} already yes."
+                f"{' ' + action_detail_text if action_detail_text else ''}"
             ),
         )
-        invalid_total = len(mentoras_invalid) + len(emprendedoras_invalid)
-        if invalid_total:
-            invalid_preview = mentoras_invalid + emprendedoras_invalid
-            preview = ", ".join(invalid_preview[:8])
-            suffix = "" if invalid_total <= 8 else ", ..."
+        if skipped_duplicates_total:
+            messages.info(
+                request,
+                f"Skipped {skipped_duplicates_total} duplicate participant rows already present in the sheet.",
+            )
+
+        if invalid_entries:
+            preview = ", ".join(invalid_entries[:8])
+            suffix = "" if len(invalid_entries) <= 8 else ", ..."
             messages.warning(
                 request,
-                f"Ignored invalid emails ({invalid_total}): {preview}{suffix}",
+                f"Ignored invalid values ({len(invalid_entries)}): {preview}{suffix}",
+            )
+
+        if unmatched_cedulas:
+            preview = ", ".join(unmatched_cedulas[:8])
+            suffix = "" if len(unmatched_cedulas) <= 8 else ", ..."
+            messages.warning(
+                request,
+                (
+                    f"Cedulas not found in Group {selected_group.number} applications "
+                    f"({len(unmatched_cedulas)}): {preview}{suffix}"
+                ),
             )
 
         return redirect(f"{reverse('admin_profiles_participants')}?group={selected_group.number}")

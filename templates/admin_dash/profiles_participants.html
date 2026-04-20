@@ -211,6 +211,27 @@
           </div>
         </form>
 
+        <form method="post" style="margin-top:12px;">
+          {% csrf_token %}
+          <input type="hidden" name="group" value="{{ selected_group.number }}">
+          <div class="ce-form-grid">
+            <div>
+              <label for="mentoras_cedulas">Mentoras cedulas (one per line or comma-separated)</label>
+              <textarea id="mentoras_cedulas" name="mentoras_cedulas" placeholder="1234567890&#10;0987654321"></textarea>
+            </div>
+            <div>
+              <label for="emprendedoras_cedulas">Emprendedoras cedulas (one per line or comma-separated)</label>
+              <textarea id="emprendedoras_cedulas" name="emprendedoras_cedulas" placeholder="1234567890&#10;0987654321"></textarea>
+            </div>
+          </div>
+          <div class="ce-muted">
+            This appends participants by cedula and skips rows that already exist in the participant sheet (by cedula or email).
+          </div>
+          <div class="ce-actions" style="margin-top:12px;">
+            <button class="ce-btn" type="submit" name="action" value="add_from_cedulas">Add participants by cedula</button>
+          </div>
+        </form>
+
         <div class="ce-panel" style="margin-top:12px;">
           <div style="font-weight:700; margin-bottom:8px;">Participant sheets</div>
           <div class="ce-muted">Open one sheet at a time.</div>

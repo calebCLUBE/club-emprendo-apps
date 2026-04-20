@@ -945,6 +945,89 @@
       return isCheckboxCheckedValue(value) ? 'TRUE' : 'FALSE';
     }
 
+    function setCellTextSafe(ri, ci, value) {
+      try {
+        if (typeof activeSheetData.setCellText === 'function') {
+          activeSheetData.setCellText(ri, ci, value, 'finished');
+          return true;
+        }
+        if (activeSpreadsheet && typeof activeSpreadsheet.cellText === 'function') {
+          activeSpreadsheet.cellText(ri, ci, value, 0);
+          return true;
+        }
+      } catch (err) {
+        return false;
+      }
+      return false;
+    }
+
+    function normalizeCheckboxCellsInRange(range) {
+      if (!activeSheetData || !range) {
+        return;
+      }
+      const rowLen = Number.isFinite(activeSheetData.rows && activeSheetData.rows.len)
+        ? Number(activeSheetData.rows.len)
+        : 0;
+      const colLen = Number.isFinite(activeSheetData.cols && activeSheetData.cols.len)
+        ? Number(activeSheetData.cols.len)
+        : 0;
+      if (rowLen <= 1 || colLen <= 0) {
+        return;
+      }
+
+      const sri = Math.max(1, Number.isFinite(range.sri) ? Number(range.sri) : 1);
+      const eri = Math.min(rowLen - 1, Number.isFinite(range.eri) ? Number(range.eri) : rowLen - 1);
+      const sci = Math.max(0, Number.isFinite(range.sci) ? Number(range.sci) : 0);
+      const eci = Math.min(colLen - 1, Number.isFinite(range.eci) ? Number(range.eci) : colLen - 1);
+      if (eri < sri || eci < sci) {
+        return;
+      }
+
+      for (let ri = sri; ri <= eri; ri += 1) {
+        for (let ci = sci; ci <= eci; ci += 1) {
+          setCellTextSafe(ri, ci, normalizeCheckboxText(cellTextAt(ri, ci)));
+        }
+      }
+    }
+
+    function normalizeCheckboxDefaultsAcrossSheet() {
+      if (!activeSheetData) {
+        return;
+      }
+      const rowLen = Number.isFinite(activeSheetData.rows && activeSheetData.rows.len)
+        ? Number(activeSheetData.rows.len)
+        : 0;
+      const colLen = Number.isFinite(activeSheetData.cols && activeSheetData.cols.len)
+        ? Number(activeSheetData.cols.len)
+        : 0;
+      if (rowLen <= 1 || colLen <= 0) {
+        return;
+      }
+
+      if (Array.isArray(sheetColumnTypes) && sheetColumnTypes.length) {
+        sheetColumnTypes.forEach(function (type, ci) {
+          if (String(type || '').trim().toLowerCase() !== 'checkbox') {
+            return;
+          }
+          normalizeCheckboxCellsInRange({
+            sri: 1,
+            eri: rowLen - 1,
+            sci: ci,
+            eci: ci,
+          });
+        });
+      }
+
+      if (Array.isArray(validationRuleMeta) && validationRuleMeta.length) {
+        validationRuleMeta.forEach(function (rule) {
+          if (!rule || rule.criteria !== 'checkbox' || !rule.range) {
+            return;
+          }
+          normalizeCheckboxCellsInRange(rule.range);
+        });
+      }
+    }
+
     function isCheckboxValidation(validator, metaRule, options) {
       if (metaRule && metaRule.criteria === 'checkbox') {
         return true;
@@ -2048,6 +2131,9 @@
               .filter(function (v) { return v.length > 0; }),
           colorByLabel: Object.assign({}, colorByLabel),
         });
+        if (criteria === 'checkbox') {
+          normalizeCheckboxCellsInRange(range);
+        }
 
         setDrawerStatus(`Rule saved for ${ref}.`, 'ok');
         closeValidationDrawer();
@@ -2528,18 +2614,7 @@
             colorByLabel: Object.assign({}, colorByLabel),
           });
 
-          for (let ri = range.sri; ri <= range.eri; ri += 1) {
-            for (let ci = range.sci; ci <= range.eci; ci += 1) {
-              const current = String(cellTextAt(ri, ci)).trim().toUpperCase();
-              if (!current) {
-                if (typeof activeSheetData.setCellText === 'function') {
-                  activeSheetData.setCellText(ri, ci, 'FALSE', 'finished');
-                } else if (activeSpreadsheet && typeof activeSpreadsheet.cellText === 'function') {
-                  activeSpreadsheet.cellText(ri, ci, 'FALSE', 0);
-                }
-              }
-            }
-          }
+          normalizeCheckboxCellsInRange(range);
           if (activeSpreadsheet && typeof activeSpreadsheet.reRender === 'function') {
             activeSpreadsheet.reRender();
           }
@@ -2598,25 +2673,40 @@
           setMenuStatus('Selection cut.', 'ok');
           break;
         case 'paste':
-          withSheetAction(function () { activeSheetData.paste('all'); });
+          withSheetAction(function () {
+            activeSheetData.paste('all');
+            normalizeCheckboxDefaultsAcrossSheet();
+          });
           break;
         case 'paste_values':
-          withSheetAction(function () { activeSheetData.paste('text'); });
+          withSheetAction(function () {
+            activeSheetData.paste('text');
+            normalizeCheckboxDefaultsAcrossSheet();
+          });
           break;
         case 'paste_format':
           withSheetAction(function () { activeSheetData.paste('format'); });
           break;
         case 'delete_values':
-          withSheetAction(function () { activeSheetData.deleteCell('text'); });
+          withSheetAction(function () {
+            activeSheetData.deleteCell('text');
+            normalizeCheckboxDefaultsAcrossSheet();
+          });
           break;
         case 'delete_format':
           withSheetAction(function () { activeSheetData.deleteCell('format'); });
           break;
         case 'insert_row':
-          withSheetAction(function () { activeSheetData.insert('row', 1); });
+          withSheetAction(function () {
+            activeSheetData.insert('row', 1);
+            normalizeCheckboxDefaultsAcrossSheet();
+          });
           break;
         case 'insert_column':
-          withSheetAction(function () { activeSheetData.insert('column', 1); });
+          withSheetAction(function () {
+            activeSheetData.insert('column', 1);
+            normalizeCheckboxDefaultsAcrossSheet();
+          });
           break;
         case 'delete_row':
           withSheetAction(function () { activeSheetData.delete('row'); });
@@ -3233,20 +3323,8 @@
           colorByLabel: Object.assign({}, checkboxColorByLabel),
         });
 
-        for (let ri = 1; ri < rowLen; ri += 1) {
-          const current = String(cellTextAt(ri, ci)).trim();
-          const normalized = current ? normalizeCheckboxText(current) : 'FALSE';
-          try {
-            if (typeof activeSheetData.setCellText === 'function') {
-              activeSheetData.setCellText(ri, ci, normalized, 'finished');
-            } else if (activeSpreadsheet && typeof activeSpreadsheet.cellText === 'function') {
-              activeSpreadsheet.cellText(ri, ci, normalized, 0);
-            }
-          } catch (err) {
-            // ignore per-cell failures
-          }
-        }
       });
+      normalizeCheckboxDefaultsAcrossSheet();
 
       activeSheetData.__ceDefaultCheckboxColsApplied = true;
       if (activeSpreadsheet && typeof activeSpreadsheet.reRender === 'function') {

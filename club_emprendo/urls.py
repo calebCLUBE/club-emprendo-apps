@@ -52,6 +52,11 @@ urlpatterns = [
         admin_profiles_views.profiles_participants_download,
         name="admin_profiles_participants_download",
     ),
+    path(
+        "admin/profiles/participants/<int:group_num>/<str:track>/",
+        admin_profiles_views.profiles_participants_track_sheet,
+        name="admin_profiles_participants_track_sheet",
+    ),
     path("admin/profiles/<str:identity_key>/", admin_profiles_views.profile_detail, name="admin_profile_detail"),
 
     # Dropbox Sign webhook (contract signed auto-marking)

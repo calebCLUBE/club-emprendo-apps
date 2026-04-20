@@ -964,13 +964,26 @@
       return values.has('TRUE') && values.has('FALSE');
     }
 
+    function resolveValidationBubbleHost() {
+      const overlayContent = root.querySelector('.x-spreadsheet-overlayer-content');
+      if (overlayContent) {
+        return overlayContent;
+      }
+      return root;
+    }
+
     function ensureValidationBubbleLayer() {
+      const host = resolveValidationBubbleHost();
+      if (validationBubbleLayer && validationBubbleLayer.parentElement !== host) {
+        validationBubbleLayer.remove();
+        validationBubbleLayer = null;
+      }
       if (validationBubbleLayer) {
         return validationBubbleLayer;
       }
       const layer = document.createElement('div');
       layer.className = 'ce-validation-bubble-layer';
-      root.appendChild(layer);
+      host.appendChild(layer);
       validationBubbleLayer = layer;
       return layer;
     }
@@ -1003,10 +1016,17 @@
       const top = Math.max(0, Math.round(bounds.top));
       const width = Math.max(1, Math.round(bounds.width));
       const height = Math.max(1, Math.round(bounds.height));
-      layer.style.left = `${left}px`;
-      layer.style.top = `${top}px`;
       layer.style.right = 'auto';
       layer.style.bottom = 'auto';
+
+      const overlayContent = root.querySelector('.x-spreadsheet-overlayer-content');
+      if (overlayContent && layer.parentElement === overlayContent) {
+        layer.style.left = '0px';
+        layer.style.top = '0px';
+      } else {
+        layer.style.left = `${left}px`;
+        layer.style.top = `${top}px`;
+      }
       layer.style.width = `${width}px`;
       layer.style.height = `${height}px`;
       layer.style.display = 'block';

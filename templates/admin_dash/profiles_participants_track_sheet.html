@@ -4,19 +4,39 @@
 {% block content %}
 <link rel="stylesheet" href="{% static 'vendor/x-data-spreadsheet/xspreadsheet.css' %}">
 <style>
+  html,
+  body {
+    height: 100%;
+    overflow: hidden !important;
+  }
+  #container,
+  #main {
+    height: 100%;
+    overflow: hidden !important;
+  }
   #content {
+    height: 100%;
     padding: 0 !important;
+    overflow: hidden !important;
   }
   #content-main {
+    height: 100%;
     margin: 0 !important;
     padding: 0 !important;
+    overflow: hidden !important;
   }
   div.breadcrumbs {
     display: none !important;
   }
+  #footer {
+    display: none !important;
+  }
   .ce-sheet-shell {
-    width: 100%;
-    height: calc(100vh - 48px);
+    position: fixed;
+    left: 0;
+    right: 0;
+    top: 48px;
+    bottom: 0;
     overflow: hidden;
     background: #fff;
   }
@@ -60,6 +80,16 @@
     const csrfInput = form ? form.querySelector('input[name="csrfmiddlewaretoken"]') : null;
     let lastSavedPayload = '';
     let saveInFlight = false;
+
+    function fitShellToHeader() {
+      const header = document.getElementById('header');
+      const shell = document.querySelector('.ce-sheet-shell');
+      if (!shell) {
+        return;
+      }
+      const headerHeight = header ? Math.max(0, Math.round(header.getBoundingClientRect().height)) : 48;
+      shell.style.top = `${headerHeight}px`;
+    }
 
     function checkboxValue(val) {
       if (typeof val === 'boolean') {
@@ -167,6 +197,9 @@
     if (!form) {
       return;
     }
+
+    fitShellToHeader();
+    window.addEventListener('resize', fitShellToHeader, { passive: true });
 
     lastSavedPayload = JSON.stringify(rowsForSave());
     window.setInterval(function () {

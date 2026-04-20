@@ -1199,6 +1199,9 @@
           if (!rect || rect.width <= 2 || rect.height <= 2) {
             continue;
           }
+          if (rect.left + 14 >= root.clientWidth || rect.top + 14 >= root.clientHeight) {
+            continue;
+          }
           if (rect.top + rect.height < 0 || rect.left + rect.width < 0 || rect.top > root.clientHeight || rect.left > root.clientWidth) {
             continue;
           }

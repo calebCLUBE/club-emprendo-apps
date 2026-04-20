@@ -1743,6 +1743,7 @@ def profiles_participants_track_sheet(request, group_num: int, track: str):
     participant_list = GroupParticipantList.objects.filter(group=group).first()
 
     if request.method == "POST":
+        is_async_save = request.headers.get("x-requested-with") == "XMLHttpRequest"
         action = (request.POST.get("action") or "save_sheet").strip()
         emails_raw = (request.POST.get("emails") or "").strip()
         valid_emails: list[str] = []
@@ -1759,6 +1760,11 @@ def profiles_participants_track_sheet(request, group_num: int, track: str):
                 try:
                     payload = json.loads(sheet_raw)
                 except json.JSONDecodeError:
+                    if is_async_save:
+                        return JsonResponse(
+                            {"ok": False, "error": "Could not read sheet edits."},
+                            status=400,
+                        )
                     messages.error(request, "Could not read sheet edits. Please try again.")
 
             track_rows = _normalize_sheet_rows(payload, headers)
@@ -1792,6 +1798,15 @@ def profiles_participants_track_sheet(request, group_num: int, track: str):
         created_count, updated_count, unchanged_count = _mark_participated_yes(
             list(dict.fromkeys(participant_emails))
         )
+        if is_async_save:
+            return JsonResponse(
+                {
+                    "ok": True,
+                    "rows": len(track_rows),
+                    "track": track_slug,
+                    "group": group.number,
+                }
+            )
         messages.success(
             request,
             (

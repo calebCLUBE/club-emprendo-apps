@@ -320,7 +320,10 @@
   }
   .ce-validation-bubble-layer {
     position: absolute;
-    inset: 0;
+    left: 0;
+    top: 0;
+    width: 0;
+    height: 0;
     overflow: hidden;
     pointer-events: none;
     z-index: 4400;
@@ -979,18 +982,68 @@
       validationBubbleLayer.innerHTML = '';
     }
 
-    function getGridViewportOffset() {
+    function syncValidationBubbleLayerViewport(layer) {
+      if (!layer) {
+        return null;
+      }
+      const bounds = getGridViewportBounds();
+      if (
+        !bounds ||
+        !Number.isFinite(bounds.left) ||
+        !Number.isFinite(bounds.top) ||
+        !Number.isFinite(bounds.width) ||
+        !Number.isFinite(bounds.height) ||
+        bounds.width <= 0 ||
+        bounds.height <= 0
+      ) {
+        layer.style.display = 'none';
+        return null;
+      }
+      const left = Math.max(0, Math.round(bounds.left));
+      const top = Math.max(0, Math.round(bounds.top));
+      const width = Math.max(1, Math.round(bounds.width));
+      const height = Math.max(1, Math.round(bounds.height));
+      layer.style.left = `${left}px`;
+      layer.style.top = `${top}px`;
+      layer.style.right = 'auto';
+      layer.style.bottom = 'auto';
+      layer.style.width = `${width}px`;
+      layer.style.height = `${height}px`;
+      layer.style.display = 'block';
+      return {
+        left,
+        top,
+        width,
+        height,
+        right: left + width,
+        bottom: top + height,
+      };
+    }
+
+    function getGridViewportBounds() {
       const rootRect = root.getBoundingClientRect();
       const overlayContent = root.querySelector('.x-spreadsheet-overlayer-content');
       if (overlayContent) {
         const rect = overlayContent.getBoundingClientRect();
         if (
           Number.isFinite(rect.left) &&
-          Number.isFinite(rect.top)
+          Number.isFinite(rect.top) &&
+          Number.isFinite(rect.width) &&
+          Number.isFinite(rect.height) &&
+          rect.width > 0 &&
+          rect.height > 0
         ) {
+          const left = rect.left - rootRect.left;
+          const top = rect.top - rootRect.top;
+          const width = rect.width;
+          const height = rect.height;
           return {
-            left: rect.left - rootRect.left,
-            top: rect.top - rootRect.top,
+            left,
+            top,
+            width,
+            height,
+            right: left + width,
+            bottom: top + height,
           };
         }
       }
@@ -998,6 +1051,10 @@
       const sheetBody = root.querySelector('.x-spreadsheet-sheet');
       if (sheetBody) {
         const rect = sheetBody.getBoundingClientRect();
+        const bottomBar = root.querySelector('.x-spreadsheet-bottombar');
+        const bottomBarHeight = bottomBar
+          ? Math.max(0, Math.round(bottomBar.getBoundingClientRect().height))
+          : 0;
         const indexWidth = (
           activeSheetData &&
           activeSheetData.cols &&
@@ -1008,23 +1065,62 @@
           activeSheetData.rows &&
           Number.isFinite(activeSheetData.rows.height)
         ) ? Number(activeSheetData.rows.height) : 25;
+        const left = (rect.left - rootRect.left) + indexWidth;
+        const top = (rect.top - rootRect.top) + headerHeight;
+        const width = Math.max(0, rect.width - indexWidth);
+        const height = Math.max(0, rect.height - headerHeight - bottomBarHeight);
         return {
-          left: (rect.left - rootRect.left) + indexWidth,
-          top: (rect.top - rootRect.top) + headerHeight,
+          left,
+          top,
+          width,
+          height,
+          right: left + width,
+          bottom: top + height,
         };
       }
 
-      const fallbackIndexWidth = (
-        activeSheetData &&
-        activeSheetData.cols &&
-        Number.isFinite(activeSheetData.cols.indexWidth)
-      ) ? Number(activeSheetData.cols.indexWidth) : 50;
-      const fallbackHeaderHeight = (
-        activeSheetData &&
-        activeSheetData.rows &&
-        Number.isFinite(activeSheetData.rows.height)
-      ) ? Number(activeSheetData.rows.height) : 25;
-      return { left: fallbackIndexWidth, top: fallbackHeaderHeight };
+      const width = Math.max(0, root.clientWidth || 0);
+      const height = Math.max(0, root.clientHeight || 0);
+      return {
+        left: 0,
+        top: 0,
+        width,
+        height,
+        right: width,
+        bottom: height,
+      };
+    }
+
+    function getGridViewportOffset() {
+      const bounds = getGridViewportBounds();
+      return {
+        left: bounds.left,
+        top: bounds.top,
+      };
+    }
+
+    function clipRectToGridViewport(rect, insetPx) {
+      if (!rect) {
+        return null;
+      }
+      const bounds = getGridViewportBounds();
+      const inset = Number.isFinite(insetPx) ? Math.max(0, Number(insetPx)) : 0;
+
+      const minLeft = bounds.left + inset;
+      const minTop = bounds.top + inset;
+      const maxRight = bounds.right - inset;
+      const maxBottom = bounds.bottom - inset;
+
+      const left = Math.max(rect.left, minLeft);
+      const top = Math.max(rect.top, minTop);
+      const right = Math.min(rect.left + rect.width, maxRight);
+      const bottom = Math.min(rect.top + rect.height, maxBottom);
+      const width = right - left;
+      const height = bottom - top;
+      if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+        return null;
+      }
+      return { left, top, width, height };
     }
 
     function getCellRectByIndexesRaw(ri, ci) {
@@ -1061,7 +1157,8 @@
     }
 
     function getCellRectByIndexes(ri, ci) {
-      return getCellRectByIndexesRaw(ri, ci);
+      const raw = getCellRectByIndexesRaw(ri, ci);
+      return clipRectToGridViewport(raw, 0);
     }
 
     function hideValidationCellDropdown() {
@@ -1149,7 +1246,11 @@
       if (!layer) {
         return;
       }
+      const viewportBounds = syncValidationBubbleLayerViewport(layer);
       layer.innerHTML = '';
+      if (!viewportBounds) {
+        return;
+      }
 
       const validations = activeSheetData.validations;
       if (!validations || typeof validations.get !== 'function') {
@@ -1199,29 +1300,21 @@
           if (!rect || rect.width <= 2 || rect.height <= 2) {
             continue;
           }
-          if (rect.left + 14 >= root.clientWidth || rect.top + 14 >= root.clientHeight) {
-            continue;
-          }
-          if (rect.top + rect.height < 0 || rect.left + rect.width < 0 || rect.top > root.clientHeight || rect.left > root.clientWidth) {
-            continue;
-          }
 
           const currentValue = cellTextAt(ri, ci);
           if (isCheckbox) {
             if (ri === 0) {
               continue;
             }
-            const checkbox = document.createElement('div');
-            checkbox.className = 'ce-validation-cell-checkbox';
-            const top = Math.max(0, Math.round(rect.top + 2));
-            const left = Math.max(0, Math.round(rect.left + 2));
-            const maxWidthAvail = Math.floor(root.clientWidth - left - 2);
-            const maxHeightAvail = Math.floor(root.clientHeight - top - 2);
-            if (maxWidthAvail < 14 || maxHeightAvail < 14) {
+            if (rect.width < 18 || rect.height < 18) {
               continue;
             }
-            const width = Math.min(Math.max(14, Math.round(rect.width - 4)), maxWidthAvail);
-            const height = Math.min(Math.max(14, Math.round(rect.height - 4)), maxHeightAvail);
+            const checkbox = document.createElement('div');
+            checkbox.className = 'ce-validation-cell-checkbox';
+            const top = Math.max(0, Math.round((rect.top - viewportBounds.top) + 2));
+            const left = Math.max(0, Math.round((rect.left - viewportBounds.left) + 2));
+            const width = Math.max(14, Math.round(rect.width - 4));
+            const height = Math.max(14, Math.round(rect.height - 4));
             if (width < 14 || height < 14) {
               continue;
             }
@@ -1271,8 +1364,14 @@
               Math.round(rect.height - (verticalInset * 2))
             )
           );
-          const top = Math.max(0, Math.round(rect.top + Math.floor((rect.height - height) / 2)));
-          const left = Math.max(0, Math.round(rect.left + Math.floor((rect.width - width) / 2)));
+          const top = Math.max(
+            0,
+            Math.round((rect.top - viewportBounds.top) + Math.floor((rect.height - height) / 2))
+          );
+          const left = Math.max(
+            0,
+            Math.round((rect.left - viewportBounds.left) + Math.floor((rect.width - width) / 2))
+          );
 
           const bubble = document.createElement('div');
           bubble.className = 'ce-validation-cell-bubble';
@@ -1499,6 +1598,7 @@
       if (!areaRect) {
         areaRect = getCellRectByIndexes(coords.ri, coords.ci);
       }
+      areaRect = clipRectToGridViewport(areaRect, 0);
       if (!areaRect) {
         hideValidationCellDropdown();
         return;
@@ -1518,16 +1618,14 @@
           return;
         }
         validationCellCheckboxInput.checked = isCheckboxCheckedValue(currentValue);
-        const left = Math.max(0, Math.round(areaRect.left + 1));
-        const top = Math.max(0, Math.round(areaRect.top + 1));
-        const maxWidthAvail = Math.floor(root.clientWidth - left - 2);
-        const maxHeightAvail = Math.floor(root.clientHeight - top - 2);
-        if (maxWidthAvail < 14 || maxHeightAvail < 14) {
+        if (areaRect.width < 16 || areaRect.height < 16) {
           hideValidationCellDropdown();
           return;
         }
-        const width = Math.min(Math.max(14, Math.round(areaRect.width - 2)), maxWidthAvail);
-        const height = Math.min(Math.max(14, Math.round(areaRect.height - 2)), maxHeightAvail);
+        const left = Math.max(0, Math.round(areaRect.left + 1));
+        const top = Math.max(0, Math.round(areaRect.top + 1));
+        const width = Math.max(14, Math.round(areaRect.width - 2));
+        const height = Math.max(14, Math.round(areaRect.height - 2));
         if (width < 14 || height < 14) {
           hideValidationCellDropdown();
           return;

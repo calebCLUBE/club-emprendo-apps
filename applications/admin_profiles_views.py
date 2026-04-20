@@ -1685,6 +1685,8 @@ def profiles_participants(request):
         "participant_list": participant_list,
         "mentoras_headers": MENTORAS_HEADERS,
         "emprendedoras_headers": EMPRENDEDORAS_HEADERS,
+        "mentoras_column_types": MENTORAS_COLUMN_TYPES,
+        "emprendedoras_column_types": EMPRENDEDORAS_COLUMN_TYPES,
         "mentoras_column_types_json": json.dumps(MENTORAS_COLUMN_TYPES),
         "emprendedoras_column_types_json": json.dumps(EMPRENDEDORAS_COLUMN_TYPES),
         "mentoras_status_options_json": json.dumps(MENTORAS_STATUS_OPTIONS),

@@ -1,5 +1,5 @@
 {% load static %}
-{% with root_id=sheet_id|add:"-root" headers_id=sheet_id|add:"-headers" rows_id=sheet_id|add:"-rows" drawer_id=sheet_id|add:"-validation-drawer" drawer_backdrop_id=sheet_id|add:"-validation-backdrop" drawer_range_id=sheet_id|add:"-validation-range" drawer_apply_mode_id=sheet_id|add:"-validation-apply-mode" drawer_criteria_id=sheet_id|add:"-validation-criteria" drawer_operator_id=sheet_id|add:"-validation-operator" drawer_value1_id=sheet_id|add:"-validation-value-1" drawer_value2_id=sheet_id|add:"-validation-value-2" drawer_condition_wrap_id=sheet_id|add:"-validation-condition-wrap" drawer_options_wrap_id=sheet_id|add:"-validation-options-wrap" drawer_options_id=sheet_id|add:"-validation-options" drawer_add_option_id=sheet_id|add:"-validation-add-option" drawer_done_id=sheet_id|add:"-validation-done" drawer_clear_id=sheet_id|add:"-validation-clear" drawer_close_id=sheet_id|add:"-validation-close" drawer_status_id=sheet_id|add:"-validation-status" %}
+{% with root_id=sheet_id|add:"-root" headers_id=sheet_id|add:"-headers" rows_id=sheet_id|add:"-rows" column_types_id=sheet_id|add:"-column-types" drawer_id=sheet_id|add:"-validation-drawer" drawer_backdrop_id=sheet_id|add:"-validation-backdrop" drawer_range_id=sheet_id|add:"-validation-range" drawer_apply_mode_id=sheet_id|add:"-validation-apply-mode" drawer_criteria_id=sheet_id|add:"-validation-criteria" drawer_operator_id=sheet_id|add:"-validation-operator" drawer_value1_id=sheet_id|add:"-validation-value-1" drawer_value2_id=sheet_id|add:"-validation-value-2" drawer_condition_wrap_id=sheet_id|add:"-validation-condition-wrap" drawer_options_wrap_id=sheet_id|add:"-validation-options-wrap" drawer_options_id=sheet_id|add:"-validation-options" drawer_add_option_id=sheet_id|add:"-validation-add-option" drawer_done_id=sheet_id|add:"-validation-done" drawer_clear_id=sheet_id|add:"-validation-clear" drawer_close_id=sheet_id|add:"-validation-close" drawer_status_id=sheet_id|add:"-validation-status" %}
 <link rel="stylesheet" href="{% static 'vendor/x-data-spreadsheet/xspreadsheet.css' %}">
 <style>
   /* Keep toolbar text/icons readable across Django admin theme overrides */
@@ -672,6 +672,9 @@
 
 {{ sheet_headers|json_script:headers_id }}
 {{ sheet_rows|json_script:rows_id }}
+{% if sheet_column_types %}
+{{ sheet_column_types|json_script:column_types_id }}
+{% endif %}
 <script>
   (function () {
     const LOCAL_XSHEET_JS_URL = "{% static 'vendor/x-data-spreadsheet/xspreadsheet.js' %}";
@@ -700,6 +703,10 @@
 
     const headers = JSON.parse(document.getElementById('{{ headers_id }}').textContent || '[]');
     const rows = JSON.parse(document.getElementById('{{ rows_id }}').textContent || '[]');
+    const sheetColumnTypesEl = document.getElementById('{{ column_types_id }}');
+    const sheetColumnTypes = sheetColumnTypesEl
+      ? JSON.parse(sheetColumnTypesEl.textContent || '[]')
+      : [];
 
     const defaultPalette = [
       '#f4b183', '#f7d774', '#f5c2b8', '#9ec5e5', '#c6dcb0',
@@ -923,6 +930,10 @@
       return [
         'TRUE', '1', 'YES', 'SI', 'SÍ', 'CHECKED', 'X', '✓',
       ].includes(normalized);
+    }
+
+    function normalizeCheckboxText(value) {
+      return isCheckboxCheckedValue(value) ? 'TRUE' : 'FALSE';
     }
 
     function isCheckboxValidation(validator, metaRule, options) {
@@ -2894,6 +2905,7 @@
       mountGoogleSheetsMenu(spreadsheet);
       mountFormulaBar(spreadsheet);
       mountValidationToolbarButton(spreadsheet);
+      applyDefaultCheckboxColumnValidations();
       seedDefaultOptionRows(drawerCriteriaInput && drawerCriteriaInput.value);
       updateCriteriaUI();
       syncDrawerRangeFromSelection();
@@ -2965,6 +2977,91 @@
         }
         scheduleValidationCellDropdownRefresh();
       });
+    }
+
+    function applyDefaultCheckboxColumnValidations() {
+      if (!activeSheetData || !Array.isArray(sheetColumnTypes) || !sheetColumnTypes.length) {
+        return;
+      }
+      if (activeSheetData.__ceDefaultCheckboxColsApplied) {
+        return;
+      }
+
+      const rowLen = Number.isFinite(activeSheetData.rows && activeSheetData.rows.len)
+        ? Number(activeSheetData.rows.len)
+        : 0;
+      if (rowLen <= 1) {
+        activeSheetData.__ceDefaultCheckboxColsApplied = true;
+        return;
+      }
+
+      const checkboxColorByLabel = {
+        TRUE: '#2f855a',
+        FALSE: '#ef4444',
+      };
+
+      sheetColumnTypes.forEach(function (type, ci) {
+        if (String(type || '').trim().toLowerCase() !== 'checkbox') {
+          return;
+        }
+        const colLabel = colLabelFromIndex(ci);
+        const ref = `${colLabel}2:${colLabel}${rowLen}`;
+        const range = parseA1Range(ref);
+        if (!range) {
+          return;
+        }
+
+        const validator = {
+          type: 'list',
+          required: false,
+          value: 'TRUE,FALSE',
+          colorByLabel: Object.assign({}, checkboxColorByLabel),
+          color_map: Object.assign({}, checkboxColorByLabel),
+        };
+
+        try {
+          activeSheetData.addValidation('cell', ref, validator);
+        } catch (err) {
+          // keep going; other columns should still initialize
+        }
+
+        clearColorRulesFor('cell', ref);
+        upsertColorRule({
+          mode: 'cell',
+          ref,
+          range,
+          colorByLabel: Object.assign({}, checkboxColorByLabel),
+        });
+        upsertValidationRuleMeta({
+          mode: 'cell',
+          ref,
+          range,
+          criteria: 'checkbox',
+          options: ['TRUE', 'FALSE'],
+          colorByLabel: Object.assign({}, checkboxColorByLabel),
+        });
+
+        for (let ri = 1; ri < rowLen; ri += 1) {
+          const current = String(cellTextAt(ri, ci)).trim();
+          const normalized = current ? normalizeCheckboxText(current) : 'FALSE';
+          try {
+            if (typeof activeSheetData.setCellText === 'function') {
+              activeSheetData.setCellText(ri, ci, normalized, 'finished');
+            } else if (activeSpreadsheet && typeof activeSpreadsheet.cellText === 'function') {
+              activeSpreadsheet.cellText(ri, ci, normalized, 0);
+            }
+          } catch (err) {
+            // ignore per-cell failures
+          }
+        }
+      });
+
+      activeSheetData.__ceDefaultCheckboxColsApplied = true;
+      if (activeSpreadsheet && typeof activeSpreadsheet.reRender === 'function') {
+        activeSpreadsheet.reRender();
+      }
+      scheduleValidationCellDropdownRefresh();
+      scheduleValidationBubblesRefresh();
     }
 
     function initSpreadsheet(matrix) {

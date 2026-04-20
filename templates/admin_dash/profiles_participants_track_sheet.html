@@ -99,7 +99,7 @@
         return val !== 0;
       }
       const raw = String(val == null ? '' : val).trim().toLowerCase();
-      return ['1', 'true', 'yes', 'y', 'si', 'sí', 'checked', 'on'].includes(raw);
+      return ['1', 'true', 'checked', 'on', 'x', '✓'].includes(raw);
     }
 
     function isDataRowEmpty(row, numberColIdx) {

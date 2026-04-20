@@ -563,7 +563,8 @@ def _as_checkbox_bool(value) -> bool:
     if isinstance(value, (int, float)):
         return bool(value)
     raw = (str(value or "")).strip().lower()
-    return raw in {"1", "true", "yes", "y", "si", "sí", "checked", "on"}
+    # Keep checkbox parsing strict to avoid accidental mass-checking from free-text values.
+    return raw in {"1", "true", "checked", "on", "x", "✓"}
 
 
 def _normalize_sheet_rows(raw_rows, headers: list[str]) -> list[list]:

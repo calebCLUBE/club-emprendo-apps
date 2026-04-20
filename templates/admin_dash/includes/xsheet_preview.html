@@ -937,7 +937,7 @@
     function isCheckboxCheckedValue(value) {
       const normalized = String(value == null ? '' : value).trim().toUpperCase();
       return [
-        'TRUE', '1', 'YES', 'SI', 'SÍ', 'CHECKED', 'X', '✓',
+        'TRUE', '1', 'CHECKED', 'ON', 'X', '✓',
       ].includes(normalized);
     }
 

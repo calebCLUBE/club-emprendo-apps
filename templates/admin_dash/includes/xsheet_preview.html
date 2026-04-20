@@ -1212,15 +1212,14 @@
             checkbox.className = 'ce-validation-cell-checkbox';
             const top = Math.max(0, Math.round(rect.top + 2));
             const left = Math.max(0, Math.round(rect.left + 2));
-            const width = Math.max(
-              20,
-              Math.min(Math.round(rect.width - 4), Math.max(20, root.clientWidth - left - 2))
-            );
-            const height = Math.max(
-              20,
-              Math.min(Math.round(rect.height - 4), Math.max(20, root.clientHeight - top - 2))
-            );
-            if (width <= 2 || height <= 2) {
+            const maxWidthAvail = Math.floor(root.clientWidth - left - 2);
+            const maxHeightAvail = Math.floor(root.clientHeight - top - 2);
+            if (maxWidthAvail < 14 || maxHeightAvail < 14) {
+              continue;
+            }
+            const width = Math.min(Math.max(14, Math.round(rect.width - 4)), maxWidthAvail);
+            const height = Math.min(Math.max(14, Math.round(rect.height - 4)), maxHeightAvail);
+            if (width < 14 || height < 14) {
               continue;
             }
             checkbox.style.left = `${left}px`;
@@ -1518,8 +1517,18 @@
         validationCellCheckboxInput.checked = isCheckboxCheckedValue(currentValue);
         const left = Math.max(0, Math.round(areaRect.left + 1));
         const top = Math.max(0, Math.round(areaRect.top + 1));
-        const width = Math.max(20, Math.round(areaRect.width - 2));
-        const height = Math.max(20, Math.round(areaRect.height - 2));
+        const maxWidthAvail = Math.floor(root.clientWidth - left - 2);
+        const maxHeightAvail = Math.floor(root.clientHeight - top - 2);
+        if (maxWidthAvail < 14 || maxHeightAvail < 14) {
+          hideValidationCellDropdown();
+          return;
+        }
+        const width = Math.min(Math.max(14, Math.round(areaRect.width - 2)), maxWidthAvail);
+        const height = Math.min(Math.max(14, Math.round(areaRect.height - 2)), maxHeightAvail);
+        if (width < 14 || height < 14) {
+          hideValidationCellDropdown();
+          return;
+        }
         validationCellCheckboxWrap.style.left = `${left}px`;
         validationCellCheckboxWrap.style.top = `${top}px`;
         validationCellCheckboxWrap.style.width = `${width}px`;

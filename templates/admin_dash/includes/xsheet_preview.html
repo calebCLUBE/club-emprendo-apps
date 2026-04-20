@@ -1149,10 +1149,14 @@
               .map(function (v) { return String(v == null ? '' : v).trim(); })
               .filter(function (v) { return v.length > 0; });
           }
+          const isCheckboxColumn = String(sheetColumnTypes[ci] || '').trim().toLowerCase() === 'checkbox';
+          if (!options.length && isCheckboxColumn) {
+            options = ['TRUE', 'FALSE'];
+          }
           if (!options.length) {
             continue;
           }
-          const isCheckbox = isCheckboxValidation(validator, metaRule, options);
+          const isCheckbox = isCheckboxColumn || isCheckboxValidation(validator, metaRule, options);
 
           const rect = getCellRectByIndexes(ri, ci);
           if (!rect || rect.width <= 2 || rect.height <= 2) {
@@ -1417,11 +1421,15 @@
           .map(function (v) { return String(v == null ? '' : v).trim(); })
           .filter(function (v) { return v.length > 0; });
       }
+      const isCheckboxColumn = String(sheetColumnTypes[coords.ci] || '').trim().toLowerCase() === 'checkbox';
+      if (!options.length && isCheckboxColumn) {
+        options = ['TRUE', 'FALSE'];
+      }
       if (!options.length) {
         hideValidationCellDropdown();
         return;
       }
-      const isCheckbox = isCheckboxValidation(validator, metaRule, options);
+      const isCheckbox = isCheckboxColumn || isCheckboxValidation(validator, metaRule, options);
 
       const rootRect = root.getBoundingClientRect();
       let areaRect = null;

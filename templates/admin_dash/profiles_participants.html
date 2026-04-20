@@ -211,155 +211,24 @@
           </div>
         </form>
 
-        <form method="post" id="sheet-save-form" style="margin-top:12px;">
-          {% csrf_token %}
-          <input type="hidden" name="group" value="{{ selected_group.number }}">
-          <input type="hidden" name="action" value="save_sheet">
-          <input type="hidden" id="mentoras_sheet_data" name="mentoras_sheet_data" value="">
-          <input type="hidden" id="emprendedoras_sheet_data" name="emprendedoras_sheet_data" value="">
-
-          <div class="ce-sheet-block">
-            <div class="ce-sheet-head">
-              <strong>Mentoras sheet</strong>
-            </div>
-            <div class="ce-sheet-wrap">
-              {% include "admin_dash/includes/xsheet_preview.html" with sheet_id="participants-mentoras" sheet_headers=mentoras_headers sheet_rows=mentoras_rows sheet_column_types=mentoras_column_types sheet_height=520 sheet_deferred=True %}
-            </div>
-          </div>
-
-          <div class="ce-sheet-block">
-            <div class="ce-sheet-head">
-              <strong>Emprendedoras sheet</strong>
-            </div>
-            <div class="ce-sheet-wrap">
-              {% include "admin_dash/includes/xsheet_preview.html" with sheet_id="participants-emprendedoras" sheet_headers=emprendedoras_headers sheet_rows=emprendedoras_rows sheet_column_types=emprendedoras_column_types sheet_height=520 sheet_deferred=True %}
-            </div>
-          </div>
-
-          <p class="ce-sheet-help">
-            Use the top toolbar and right-click menu to insert/delete rows and columns, resize, and format cells.
-          </p>
-
-          <div class="ce-actions" style="margin-top:12px;">
-            <button class="ce-btn" type="submit">Save sheet edits</button>
+        <div class="ce-panel" style="margin-top:12px;">
+          <div style="font-weight:700; margin-bottom:8px;">Participant sheets</div>
+          <div class="ce-muted">Open one sheet at a time.</div>
+          <div class="ce-actions" style="margin-top:10px;">
+            <a class="ce-btn" href="{% url 'admin_profiles_participants_track_sheet' selected_group.number 'mentoras' %}">
+              Open Mentoras sheet
+            </a>
+            <a class="ce-btn" href="{% url 'admin_profiles_participants_track_sheet' selected_group.number 'emprendedoras' %}">
+              Open Emprendedoras sheet
+            </a>
             {% if has_list %}
               <a class="ce-btn ce-btn--ghost" href="{% url 'admin_profiles_participants_download' selected_group.number %}">
                 Download XLSX
               </a>
             {% endif %}
           </div>
-        </form>
+        </div>
       </section>
-
-      {{ mentoras_headers|json_script:"pp-mentoras-headers" }}
-      {{ emprendedoras_headers|json_script:"pp-emprendedoras-headers" }}
-
-      <script>
-        (function () {
-          const MENTORAS_HEADERS = JSON.parse(document.getElementById('pp-mentoras-headers').textContent || '[]');
-          const EMPRENDEDORAS_HEADERS = JSON.parse(document.getElementById('pp-emprendedoras-headers').textContent || '[]');
-          const MENTORAS_COLUMN_TYPES = JSON.parse('{{ mentoras_column_types_json|escapejs }}');
-          const EMPRENDEDORAS_COLUMN_TYPES = JSON.parse('{{ emprendedoras_column_types_json|escapejs }}');
-
-          function checkboxValue(val) {
-            if (typeof val === 'boolean') {
-              return val;
-            }
-            if (typeof val === 'number') {
-              return val !== 0;
-            }
-            const raw = String(val == null ? '' : val).trim().toLowerCase();
-            return ['1', 'true', 'yes', 'y', 'si', 'sí', 'checked', 'on'].includes(raw);
-          }
-
-          function isDataRowEmpty(row, numberColIdx) {
-            for (let i = 0; i < row.length; i += 1) {
-              if (i === numberColIdx) {
-                continue;
-              }
-              const val = row[i];
-              if (typeof val === 'boolean') {
-                if (val) {
-                  return false;
-                }
-                continue;
-              }
-              if (String(val == null ? '' : val).trim() !== '') {
-                return false;
-              }
-            }
-            return true;
-          }
-
-          function rowsForSave(sheetId, headers, columnTypes, countKey) {
-            const registry = window.__ceSheetRegistry || {};
-            const sheet = registry[sheetId];
-            const countEl = document.querySelector(`[data-row-count="${countKey}"]`);
-            if (!sheet || typeof sheet.getMatrix !== 'function') {
-              return [];
-            }
-
-            const matrix = sheet.getMatrix();
-            const bodyRows = Array.isArray(matrix) ? matrix.slice(1) : [];
-            const boolCols = columnTypes
-              .map((t, idx) => (t === 'checkbox' ? idx : -1))
-              .filter((idx) => idx >= 0);
-            const numberColIdx = columnTypes.findIndex((t) => t === 'readonly_num');
-            const width = headers.length;
-
-            const outRows = [];
-            for (let r = 0; r < bodyRows.length; r += 1) {
-              const src = Array.isArray(bodyRows[r]) ? bodyRows[r] : [];
-              const row = [];
-              for (let c = 0; c < width; c += 1) {
-                const raw = c < src.length ? src[c] : '';
-                if (boolCols.includes(c)) {
-                  row.push(checkboxValue(raw));
-                } else {
-                  row.push(String(raw == null ? '' : raw));
-                }
-              }
-              if (isDataRowEmpty(row, numberColIdx)) {
-                continue;
-              }
-              outRows.push(row);
-            }
-
-            if (numberColIdx >= 0) {
-              outRows.forEach((row, idx) => {
-                if (numberColIdx < row.length) {
-                  row[numberColIdx] = idx + 1;
-                }
-              });
-            }
-            if (countEl) {
-              countEl.textContent = String(outRows.length);
-            }
-            return outRows;
-          }
-
-          const form = document.getElementById('sheet-save-form');
-          if (!form) {
-            return;
-          }
-          form.addEventListener('submit', function () {
-            const mentoras = rowsForSave(
-              'participants-mentoras',
-              MENTORAS_HEADERS,
-              MENTORAS_COLUMN_TYPES,
-              'mentoras'
-            );
-            const emprendedoras = rowsForSave(
-              'participants-emprendedoras',
-              EMPRENDEDORAS_HEADERS,
-              EMPRENDEDORAS_COLUMN_TYPES,
-              'emprendedoras'
-            );
-            document.getElementById('mentoras_sheet_data').value = JSON.stringify(mentoras);
-            document.getElementById('emprendedoras_sheet_data').value = JSON.stringify(emprendedoras);
-          });
-        })();
-      </script>
     {% endif %}
   </div>
 </div>

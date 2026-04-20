@@ -1,0 +1,230 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+
+{% block content %}
+<link rel="stylesheet" href="{% static 'vendor/x-data-spreadsheet/xspreadsheet.css' %}">
+<div class="ce-admin-wrap">
+  <div class="ce-admin-card ce-admin-card--wide">
+    <style>
+      .ce-actions {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin: 12px 0 16px;
+      }
+      .ce-btn {
+        display: inline-block;
+        padding: 8px 12px;
+        border-radius: 8px;
+        border: 1px solid #223413;
+        background: #223413;
+        color: #fff !important;
+        text-decoration: none;
+        font-weight: 600;
+      }
+      .ce-btn--ghost {
+        background: #fff;
+        color: #223413 !important;
+      }
+      .ce-panel {
+        margin-top: 10px;
+        padding: 12px;
+        border: 1px solid #e4e4e4;
+        border-radius: 10px;
+        background: #fff;
+      }
+      .ce-muted {
+        color: #666;
+        font-size: 12px;
+        margin-top: 4px;
+      }
+      .ce-kpi {
+        border: 1px solid #ececec;
+        border-radius: 10px;
+        padding: 10px;
+        min-width: 180px;
+        display: inline-block;
+      }
+      .ce-kpi-k {
+        font-size: 12px;
+        color: #666;
+      }
+      .ce-kpi-v {
+        margin-top: 4px;
+        font-size: 24px;
+        line-height: 1.1;
+        font-weight: 700;
+      }
+      .ce-form-grid {
+        display: grid;
+        gap: 12px;
+        grid-template-columns: 1fr;
+      }
+      .ce-form-grid label {
+        display: block;
+        font-weight: 600;
+        margin-bottom: 4px;
+      }
+      .ce-form-grid textarea {
+        width: 100%;
+        min-height: 120px;
+        box-sizing: border-box;
+        padding: 10px;
+        border: 1px solid #d2d2d2;
+        border-radius: 8px;
+        resize: vertical;
+        font-family: inherit;
+        line-height: 1.35;
+      }
+      .ce-sheet-wrap {
+        border: 1px solid #d8d8d8;
+        border-radius: 10px;
+        overflow: hidden;
+        background: #fff;
+      }
+      .ce-sheet-help {
+        margin-top: 6px;
+        color: #555;
+        font-size: 12px;
+      }
+    </style>
+
+    <h1 style="margin:0;">Group {{ group.number }} · {{ track_label }} participant sheet</h1>
+    <div class="ce-actions">
+      <a class="ce-btn ce-btn--ghost" href="{% url 'admin_profiles_participants' %}?group={{ group.number }}">Back to participants group</a>
+      <a class="ce-btn ce-btn--ghost" href="{% url 'admin_profiles_participants_download' group.number %}">Download XLSX</a>
+      <a class="ce-btn ce-btn--ghost" href="{% url 'admin_profiles_list' %}">Profiles</a>
+    </div>
+
+    <section class="ce-panel">
+      <div class="ce-kpi">
+        <div class="ce-kpi-k">{{ track_label }} rows</div>
+        <div class="ce-kpi-v" data-row-count>{{ rows_count }}</div>
+      </div>
+
+      <form method="post" style="margin-top:12px;">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="build_from_emails">
+        <div class="ce-form-grid">
+          <div>
+            <label for="emails">{{ track_label }} emails (one per line or comma-separated)</label>
+            <textarea id="emails" name="emails" placeholder="persona1@email.com&#10;persona2@email.com">{{ emails_text }}</textarea>
+          </div>
+        </div>
+        <div class="ce-actions" style="margin-top:12px;">
+          <button class="ce-btn" type="submit">Create/replace sheet from email list</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="ce-panel">
+      <form method="post" id="sheet-save-form">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="save_sheet">
+        <input type="hidden" name="emails" value="{{ emails_text }}">
+        <input type="hidden" id="sheet_data" name="sheet_data" value="">
+
+        <div class="ce-sheet-wrap">
+          {% include "admin_dash/includes/xsheet_preview.html" with sheet_id="participants-track-sheet" sheet_headers=sheet_headers sheet_rows=sheet_rows sheet_column_types=sheet_column_types sheet_height=720 sheet_deferred=True %}
+        </div>
+
+        <p class="ce-sheet-help">Use the toolbar and right-click menu to edit cells, rows, and columns.</p>
+
+        <div class="ce-actions" style="margin-top:12px;">
+          <button class="ce-btn" type="submit">Save sheet edits</button>
+        </div>
+      </form>
+    </section>
+
+    {{ sheet_headers|json_script:"ppt-headers" }}
+    {{ sheet_column_types|json_script:"ppt-column-types" }}
+    <script>
+      (function () {
+        const headers = JSON.parse(document.getElementById('ppt-headers').textContent || '[]');
+        const columnTypes = JSON.parse(document.getElementById('ppt-column-types').textContent || '[]');
+
+        function checkboxValue(val) {
+          if (typeof val === 'boolean') {
+            return val;
+          }
+          if (typeof val === 'number') {
+            return val !== 0;
+          }
+          const raw = String(val == null ? '' : val).trim().toLowerCase();
+          return ['1', 'true', 'yes', 'y', 'si', 'sí', 'checked', 'on'].includes(raw);
+        }
+
+        function isDataRowEmpty(row, numberColIdx) {
+          for (let i = 0; i < row.length; i += 1) {
+            if (i === numberColIdx) {
+              continue;
+            }
+            const val = row[i];
+            if (typeof val === 'boolean') {
+              if (val) {
+                return false;
+              }
+              continue;
+            }
+            if (String(val == null ? '' : val).trim() !== '') {
+              return false;
+            }
+          }
+          return true;
+        }
+
+        function rowsForSave() {
+          const registry = window.__ceSheetRegistry || {};
+          const sheet = registry['participants-track-sheet'];
+          if (!sheet || typeof sheet.getMatrix !== 'function') {
+            return [];
+          }
+
+          const matrix = sheet.getMatrix();
+          const bodyRows = Array.isArray(matrix) ? matrix.slice(1) : [];
+          const boolCols = columnTypes
+            .map((t, idx) => (t === 'checkbox' ? idx : -1))
+            .filter((idx) => idx >= 0);
+          const numberColIdx = columnTypes.findIndex((t) => t === 'readonly_num');
+          const width = headers.length;
+
+          const outRows = [];
+          for (let r = 0; r < bodyRows.length; r += 1) {
+            const src = Array.isArray(bodyRows[r]) ? bodyRows[r] : [];
+            const row = [];
+            for (let c = 0; c < width; c += 1) {
+              const raw = c < src.length ? src[c] : '';
+              if (boolCols.includes(c)) {
+                row.push(checkboxValue(raw));
+              } else {
+                row.push(String(raw == null ? '' : raw));
+              }
+            }
+            if (isDataRowEmpty(row, numberColIdx)) {
+              continue;
+            }
+            outRows.push(row);
+          }
+
+          if (numberColIdx >= 0) {
+            outRows.forEach((row, idx) => {
+              if (numberColIdx < row.length) {
+                row[numberColIdx] = idx + 1;
+              }
+            });
+          }
+          return outRows;
+        }
+
+        const form = document.getElementById('sheet-save-form');
+        if (!form) {
+          return;
+        }
+        form.addEventListener('submit', function () {
+          document.getElementById('sheet_data').value = JSON.stringify(rowsForSave());
+        });
+      })();
+    </script>
+  </div>
+</div>
+{% endblock %}

@@ -1501,18 +1501,20 @@ def profiles_participants(request):
 
         action = (request.POST.get("action") or "save_sheet").strip()
         if action == "delete_group_participants":
-            deleted_count, _ = GroupParticipantList.objects.filter(group=selected_group).delete()
-            if deleted_count:
+            group_number = selected_group.number
+            try:
+                selected_group.delete()
                 messages.success(
                     request,
-                    f"Deleted participant list for Group {selected_group.number}.",
+                    f"Deleted Group {group_number} and its participant data.",
                 )
-            else:
-                messages.info(
+                return redirect(reverse("admin_profiles_participants"))
+            except Exception as exc:
+                messages.error(
                     request,
-                    f"No participant list exists for Group {selected_group.number}.",
+                    f"Could not delete Group {group_number}: {exc}",
                 )
-            return redirect(f"{reverse('admin_profiles_participants')}?group={selected_group.number}")
+                return redirect(f"{reverse('admin_profiles_participants')}?group={group_number}")
 
         success_action_text = "Saved"
         mentoras_raw = (request.POST.get("mentoras_emails") or "").strip()
@@ -1702,6 +1704,148 @@ def profiles_participants(request):
         "has_list": has_list,
     }
     return render(request, "admin_dash/profiles_participants.html", context)
+
+
+@staff_member_required
+def profiles_participants_track_sheet(request, group_num: int, track: str):
+    group = FormGroup.objects.filter(number=group_num).first()
+    if not group:
+        messages.error(request, "Group not found.")
+        return redirect(reverse("admin_profiles_participants"))
+
+    track_key = (track or "").strip().lower()
+    if track_key.startswith("m"):
+        track_slug = "mentoras"
+        track_label = "Mentoras"
+        headers = MENTORAS_HEADERS
+        column_types = MENTORAS_COLUMN_TYPES
+        bool_cols = MENTORAS_BOOLEAN_COLS
+        email_col = MENTORAS_EMAIL_COL
+        acta_col = MENTORAS_ACTA_COL
+        text_field = "mentoras_emails_text"
+        rows_field = "mentoras_sheet_rows"
+        build_rows = _build_mentoras_rows
+    elif track_key.startswith("e"):
+        track_slug = "emprendedoras"
+        track_label = "Emprendedoras"
+        headers = EMPRENDEDORAS_HEADERS
+        column_types = EMPRENDEDORAS_COLUMN_TYPES
+        bool_cols = EMPRENDEDORAS_BOOLEAN_COLS
+        email_col = EMPRENDEDORAS_EMAIL_COL
+        acta_col = EMPRENDEDORAS_ACTA_COL
+        text_field = "emprendedoras_emails_text"
+        rows_field = "emprendedoras_sheet_rows"
+        build_rows = _build_emprendedoras_rows
+    else:
+        messages.error(request, "Invalid participant track.")
+        return redirect(f"{reverse('admin_profiles_participants')}?group={group.number}")
+
+    participant_list = GroupParticipantList.objects.filter(group=group).first()
+
+    if request.method == "POST":
+        action = (request.POST.get("action") or "save_sheet").strip()
+        emails_raw = (request.POST.get("emails") or "").strip()
+        valid_emails: list[str] = []
+        invalid_emails: list[str] = []
+        track_rows: list[list] = []
+
+        if action == "build_from_emails":
+            valid_emails, invalid_emails = _parse_email_list(emails_raw)
+            track_rows = build_rows(group.number, valid_emails)
+        else:
+            sheet_raw = (request.POST.get("sheet_data") or "").strip()
+            payload = []
+            if sheet_raw:
+                try:
+                    payload = json.loads(sheet_raw)
+                except json.JSONDecodeError:
+                    messages.error(request, "Could not read sheet edits. Please try again.")
+
+            track_rows = _normalize_sheet_rows(payload, headers)
+            track_rows = _coerce_bool_columns(track_rows, bool_cols)
+            if not track_rows and emails_raw:
+                valid_emails, invalid_emails = _parse_email_list(emails_raw)
+                track_rows = build_rows(group.number, valid_emails)
+            if not valid_emails:
+                valid_emails = _emails_from_sheet_rows(track_rows, email_col)
+
+        track_rows = _apply_contract_signed_to_rows(
+            track_rows,
+            email_col=email_col,
+            acta_col=acta_col,
+        )
+        track_rows = _number_sheet_rows(track_rows, number_col=2)
+
+        participant_obj, _ = GroupParticipantList.objects.get_or_create(group=group)
+        updates: list[str] = []
+        next_emails_text = "\n".join(valid_emails)
+        if getattr(participant_obj, text_field) != next_emails_text:
+            setattr(participant_obj, text_field, next_emails_text)
+            updates.append(text_field)
+        if getattr(participant_obj, rows_field) != track_rows:
+            setattr(participant_obj, rows_field, track_rows)
+            updates.append(rows_field)
+        if updates:
+            participant_obj.save(update_fields=updates + ["updated_at"])
+
+        participant_emails = valid_emails or _emails_from_sheet_rows(track_rows, email_col)
+        created_count, updated_count, unchanged_count = _mark_participated_yes(
+            list(dict.fromkeys(participant_emails))
+        )
+        messages.success(
+            request,
+            (
+                f"Saved {track_label} participants for Group {group.number}. "
+                f"Rows: {len(track_rows)}. Profile participation set to Yes: "
+                f"{created_count} new, {updated_count} changed, {unchanged_count} already yes."
+            ),
+        )
+        if invalid_emails:
+            preview = ", ".join(invalid_emails[:8])
+            suffix = "" if len(invalid_emails) <= 8 else ", ..."
+            messages.warning(
+                request,
+                f"Ignored invalid emails ({len(invalid_emails)}): {preview}{suffix}",
+            )
+        return redirect(
+            reverse(
+                "admin_profiles_participants_track_sheet",
+                args=[group.number, track_slug],
+            )
+        )
+
+    rows: list[list] = []
+    if participant_list:
+        stored_rows = _normalize_sheet_rows(getattr(participant_list, rows_field, []), headers)
+        stored_rows = _coerce_bool_columns(stored_rows, bool_cols)
+        if stored_rows:
+            rows = _number_sheet_rows(stored_rows, number_col=2)
+        else:
+            emails_seed = _norm_email_list(getattr(participant_list, text_field, ""))
+            rows = _number_sheet_rows(
+                build_rows(group.number, emails_seed),
+                number_col=2,
+            )
+
+    rows = _apply_contract_signed_to_rows(
+        rows,
+        email_col=email_col,
+        acta_col=acta_col,
+    )
+    emails_text = "\n".join(_emails_from_sheet_rows(rows, email_col))
+
+    context = {
+        "group": group,
+        "track_slug": track_slug,
+        "track_label": track_label,
+        "sheet_headers": headers,
+        "sheet_column_types": column_types,
+        "sheet_rows": rows,
+        "sheet_rows_json": json.dumps(rows),
+        "emails_text": emails_text,
+        "rows_count": len(rows),
+    }
+    return render(request, "admin_dash/profiles_participants_track_sheet.html", context)
 
 
 @staff_member_required

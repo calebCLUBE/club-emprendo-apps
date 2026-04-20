@@ -731,6 +731,11 @@
     let validationBubbleRefreshQueued = false;
     let activeSpreadsheet = null;
     let activeSheetData = null;
+    let viewportPollTimer = null;
+    let lastViewportRi = null;
+    let lastViewportCi = null;
+    let lastSelectorRi = null;
+    let lastSelectorCi = null;
 
     function colIndexFromLabel(label) {
       let out = 0;
@@ -1098,6 +1103,41 @@
       } else {
         run();
       }
+    }
+
+    function stopViewportPolling() {
+      if (viewportPollTimer) {
+        window.clearInterval(viewportPollTimer);
+        viewportPollTimer = null;
+      }
+    }
+
+    function startViewportPolling() {
+      stopViewportPolling();
+      viewportPollTimer = window.setInterval(function () {
+        if (!activeSheetData) {
+          return;
+        }
+        const scroll = activeSheetData.scroll || {};
+        const selector = activeSheetData.selector || {};
+        const ri = Number.isFinite(scroll.ri) ? Number(scroll.ri) : 0;
+        const ci = Number.isFinite(scroll.ci) ? Number(scroll.ci) : 0;
+        const sri = Number.isFinite(selector.ri) ? Number(selector.ri) : 0;
+        const sci = Number.isFinite(selector.ci) ? Number(selector.ci) : 0;
+
+        const viewportChanged = ri !== lastViewportRi || ci !== lastViewportCi;
+        const selectionChanged = sri !== lastSelectorRi || sci !== lastSelectorCi;
+        if (!viewportChanged && !selectionChanged) {
+          return;
+        }
+
+        lastViewportRi = ri;
+        lastViewportCi = ci;
+        lastSelectorRi = sri;
+        lastSelectorCi = sci;
+        scheduleValidationCellDropdownRefresh();
+        scheduleValidationBubblesRefresh();
+      }, 120);
     }
 
     function refreshValidationBubbles() {
@@ -2919,6 +2959,10 @@
     function initValidationDrawer(spreadsheet) {
       activeSpreadsheet = spreadsheet;
       activeSheetData = getActiveSheetData(spreadsheet);
+      lastViewportRi = null;
+      lastViewportCi = null;
+      lastSelectorRi = null;
+      lastSelectorCi = null;
       mountGoogleSheetsMenu(spreadsheet);
       mountFormulaBar(spreadsheet);
       mountValidationToolbarButton(spreadsheet);
@@ -2984,6 +3028,7 @@
       }
       scheduleValidationCellDropdownRefresh();
       scheduleValidationBubblesRefresh();
+      startViewportPolling();
       root.addEventListener('mouseup', scheduleValidationCellDropdownRefresh);
       root.addEventListener('wheel', scheduleValidationCellDropdownRefresh, { passive: true });
       root.addEventListener('wheel', scheduleValidationBubblesRefresh, { passive: true });
@@ -3155,6 +3200,7 @@
     shieldPopupEvents();
     fitToViewport();
     initSpreadsheet(seedMatrix);
+    window.addEventListener('beforeunload', stopViewportPolling, { passive: true });
   })();
 </script>
 {% endwith %}

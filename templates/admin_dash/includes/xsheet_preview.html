@@ -321,6 +321,7 @@
   .ce-validation-bubble-layer {
     position: absolute;
     inset: 0;
+    overflow: hidden;
     pointer-events: none;
     z-index: 4400;
   }
@@ -1149,14 +1150,10 @@
               .map(function (v) { return String(v == null ? '' : v).trim(); })
               .filter(function (v) { return v.length > 0; });
           }
-          const isCheckboxColumn = String(sheetColumnTypes[ci] || '').trim().toLowerCase() === 'checkbox';
-          if (!options.length && isCheckboxColumn) {
-            options = ['TRUE', 'FALSE'];
-          }
           if (!options.length) {
             continue;
           }
-          const isCheckbox = isCheckboxColumn || isCheckboxValidation(validator, metaRule, options);
+          const isCheckbox = isCheckboxValidation(validator, metaRule, options);
 
           const rect = getCellRectByIndexes(ri, ci);
           if (!rect || rect.width <= 2 || rect.height <= 2) {
@@ -1168,12 +1165,24 @@
 
           const currentValue = cellTextAt(ri, ci);
           if (isCheckbox) {
+            if (ri === 0) {
+              continue;
+            }
             const checkbox = document.createElement('div');
             checkbox.className = 'ce-validation-cell-checkbox';
             const top = Math.max(0, Math.round(rect.top + 2));
             const left = Math.max(0, Math.round(rect.left + 2));
-            const width = Math.max(20, Math.round(rect.width - 4));
-            const height = Math.max(20, Math.round(rect.height - 4));
+            const width = Math.max(
+              20,
+              Math.min(Math.round(rect.width - 4), Math.max(20, root.clientWidth - left - 2))
+            );
+            const height = Math.max(
+              20,
+              Math.min(Math.round(rect.height - 4), Math.max(20, root.clientHeight - top - 2))
+            );
+            if (width <= 2 || height <= 2) {
+              continue;
+            }
             checkbox.style.left = `${left}px`;
             checkbox.style.top = `${top}px`;
             checkbox.style.width = `${width}px`;
@@ -1421,15 +1430,15 @@
           .map(function (v) { return String(v == null ? '' : v).trim(); })
           .filter(function (v) { return v.length > 0; });
       }
-      const isCheckboxColumn = String(sheetColumnTypes[coords.ci] || '').trim().toLowerCase() === 'checkbox';
-      if (!options.length && isCheckboxColumn) {
-        options = ['TRUE', 'FALSE'];
-      }
       if (!options.length) {
         hideValidationCellDropdown();
         return;
       }
-      const isCheckbox = isCheckboxColumn || isCheckboxValidation(validator, metaRule, options);
+      const isCheckbox = isCheckboxValidation(validator, metaRule, options);
+      if (isCheckbox && coords.ri === 0) {
+        hideValidationCellDropdown();
+        return;
+      }
 
       const rootRect = root.getBoundingClientRect();
       let areaRect = null;

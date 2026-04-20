@@ -44,6 +44,10 @@
         background: #fff;
         color: #223413 !important;
       }
+      .ce-btn--danger {
+        background: #8f1f1f;
+        border-color: #8f1f1f;
+      }
       .ce-panel {
         margin-top: 10px;
         padding: 12px;
@@ -170,6 +174,23 @@
             <div class="ce-kpi-k">Emprendedoras rows</div>
             <div class="ce-kpi-v" data-row-count="emprendedoras">{{ emprendedoras_count }}</div>
           </div>
+        </div>
+
+        <div class="ce-actions" style="margin-top:12px;">
+          <form method="post">
+            {% csrf_token %}
+            <input type="hidden" name="group" value="{{ selected_group.number }}">
+            <button class="ce-btn ce-btn--ghost" type="submit" name="action" value="sync_from_group_assignments">
+              Sync from assigned group applications
+            </button>
+          </form>
+          <form method="post" onsubmit="return confirm('Delete all participant data for Group {{ selected_group.number }}? This cannot be undone.');">
+            {% csrf_token %}
+            <input type="hidden" name="group" value="{{ selected_group.number }}">
+            <button class="ce-btn ce-btn--danger" type="submit" name="action" value="delete_group_participants">
+              Delete participant group
+            </button>
+          </form>
         </div>
 
         <form method="post" style="margin-top:12px;">

@@ -1500,6 +1500,21 @@ def profiles_participants(request):
             return redirect(reverse("admin_profiles_participants"))
 
         action = (request.POST.get("action") or "save_sheet").strip()
+        if action == "delete_group_participants":
+            deleted_count, _ = GroupParticipantList.objects.filter(group=selected_group).delete()
+            if deleted_count:
+                messages.success(
+                    request,
+                    f"Deleted participant list for Group {selected_group.number}.",
+                )
+            else:
+                messages.info(
+                    request,
+                    f"No participant list exists for Group {selected_group.number}.",
+                )
+            return redirect(f"{reverse('admin_profiles_participants')}?group={selected_group.number}")
+
+        success_action_text = "Saved"
         mentoras_raw = (request.POST.get("mentoras_emails") or "").strip()
         emprendedoras_raw = (request.POST.get("emprendedoras_emails") or "").strip()
         mentoras_valid: list[str] = []
@@ -1510,8 +1525,15 @@ def profiles_participants(request):
         emprendedoras_rows: list[list] = []
 
         if action == "build_from_emails":
+            success_action_text = "Created"
             mentoras_valid, mentoras_invalid = _parse_email_list(mentoras_raw)
             emprendedoras_valid, emprendedoras_invalid = _parse_email_list(emprendedoras_raw)
+            mentoras_rows = _build_mentoras_rows(selected_group.number, mentoras_valid)
+            emprendedoras_rows = _build_emprendedoras_rows(selected_group.number, emprendedoras_valid)
+        elif action == "sync_from_group_assignments":
+            success_action_text = "Synced"
+            mentoras_valid = sorted(_latest_apps_by_email_for_group_track(selected_group.number, "M").keys())
+            emprendedoras_valid = sorted(_latest_apps_by_email_for_group_track(selected_group.number, "E").keys())
             mentoras_rows = _build_mentoras_rows(selected_group.number, mentoras_valid)
             emprendedoras_rows = _build_emprendedoras_rows(selected_group.number, emprendedoras_valid)
         else:
@@ -1593,7 +1615,7 @@ def profiles_participants(request):
         messages.success(
             request,
             (
-                f"Saved participants for Group {selected_group.number}. "
+                f"{success_action_text} participants for Group {selected_group.number}. "
                 f"Mentoras: {len(mentoras_rows)} rows · Emprendedoras: {len(emprendedoras_rows)} rows. "
                 f"Profile participation set to Yes: {participation_created} new, "
                 f"{participation_updated} changed, {participation_unchanged} already yes."

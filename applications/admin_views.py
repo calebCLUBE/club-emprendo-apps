@@ -3774,9 +3774,28 @@ def database_create_assigned_group(request):
                     existing_for_placeholder.add(email)
                     existing_any_target_track.add(email)
 
+            from applications.admin_profiles_views import (
+                EMPRENDEDORAS_ACTA_COL,
+                EMPRENDEDORAS_EMAIL_COL,
+                MENTORAS_ACTA_COL,
+                MENTORAS_EMAIL_COL,
+                _apply_contract_signed_to_rows as _profiles_apply_contract_signed_to_rows,
+                _build_emprendedoras_rows as _profiles_build_emprendedoras_rows,
+                _build_mentoras_rows as _profiles_build_mentoras_rows,
+                _number_sheet_rows as _profiles_number_sheet_rows,
+            )
+
             participant_list, _ = GroupParticipantList.objects.get_or_create(group=target_group)
             current_mentoras = set(_norm_email_list(participant_list.mentoras_emails_text or ""))
             current_emprendedoras = set(_norm_email_list(participant_list.emprendedoras_emails_text or ""))
+            if not current_mentoras:
+                current_mentoras = _emails_from_participant_sheet_rows(
+                    getattr(participant_list, "mentoras_sheet_rows", [])
+                )
+            if not current_emprendedoras:
+                current_emprendedoras = _emails_from_participant_sheet_rows(
+                    getattr(participant_list, "emprendedoras_sheet_rows", [])
+                )
 
             merged_mentoras = (
                 sorted(wanted_emails)
@@ -3798,6 +3817,39 @@ def database_create_assigned_group(request):
             if participant_list.emprendedoras_emails_text != new_emprendedoras_text:
                 participant_list.emprendedoras_emails_text = new_emprendedoras_text
                 participant_updates.append("emprendedoras_emails_text")
+
+            if selected_track == "M":
+                synced_mentoras_rows = _profiles_build_mentoras_rows(
+                    target_group.number,
+                    merged_mentoras,
+                )
+                synced_mentoras_rows = _profiles_apply_contract_signed_to_rows(
+                    synced_mentoras_rows,
+                    email_col=MENTORAS_EMAIL_COL,
+                    acta_col=MENTORAS_ACTA_COL,
+                )
+                synced_mentoras_rows = _profiles_number_sheet_rows(synced_mentoras_rows, number_col=2)
+                if (participant_list.mentoras_sheet_rows or []) != synced_mentoras_rows:
+                    participant_list.mentoras_sheet_rows = synced_mentoras_rows
+                    participant_updates.append("mentoras_sheet_rows")
+            else:
+                synced_emprendedoras_rows = _profiles_build_emprendedoras_rows(
+                    target_group.number,
+                    merged_emprendedoras,
+                )
+                synced_emprendedoras_rows = _profiles_apply_contract_signed_to_rows(
+                    synced_emprendedoras_rows,
+                    email_col=EMPRENDEDORAS_EMAIL_COL,
+                    acta_col=EMPRENDEDORAS_ACTA_COL,
+                )
+                synced_emprendedoras_rows = _profiles_number_sheet_rows(
+                    synced_emprendedoras_rows,
+                    number_col=2,
+                )
+                if (participant_list.emprendedoras_sheet_rows or []) != synced_emprendedoras_rows:
+                    participant_list.emprendedoras_sheet_rows = synced_emprendedoras_rows
+                    participant_updates.append("emprendedoras_sheet_rows")
+
             if participant_updates:
                 participant_list.save(update_fields=participant_updates + ["updated_at"])
 
@@ -3822,6 +3874,13 @@ def database_create_assigned_group(request):
             f"Copied {copied_apps} application(s), {copied_answers} answer(s). "
             f"{track_label} seeded: {seeded_count}. "
             f"Unmatched emails added as email-only rows: {unmatched_inserted}."
+        ),
+    )
+    messages.info(
+        request,
+        (
+            f"Participants page synced for Group {target_group_num} "
+            f"({track_label}): {seeded_count} email(s)."
         ),
     )
     if skipped_existing:

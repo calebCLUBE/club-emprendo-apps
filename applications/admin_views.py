@@ -1774,6 +1774,7 @@ MONTH_NUM_TO_ES = {
     month_number: month_name
     for month_number, (month_name, _) in enumerate(MONTH_CHOICES_ES, start=1)
 }
+MONTH_VALUES_ES = {month_name for month_name, _ in MONTH_CHOICES_ES}
 
 RESPOND_BY_MONTH_CHOICES = [("", "---------"), *MONTH_CHOICES_ES]
 RESPOND_BY_MONTH_TO_NUM = {
@@ -1781,6 +1782,23 @@ RESPOND_BY_MONTH_TO_NUM = {
     for month_number, (month_name, _) in enumerate(MONTH_CHOICES_ES, start=1)
 }
 DT_LOCAL_INPUT_FORMATS = ["%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M"]
+
+
+def _normalize_month_choice(value: str, fallback: str = "") -> str:
+    raw = (value or "").strip().lower()
+    if raw in MONTH_VALUES_ES:
+        return raw
+    month_num = _month_name_to_number(raw)
+    if month_num and month_num in MONTH_NUM_TO_ES:
+        return MONTH_NUM_TO_ES[month_num]
+
+    fb = (fallback or "").strip().lower()
+    if fb in MONTH_VALUES_ES:
+        return fb
+    month_num = _month_name_to_number(fb)
+    if month_num and month_num in MONTH_NUM_TO_ES:
+        return MONTH_NUM_TO_ES[month_num]
+    return ""
 
 
 class CreateGroupForm(forms.Form):
@@ -2888,6 +2906,7 @@ def apps_list(request):
                 "create_group_form": CreateGroupForm(),
                 "group_list": group_list,
                 "has_combined_groups": has_combined_groups,
+                "month_choices": MONTH_CHOICES_ES,
             },
         )
     except DatabaseError as exc:
@@ -2907,6 +2926,7 @@ def apps_list(request):
                 "create_group_form": CreateGroupForm(),
                 "group_list": [],
                 "has_combined_groups": False,
+                "month_choices": MONTH_CHOICES_ES,
             },
         )
 
@@ -2932,6 +2952,7 @@ def create_group(request):
                 "create_group_form": form,
                 "group_list": group_list,
                 "has_combined_groups": has_combined_groups,
+                "month_choices": MONTH_CHOICES_ES,
             },
         )
 
@@ -3100,7 +3121,7 @@ def delete_group(request, group_num: int):
 @require_POST
 def update_group_dates(request, group_num: int):
     """
-    Update start_day, A2 deadline, open/close schedule, and reminder schedule for
+    Update start day/month/year, A2 deadline, open/close schedule, and reminder schedule for
     a group without recloning forms.
     """
     group = get_object_or_404(FormGroup, number=group_num)
@@ -3109,6 +3130,28 @@ def update_group_dates(request, group_num: int):
         start_day = int(request.POST.get("start_day") or group.start_day or 1)
     except ValueError:
         start_day = group.start_day or 1
+    if start_day < 1:
+        start_day = 1
+    if start_day > 31:
+        start_day = 31
+
+    start_month = _normalize_month_choice(
+        request.POST.get("start_month") or "",
+        fallback=(group.start_month or ""),
+    )
+    end_month = _normalize_month_choice(
+        request.POST.get("end_month") or "",
+        fallback=(group.end_month or ""),
+    )
+
+    try:
+        year = int(request.POST.get("year") or group.year or timezone.now().year)
+    except Exception:
+        year = int(group.year or timezone.now().year)
+    if year < 2000:
+        year = 2000
+    if year > 2100:
+        year = 2100
 
     raw_deadline = (request.POST.get("a2_deadline") or "").strip()
     deadline = None
@@ -3160,6 +3203,15 @@ def update_group_dates(request, group_num: int):
     if group.start_day != start_day:
         group.start_day = start_day
         update_fields.append("start_day")
+    if (group.start_month or "").strip().lower() != start_month:
+        group.start_month = start_month
+        update_fields.append("start_month")
+    if (group.end_month or "").strip().lower() != end_month:
+        group.end_month = end_month
+        update_fields.append("end_month")
+    if int(group.year or 0) != int(year):
+        group.year = year
+        update_fields.append("year")
     if group.a2_deadline != deadline:
         group.a2_deadline = deadline
         update_fields.append("a2_deadline")
@@ -3185,7 +3237,7 @@ def update_group_dates(request, group_num: int):
 
     messages.success(
         request,
-        f"Actualizado Grupo {group.number}: día {start_day}, fecha límite A2 "
+        f"Actualizado Grupo {group.number}: {start_day} {start_month}–{end_month} {year}, fecha límite A2 "
         f"{deadline.strftime('%d/%m/%Y') if deadline else 'no definida'}, "
         f"apertura {open_at} / cierre {close_at}."
     )
@@ -3642,8 +3694,10 @@ def database_create_assigned_group(request):
     except (TypeError, ValueError):
         start_day = 0
         year = 0
-    start_month = str(getattr(source_group, "start_month", "") or "").strip().lower()
-    end_month = str(getattr(source_group, "end_month", "") or "").strip().lower()
+    source_start_month_raw = str(getattr(source_group, "start_month", "") or "")
+    source_end_month_raw = str(getattr(source_group, "end_month", "") or "")
+    start_month = _normalize_month_choice(source_start_month_raw, fallback=source_start_month_raw)
+    end_month = _normalize_month_choice(source_end_month_raw, fallback=source_end_month_raw)
     if not (start_day and year and start_month and end_month):
         messages.error(
             request,
@@ -4039,6 +4093,13 @@ def database_create_assigned_group(request):
             f"Copied {copied_apps} application(s), {copied_answers} answer(s). "
             f"{track_label} seeded: {seeded_count}. "
             f"Unmatched emails added as email-only rows: {unmatched_inserted}."
+        ),
+    )
+    messages.info(
+        request,
+        (
+            f"Group {target_group_num} schedule defaulted from {source_label}: "
+            f"start day {start_day}, end month {end_month}."
         ),
     )
     if parsed_mentions != len(wanted_emails) or duplicate_mentions:

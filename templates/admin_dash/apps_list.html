@@ -151,6 +151,37 @@
 
         <form
           method="post"
+          action="{% url 'admin_update_group' group_num=g.number %}"
+          style="display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap; margin-bottom:10px;"
+        >
+          {% csrf_token %}
+          <div>
+            <label class="inline">Start day</label><br>
+            <input
+              type="number"
+              min="1"
+              max="31"
+              name="start_day"
+              value="{{ g.start_day }}"
+              class="vTextField"
+              style="width:90px;"
+            >
+          </div>
+          <div>
+            <label class="inline">End month</label><br>
+            <select name="end_month" class="vTextField">
+              {% for month_value, month_label in month_choices %}
+                <option value="{{ month_value }}" {% if g.end_month|lower == month_value %}selected{% endif %}>{{ month_label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <button type="submit" class="button default">Save start/end</button>
+          </div>
+        </form>
+
+        <form
+          method="post"
           action="{% url 'admin_delete_group' group_num=g.number|default:g %}"
           style="margin-bottom:10px;"
           onsubmit="return confirm('Delete Group {{ g.number|default:g }} and ALL its forms? This cannot be undone.');"
@@ -222,6 +253,26 @@
                 <input type="number" min="1" max="31" name="start_day" value="{{ g.start_day }}" class="vTextField" style="width:90px;">
               </div>
               <div>
+                <label class="inline">Mes inicio</label><br>
+                <select name="start_month" class="vTextField">
+                  {% for month_value, month_label in month_choices %}
+                    <option value="{{ month_value }}" {% if g.start_month|lower == month_value %}selected{% endif %}>{{ month_label }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div>
+                <label class="inline">Mes fin</label><br>
+                <select name="end_month" class="vTextField">
+                  {% for month_value, month_label in month_choices %}
+                    <option value="{{ month_value }}" {% if g.end_month|lower == month_value %}selected{% endif %}>{{ month_label }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div>
+                <label class="inline">Año</label><br>
+                <input type="number" min="2000" max="2100" name="year" value="{{ g.year }}" class="vTextField" style="width:110px;">
+              </div>
+              <div>
                 <label class="inline">Fecha límite A2</label><br>
                 <input type="date" name="a2_deadline" value="{{ g.a2_deadline|date:'Y-m-d' }}" class="vDateField">
               </div>
@@ -250,7 +301,8 @@
               </div>
             </form>
             <div class="ce-meta" style="margin-top:8px;">
-              Actualiza fechas; meses/año permanecen igual. Apertura/cierre cambian visibilidad automática.
+              Los valores Día/Mes inicio/Mes fin/Año definen lo que ves como rango del grupo (por ejemplo: April–April).
+              Apertura/cierre cambian visibilidad automática.
               Reminder #1/#2/#3 envían recordatorios A2 automáticamente cuando llega cada fecha/hora.
             </div>
           </div>

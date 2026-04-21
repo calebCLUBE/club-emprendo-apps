@@ -789,18 +789,20 @@ def _norm_assignment_email_list(s: str) -> list[str]:
     Keeps entries that contain '@' even if they don't pass strict EMAIL_EXTRACT_RE,
     so pasted rows are not silently dropped.
     """
-    emails, _mentions, _dupes = _parse_assignment_email_list_with_stats(s)
+    emails, _mentions, _dupes, _duplicate_values = _parse_assignment_email_list_with_stats(s)
     return emails
 
 
-def _parse_assignment_email_list_with_stats(s: str) -> tuple[list[str], int, int]:
+def _parse_assignment_email_list_with_stats(s: str) -> tuple[list[str], int, int, list[str]]:
     if not s:
-        return [], 0, 0
+        return [], 0, 0, []
 
     out: list[str] = []
     seen: set[str] = set()
     mentions = 0
     duplicates = 0
+    duplicate_values: list[str] = []
+    duplicate_seen: set[str] = set()
 
     # Regex pass captures normal email text embedded in richer lines.
     for raw in EMAIL_EXTRACT_RE.findall(s):
@@ -810,6 +812,9 @@ def _parse_assignment_email_list_with_stats(s: str) -> tuple[list[str], int, int
         mentions += 1
         if email in seen:
             duplicates += 1
+            if email not in duplicate_seen:
+                duplicate_values.append(email)
+                duplicate_seen.add(email)
             continue
         seen.add(email)
         out.append(email)
@@ -823,17 +828,23 @@ def _parse_assignment_email_list_with_stats(s: str) -> tuple[list[str], int, int
         token = token.strip("<>[](){}\"'")
         if token.lower().startswith("mailto:"):
             token = token[7:]
+        # If regex can parse this token, it was already handled in the regex pass.
+        if EMAIL_EXTRACT_RE.search(token):
+            continue
         token = token.strip().lower().rstrip(".,;:")
         if not token or "@" not in token:
             continue
         mentions += 1
         if token in seen:
             duplicates += 1
+            if token not in duplicate_seen:
+                duplicate_values.append(token)
+                duplicate_seen.add(token)
             continue
         seen.add(token)
         out.append(token)
 
-    return out, mentions, duplicates
+    return out, mentions, duplicates, duplicate_values
 
 
 def _normalize_csv_data_rows(rows, width: int) -> list[list[str]]:
@@ -1918,7 +1929,7 @@ class PoolAssignmentForm(forms.Form):
     def clean(self):
         cleaned = super().clean()
         emails_text = cleaned.get("emails_text") or ""
-        normalized_emails, parsed_mentions, duplicate_mentions = _parse_assignment_email_list_with_stats(
+        normalized_emails, parsed_mentions, duplicate_mentions, duplicate_values = _parse_assignment_email_list_with_stats(
             emails_text
         )
         if not normalized_emails:
@@ -1927,6 +1938,7 @@ class PoolAssignmentForm(forms.Form):
         cleaned["normalized_emails"] = normalized_emails
         cleaned["parsed_mentions"] = parsed_mentions
         cleaned["duplicate_mentions"] = duplicate_mentions
+        cleaned["duplicate_values"] = duplicate_values
         return cleaned
 
 
@@ -3610,6 +3622,11 @@ def database_create_assigned_group(request):
     }
     parsed_mentions = int(form.cleaned_data.get("parsed_mentions") or len(wanted_emails))
     duplicate_mentions = int(form.cleaned_data.get("duplicate_mentions") or 0)
+    duplicate_values = [
+        str(v or "").strip().lower()
+        for v in (form.cleaned_data.get("duplicate_values") or [])
+        if str(v or "").strip()
+    ]
 
     source_group = FormGroup.objects.filter(number=source_group_num).first()
     if not source_group:
@@ -4032,6 +4049,14 @@ def database_create_assigned_group(request):
                 f"Duplicate entries merged: {duplicate_mentions}."
             ),
         )
+        if duplicate_values:
+            preview_limit = 20
+            preview_dupes = duplicate_values[:preview_limit]
+            remainder_dupes = max(0, len(duplicate_values) - preview_limit)
+            dupes_text = ", ".join(preview_dupes)
+            if remainder_dupes:
+                dupes_text = f"{dupes_text}, ... (+{remainder_dupes} more)"
+            messages.info(request, f"Duplicate pasted email(s) merged into one row each: {dupes_text}")
     messages.info(
         request,
         (

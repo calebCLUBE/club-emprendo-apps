@@ -2028,6 +2028,18 @@ def _clone_form(master_fd: FormDefinition, group: FormGroup) -> FormDefinition:
 
     existing = FormDefinition.objects.filter(slug=new_slug).first()
     if existing:
+        # If a group was deleted, group-specific forms may survive with group=None
+        # (FormDefinition.group uses SET_NULL). Reattach by slug so assignment
+        # flows can recover datasets without manual DB surgery.
+        update_fields: list[str] = []
+        if existing.group_id != group.id:
+            existing.group = group
+            update_fields.append("group")
+        if existing.is_master:
+            existing.is_master = False
+            update_fields.append("is_master")
+        if update_fields:
+            existing.save(update_fields=update_fields)
         return existing
 
     clone = FormDefinition.objects.create(

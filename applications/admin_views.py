@@ -789,23 +789,51 @@ def _norm_assignment_email_list(s: str) -> list[str]:
     Keeps entries that contain '@' even if they don't pass strict EMAIL_EXTRACT_RE,
     so pasted rows are not silently dropped.
     """
+    emails, _mentions, _dupes = _parse_assignment_email_list_with_stats(s)
+    return emails
+
+
+def _parse_assignment_email_list_with_stats(s: str) -> tuple[list[str], int, int]:
     if not s:
-        return []
+        return [], 0, 0
+
     out: list[str] = []
     seen: set[str] = set()
-    for raw_part in EMAIL_TOKEN_SPLIT_RE.split(s):
-        token = (raw_part or "").strip().strip("<>[](){}\"'")
+    mentions = 0
+    duplicates = 0
+
+    # Regex pass captures normal email text embedded in richer lines.
+    for raw in EMAIL_EXTRACT_RE.findall(s):
+        email = (raw or "").strip().lower().strip("<>[](){}\"'").rstrip(".,;:")
+        if not email or "@" not in email:
+            continue
+        mentions += 1
+        if email in seen:
+            duplicates += 1
+            continue
+        seen.add(email)
+        out.append(email)
+
+    # Fallback pass catches malformed-but-useful tokens that still contain "@",
+    # and separators not handled in the primary pass.
+    for raw_part in re.split(r"[\s,;|/]+", s):
+        token = (raw_part or "").strip()
         if not token:
             continue
-        m = EMAIL_EXTRACT_RE.search(token)
-        candidate = ((m.group(0) if m else token) or "").strip().lower().rstrip(".,;:")
-        if "@" not in candidate:
+        token = token.strip("<>[](){}\"'")
+        if token.lower().startswith("mailto:"):
+            token = token[7:]
+        token = token.strip().lower().rstrip(".,;:")
+        if not token or "@" not in token:
             continue
-        if not candidate or candidate in seen:
+        mentions += 1
+        if token in seen:
+            duplicates += 1
             continue
-        seen.add(candidate)
-        out.append(candidate)
-    return out
+        seen.add(token)
+        out.append(token)
+
+    return out, mentions, duplicates
 
 
 def _normalize_csv_data_rows(rows, width: int) -> list[list[str]]:
@@ -1890,11 +1918,15 @@ class PoolAssignmentForm(forms.Form):
     def clean(self):
         cleaned = super().clean()
         emails_text = cleaned.get("emails_text") or ""
-        normalized_emails = _norm_assignment_email_list(emails_text)
+        normalized_emails, parsed_mentions, duplicate_mentions = _parse_assignment_email_list_with_stats(
+            emails_text
+        )
         if not normalized_emails:
             raise forms.ValidationError("Paste at least one email.")
 
         cleaned["normalized_emails"] = normalized_emails
+        cleaned["parsed_mentions"] = parsed_mentions
+        cleaned["duplicate_mentions"] = duplicate_mentions
         return cleaned
 
 
@@ -3576,6 +3608,8 @@ def database_create_assigned_group(request):
         for e in (form.cleaned_data.get("normalized_emails") or [])
         if str(e or "").strip()
     }
+    parsed_mentions = int(form.cleaned_data.get("parsed_mentions") or len(wanted_emails))
+    duplicate_mentions = int(form.cleaned_data.get("duplicate_mentions") or 0)
 
     source_group = FormGroup.objects.filter(number=source_group_num).first()
     if not source_group:
@@ -3990,6 +4024,14 @@ def database_create_assigned_group(request):
             f"Unmatched emails added as email-only rows: {unmatched_inserted}."
         ),
     )
+    if parsed_mentions != len(wanted_emails) or duplicate_mentions:
+        messages.info(
+            request,
+            (
+                f"Pasted entries detected: {parsed_mentions}. Unique emails processed: {len(wanted_emails)}. "
+                f"Duplicate entries merged: {duplicate_mentions}."
+            ),
+        )
     messages.info(
         request,
         (

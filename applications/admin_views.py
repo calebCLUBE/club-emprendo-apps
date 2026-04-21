@@ -3750,23 +3750,17 @@ def database_create_assigned_group(request):
                 return _database_next_redirect(request, fallback_name="admin_database")
 
             update_fields: list[str] = []
-            if target_group.start_day != start_day:
-                target_group.start_day = start_day
-                update_fields.append("start_day")
-            if target_group.start_month != start_month:
-                target_group.start_month = start_month
-                update_fields.append("start_month")
-            if target_group.end_month != end_month:
-                target_group.end_month = end_month
-                update_fields.append("end_month")
-            if target_group.year != year:
-                target_group.year = year
-                update_fields.append("year")
+            # Always enforce schedule fields from the selected source pool.
+            # This intentionally overrides prior manual edits on the target group.
+            target_group.start_day = start_day
+            target_group.start_month = start_month
+            target_group.end_month = end_month
+            target_group.year = year
+            update_fields.extend(["start_day", "start_month", "end_month", "year"])
             if not target_group.use_combined_application:
                 target_group.use_combined_application = True
                 update_fields.append("use_combined_application")
-            if update_fields:
-                target_group.save(update_fields=update_fields)
+            target_group.save(update_fields=list(dict.fromkeys(update_fields)))
 
             required_master_slugs = [f"{selected_track}_A1", f"{selected_track}_A2"]
             for master_slug in required_master_slugs:

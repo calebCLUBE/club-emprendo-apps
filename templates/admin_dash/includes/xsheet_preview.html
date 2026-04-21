@@ -711,6 +711,7 @@
     const sheetColumnTypes = sheetColumnTypesEl
       ? JSON.parse(sheetColumnTypesEl.textContent || '[]')
       : [];
+    const allowStructureEdit = {{ sheet_allow_structure_edit|default:True|yesno:"true,false" }};
 
     const defaultPalette = [
       '#f4b183', '#f7d774', '#f5c2b8', '#9ec5e5', '#c6dcb0',
@@ -2565,6 +2566,10 @@
       if (!action) {
         return;
       }
+      if (!allowStructureEdit && ['insert_row', 'insert_column', 'delete_row', 'delete_column'].includes(action)) {
+        setMenuStatus('Column/row structure is locked for this sheet.', 'error');
+        return;
+      }
       if (action === 'not_implemented') {
         setMenuStatus('This menu item is listed for parity and will be wired next.', 'error');
         return;
@@ -2869,8 +2874,8 @@
         {
           label: 'Insert',
           items: [
-            { label: 'Row', action: 'insert_row' },
-            { label: 'Column', action: 'insert_column' },
+            { label: 'Row', action: 'insert_row', disabled: !allowStructureEdit },
+            { label: 'Column', action: 'insert_column', disabled: !allowStructureEdit },
             { separator: true },
             { label: 'Checkbox', action: 'insert_checkbox' },
             { label: 'Dropdown', action: 'open_validation' },
@@ -3346,7 +3351,7 @@
             mode: 'edit',
             showToolbar: true,
             showGrid: true,
-            showContextmenu: true,
+            showContextmenu: allowStructureEdit,
             row: {
               len: Math.max(1, matrix.length),
               height: 28,

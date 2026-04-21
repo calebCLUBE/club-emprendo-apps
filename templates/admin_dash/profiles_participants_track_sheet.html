@@ -102,6 +102,13 @@
       return ['1', 'true', 'checked', 'on', 'x', '✓'].includes(raw);
     }
 
+    function normalizeHeaderLabel(val) {
+      return String(val == null ? '' : val)
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, ' ');
+    }
+
     function isDataRowEmpty(row, numberColIdx) {
       for (let i = 0; i < row.length; i += 1) {
         if (i === numberColIdx) {
@@ -129,6 +136,7 @@
       }
 
       const matrix = sheet.getMatrix();
+      const matrixHeaders = Array.isArray(matrix) && Array.isArray(matrix[0]) ? matrix[0] : [];
       const bodyRows = Array.isArray(matrix) ? matrix.slice(1) : [];
       const boolCols = columnTypes
         .map((t, idx) => (t === 'checkbox' ? idx : -1))
@@ -136,12 +144,34 @@
       const numberColIdx = columnTypes.findIndex((t) => t === 'readonly_num');
       const width = headers.length;
 
+      // Map current visual columns back to canonical headers so column delete/insert
+      // keeps data aligned with the correct backend columns.
+      const sourceIndexByCanonical = Array(width).fill(-1);
+      const usedSourceIndexes = new Set();
+      for (let c = 0; c < width; c += 1) {
+        const targetNorm = normalizeHeaderLabel(headers[c]);
+        if (!targetNorm) {
+          continue;
+        }
+        for (let srcIdx = 0; srcIdx < matrixHeaders.length; srcIdx += 1) {
+          if (usedSourceIndexes.has(srcIdx)) {
+            continue;
+          }
+          if (normalizeHeaderLabel(matrixHeaders[srcIdx]) === targetNorm) {
+            sourceIndexByCanonical[c] = srcIdx;
+            usedSourceIndexes.add(srcIdx);
+            break;
+          }
+        }
+      }
+
       const outRows = [];
       for (let r = 0; r < bodyRows.length; r += 1) {
         const src = Array.isArray(bodyRows[r]) ? bodyRows[r] : [];
         const row = [];
         for (let c = 0; c < width; c += 1) {
-          const raw = c < src.length ? src[c] : '';
+          const sourceIdx = sourceIndexByCanonical[c];
+          const raw = sourceIdx >= 0 && sourceIdx < src.length ? src[sourceIdx] : '';
           if (boolCols.includes(c)) {
             row.push(checkboxValue(raw));
           } else {

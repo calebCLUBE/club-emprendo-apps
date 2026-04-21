@@ -121,6 +121,8 @@ MENTORAS_ID_COL = 4
 EMPRENDEDORAS_ID_COL = 4
 MENTORAS_ACTA_COL = 9
 EMPRENDEDORAS_ACTA_COL = 9
+MENTORAS_PROGRESS_DEFAULT_FALSE_COLS = [10, 11]  # Website, Capacitacion
+EMPRENDEDORAS_PROGRESS_DEFAULT_FALSE_COLS = [10, 11]  # Website, Capacitacion
 MENTORAS_BOOLEAN_COLS = [9, 10, 11, 12, 13, 14, 15]
 EMPRENDEDORAS_BOOLEAN_COLS = [9, 10, 11, 12, 13, 14]
 MENTORAS_STATUS_OPTIONS = ["NFA", "NCC", "INCP", "INCPP", "CP", "DC", "D", "P", "E/T", "G", "SG"]
@@ -292,6 +294,49 @@ def _append_unique_participant_rows(
         added += 1
         seen_tokens.update(row_tokens)
     return merged_rows, added, skipped_duplicates
+
+
+def _columns_uniformly_checked(rows: list[list], cols: list[int]) -> bool:
+    if not rows or not cols:
+        return False
+    for col_idx in cols:
+        has_any = False
+        for row in rows:
+            if col_idx >= len(row):
+                return False
+            has_any = True
+            if not _as_checkbox_bool(row[col_idx]):
+                return False
+        if not has_any:
+            return False
+    return True
+
+
+def _set_checkbox_columns(rows: list[list], cols: list[int], value: bool) -> tuple[list[list], int]:
+    changed = 0
+    out: list[list] = []
+    for row in rows:
+        row_copy = list(row)
+        for col_idx in cols:
+            if col_idx >= len(row_copy):
+                continue
+            current = _as_checkbox_bool(row_copy[col_idx])
+            if current != bool(value):
+                row_copy[col_idx] = bool(value)
+                changed += 1
+            else:
+                row_copy[col_idx] = bool(value) if isinstance(row_copy[col_idx], bool) else row_copy[col_idx]
+        out.append(row_copy)
+    return out, changed
+
+
+def _repair_progress_defaults_if_legacy(
+    rows: list[list],
+    reset_cols: list[int],
+) -> tuple[list[list], int]:
+    if not _columns_uniformly_checked(rows, reset_cols):
+        return rows, 0
+    return _set_checkbox_columns(rows, reset_cols, False)
 
 
 def _normalize_dropbox_sign_payload(request) -> dict:
@@ -1592,6 +1637,7 @@ def profiles_participants(request):
         invalid_entries: list[str] = []
         unmatched_cedulas: list[str] = []
         skipped_duplicates_total = 0
+        repaired_legacy_checks = 0
 
         if action == "build_from_emails":
             success_action_text = "Created"
@@ -1763,6 +1809,16 @@ def profiles_participants(request):
                 )
 
         # Acta is source-of-truth from Dropbox Sign contract status.
+        mentoras_rows, repaired_m = _repair_progress_defaults_if_legacy(
+            mentoras_rows,
+            MENTORAS_PROGRESS_DEFAULT_FALSE_COLS,
+        )
+        emprendedoras_rows, repaired_e = _repair_progress_defaults_if_legacy(
+            emprendedoras_rows,
+            EMPRENDEDORAS_PROGRESS_DEFAULT_FALSE_COLS,
+        )
+        repaired_legacy_checks += (repaired_m + repaired_e)
+
         mentoras_rows = _apply_contract_signed_to_rows(
             mentoras_rows,
             email_col=MENTORAS_EMAIL_COL,
@@ -1832,6 +1888,11 @@ def profiles_participants(request):
                     f"({len(unmatched_cedulas)}): {preview}{suffix}"
                 ),
             )
+        if repaired_legacy_checks:
+            messages.info(
+                request,
+                "Auto-repaired legacy default checks in Website/Capacitacion columns.",
+            )
 
         return redirect(f"{reverse('admin_profiles_participants')}?group={selected_group.number}")
 
@@ -1864,6 +1925,23 @@ def profiles_participants(request):
                 _build_emprendedoras_rows(selected_group.number, emprendedoras_emails_seed),
                 number_col=2,
             )
+
+    repaired_on_load = 0
+    if selected_group:
+        mentoras_rows, repaired_m = _repair_progress_defaults_if_legacy(
+            mentoras_rows,
+            MENTORAS_PROGRESS_DEFAULT_FALSE_COLS,
+        )
+        emprendedoras_rows, repaired_e = _repair_progress_defaults_if_legacy(
+            emprendedoras_rows,
+            EMPRENDEDORAS_PROGRESS_DEFAULT_FALSE_COLS,
+        )
+        repaired_on_load = repaired_m + repaired_e
+        if repaired_on_load:
+            participant_obj, _ = GroupParticipantList.objects.get_or_create(group=selected_group)
+            participant_obj.mentoras_sheet_rows = _number_sheet_rows(mentoras_rows, number_col=2)
+            participant_obj.emprendedoras_sheet_rows = _number_sheet_rows(emprendedoras_rows, number_col=2)
+            participant_obj.save(update_fields=["mentoras_sheet_rows", "emprendedoras_sheet_rows", "updated_at"])
 
     # Acta is source-of-truth from Dropbox Sign contract status.
     mentoras_rows = _apply_contract_signed_to_rows(
@@ -1922,6 +2000,7 @@ def profiles_participants_track_sheet(request, group_num: int, track: str):
         bool_cols = MENTORAS_BOOLEAN_COLS
         email_col = MENTORAS_EMAIL_COL
         acta_col = MENTORAS_ACTA_COL
+        progress_default_false_cols = MENTORAS_PROGRESS_DEFAULT_FALSE_COLS
         text_field = "mentoras_emails_text"
         rows_field = "mentoras_sheet_rows"
         build_rows = _build_mentoras_rows
@@ -1933,6 +2012,7 @@ def profiles_participants_track_sheet(request, group_num: int, track: str):
         bool_cols = EMPRENDEDORAS_BOOLEAN_COLS
         email_col = EMPRENDEDORAS_EMAIL_COL
         acta_col = EMPRENDEDORAS_ACTA_COL
+        progress_default_false_cols = EMPRENDEDORAS_PROGRESS_DEFAULT_FALSE_COLS
         text_field = "emprendedoras_emails_text"
         rows_field = "emprendedoras_sheet_rows"
         build_rows = _build_emprendedoras_rows
@@ -1975,6 +2055,11 @@ def profiles_participants_track_sheet(request, group_num: int, track: str):
             if not valid_emails:
                 valid_emails = _emails_from_sheet_rows(track_rows, email_col)
 
+        track_rows, repaired_track = _repair_progress_defaults_if_legacy(
+            track_rows,
+            progress_default_false_cols,
+        )
+
         track_rows = _apply_contract_signed_to_rows(
             track_rows,
             email_col=email_col,
@@ -2015,6 +2100,11 @@ def profiles_participants_track_sheet(request, group_num: int, track: str):
                 f"{created_count} new, {updated_count} changed, {unchanged_count} already yes."
             ),
         )
+        if repaired_track:
+            messages.info(
+                request,
+                "Auto-repaired legacy default checks in Website/Capacitacion columns.",
+            )
         if invalid_emails:
             preview = ", ".join(invalid_emails[:8])
             suffix = "" if len(invalid_emails) <= 8 else ", ..."
@@ -2041,6 +2131,16 @@ def profiles_participants_track_sheet(request, group_num: int, track: str):
                 build_rows(group.number, emails_seed),
                 number_col=2,
             )
+
+    rows, repaired_on_load = _repair_progress_defaults_if_legacy(
+        rows,
+        progress_default_false_cols,
+    )
+    if repaired_on_load:
+        participant_obj, _ = GroupParticipantList.objects.get_or_create(group=group)
+        if getattr(participant_obj, rows_field) != rows:
+            setattr(participant_obj, rows_field, rows)
+            participant_obj.save(update_fields=[rows_field, "updated_at"])
 
     rows = _apply_contract_signed_to_rows(
         rows,

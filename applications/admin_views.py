@@ -1936,6 +1936,13 @@ def _model_has_field(model: type[Model], field_name: str) -> bool:
         return False
 
 
+def _is_missing_group_custom_name_column_error(exc: Exception) -> bool:
+    msg = (str(exc) or "").lower()
+    if "custom_name" not in msg:
+        return False
+    return ("no such column" in msg) or ("does not exist" in msg)
+
+
 def _apply_group_reminder_schedule(
     group: FormGroup,
     reminder_1_at,
@@ -2811,33 +2818,53 @@ def _looks_like_file_value(value: str) -> bool:
 # ----------------------------
 @staff_member_required
 def apps_list(request):
-    _maybe_run_due_group_reminders()
     try:
-        from applications.views import _maybe_run_due_a1_to_a2_reminders
-        _maybe_run_due_a1_to_a2_reminders()
-    except Exception:
-        logger.exception("A1->A2 auto reminder scheduler check failed.")
+        _maybe_run_due_group_reminders()
+        try:
+            from applications.views import _maybe_run_due_a1_to_a2_reminders
+            _maybe_run_due_a1_to_a2_reminders()
+        except Exception:
+            logger.exception("A1->A2 auto reminder scheduler check failed.")
 
-    masters = list(FormDefinition.objects.filter(slug__in=MASTER_SLUGS).order_by("slug"))
+        masters = list(FormDefinition.objects.filter(slug__in=MASTER_SLUGS).order_by("slug"))
 
-    groups = list(FormGroup.objects.order_by("-number"))
-    has_combined_groups = FormGroup.objects.filter(use_combined_application=True).exists()
-    group_list = []
-    for g in groups:
-        _sync_group_open_close(g)
-        forms_for_group = list(FormDefinition.objects.filter(group=g).order_by("slug"))
-        group_list.append((g, forms_for_group))
+        groups = list(FormGroup.objects.order_by("-number"))
+        has_combined_groups = FormGroup.objects.filter(use_combined_application=True).exists()
+        group_list = []
+        for g in groups:
+            _sync_group_open_close(g)
+            forms_for_group = list(FormDefinition.objects.filter(group=g).order_by("slug"))
+            group_list.append((g, forms_for_group))
 
-    return render(
-        request,
-        "admin_dash/apps_list.html",
-        {
-            "masters": masters,
-            "create_group_form": CreateGroupForm(),
-            "group_list": group_list,
-            "has_combined_groups": has_combined_groups,
-        },
-    )
+        return render(
+            request,
+            "admin_dash/apps_list.html",
+            {
+                "masters": masters,
+                "create_group_form": CreateGroupForm(),
+                "group_list": group_list,
+                "has_combined_groups": has_combined_groups,
+            },
+        )
+    except DatabaseError as exc:
+        if not _is_missing_group_custom_name_column_error(exc):
+            raise
+        logger.exception("Apps page loaded before FormGroup.custom_name migration was applied.")
+        messages.error(
+            request,
+            "Database migration pending: run `python manage.py migrate` to enable group rename and load groups.",
+        )
+        masters = list(FormDefinition.objects.filter(slug__in=MASTER_SLUGS).order_by("slug"))
+        return render(
+            request,
+            "admin_dash/apps_list.html",
+            {
+                "masters": masters,
+                "create_group_form": CreateGroupForm(),
+                "group_list": [],
+                "has_combined_groups": False,
+            },
+        )
 
 
 @staff_member_required

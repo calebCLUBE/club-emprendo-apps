@@ -112,7 +112,14 @@
     <details class="ce-dd" {% if forloop.first %}open{% endif %}>
       <summary>
         {% if g.number %}
-          Group {{ g.number }}
+          {% if g.custom_name %}
+            {{ g.custom_name }}
+            <small style="color:#666; font-weight:normal;">
+              (Group {{ g.number }})
+            </small>
+          {% else %}
+            Group {{ g.number }}
+          {% endif %}
           <small style="color:#666; font-weight:normal;">
             ({{ g.start_day }} {{ g.start_month }} - {{ g.end_month }} {{ g.year }})
           </small>
@@ -125,6 +132,25 @@
       </summary>
 
       <div class="ce-dd-body">
+        <form method="post" action="{% url 'admin_rename_group' group_num=g.number %}" style="display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap; margin-bottom:10px;">
+          {% csrf_token %}
+          <div>
+            <label class="inline">Group name</label><br>
+            <input
+              type="text"
+              name="custom_name"
+              value="{{ g.custom_name }}"
+              class="vTextField"
+              maxlength="120"
+              placeholder="Optional custom group name"
+              style="min-width:260px;"
+            >
+          </div>
+          <div>
+            <button type="submit" class="button default">Save name</button>
+          </div>
+        </form>
+
         <form
           method="post"
           action="{% url 'admin_delete_group' group_num=g.number|default:g %}"

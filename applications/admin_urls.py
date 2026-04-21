@@ -6,6 +6,7 @@ urlpatterns = [
     path("apps/", admin_views.apps_list, name="admin_apps_list"),
     path("apps/dashboard/", admin_dashboard_views.applications_dashboard, name="admin_applications_dashboard"),
     path("apps/create-group/", admin_views.create_group, name="admin_create_group"),
+    path("apps/rename-group/<int:group_num>/", admin_views.rename_group, name="admin_rename_group"),
     path("apps/update-group/<int:group_num>/", admin_views.update_group_dates, name="admin_update_group"),
     path("apps/delete-group/<int:group_num>/", admin_views.delete_group, name="admin_delete_group"),
     path("apps/forms/<int:form_id>/", admin_views.app_form_detail, name="admin_app_form_detail"),

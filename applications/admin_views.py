@@ -2977,6 +2977,21 @@ def create_group(request):
 
 @staff_member_required
 @require_POST
+def rename_group(request, group_num: int):
+    group = get_object_or_404(FormGroup, number=group_num)
+    custom_name = (request.POST.get("custom_name") or "").strip()
+    group.custom_name = custom_name
+    group.save(update_fields=["custom_name"])
+
+    if custom_name:
+        messages.success(request, f"Group {group.number} renamed to '{custom_name}'.")
+    else:
+        messages.success(request, f"Group {group.number} name reset to default.")
+    return redirect("admin_apps_list")
+
+
+@staff_member_required
+@require_POST
 def delete_group(request, group_num: int):
     group = get_object_or_404(FormGroup, number=group_num)
 

@@ -39,13 +39,20 @@ class FormGroup(models.Model):
         default=False,
         help_text="If enabled, this group uses the combined application flow/database view.",
     )
+    custom_name = models.CharField(
+        max_length=120,
+        blank=True,
+        default="",
+        help_text="Optional custom label for this group in admin pages.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ["number"]
 
     def __str__(self):
-        return f"Group {self.number} ({self.start_day} {self.start_month}–{self.end_month} {self.year})"
+        label = (self.custom_name or "").strip() or f"Group {self.number}"
+        return f"{label} ({self.start_day} {self.start_month}–{self.end_month} {self.year})"
 
 
 def scheduled_group_open_state(group: "FormGroup", now=None) -> bool | None:

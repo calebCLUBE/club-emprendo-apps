@@ -3750,13 +3750,11 @@ def database_create_assigned_group(request):
                 return _database_next_redirect(request, fallback_name="admin_database")
 
             update_fields: list[str] = []
-            # Always enforce schedule fields from the selected source pool.
+            # Always enforce start day/month from the selected source pool.
             # This intentionally overrides prior manual edits on the target group.
             target_group.start_day = start_day
             target_group.start_month = start_month
-            target_group.end_month = end_month
-            target_group.year = year
-            update_fields.extend(["start_day", "start_month", "end_month", "year"])
+            update_fields.extend(["start_day", "start_month"])
             if not target_group.use_combined_application:
                 target_group.use_combined_application = True
                 update_fields.append("use_combined_application")
@@ -4093,7 +4091,7 @@ def database_create_assigned_group(request):
         request,
         (
             f"Group {target_group_num} schedule defaulted from {source_label}: "
-            f"start day {start_day}, end month {end_month}."
+            f"start day {start_day}, start month {start_month}."
         ),
     )
     if parsed_mentions != len(wanted_emails) or duplicate_mentions:

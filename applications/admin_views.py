@@ -3571,13 +3571,16 @@ def database_create_assigned_group(request):
     copied_apps = 0
     copied_answers = 0
     skipped_existing = 0
-    skipped_no_match = 0
+    skipped_no_match_answers = 0
+    mapping_mismatch_fallback_inserted = 0
+    mapping_mismatch_still_missing = 0
     unmatched_email_count = 0
     unmatched_inserted = 0
     unmatched_already_present = 0
     removed_not_requested = 0
     removed_duplicates = 0
     matched_emails: set[str] = set()
+    mapping_mismatch_emails: set[str] = set()
     assigned_track_emails: dict[str, set[str]] = {"E": set(), "M": set()}
 
     try:
@@ -3791,17 +3794,17 @@ def database_create_assigned_group(request):
                     target_master = fallback_master
                     target_form = target_forms_by_master.get(target_master)
                 if target_form is None:
-                    skipped_no_match += 1
+                    mapping_mismatch_emails.add(email_norm)
                     continue
 
                 try:
                     _new_app, copied_count, skipped_count = _copy_application_to_form(source_app, target_form)
                 except ValueError:
-                    skipped_no_match += 1
+                    mapping_mismatch_emails.add(email_norm)
                     continue
                 copied_apps += 1
                 copied_answers += copied_count
-                skipped_no_match += skipped_count
+                skipped_no_match_answers += skipped_count
                 existing_any_target_track.add(email_norm)
                 existing_target_emails_by_master.setdefault(target_master, set()).add(email_norm)
                 assigned_track_emails[selected_track].add(email_norm)
@@ -3835,6 +3838,13 @@ def database_create_assigned_group(request):
                     unmatched_inserted += 1
                     existing_for_placeholder.add(email)
                     existing_any_target_track.add(email)
+
+            mapping_mismatch_fallback_inserted = len(
+                mapping_mismatch_emails.intersection(existing_any_target_track)
+            )
+            mapping_mismatch_still_missing = len(
+                mapping_mismatch_emails.difference(existing_any_target_track)
+            )
 
             from applications.admin_profiles_views import (
                 EMPRENDEDORAS_ACTA_COL,
@@ -3966,12 +3976,28 @@ def database_create_assigned_group(request):
                 f"Group {target_group_num}."
             ),
         )
-    if skipped_no_match:
+    if mapping_mismatch_fallback_inserted:
+        messages.info(
+            request,
+            (
+                f"{mapping_mismatch_fallback_inserted} matched applicant(s) had no compatible question mapping "
+                "and were added as email-only rows."
+            ),
+        )
+    if mapping_mismatch_still_missing:
         messages.warning(
             request,
             (
-                f"Skipped {skipped_no_match} item(s) because source and target forms "
-                "did not share matching question slugs."
+                f"{mapping_mismatch_still_missing} matched applicant(s) could not be copied or inserted as "
+                "email-only rows."
+            ),
+        )
+    if skipped_no_match_answers:
+        messages.info(
+            request,
+            (
+                f"Skipped {skipped_no_match_answers} answer value(s) because those specific question slugs "
+                "do not exist in the target form."
             ),
         )
     if unmatched_email_count:

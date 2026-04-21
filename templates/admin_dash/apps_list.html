@@ -132,23 +132,21 @@
       </summary>
 
       <div class="ce-dd-body">
-        <form method="post" action="{% url 'admin_rename_group' group_num=g.number %}" style="display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap; margin-bottom:10px;">
+        <form
+          method="post"
+          action="{% url 'admin_rename_group' group_num=g.number %}"
+          style="margin-bottom:10px;"
+          onsubmit="
+            var current = '{{ g.custom_name|default_if_none:''|escapejs }}';
+            var next = window.prompt('Edit group name (leave empty to reset default):', current);
+            if (next === null) { return false; }
+            this.querySelector('input[name=custom_name]').value = next;
+            return true;
+          "
+        >
           {% csrf_token %}
-          <div>
-            <label class="inline">Group name</label><br>
-            <input
-              type="text"
-              name="custom_name"
-              value="{{ g.custom_name }}"
-              class="vTextField"
-              maxlength="120"
-              placeholder="Optional custom group name"
-              style="min-width:260px;"
-            >
-          </div>
-          <div>
-            <button type="submit" class="button default">Save name</button>
-          </div>
+          <input type="hidden" name="custom_name" value="{{ g.custom_name|default_if_none:'' }}">
+          <button type="submit" class="button">Edit name</button>
         </form>
 
         <form

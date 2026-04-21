@@ -66,6 +66,7 @@ MASTER_SLUGS = ["E_A1", "E_A2", "M_A1", "M_A2"]
 GROUP_SLUG_RE = re.compile(r"^G(?P<num>\d+)_(?P<master>E_A1|E_A2|M_A1|M_A2)$")
 GRADED_GROUP_RE = re.compile(r"^G(?P<num>\d+)_")
 EMAIL_EXTRACT_RE = re.compile(r"[A-Z0-9._%+\-']+@[A-Z0-9.\-]+\.[A-Z]{2,}", re.IGNORECASE)
+EMAIL_TOKEN_SPLIT_RE = re.compile(r"[\s,;,]+")
 TEST_E_A2_SLUG = "TEST_E_A2"
 TEST_M_A2_SLUG = "TEST_M_A2"
 A2_FORM_RE = re.compile(r"^(G\d+_)?(E_A2|M_A2)$")
@@ -779,6 +780,31 @@ def _norm_email_list(s: str) -> list[str]:
             continue
         seen.add(email)
         out.append(email)
+    return out
+
+
+def _norm_assignment_email_list(s: str) -> list[str]:
+    """
+    Lenient parser for admin "assign applicants" paste box.
+    Keeps entries that contain '@' even if they don't pass strict EMAIL_EXTRACT_RE,
+    so pasted rows are not silently dropped.
+    """
+    if not s:
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for raw_part in EMAIL_TOKEN_SPLIT_RE.split(s):
+        token = (raw_part or "").strip().strip("<>[](){}\"'")
+        if not token:
+            continue
+        m = EMAIL_EXTRACT_RE.search(token)
+        candidate = ((m.group(0) if m else token) or "").strip().lower().rstrip(".,;:")
+        if "@" not in candidate:
+            continue
+        if not candidate or candidate in seen:
+            continue
+        seen.add(candidate)
+        out.append(candidate)
     return out
 
 
@@ -1864,9 +1890,9 @@ class PoolAssignmentForm(forms.Form):
     def clean(self):
         cleaned = super().clean()
         emails_text = cleaned.get("emails_text") or ""
-        normalized_emails = _norm_email_list(emails_text)
+        normalized_emails = _norm_assignment_email_list(emails_text)
         if not normalized_emails:
-            raise forms.ValidationError("Paste at least one valid email.")
+            raise forms.ValidationError("Paste at least one email.")
 
         cleaned["normalized_emails"] = normalized_emails
         return cleaned
@@ -3547,7 +3573,6 @@ def database_create_assigned_group(request):
     skipped_existing = 0
     skipped_no_match = 0
     unmatched_email_count = 0
-    unmatched_emails: list[str] = []
     unmatched_inserted = 0
     unmatched_already_present = 0
     removed_not_requested = 0
@@ -3781,8 +3806,9 @@ def database_create_assigned_group(request):
                 existing_target_emails_by_master.setdefault(target_master, set()).add(email_norm)
                 assigned_track_emails[selected_track].add(email_norm)
 
-            unmatched_emails = sorted(wanted_emails - matched_emails)
-            unmatched_email_count = len(unmatched_emails)
+            source_unmatched_emails = sorted(wanted_emails - matched_emails)
+            unmatched_email_count = len(source_unmatched_emails)
+            emails_missing_in_target = sorted(wanted_emails - existing_any_target_track)
 
             placeholder_master_slug = (
                 f"{selected_track}_A1"
@@ -3796,7 +3822,7 @@ def database_create_assigned_group(request):
             )
 
             if placeholder_form:
-                for email in unmatched_emails:
+                for email in emails_missing_in_target:
                     assigned_track_emails[selected_track].add(email)
                     if email in existing_any_target_track:
                         unmatched_already_present += 1
@@ -3954,8 +3980,8 @@ def database_create_assigned_group(request):
             f"{unmatched_email_count} pasted email(s) did not match any application in {source_label}.",
         )
         preview_limit = 40
-        preview = unmatched_emails[:preview_limit]
-        remainder = max(0, len(unmatched_emails) - preview_limit)
+        preview = source_unmatched_emails[:preview_limit]
+        remainder = max(0, len(source_unmatched_emails) - preview_limit)
         preview_text = ", ".join(preview)
         if remainder:
             preview_text = f"{preview_text}, ... (+{remainder} more)"

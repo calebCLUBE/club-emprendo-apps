@@ -3597,10 +3597,10 @@ def database_create_assigned_group(request):
             for master_slug in required_master_slugs:
                 if master_slug not in MASTER_SLUGS:
                     continue
-                target_slug = f"G{target_group_num}_{master_slug}"
-                if FormDefinition.objects.filter(slug=target_slug).exists():
-                    continue
                 master_form = FormDefinition.objects.filter(slug=master_slug).first()
+                if not master_form:
+                    # Fallback: use the source pool form as the cloning template.
+                    master_form = source_forms_by_master.get(master_slug)
                 if master_form:
                     _clone_form(master_form, target_group)
 
@@ -3610,6 +3610,23 @@ def database_create_assigned_group(request):
                     accepting_responses=False,
                 )
 
+            # Extra recovery: if group-specific slugs exist but are detached from
+            # this group (e.g. prior group deletion), relink them explicitly.
+            for master_slug in required_master_slugs:
+                target_slug = f"G{target_group_num}_{master_slug}"
+                existing_target = FormDefinition.objects.filter(slug=target_slug).first()
+                if not existing_target:
+                    continue
+                target_updates: list[str] = []
+                if existing_target.group_id != target_group.id:
+                    existing_target.group = target_group
+                    target_updates.append("group")
+                if existing_target.is_master:
+                    existing_target.is_master = False
+                    target_updates.append("is_master")
+                if target_updates:
+                    existing_target.save(update_fields=target_updates)
+
             target_forms_by_master = _group_forms_by_master_slug(target_group)
             selected_target_forms = [
                 fd
@@ -3618,11 +3635,18 @@ def database_create_assigned_group(request):
             ]
             selected_target_form_ids = [fd.id for fd in selected_target_forms]
             if not selected_target_form_ids:
+                expected_slugs = [f"G{target_group_num}_{m}" for m in required_master_slugs]
+                found_slugs = list(
+                    FormDefinition.objects.filter(slug__in=expected_slugs)
+                    .order_by("slug")
+                    .values_list("slug", flat=True)
+                )
                 messages.error(
                     request,
                     (
                         f"Could not prepare target dataset for Group {target_group_num} "
-                        f"({track_label})."
+                        f"({track_label}). Expected forms: {', '.join(expected_slugs)}. "
+                        f"Found: {', '.join(found_slugs) if found_slugs else 'none'}."
                     ),
                 )
                 return _database_next_redirect(request, fallback_name="admin_database")

@@ -32,6 +32,7 @@ from applications.models import FormGroup, GroupParticipantList, ParticipantEmai
 @dataclass
 class SignatureRequestLite:
     signature_request_id: str
+    bulk_send_job_id: str
     title: str
     created_at: int | None
     signer_emails: list[str]
@@ -75,6 +76,41 @@ class Command(BaseCommand):
             help="Case-insensitive title filter (default: 'acta de compromiso').",
         )
         parser.add_argument(
+            "--title-exact",
+            action="append",
+            default=[],
+            help=(
+                "Case-insensitive exact title filter. "
+                "Can be provided multiple times to allow multiple exact titles."
+            ),
+        )
+        parser.add_argument(
+            "--bulk-send-job-id",
+            action="append",
+            default=[],
+            help=(
+                "Only include signature requests from these bulk send jobs. "
+                "Can be provided multiple times."
+            ),
+        )
+        parser.add_argument(
+            "--signature-request-id",
+            action="append",
+            default=[],
+            help=(
+                "Only include these signature request ids. "
+                "Can be provided multiple times."
+            ),
+        )
+        parser.add_argument(
+            "--show-candidates",
+            action="store_true",
+            help=(
+                "Print candidate request ids/job ids/titles and overlap diagnostics "
+                "for the selected group after filters are applied."
+            ),
+        )
+        parser.add_argument(
             "--dry-run",
             action="store_true",
             help="Show what would be updated without writing to DB.",
@@ -94,6 +130,22 @@ class Command(BaseCommand):
         days_back = int(options.get("days_back") or 3650)
         max_pages = int(options.get("max_pages") or 250)
         title_contains = str(options.get("title_contains") or "").strip().lower()
+        title_exact_filter = {
+            str(v or "").strip().lower()
+            for v in (options.get("title_exact") or [])
+            if str(v or "").strip()
+        }
+        bulk_send_job_filter = {
+            str(v or "").strip()
+            for v in (options.get("bulk_send_job_id") or [])
+            if str(v or "").strip()
+        }
+        signature_request_filter = {
+            str(v or "").strip()
+            for v in (options.get("signature_request_id") or [])
+            if str(v or "").strip()
+        }
+        show_candidates = bool(options.get("show_candidates"))
         dry_run = bool(options.get("dry_run"))
         api_base_override = str(options.get("api_base") or "").strip()
 
@@ -163,69 +215,251 @@ class Command(BaseCommand):
             since_ts=since_ts,
         )
         self.stdout.write(f"Fetched {len(requests)} signature request(s) to inspect.")
+        if title_exact_filter:
+            self.stdout.write(f"Exact title filter count: {len(title_exact_filter)}")
+        if bulk_send_job_filter:
+            self.stdout.write(f"Bulk send job filter count: {len(bulk_send_job_filter)}")
+        if signature_request_filter:
+            self.stdout.write(f"Signature request id filter count: {len(signature_request_filter)}")
 
         signed_by_track: dict[str, set[str]] = {"E": set(), "M": set()}
         request_ids_by_email: dict[str, str] = {}
         matched_reqs_by_track = {"E": 0, "M": 0}
         scoped_reqs_by_track = {"E": 0, "M": 0}
+        e_title_candidates = 0
+        e_title_candidates_with_signed_overlap = 0
+        skipped_by_explicit_filter = 0
         skipped_no_scope = 0
         skipped_no_signed = 0
         skipped_not_target = 0
+        candidate_lines: list[str] = []
+        e_jobs: dict[str, dict] = {}
+        m_jobs: dict[str, dict] = {}
+
+        def _accumulate_job(
+            buckets: dict[str, dict],
+            *,
+            job_key: str,
+            req: SignatureRequestLite,
+            title: str,
+            signer_pool: set[str],
+            signed_set: set[str],
+            group_hint: int | None = None,
+        ) -> None:
+            bucket = buckets.setdefault(
+                job_key,
+                {
+                    "bulk_send_job_id": req.bulk_send_job_id,
+                    "request_ids": set(),
+                    "titles": set(),
+                    "signers": set(),
+                    "signed": set(),
+                    "group_hints": set(),
+                },
+            )
+            if req.signature_request_id:
+                bucket["request_ids"].add(req.signature_request_id)
+            if title:
+                bucket["titles"].add(title)
+            bucket["signers"].update(signer_pool)
+            bucket["signed"].update(signed_set)
+            if group_hint is not None:
+                bucket["group_hints"].add(int(group_hint))
 
         for req in requests:
             title = (req.title or "").strip()
+            title_lower = title.lower()
             if title_contains and title_contains not in title.lower():
+                continue
+            if title_exact_filter and title_lower not in title_exact_filter:
+                skipped_by_explicit_filter += 1
+                continue
+            if bulk_send_job_filter and req.bulk_send_job_id not in bulk_send_job_filter:
+                skipped_by_explicit_filter += 1
+                continue
+            if signature_request_filter and req.signature_request_id not in signature_request_filter:
+                skipped_by_explicit_filter += 1
                 continue
 
             signer_pool = set(req.signer_emails)
             signed_set = set(req.signed_emails)
             if not signed_set:
                 skipped_no_signed += 1
-                continue
+            job_key = req.bulk_send_job_id or f"req:{req.signature_request_id or title_lower or 'unknown'}"
 
-            applies_e = False
-            applies_m = False
+            if show_candidates:
+                e_overlap = len(signer_pool.intersection(e_pool))
+                m_overlap = len(signer_pool.intersection(m_pool))
+                candidate_lines.append(
+                    (
+                        f"req={req.signature_request_id or '-'} bulk={req.bulk_send_job_id or '-'} "
+                        f"job={job_key} signers={len(signer_pool)} signed={len(signed_set)} "
+                        f"overlap(E:{e_overlap},M:{m_overlap}) title={title}"
+                    )
+                )
 
             em = _EMPRENDEDORA_GROUP_TITLE_RE.search(title)
-            if em and track_opt in {"E", "BOTH"}:
-                try:
-                    title_group_num = int(em.group(1))
-                except Exception:
-                    title_group_num = -1
-                applies_e = title_group_num == group_num
+            looks_like_emprendedora = (
+                "acta" in title_lower
+                and "compromiso" in title_lower
+                and "emprendedora" in title_lower
+            )
+            if looks_like_emprendedora and track_opt in {"E", "BOTH"}:
+                e_title_candidates += 1
+                if signed_set and e_pool and bool(signed_set.intersection(e_pool)):
+                    e_title_candidates_with_signed_overlap += 1
 
-            if _MENTORA_TITLE_RE.search(title) and track_opt in {"M", "BOTH"}:
-                applies_m = True
+            applies_e_signal = False
+            e_group_hint: int | None = None
+            if track_opt in {"E", "BOTH"}:
+                if em:
+                    applies_e_signal = True
+                    try:
+                        e_group_hint = int(em.group(1))
+                    except Exception:
+                        e_group_hint = None
+                elif looks_like_emprendedora:
+                    applies_e_signal = True
+                elif signer_pool and e_pool and bool(signer_pool.intersection(e_pool)):
+                    applies_e_signal = True
 
-            if not applies_e and not applies_m:
+            applies_m_signal = False
+            if track_opt in {"M", "BOTH"}:
+                if _MENTORA_TITLE_RE.search(title):
+                    applies_m_signal = True
+                elif signer_pool and m_pool and bool(signer_pool.intersection(m_pool)):
+                    applies_m_signal = True
+
+            if not applies_e_signal and not applies_m_signal:
                 skipped_no_scope += 1
                 continue
 
-            if applies_e:
-                scoped_reqs_by_track["E"] += 1
-                # Group number in title is the primary scope key for emprendedoras.
-                matched_signed = sorted(email for email in signed_set if email in e_pool)
-                if matched_signed:
-                    matched_reqs_by_track["E"] += 1
-                    for email in matched_signed:
-                        signed_by_track["E"].add(email)
-                        if req.signature_request_id and email not in request_ids_by_email:
-                            request_ids_by_email[email] = req.signature_request_id
+            if applies_e_signal:
+                _accumulate_job(
+                    e_jobs,
+                    job_key=job_key,
+                    req=req,
+                    title=title,
+                    signer_pool=signer_pool,
+                    signed_set=signed_set,
+                    group_hint=e_group_hint,
+                )
+            if applies_m_signal:
+                _accumulate_job(
+                    m_jobs,
+                    job_key=job_key,
+                    req=req,
+                    title=title,
+                    signer_pool=signer_pool,
+                    signed_set=signed_set,
+                )
 
-            if applies_m:
-                scoped_reqs_by_track["M"] += 1
-                # Mentora titles are groupless; target by signer membership in the selected group pool.
-                matched_signed = sorted(email for email in signed_set if email in m_pool)
-                if matched_signed:
-                    if signer_pool and m_pool and not signer_pool.issubset(m_pool):
-                        # Keep a counter for diagnostics, but still apply signed emails that
-                        # clearly belong to this target group.
-                        skipped_not_target += 1
-                    matched_reqs_by_track["M"] += 1
-                    for email in matched_signed:
-                        signed_by_track["M"].add(email)
-                        if req.signature_request_id and email not in request_ids_by_email:
-                            request_ids_by_email[email] = req.signature_request_id
+        selected_e_keys: set[str] = set()
+        selected_m_keys: set[str] = set()
+        selected_e_reason = "none"
+        selected_m_reason = "none"
+
+        if track_opt in {"E", "BOTH"} and e_jobs:
+            e_metrics: dict[str, tuple[int, int, bool]] = {}
+            for key, bucket in e_jobs.items():
+                signers = set(bucket.get("signers") or set())
+                signed = set(bucket.get("signed") or set())
+                group_hints = set(bucket.get("group_hints") or set())
+                signer_overlap = len(signers.intersection(e_pool))
+                signed_overlap = len(signed.intersection(e_pool))
+                group_match = group_num in group_hints
+                e_metrics[key] = (signer_overlap, signed_overlap, group_match)
+
+            hinted_keys = [
+                key for key, (signer_overlap, _signed_overlap, group_match) in e_metrics.items()
+                if group_match and signer_overlap > 0
+            ]
+            if hinted_keys:
+                selected_e_keys = set(hinted_keys)
+                selected_e_reason = "title-group-match"
+            else:
+                best_signer_overlap = max((m[0] for m in e_metrics.values()), default=0)
+                if best_signer_overlap > 0:
+                    selected_e_keys = {
+                        key for key, (signer_overlap, _signed_overlap, _group_match) in e_metrics.items()
+                        if signer_overlap == best_signer_overlap
+                    }
+                    selected_e_reason = f"best-signer-overlap:{best_signer_overlap}"
+
+            scoped_reqs_by_track["E"] = len(selected_e_keys)
+            for key in sorted(selected_e_keys):
+                bucket = e_jobs.get(key) or {}
+                signed = set(bucket.get("signed") or set())
+                matched_signed = sorted(email for email in signed if email in e_pool)
+                if not matched_signed:
+                    continue
+                matched_reqs_by_track["E"] += 1
+                req_ids_sorted = sorted(str(v) for v in (bucket.get("request_ids") or set()) if str(v).strip())
+                req_id_for_row = req_ids_sorted[0] if req_ids_sorted else ""
+                for email in matched_signed:
+                    signed_by_track["E"].add(email)
+                    if req_id_for_row and email not in request_ids_by_email:
+                        request_ids_by_email[email] = req_id_for_row
+
+        if track_opt in {"M", "BOTH"} and m_jobs:
+            m_metrics: dict[str, tuple[int, bool, bool]] = {}
+            for key, bucket in m_jobs.items():
+                signers = set(bucket.get("signers") or set())
+                signer_overlap = len(signers.intersection(m_pool))
+                exact_match = bool(signers) and bool(m_pool) and signers == m_pool
+                subset_match = bool(signers) and bool(m_pool) and signers.issubset(m_pool)
+                m_metrics[key] = (signer_overlap, exact_match, subset_match)
+
+            exact_keys = [
+                key for key, (signer_overlap, exact_match, _subset_match) in m_metrics.items()
+                if exact_match and signer_overlap > 0
+            ]
+            if exact_keys:
+                selected_m_keys = set(exact_keys)
+                selected_m_reason = "exact-pool-match"
+            else:
+                subset_best_overlap = max(
+                    (
+                        signer_overlap
+                        for _key, (signer_overlap, _exact_match, subset_match) in m_metrics.items()
+                        if subset_match
+                    ),
+                    default=0,
+                )
+                if subset_best_overlap > 0:
+                    selected_m_keys = {
+                        key
+                        for key, (signer_overlap, _exact_match, subset_match) in m_metrics.items()
+                        if subset_match and signer_overlap == subset_best_overlap
+                    }
+                    selected_m_reason = f"subset-best-overlap:{subset_best_overlap}"
+                else:
+                    best_signer_overlap = max((m[0] for m in m_metrics.values()), default=0)
+                    if best_signer_overlap > 0:
+                        selected_m_keys = {
+                            key
+                            for key, (signer_overlap, _exact_match, _subset_match) in m_metrics.items()
+                            if signer_overlap == best_signer_overlap
+                        }
+                        selected_m_reason = f"best-signer-overlap:{best_signer_overlap}"
+
+            scoped_reqs_by_track["M"] = len(selected_m_keys)
+            for key in sorted(selected_m_keys):
+                bucket = m_jobs.get(key) or {}
+                signers = set(bucket.get("signers") or set())
+                signed = set(bucket.get("signed") or set())
+                matched_signed = sorted(email for email in signed if email in m_pool)
+                if not matched_signed:
+                    continue
+                if signers and m_pool and not signers.issubset(m_pool):
+                    skipped_not_target += 1
+                matched_reqs_by_track["M"] += 1
+                req_ids_sorted = sorted(str(v) for v in (bucket.get("request_ids") or set()) if str(v).strip())
+                req_id_for_row = req_ids_sorted[0] if req_ids_sorted else ""
+                for email in matched_signed:
+                    signed_by_track["M"].add(email)
+                    if req_id_for_row and email not in request_ids_by_email:
+                        request_ids_by_email[email] = req_id_for_row
 
         union_signed = sorted(set().union(*signed_by_track.values()))
         self.stdout.write(
@@ -237,6 +471,7 @@ class Command(BaseCommand):
         self.stdout.write(
             (
                 f"Request counters -> E:{matched_reqs_by_track['E']} M:{matched_reqs_by_track['M']} "
+                f"skipped_by_filter:{skipped_by_explicit_filter} "
                 f"skipped_no_scope:{skipped_no_scope} skipped_no_signed:{skipped_no_signed} "
                 f"skipped_not_target:{skipped_not_target}"
             )
@@ -247,6 +482,31 @@ class Command(BaseCommand):
                 f"M:{scoped_reqs_by_track['M']}"
             )
         )
+        self.stdout.write(
+            (
+                f"Selected envio match mode -> E:{selected_e_reason} "
+                f"M:{selected_m_reason}"
+            )
+        )
+        if track_opt in {"E", "BOTH"}:
+            self.stdout.write(
+                (
+                    f"E title candidates seen: {e_title_candidates} | "
+                    f"with signed overlap to group pool: {e_title_candidates_with_signed_overlap}"
+                )
+            )
+        if show_candidates:
+            self.stdout.write(f"Candidate requests after explicit filters: {len(candidate_lines)}")
+            for line in candidate_lines[:120]:
+                self.stdout.write(line)
+            if len(candidate_lines) > 120:
+                self.stdout.write(f"... {len(candidate_lines) - 120} more candidate rows omitted")
+            self.stdout.write(
+                (
+                    f"Selected jobs -> E:{','.join(sorted(selected_e_keys)) or '-'} "
+                    f"| M:{','.join(sorted(selected_m_keys)) or '-'}"
+                )
+            )
 
         if dry_run:
             self.stdout.write(self.style.WARNING("DRY RUN: no database updates were applied."))
@@ -393,6 +653,15 @@ class Command(BaseCommand):
 
     def _to_lite_request(self, raw_req: dict) -> SignatureRequestLite:
         signature_request_id = str(raw_req.get("signature_request_id") or "").strip()
+        bulk_send_job_id = str(raw_req.get("bulk_send_job_id") or "").strip()
+        if not bulk_send_job_id:
+            raw_bulk = raw_req.get("bulk_send_job") or {}
+            if isinstance(raw_bulk, dict):
+                bulk_send_job_id = str(
+                    raw_bulk.get("bulk_send_job_id")
+                    or raw_bulk.get("id")
+                    or ""
+                ).strip()
         title = str(raw_req.get("title") or "").strip()
         created_at_raw = raw_req.get("created_at")
         try:
@@ -440,6 +709,7 @@ class Command(BaseCommand):
 
         return SignatureRequestLite(
             signature_request_id=signature_request_id,
+            bulk_send_job_id=bulk_send_job_id,
             title=title,
             created_at=created_at,
             signer_emails=signer_emails,

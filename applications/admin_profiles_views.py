@@ -63,7 +63,7 @@ _FORM_CUSTOM_FIELD_VALUE_RE = re.compile(
     r"^signature_request\[custom_fields\]\[(\d+)\]\[value\]$"
 )
 _EMPRENDEDORA_GROUP_TITLE_RE = re.compile(
-    r"acta\s+de\s+compromiso.*emprendedora.*\b(?:g|grupo)\s*#?\s*(\d+)\b",
+    r"acta\s+de\s+compromiso.*emprendedora.*\b(?:g|grupo)\s*[-_.:#\s]*([0-9]{1,4})\b",
     re.IGNORECASE,
 )
 _MENTORA_TITLE_RE = re.compile(
@@ -969,10 +969,10 @@ def _run_dropbox_reconcile_for_group(
     days_back: int = 3650,
     max_pages: int = 250,
 ) -> tuple[bool, str]:
+    filters = _dropbox_group_file_filters(group_num=group_num, track=track)
     output = io.StringIO()
     try:
-        call_command(
-            "reconcile_dropbox_sign_bulk",
+        cmd_kwargs = dict(
             group=int(group_num),
             track=str(track or "both"),
             days_back=int(days_back),
@@ -980,6 +980,16 @@ def _run_dropbox_reconcile_for_group(
             stdout=output,
             stderr=output,
             verbosity=1,
+        )
+        if filters.get("title_exact"):
+            cmd_kwargs["title_exact"] = list(filters["title_exact"])
+        if filters.get("bulk_send_job_id"):
+            cmd_kwargs["bulk_send_job_id"] = list(filters["bulk_send_job_id"])
+        if filters.get("signature_request_id"):
+            cmd_kwargs["signature_request_id"] = list(filters["signature_request_id"])
+        call_command(
+            "reconcile_dropbox_sign_bulk",
+            **cmd_kwargs,
         )
     except Exception as exc:
         details = output.getvalue().strip()
@@ -994,6 +1004,79 @@ def _run_dropbox_reconcile_for_group(
         return True, "Dropbox check finished."
     summary_line = " | ".join(lines[-4:])
     return True, summary_line
+
+
+def _dropbox_group_file_filters(*, group_num: int, track: str) -> dict[str, list[str]]:
+    raw_cfg = getattr(settings, "DROPBOX_SIGN_GROUP_FILE_FILTERS", {})
+    if isinstance(raw_cfg, str):
+        text = raw_cfg.strip()
+        if not text:
+            return {}
+        try:
+            raw_cfg = json.loads(text)
+        except Exception:
+            return {}
+    if not isinstance(raw_cfg, dict):
+        return {}
+
+    group_cfg = raw_cfg.get(str(group_num))
+    if group_cfg is None:
+        group_cfg = raw_cfg.get(group_num)
+    if not isinstance(group_cfg, dict):
+        return {}
+
+    track_key = str(track or "both").strip().upper()
+
+    def _values(section: dict, *keys: str) -> list[str]:
+        vals: list[str] = []
+        for key in keys:
+            raw_val = section.get(key)
+            if isinstance(raw_val, str):
+                candidate = raw_val.strip()
+                if candidate:
+                    vals.append(candidate)
+            elif isinstance(raw_val, list):
+                for item in raw_val:
+                    candidate = str(item or "").strip()
+                    if candidate:
+                        vals.append(candidate)
+        # de-dup preserve order
+        seen: set[str] = set()
+        out: list[str] = []
+        for v in vals:
+            if v in seen:
+                continue
+            seen.add(v)
+            out.append(v)
+        return out
+
+    sections: list[dict] = []
+    both_section = group_cfg.get("both") or group_cfg.get("BOTH")
+    if isinstance(both_section, dict):
+        sections.append(both_section)
+    track_section = group_cfg.get(track_key) or group_cfg.get(track_key.lower())
+    if isinstance(track_section, dict):
+        sections.append(track_section)
+
+    if not sections:
+        sections = [group_cfg]
+
+    title_exact: list[str] = []
+    bulk_send_job_id: list[str] = []
+    signature_request_id: list[str] = []
+    for section in sections:
+        title_exact.extend(_values(section, "title_exact"))
+        bulk_send_job_id.extend(_values(section, "bulk_send_job_id", "bulk_send_job_ids"))
+        signature_request_id.extend(_values(section, "signature_request_id", "signature_request_ids"))
+
+    out: dict[str, list[str]] = {}
+    if title_exact:
+        out["title_exact"] = title_exact
+    if bulk_send_job_id:
+        out["bulk_send_job_id"] = bulk_send_job_id
+    if signature_request_id:
+        out["signature_request_id"] = signature_request_id
+    return out
 
 
 def _participant_list_email_keys() -> set[str]:

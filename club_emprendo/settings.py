@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/4.1/ref/settings/
 
 from pathlib import Path
 import os
+import json
 
 # ✅ Add this dependency (see notes below)
 import dj_database_url
@@ -172,6 +173,14 @@ SITE_URL = os.environ.get("SITE_URL", "http://127.0.0.1:8000")
 # Dropbox Sign webhook verification:
 # event_hash = sha256(api_key + event_time + event_type)
 DROPBOX_SIGN_API_KEY = os.environ.get("DROPBOX_SIGN_API_KEY", "").strip()
+_DROPBOX_SIGN_GROUP_FILE_FILTERS_RAW = os.environ.get("DROPBOX_SIGN_GROUP_FILE_FILTERS", "").strip()
+if _DROPBOX_SIGN_GROUP_FILE_FILTERS_RAW:
+    try:
+        DROPBOX_SIGN_GROUP_FILE_FILTERS = json.loads(_DROPBOX_SIGN_GROUP_FILE_FILTERS_RAW)
+    except Exception:
+        DROPBOX_SIGN_GROUP_FILE_FILTERS = {}
+else:
+    DROPBOX_SIGN_GROUP_FILE_FILTERS = {}
 
 SITE_ID = 1
 AUTH_USER_MODEL = "accounts.User"

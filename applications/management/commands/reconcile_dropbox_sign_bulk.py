@@ -192,6 +192,10 @@ class Command(BaseCommand):
 
         e_pool = _participant_emails_from_list(participant_list, "E")
         m_pool = _participant_emails_from_list(participant_list, "M")
+        e_pool_by_canon = self._pool_by_canonical(e_pool)
+        m_pool_by_canon = self._pool_by_canonical(m_pool)
+        e_pool_canon = set(e_pool_by_canon.keys())
+        m_pool_canon = set(m_pool_by_canon.keys())
         self.stdout.write(f"Target participant pool sizes -> E:{len(e_pool)} M:{len(m_pool)}")
         if track_opt in {"E", "BOTH"} and not e_pool:
             self.stdout.write(self.style.WARNING(f"Group {group_num} has no Emprendedora participant emails."))
@@ -288,8 +292,9 @@ class Command(BaseCommand):
             job_key = req.bulk_send_job_id or f"req:{req.signature_request_id or title_lower or 'unknown'}"
 
             if show_candidates:
-                e_overlap = len(signer_pool.intersection(e_pool))
-                m_overlap = len(signer_pool.intersection(m_pool))
+                signer_canon = {self._canonical_email(v) for v in signer_pool if self._canonical_email(v)}
+                e_overlap = len(signer_canon.intersection(e_pool_canon))
+                m_overlap = len(signer_canon.intersection(m_pool_canon))
                 candidate_lines.append(
                     (
                         f"req={req.signature_request_id or '-'} bulk={req.bulk_send_job_id or '-'} "
@@ -306,7 +311,8 @@ class Command(BaseCommand):
             )
             if looks_like_emprendedora and track_opt in {"E", "BOTH"}:
                 e_title_candidates += 1
-                if signed_set and e_pool and bool(signed_set.intersection(e_pool)):
+                signed_canon = {self._canonical_email(v) for v in signed_set if self._canonical_email(v)}
+                if signed_canon and e_pool_canon and bool(signed_canon.intersection(e_pool_canon)):
                     e_title_candidates_with_signed_overlap += 1
 
             applies_e_signal = False
@@ -320,14 +326,22 @@ class Command(BaseCommand):
                         e_group_hint = None
                 elif looks_like_emprendedora:
                     applies_e_signal = True
-                elif signer_pool and e_pool and bool(signer_pool.intersection(e_pool)):
+                elif signer_pool and e_pool_canon:
+                    signer_canon = {self._canonical_email(v) for v in signer_pool if self._canonical_email(v)}
+                    if bool(signer_canon.intersection(e_pool_canon)):
+                        applies_e_signal = True
+                if not applies_e_signal and signer_pool and e_pool and bool(signer_pool.intersection(e_pool)):
                     applies_e_signal = True
 
             applies_m_signal = False
             if track_opt in {"M", "BOTH"}:
                 if _MENTORA_TITLE_RE.search(title):
                     applies_m_signal = True
-                elif signer_pool and m_pool and bool(signer_pool.intersection(m_pool)):
+                elif signer_pool and m_pool_canon:
+                    signer_canon = {self._canonical_email(v) for v in signer_pool if self._canonical_email(v)}
+                    if bool(signer_canon.intersection(m_pool_canon)):
+                        applies_m_signal = True
+                if not applies_m_signal and signer_pool and m_pool and bool(signer_pool.intersection(m_pool)):
                     applies_m_signal = True
 
             if not applies_e_signal and not applies_m_signal:
@@ -365,8 +379,10 @@ class Command(BaseCommand):
                 signers = set(bucket.get("signers") or set())
                 signed = set(bucket.get("signed") or set())
                 group_hints = set(bucket.get("group_hints") or set())
-                signer_overlap = len(signers.intersection(e_pool))
-                signed_overlap = len(signed.intersection(e_pool))
+                signer_canon = {self._canonical_email(v) for v in signers if self._canonical_email(v)}
+                signed_canon = {self._canonical_email(v) for v in signed if self._canonical_email(v)}
+                signer_overlap = len(signer_canon.intersection(e_pool_canon))
+                signed_overlap = len(signed_canon.intersection(e_pool_canon))
                 group_match = group_num in group_hints
                 e_metrics[key] = (signer_overlap, signed_overlap, group_match)
 
@@ -390,7 +406,11 @@ class Command(BaseCommand):
             for key in sorted(selected_e_keys):
                 bucket = e_jobs.get(key) or {}
                 signed = set(bucket.get("signed") or set())
-                matched_signed = sorted(email for email in signed if email in e_pool)
+                matched_signed = self._match_signed_to_pool(
+                    signed=signed,
+                    pool=e_pool,
+                    pool_by_canon=e_pool_by_canon,
+                )
                 if not matched_signed:
                     continue
                 matched_reqs_by_track["E"] += 1
@@ -405,9 +425,10 @@ class Command(BaseCommand):
             m_metrics: dict[str, tuple[int, bool, bool]] = {}
             for key, bucket in m_jobs.items():
                 signers = set(bucket.get("signers") or set())
-                signer_overlap = len(signers.intersection(m_pool))
-                exact_match = bool(signers) and bool(m_pool) and signers == m_pool
-                subset_match = bool(signers) and bool(m_pool) and signers.issubset(m_pool)
+                signer_canon = {self._canonical_email(v) for v in signers if self._canonical_email(v)}
+                signer_overlap = len(signer_canon.intersection(m_pool_canon))
+                exact_match = bool(signer_canon) and bool(m_pool_canon) and signer_canon == m_pool_canon
+                subset_match = bool(signer_canon) and bool(m_pool_canon) and signer_canon.issubset(m_pool_canon)
                 m_metrics[key] = (signer_overlap, exact_match, subset_match)
 
             exact_keys = [
@@ -448,10 +469,15 @@ class Command(BaseCommand):
                 bucket = m_jobs.get(key) or {}
                 signers = set(bucket.get("signers") or set())
                 signed = set(bucket.get("signed") or set())
-                matched_signed = sorted(email for email in signed if email in m_pool)
+                matched_signed = self._match_signed_to_pool(
+                    signed=signed,
+                    pool=m_pool,
+                    pool_by_canon=m_pool_by_canon,
+                )
                 if not matched_signed:
                     continue
-                if signers and m_pool and not signers.issubset(m_pool):
+                signer_canon = {self._canonical_email(v) for v in signers if self._canonical_email(v)}
+                if signer_canon and m_pool_canon and not signer_canon.issubset(m_pool_canon):
                     skipped_not_target += 1
                 matched_reqs_by_track["M"] += 1
                 req_ids_sorted = sorted(str(v) for v in (bucket.get("request_ids") or set()) if str(v).strip())
@@ -726,3 +752,43 @@ class Command(BaseCommand):
         if not text:
             return False
         return text in {"1", "true", "yes", "y"}
+
+    @staticmethod
+    def _canonical_email(raw: str | None) -> str:
+        email = str(raw or "").strip().lower()
+        if "@" not in email:
+            return ""
+        local, domain = email.split("@", 1)
+        local = local.strip()
+        domain = domain.strip()
+        if not local or not domain:
+            return ""
+        if domain in {"gmail.com", "googlemail.com"}:
+            local = local.split("+", 1)[0].replace(".", "")
+            domain = "gmail.com"
+        return f"{local}@{domain}"
+
+    def _pool_by_canonical(self, pool: set[str]) -> dict[str, set[str]]:
+        out: dict[str, set[str]] = {}
+        for email in pool:
+            canon = self._canonical_email(email)
+            if not canon:
+                continue
+            out.setdefault(canon, set()).add(email)
+        return out
+
+    def _match_signed_to_pool(
+        self,
+        *,
+        signed: set[str],
+        pool: set[str],
+        pool_by_canon: dict[str, set[str]],
+    ) -> list[str]:
+        matched: set[str] = set()
+        for email in signed:
+            if email in pool:
+                matched.add(email)
+            canon = self._canonical_email(email)
+            if canon and canon in pool_by_canon:
+                matched.update(pool_by_canon[canon])
+        return sorted(matched)

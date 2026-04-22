@@ -763,8 +763,10 @@ class Command(BaseCommand):
         domain = domain.strip()
         if not local or not domain:
             return ""
+        # Drop plus aliases for all domains.
+        local = local.split("+", 1)[0]
         if domain in {"gmail.com", "googlemail.com"}:
-            local = local.split("+", 1)[0].replace(".", "")
+            local = local.replace(".", "")
             domain = "gmail.com"
         return f"{local}@{domain}"
 

@@ -1,14 +1,17 @@
 from django.test import TestCase
 from django.urls import reverse
 from django.contrib.auth import get_user_model
+import json
 import re
 
 from applications.admin import QuestionAdminForm
 from applications.models import (
     Application,
+    DropboxSignWebhookEvent,
     FormDefinition,
     FormGroup,
     GroupParticipantList,
+    ParticipantEmailStatus,
     Question,
 )
 
@@ -324,3 +327,120 @@ class ParticipantsPageSafetyTests(TestCase):
         self.participant_list.refresh_from_db()
         self.assertEqual(self.participant_list.mentoras_emails_text, "mentor@example.com")
         self.assertEqual(self.participant_list.emprendedoras_emails_text, "founder@example.com")
+
+
+class DropboxSignWebhookActaAutomationTests(TestCase):
+    def _mentora_row(self, idx: int, email: str) -> list:
+        return ["", "", idx, f"Mentora {idx}", f"M{idx}", email, "", "", "", False, False, False, False, False, False, False]
+
+    def _emprendedora_row(self, idx: int, email: str) -> list:
+        return ["", "", idx, f"Emprendedora {idx}", f"E{idx}", email, "", "", "", False, False, False, False, False, False]
+
+    def test_emprendedora_title_with_group_marks_only_signed_rows(self):
+        group = FormGroup.objects.create(
+            number=950,
+            start_day=1,
+            start_month="abril",
+            end_month="abril",
+            year=2026,
+        )
+        plist = GroupParticipantList.objects.create(
+            group=group,
+            emprendedoras_sheet_rows=[
+                self._emprendedora_row(1, "e1@example.com"),
+                self._emprendedora_row(2, "e2@example.com"),
+            ],
+        )
+
+        payload = {
+            "event": {
+                "event_type": "signature_request_signed",
+                "event_time": "1713744000",
+                "event_hash": "nohash",
+            },
+            "signature_request": {
+                "signature_request_id": "req-e-950",
+                "title": "Acta de compromiso programa mentoria - emprendedora G950",
+                "signatures": [
+                    {"signer_email_address": "e1@example.com", "status_code": "signed"},
+                    {"signer_email_address": "e2@example.com", "status_code": "awaiting_signature"},
+                ],
+            },
+        }
+        response = self.client.post(
+            reverse("dropbox_sign_webhook"),
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+
+        plist.refresh_from_db()
+        self.assertTrue(bool(plist.emprendedoras_sheet_rows[0][9]))
+        self.assertFalse(bool(plist.emprendedoras_sheet_rows[1][9]))
+
+        status_1 = ParticipantEmailStatus.objects.filter(email="e1@example.com").first()
+        status_2 = ParticipantEmailStatus.objects.filter(email="e2@example.com").first()
+        self.assertIsNotNone(status_1)
+        self.assertTrue(status_1.contract_signed)
+        self.assertTrue((status_2 is None) or (not status_2.contract_signed))
+
+    def test_mentora_title_matches_group_by_exact_participant_email_list(self):
+        target_group = FormGroup.objects.create(
+            number=951,
+            start_day=1,
+            start_month="abril",
+            end_month="abril",
+            year=2026,
+        )
+        other_group = FormGroup.objects.create(
+            number=952,
+            start_day=1,
+            start_month="abril",
+            end_month="abril",
+            year=2026,
+        )
+        target = GroupParticipantList.objects.create(
+            group=target_group,
+            mentoras_sheet_rows=[
+                self._mentora_row(1, "m1@example.com"),
+                self._mentora_row(2, "m2@example.com"),
+            ],
+        )
+        other = GroupParticipantList.objects.create(
+            group=other_group,
+            mentoras_sheet_rows=[
+                self._mentora_row(1, "m1@example.com"),
+            ],
+        )
+
+        payload = {
+            "event": {
+                "event_type": "signature_request_signed",
+                "event_time": "1713744001",
+                "event_hash": "nohash",
+            },
+            "signature_request": {
+                "signature_request_id": "req-m-951",
+                "title": "Acta de compromiso para ser Mentora",
+                "signatures": [
+                    {"signer_email_address": "m1@example.com", "status_code": "signed"},
+                    {"signer_email_address": "m2@example.com", "status_code": "awaiting_signature"},
+                ],
+            },
+        }
+        response = self.client.post(
+            reverse("dropbox_sign_webhook"),
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+
+        target.refresh_from_db()
+        other.refresh_from_db()
+        self.assertTrue(bool(target.mentoras_sheet_rows[0][9]))
+        self.assertFalse(bool(target.mentoras_sheet_rows[1][9]))
+        self.assertFalse(bool(other.mentoras_sheet_rows[0][9]))
+
+        event = DropboxSignWebhookEvent.objects.filter(signature_request_id="req-m-951").first()
+        self.assertIsNotNone(event)
+        self.assertIn("Scope=M951", (event.process_note or ""))

@@ -61,6 +61,14 @@ _FORM_CUSTOM_FIELD_NAME_RE = re.compile(
 _FORM_CUSTOM_FIELD_VALUE_RE = re.compile(
     r"^signature_request\[custom_fields\]\[(\d+)\]\[value\]$"
 )
+_EMPRENDEDORA_GROUP_TITLE_RE = re.compile(
+    r"acta\s+de\s+compromiso.*emprendedora.*\bg\s*(\d+)\b",
+    re.IGNORECASE,
+)
+_MENTORA_TITLE_RE = re.compile(
+    r"acta\s+de\s+compromiso.*mentora",
+    re.IGNORECASE,
+)
 
 PROFILE_OVERVIEW_FIELDS = [
     ("full_name", "Full name"),
@@ -184,6 +192,171 @@ def _normalize_email(value: str | None) -> str:
     if not raw:
         return ""
     return raw
+
+
+def _clean_valid_emails(raw_emails: list[str]) -> list[str]:
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for raw in raw_emails:
+        email = _normalize_email(raw)
+        if not email or email in seen:
+            continue
+        try:
+            validate_email(email)
+        except ValidationError:
+            continue
+        seen.add(email)
+        deduped.append(email)
+    return deduped
+
+
+def _signature_status_is_signed(raw_status: str | None) -> bool:
+    status = (raw_status or "").strip().lower()
+    if not status:
+        return False
+    negative_tokens = (
+        "await",
+        "pending",
+        "request",
+        "declin",
+        "cancel",
+        "expire",
+        "invalid",
+        "error",
+    )
+    if any(tok in status for tok in negative_tokens):
+        return False
+    return ("signed" in status) or (status in {"complete", "completed"})
+
+
+def _participant_emails_from_list(group_list: GroupParticipantList, track: str) -> set[str]:
+    wanted = (track or "").strip().upper()
+    if wanted == "M":
+        rows = _normalize_sheet_rows(
+            getattr(group_list, "mentoras_sheet_rows", []),
+            MENTORAS_HEADERS,
+        )
+        emails = _emails_from_sheet_rows(rows, MENTORAS_EMAIL_COL)
+        if not emails:
+            emails = _norm_email_list(getattr(group_list, "mentoras_emails_text", ""))
+        return {_normalize_email(v) for v in emails if _normalize_email(v)}
+
+    if wanted == "E":
+        rows = _normalize_sheet_rows(
+            getattr(group_list, "emprendedoras_sheet_rows", []),
+            EMPRENDEDORAS_HEADERS,
+        )
+        emails = _emails_from_sheet_rows(rows, EMPRENDEDORAS_EMAIL_COL)
+        if not emails:
+            emails = _norm_email_list(getattr(group_list, "emprendedoras_emails_text", ""))
+        return {_normalize_email(v) for v in emails if _normalize_email(v)}
+
+    return set()
+
+
+def _resolve_mentora_group_by_signer_pool(signer_pool: set[str]) -> tuple[int | None, str]:
+    if not signer_pool:
+        return None, "No signer emails available to resolve mentora group."
+
+    exact_matches: list[int] = []
+    participant_lists = GroupParticipantList.objects.select_related("group")
+    for row in participant_lists:
+        pool = _participant_emails_from_list(row, "M")
+        if pool and pool == signer_pool:
+            exact_matches.append(int(row.group.number))
+
+    if len(exact_matches) == 1:
+        return exact_matches[0], "Matched mentora group by exact participant email list."
+    if len(exact_matches) > 1:
+        return None, "Multiple mentora groups matched the exact signer email list."
+
+    # Fallback for payloads that only carry one signer email.
+    if len(signer_pool) == 1:
+        only_email = next(iter(signer_pool))
+        contains_matches: list[int] = []
+        for row in participant_lists:
+            pool = _participant_emails_from_list(row, "M")
+            if only_email in pool:
+                contains_matches.append(int(row.group.number))
+        if len(contains_matches) == 1:
+            return contains_matches[0], "Matched mentora group by unique signer email."
+        if len(contains_matches) > 1:
+            return None, "Signer email exists in multiple mentora groups."
+
+    return None, "No mentora group matched signer emails."
+
+
+def _mark_participant_sheet_acta_signed(
+    *,
+    group_num: int,
+    track: str,
+    signed_emails: list[str],
+) -> tuple[int, int, str]:
+    track_key = (track or "").strip().upper()
+    if track_key not in {"E", "M"}:
+        return 0, 0, "Invalid track."
+
+    signed_set = set(_clean_valid_emails(signed_emails))
+    if not signed_set:
+        return 0, 0, "No valid signer emails to apply."
+
+    group = FormGroup.objects.filter(number=int(group_num)).first()
+    if not group:
+        return 0, 0, f"Group {group_num} not found."
+
+    participant_list = GroupParticipantList.objects.filter(group=group).first()
+    if not participant_list:
+        return 0, 0, f"Group {group_num} has no participant list."
+
+    if track_key == "M":
+        headers = MENTORAS_HEADERS
+        bool_cols = MENTORAS_BOOLEAN_COLS
+        email_col = MENTORAS_EMAIL_COL
+        acta_col = MENTORAS_ACTA_COL
+        rows_field = "mentoras_sheet_rows"
+        text_field = "mentoras_emails_text"
+        build_rows = _build_mentoras_rows
+    else:
+        headers = EMPRENDEDORAS_HEADERS
+        bool_cols = EMPRENDEDORAS_BOOLEAN_COLS
+        email_col = EMPRENDEDORAS_EMAIL_COL
+        acta_col = EMPRENDEDORAS_ACTA_COL
+        rows_field = "emprendedoras_sheet_rows"
+        text_field = "emprendedoras_emails_text"
+        build_rows = _build_emprendedoras_rows
+
+    rows = _normalize_sheet_rows(getattr(participant_list, rows_field, []), headers)
+    rows = _coerce_bool_columns(rows, bool_cols)
+    if not rows:
+        seed_emails = _norm_email_list(getattr(participant_list, text_field, ""))
+        if seed_emails:
+            rows = build_rows(group.number, seed_emails)
+    if not rows:
+        return 0, 0, f"Group {group_num} has no {track_key} participant rows."
+
+    matched = 0
+    changed = 0
+    updated_rows: list[list] = []
+    for row in rows:
+        row_copy = list(row)
+        if email_col < len(row_copy):
+            email_norm = _normalize_email(row_copy[email_col])
+            if email_norm in signed_set:
+                matched += 1
+                if acta_col < len(row_copy) and not _as_checkbox_bool(row_copy[acta_col]):
+                    row_copy[acta_col] = True
+                    changed += 1
+        updated_rows.append(row_copy)
+
+    if changed:
+        setattr(
+            participant_list,
+            rows_field,
+            _number_sheet_rows(updated_rows, number_col=2),
+        )
+        participant_list.save(update_fields=[rows_field, "updated_at"])
+
+    return matched, changed, f"Updated {changed} row(s), matched {matched} signer email(s)."
 
 
 def _email_status_key(value: str | None) -> str:
@@ -353,6 +526,7 @@ def _normalize_dropbox_sign_payload(request) -> dict:
     payload_json: dict | list | str | None = None
     metadata: dict[str, str] = {}
     signer_emails: list[str] = []
+    signed_signer_emails: list[str] = []
     custom_fields: dict[str, str] = {}
 
     # 1) JSON body / json form field
@@ -408,9 +582,22 @@ def _normalize_dropbox_sign_payload(request) -> dict:
                 for row in raw_signatures:
                     if not isinstance(row, dict):
                         continue
-                    email = _normalize_email(row.get("signer_email_address"))
+                    email = _normalize_email(
+                        row.get("signer_email_address")
+                        or row.get("email_address")
+                        or row.get("email")
+                    )
                     if email:
                         signer_emails.append(email)
+                        status_raw = (
+                            row.get("status_code")
+                            or row.get("status")
+                            or row.get("signer_status_code")
+                            or row.get("state")
+                        )
+                        signed_at_raw = str(row.get("signed_at") or "").strip()
+                        if _signature_status_is_signed(status_raw) or bool(signed_at_raw):
+                            signed_signer_emails.append(email)
             raw_custom_fields = sig_req.get("custom_fields") or []
             if isinstance(raw_custom_fields, list):
                 for row in raw_custom_fields:
@@ -485,18 +672,9 @@ def _normalize_dropbox_sign_payload(request) -> dict:
             if name and val:
                 custom_fields[name] = val
 
-    deduped_emails: list[str] = []
-    seen_emails: set[str] = set()
-    for email in signer_emails:
-        norm = _normalize_email(email)
-        if not norm or norm in seen_emails:
-            continue
-        try:
-            validate_email(norm)
-        except ValidationError:
-            continue
-        seen_emails.add(norm)
-        deduped_emails.append(norm)
+    deduped_emails = _clean_valid_emails(signer_emails)
+    signed_set = set(_clean_valid_emails(signed_signer_emails))
+    deduped_signed_emails = [email for email in deduped_emails if email in signed_set]
 
     return {
         "event_type": event_type,
@@ -505,6 +683,7 @@ def _normalize_dropbox_sign_payload(request) -> dict:
         "signature_request_id": signature_request_id,
         "signature_title": signature_title,
         "signer_emails": deduped_emails,
+        "signed_signer_emails": deduped_signed_emails,
         "metadata": metadata,
         "custom_fields": custom_fields,
         "payload_json": payload_json if isinstance(payload_json, dict) else {},
@@ -520,6 +699,32 @@ def _dropbox_sign_hash_is_valid(event_time: str, event_type: str, event_hash: st
         return False
     candidate = hashlib.sha256(f"{api_key}{event_time}{event_type}".encode("utf-8")).hexdigest()
     return candidate == event_hash
+
+
+def _resolve_dropbox_signature_scope(
+    *,
+    signature_title: str,
+    signer_pool: set[str],
+) -> tuple[str | None, int | None, str]:
+    title = (signature_title or "").strip()
+    if not title:
+        return None, None, "Missing signature title."
+
+    empr_match = _EMPRENDEDORA_GROUP_TITLE_RE.search(title)
+    if empr_match:
+        try:
+            group_num = int(empr_match.group(1))
+        except (TypeError, ValueError):
+            return None, None, "Could not parse group number from emprendedora document title."
+        return "E", group_num, "Resolved from emprendedora document title."
+
+    if _MENTORA_TITLE_RE.search(title):
+        group_num, reason = _resolve_mentora_group_by_signer_pool(signer_pool)
+        if group_num is None:
+            return None, None, reason
+        return "M", int(group_num), reason
+
+    return None, None, "Document title did not match mentora/emprendedora patterns."
 
 
 def _candidate_identity_values(metadata: dict, custom_fields: dict) -> list[str]:
@@ -2302,7 +2507,9 @@ def dropbox_sign_webhook(request):
     event_time = str(normalized.get("event_time") or "").strip()
     event_hash = str(normalized.get("event_hash") or "").strip()
     signature_request_id = str(normalized.get("signature_request_id") or "").strip()
+    signature_title = str(normalized.get("signature_title") or "").strip()
     signer_emails = list(normalized.get("signer_emails") or [])
+    signed_signer_emails = list(normalized.get("signed_signer_emails") or [])
     metadata = dict(normalized.get("metadata") or {})
     custom_fields = dict(normalized.get("custom_fields") or {})
     payload_json = dict(normalized.get("payload_json") or {})
@@ -2318,7 +2525,9 @@ def dropbox_sign_webhook(request):
             "event_type": event_type,
             "event_time": event_time,
             "signature_request_id": signature_request_id,
+            "signature_title": signature_title,
             "signer_emails": signer_emails,
+            "signed_signer_emails": signed_signer_emails,
             "metadata": metadata,
             "custom_fields": custom_fields,
             "payload": payload_json,
@@ -2351,30 +2560,27 @@ def dropbox_sign_webhook(request):
         event.save(update_fields=["process_note"])
         return JsonResponse({"ok": False, "error": "invalid_event_hash"}, status=403)
 
-    resolved_emails: list[str] = list(signer_emails)
+    resolved_emails: list[str] = list(signed_signer_emails)
+    if not resolved_emails and event_type == "signature_request_all_signed":
+        resolved_emails = list(signer_emails)
+    if not resolved_emails and event_type == "signature_request_signed" and len(signer_emails) == 1:
+        resolved_emails = list(signer_emails)
     if not resolved_emails:
         for identity_candidate in _candidate_identity_values(metadata, custom_fields):
             resolved_emails.extend(_emails_for_identity_value(identity_candidate))
 
     # Final dedupe + validation
-    clean_emails: list[str] = []
-    seen: set[str] = set()
-    for raw_email in resolved_emails:
-        email = _normalize_email(raw_email)
-        if not email or email in seen:
-            continue
-        try:
-            validate_email(email)
-        except ValidationError:
-            continue
-        seen.add(email)
-        clean_emails.append(email)
+    clean_emails = _clean_valid_emails(resolved_emails)
 
     if not clean_emails:
         event.processed = True
         event.process_note = "No signer emails resolved from webhook payload."
         event.save(update_fields=["processed", "process_note"])
         return JsonResponse({"ok": True, "marked": 0, "note": event.process_note}, status=200)
+
+    signer_pool = set(_clean_valid_emails(signer_emails))
+    if not signer_pool:
+        signer_pool = set(clean_emails)
 
     now = timezone.now()
     marked_count = 0
@@ -2410,14 +2616,38 @@ def dropbox_sign_webhook(request):
             )
             marked_count += 1
 
+    scoped_track, scoped_group_num, scope_reason = _resolve_dropbox_signature_scope(
+        signature_title=signature_title,
+        signer_pool=signer_pool,
+    )
+    matched_rows = 0
+    changed_rows = 0
+    scope_sheet_note = "Participant sheet scope not resolved."
+    if scoped_track and scoped_group_num:
+        matched_rows, changed_rows, scope_sheet_note = _mark_participant_sheet_acta_signed(
+            group_num=scoped_group_num,
+            track=scoped_track,
+            signed_emails=clean_emails,
+        )
+    else:
+        scope_sheet_note = scope_reason
+
     event.processed = True
     event.marked_count = marked_count
     event.signer_emails_text = ", ".join(clean_emails)
-    event.process_note = (
+    base_note = (
         f"Marked contract signed for {marked_count} email(s)."
         if marked_count
         else "All resolved emails were already marked as signed."
     )
+    if scoped_track and scoped_group_num:
+        scope_note = (
+            f" Scope={scoped_track}{scoped_group_num}. {scope_reason} "
+            f"{scope_sheet_note}"
+        )
+    else:
+        scope_note = f" Scope unresolved. {scope_reason}"
+    event.process_note = f"{base_note}{scope_note}"
     event.save(update_fields=["processed", "marked_count", "signer_emails_text", "process_note"])
     return JsonResponse(
         {
@@ -2425,6 +2655,11 @@ def dropbox_sign_webhook(request):
             "event_id": event.id,
             "marked": marked_count,
             "emails": clean_emails,
+            "scope_track": scoped_track,
+            "scope_group_num": scoped_group_num,
+            "scope_reason": scope_reason,
+            "participant_rows_matched": matched_rows,
+            "participant_rows_changed": changed_rows,
         },
         status=200,
     )

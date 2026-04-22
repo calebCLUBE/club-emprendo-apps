@@ -45,6 +45,13 @@ class FormGroup(models.Model):
         default="",
         help_text="Optional custom label for this group in admin pages.",
     )
+    is_active = models.BooleanField(
+        default=True,
+        help_text=(
+            "If disabled, the group is archived/hidden in participant-management views "
+            "while preserving application database records."
+        ),
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

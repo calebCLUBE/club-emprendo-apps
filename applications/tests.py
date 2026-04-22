@@ -296,6 +296,13 @@ class ParticipantsPageSafetyTests(TestCase):
         self.assertTrue(FormGroup.objects.filter(id=self.group.id).exists())
         self.assertTrue(FormDefinition.objects.filter(id=self.form_def.id).exists())
         self.assertTrue(Application.objects.filter(id=self.app.id).exists())
+        self.group.refresh_from_db()
+        if hasattr(self.group, "is_active"):
+            self.assertFalse(self.group.is_active)
+
+        list_response = self.client.get(reverse("admin_profiles_participants"))
+        self.assertEqual(list_response.status_code, 200)
+        self.assertNotContains(list_response, f"?group={self.group.number}")
 
     def test_participants_page_rejects_group_delete_actions(self):
         response = self.client.post(
@@ -310,6 +317,9 @@ class ParticipantsPageSafetyTests(TestCase):
         self.assertTrue(FormGroup.objects.filter(id=self.group.id).exists())
         self.assertTrue(FormDefinition.objects.filter(id=self.form_def.id).exists())
         self.assertTrue(Application.objects.filter(id=self.app.id).exists())
+        self.group.refresh_from_db()
+        if hasattr(self.group, "is_active"):
+            self.assertTrue(self.group.is_active)
 
         self.participant_list.refresh_from_db()
         self.assertEqual(self.participant_list.mentoras_emails_text, "mentor@example.com")

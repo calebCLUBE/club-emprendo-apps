@@ -184,16 +184,16 @@
               Sync from assigned group applications
             </button>
           </form>
-          <form method="post" onsubmit="return confirm('Clear participant-sheet data for Group {{ selected_group.number }}? Submissions and database application records will be kept.');">
+          <form method="post" onsubmit="return confirm('Delete Group {{ selected_group.number }} from the Participants page? This will clear participant-sheet data, hide the group here, and keep all submissions/database records.');">
             {% csrf_token %}
             <input type="hidden" name="group" value="{{ selected_group.number }}">
             <button class="ce-btn ce-btn--danger" type="submit" name="action" value="clear_group_participants">
-              Clear participant sheet data
+              Delete group from Participants
             </button>
           </form>
         </div>
         <div class="ce-muted">
-          Clearing participant sheet data here does not delete submissions, answers, forms, or group records.
+          This archives/hides the group in Participants only. Submissions, answers, forms, and database records are preserved.
         </div>
 
         <form method="post" style="margin-top:12px;">

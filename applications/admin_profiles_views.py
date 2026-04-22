@@ -164,6 +164,14 @@ EMPRENDEDORAS_COLUMN_TYPES = [
 ]
 
 
+def _model_has_field(model, field_name: str) -> bool:
+    try:
+        model._meta.get_field(field_name)
+        return True
+    except Exception:
+        return False
+
+
 def _normalize_identity(value: str | None) -> str:
     raw = (value or "").strip()
     if not raw:
@@ -1584,13 +1592,16 @@ def profiles_sheet(request):
 
 @staff_member_required
 def profiles_participants(request):
-    groups = list(FormGroup.objects.order_by("number"))
+    groups_qs = FormGroup.objects.order_by("number")
+    if _model_has_field(FormGroup, "is_active"):
+        groups_qs = groups_qs.filter(is_active=True)
+    groups = list(groups_qs)
     group_raw = (request.GET.get("group") or request.POST.get("group") or "").strip()
     selected_group = None
     participant_list = None
 
     if group_raw.isdigit():
-        selected_group = FormGroup.objects.filter(number=int(group_raw)).first()
+        selected_group = groups_qs.filter(number=int(group_raw)).first()
         if selected_group:
             participant_list = GroupParticipantList.objects.filter(group=selected_group).first()
 
@@ -1600,9 +1611,12 @@ def profiles_participants(request):
             messages.error(request, "Please select a valid group.")
             return redirect(reverse("admin_profiles_participants"))
 
-        selected_group = FormGroup.objects.filter(number=int(posted_group)).first()
+        post_group_qs = FormGroup.objects.all()
+        if _model_has_field(FormGroup, "is_active"):
+            post_group_qs = post_group_qs.filter(is_active=True)
+        selected_group = post_group_qs.filter(number=int(posted_group)).first()
         if not selected_group:
-            messages.error(request, "Selected group does not exist.")
+            messages.error(request, "Selected group does not exist or is archived.")
             return redirect(reverse("admin_profiles_participants"))
 
         action = (request.POST.get("action") or "save_sheet").strip()
@@ -1642,6 +1656,16 @@ def profiles_participants(request):
                     messages.info(
                         request,
                         f"Group {group_number} has no participant list data to clear.",
+                    )
+                if _model_has_field(FormGroup, "is_active") and selected_group.is_active:
+                    selected_group.is_active = False
+                    selected_group.save(update_fields=["is_active"])
+                    messages.success(
+                        request,
+                        (
+                            f"Group {group_number} was archived from the Participants page. "
+                            "It is hidden there now."
+                        ),
                     )
                 messages.info(
                     request,

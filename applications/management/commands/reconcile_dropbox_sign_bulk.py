@@ -12,10 +12,19 @@ from django.utils import timezone
 from applications.admin_profiles_views import (
     _EMPRENDEDORA_GROUP_TITLE_RE,
     _MENTORA_TITLE_RE,
+    _apply_contract_signed_to_rows,
+    _build_emprendedoras_rows,
+    _build_mentoras_rows,
     _clean_valid_emails,
+    _latest_apps_by_email_for_group_track,
     _mark_participant_sheet_acta_signed,
+    _number_sheet_rows,
     _participant_emails_from_list,
     _signature_status_is_signed,
+    EMPRENDEDORAS_ACTA_COL,
+    EMPRENDEDORAS_EMAIL_COL,
+    MENTORAS_ACTA_COL,
+    MENTORAS_EMAIL_COL,
 )
 from applications.models import FormGroup, GroupParticipantList, ParticipantEmailStatus
 
@@ -97,7 +106,37 @@ class Command(BaseCommand):
             raise CommandError(f"Group {group_num} was not found.")
         participant_list = GroupParticipantList.objects.filter(group=group).first()
         if not participant_list:
-            raise CommandError(f"Group {group_num} has no participant list.")
+            mentoras_emails = sorted(_latest_apps_by_email_for_group_track(group_num, "M").keys())
+            emprendedoras_emails = sorted(_latest_apps_by_email_for_group_track(group_num, "E").keys())
+            mentoras_rows = _build_mentoras_rows(group_num, mentoras_emails)
+            emprendedoras_rows = _build_emprendedoras_rows(group_num, emprendedoras_emails)
+            mentoras_rows = _apply_contract_signed_to_rows(
+                mentoras_rows,
+                email_col=MENTORAS_EMAIL_COL,
+                acta_col=MENTORAS_ACTA_COL,
+            )
+            emprendedoras_rows = _apply_contract_signed_to_rows(
+                emprendedoras_rows,
+                email_col=EMPRENDEDORAS_EMAIL_COL,
+                acta_col=EMPRENDEDORAS_ACTA_COL,
+            )
+            participant_list, _ = GroupParticipantList.objects.update_or_create(
+                group=group,
+                defaults={
+                    "mentoras_emails_text": "\n".join(mentoras_emails),
+                    "emprendedoras_emails_text": "\n".join(emprendedoras_emails),
+                    "mentoras_sheet_rows": _number_sheet_rows(mentoras_rows, number_col=2),
+                    "emprendedoras_sheet_rows": _number_sheet_rows(emprendedoras_rows, number_col=2),
+                },
+            )
+            self.stdout.write(
+                self.style.WARNING(
+                    (
+                        f"Group {group_num} had no participant list; rebuilt from assigned applications "
+                        f"(M:{len(mentoras_emails)} E:{len(emprendedoras_emails)})."
+                    )
+                )
+            )
 
         e_pool = _participant_emails_from_list(participant_list, "E")
         m_pool = _participant_emails_from_list(participant_list, "M")

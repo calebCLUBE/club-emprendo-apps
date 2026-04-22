@@ -12,6 +12,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.admin.views.decorators import staff_member_required
 from django.core.exceptions import ValidationError
+from django.core.management import call_command
 from django.core.validators import validate_email
 from django.http import HttpResponse, JsonResponse, HttpResponseNotAllowed
 from django.shortcuts import redirect, render
@@ -961,6 +962,40 @@ def _mark_participated_yes(emails: list[str]) -> tuple[int, int, int]:
     return created_count, updated_count, unchanged_count
 
 
+def _run_dropbox_reconcile_for_group(
+    *,
+    group_num: int,
+    track: str = "both",
+    days_back: int = 180,
+    max_pages: int = 40,
+) -> tuple[bool, str]:
+    output = io.StringIO()
+    try:
+        call_command(
+            "reconcile_dropbox_sign_bulk",
+            group=int(group_num),
+            track=str(track or "both"),
+            days_back=int(days_back),
+            max_pages=int(max_pages),
+            stdout=output,
+            stderr=output,
+            verbosity=1,
+        )
+    except Exception as exc:
+        details = output.getvalue().strip()
+        if details:
+            tail = " | ".join(line.strip() for line in details.splitlines()[-3:] if line.strip())
+            if tail:
+                return False, f"{exc} ({tail})"
+        return False, str(exc)
+
+    lines = [line.strip() for line in output.getvalue().splitlines() if line.strip()]
+    if not lines:
+        return True, "Dropbox check finished."
+    summary_line = lines[-1]
+    return True, summary_line
+
+
 def _participant_list_email_keys() -> set[str]:
     out: set[str] = set()
     participant_lists = GroupParticipantList.objects.only(
@@ -1835,6 +1870,23 @@ def profiles_participants(request):
             )
             return redirect(f"{reverse('admin_profiles_participants')}?group={selected_group.number}")
 
+        if action == "check_dropbox":
+            ok, summary = _run_dropbox_reconcile_for_group(
+                group_num=selected_group.number,
+                track="both",
+            )
+            if ok:
+                messages.success(
+                    request,
+                    f"Dropbox check completed for Group {selected_group.number}. {summary}",
+                )
+            else:
+                messages.error(
+                    request,
+                    f"Dropbox check failed for Group {selected_group.number}: {summary}",
+                )
+            return redirect(f"{reverse('admin_profiles_participants')}?group={selected_group.number}")
+
         if action in {"delete_group_participants", "clear_group_participants"}:
             group_number = selected_group.number
             try:
@@ -2290,6 +2342,29 @@ def profiles_participants_track_sheet(request, group_num: int, track: str):
     if request.method == "POST":
         is_async_save = request.headers.get("x-requested-with") == "XMLHttpRequest"
         action = (request.POST.get("action") or "save_sheet").strip()
+        if action == "check_dropbox":
+            target_track = "M" if track_slug == "mentoras" else "E"
+            ok, summary = _run_dropbox_reconcile_for_group(
+                group_num=group.number,
+                track=target_track,
+            )
+            if ok:
+                messages.success(
+                    request,
+                    f"Dropbox check completed for Group {group.number} {track_label}. {summary}",
+                )
+            else:
+                messages.error(
+                    request,
+                    f"Dropbox check failed for Group {group.number} {track_label}: {summary}",
+                )
+            return redirect(
+                reverse(
+                    "admin_profiles_participants_track_sheet",
+                    args=[group.number, track_slug],
+                )
+            )
+
         emails_raw = (request.POST.get("emails") or "").strip()
         valid_emails: list[str] = []
         invalid_emails: list[str] = []

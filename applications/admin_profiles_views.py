@@ -1606,30 +1606,55 @@ def profiles_participants(request):
             return redirect(reverse("admin_profiles_participants"))
 
         action = (request.POST.get("action") or "save_sheet").strip()
-        if action == "delete_group_participants":
+        if action in {"delete_group", "force_delete_group", "delete_group_force"}:
+            messages.error(
+                request,
+                (
+                    "Group deletion is disabled on the Participants page. "
+                    "This page only manages participant lists and never deletes application database records."
+                ),
+            )
+            return redirect(f"{reverse('admin_profiles_participants')}?group={selected_group.number}")
+
+        if action in {"delete_group_participants", "clear_group_participants"}:
             group_number = selected_group.number
             try:
                 participant_list = GroupParticipantList.objects.filter(group=selected_group).first()
                 if participant_list:
-                    participant_list.delete()
+                    participant_list.mentoras_emails_text = ""
+                    participant_list.emprendedoras_emails_text = ""
+                    participant_list.mentoras_sheet_rows = []
+                    participant_list.emprendedoras_sheet_rows = []
+                    participant_list.save(
+                        update_fields=[
+                            "mentoras_emails_text",
+                            "emprendedoras_emails_text",
+                            "mentoras_sheet_rows",
+                            "emprendedoras_sheet_rows",
+                            "updated_at",
+                        ]
+                    )
                     messages.success(
                         request,
-                        f"Deleted participant list for Group {group_number}.",
+                        f"Cleared participant list data for Group {group_number}.",
                     )
                 else:
                     messages.info(
                         request,
-                        f"Group {group_number} has no participant list to delete.",
+                        f"Group {group_number} has no participant list data to clear.",
                     )
                 messages.info(
                     request,
-                    f"Group {group_number} application/database records were not deleted.",
+                    (
+                        f"Group {group_number} application/database records were not deleted. "
+                        "Submissions, answers, and forms were preserved."
+                    ),
                 )
                 return redirect(reverse("admin_profiles_participants"))
             except Exception as exc:
                 messages.error(
                     request,
-                    f"Could not delete participant list for Group {group_number}: {exc}",
+                    f"Could not clear participant list for Group {group_number}: {exc}",
                 )
                 return redirect(f"{reverse('admin_profiles_participants')}?group={group_number}")
 

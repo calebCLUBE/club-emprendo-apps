@@ -1,9 +1,16 @@
 from django.test import TestCase
 from django.urls import reverse
+from django.contrib.auth import get_user_model
 import re
 
 from applications.admin import QuestionAdminForm
-from applications.models import FormDefinition, Question
+from applications.models import (
+    Application,
+    FormDefinition,
+    FormGroup,
+    GroupParticipantList,
+    Question,
+)
 
 
 class QuestionAdminFormTests(TestCase):
@@ -231,3 +238,79 @@ class ApplicationFormRenderTests(TestCase):
                 re.DOTALL,
             ),
         )
+
+
+class ParticipantsPageSafetyTests(TestCase):
+    def setUp(self):
+        user_model = get_user_model()
+        self.staff_user = user_model.objects.create_superuser(
+            email="admin@example.com",
+            password="testpass123",
+        )
+        self.client.force_login(self.staff_user)
+
+        self.group = FormGroup.objects.create(
+            number=991,
+            start_day=1,
+            start_month="abril",
+            end_month="abril",
+            year=2026,
+        )
+        self.form_def = FormDefinition.objects.create(
+            slug="G991_E_A1",
+            name="Group 991 E A1",
+            is_master=False,
+            group=self.group,
+            is_public=True,
+            accepting_responses=True,
+        )
+        self.app = Application.objects.create(
+            form=self.form_def,
+            name="Applicant One",
+            email="applicant@example.com",
+        )
+        self.participant_list = GroupParticipantList.objects.create(
+            group=self.group,
+            mentoras_emails_text="mentor@example.com",
+            emprendedoras_emails_text="founder@example.com",
+            mentoras_sheet_rows=[["", "CP", 1, "Mentor", "111", "mentor@example.com"]],
+            emprendedoras_sheet_rows=[["", "CP", 1, "Founder", "222", "founder@example.com"]],
+        )
+
+    def test_clear_group_participants_only_clears_participant_sheet_data(self):
+        response = self.client.post(
+            reverse("admin_profiles_participants"),
+            data={
+                "group": str(self.group.number),
+                "action": "clear_group_participants",
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+
+        self.participant_list.refresh_from_db()
+        self.assertEqual(self.participant_list.mentoras_emails_text, "")
+        self.assertEqual(self.participant_list.emprendedoras_emails_text, "")
+        self.assertEqual(self.participant_list.mentoras_sheet_rows, [])
+        self.assertEqual(self.participant_list.emprendedoras_sheet_rows, [])
+
+        self.assertTrue(FormGroup.objects.filter(id=self.group.id).exists())
+        self.assertTrue(FormDefinition.objects.filter(id=self.form_def.id).exists())
+        self.assertTrue(Application.objects.filter(id=self.app.id).exists())
+
+    def test_participants_page_rejects_group_delete_actions(self):
+        response = self.client.post(
+            reverse("admin_profiles_participants"),
+            data={
+                "group": str(self.group.number),
+                "action": "delete_group",
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+
+        self.assertTrue(FormGroup.objects.filter(id=self.group.id).exists())
+        self.assertTrue(FormDefinition.objects.filter(id=self.form_def.id).exists())
+        self.assertTrue(Application.objects.filter(id=self.app.id).exists())
+
+        self.participant_list.refresh_from_db()
+        self.assertEqual(self.participant_list.mentoras_emails_text, "mentor@example.com")
+        self.assertEqual(self.participant_list.emprendedoras_emails_text, "founder@example.com")

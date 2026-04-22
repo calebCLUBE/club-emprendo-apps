@@ -63,7 +63,7 @@ _FORM_CUSTOM_FIELD_VALUE_RE = re.compile(
     r"^signature_request\[custom_fields\]\[(\d+)\]\[value\]$"
 )
 _EMPRENDEDORA_GROUP_TITLE_RE = re.compile(
-    r"acta\s+de\s+compromiso.*emprendedora.*\bg\s*(\d+)\b",
+    r"acta\s+de\s+compromiso.*emprendedora.*\b(?:g|grupo)\s*#?\s*(\d+)\b",
     re.IGNORECASE,
 )
 _MENTORA_TITLE_RE = re.compile(

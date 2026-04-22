@@ -140,6 +140,7 @@ class Command(BaseCommand):
 
         e_pool = _participant_emails_from_list(participant_list, "E")
         m_pool = _participant_emails_from_list(participant_list, "M")
+        self.stdout.write(f"Target participant pool sizes -> E:{len(e_pool)} M:{len(m_pool)}")
         if track_opt in {"E", "BOTH"} and not e_pool:
             self.stdout.write(self.style.WARNING(f"Group {group_num} has no Emprendedora participant emails."))
         if track_opt in {"M", "BOTH"} and not m_pool:
@@ -166,6 +167,7 @@ class Command(BaseCommand):
         signed_by_track: dict[str, set[str]] = {"E": set(), "M": set()}
         request_ids_by_email: dict[str, str] = {}
         matched_reqs_by_track = {"E": 0, "M": 0}
+        scoped_reqs_by_track = {"E": 0, "M": 0}
         skipped_no_scope = 0
         skipped_no_signed = 0
         skipped_not_target = 0
@@ -200,6 +202,7 @@ class Command(BaseCommand):
                 continue
 
             if applies_e:
+                scoped_reqs_by_track["E"] += 1
                 # Group number in title is the primary scope key for emprendedoras.
                 matched_signed = sorted(email for email in signed_set if email in e_pool)
                 if matched_signed:
@@ -210,6 +213,7 @@ class Command(BaseCommand):
                             request_ids_by_email[email] = req.signature_request_id
 
             if applies_m:
+                scoped_reqs_by_track["M"] += 1
                 # Mentora titles are groupless; target by signer membership in the selected group pool.
                 matched_signed = sorted(email for email in signed_set if email in m_pool)
                 if matched_signed:
@@ -235,6 +239,12 @@ class Command(BaseCommand):
                 f"Request counters -> E:{matched_reqs_by_track['E']} M:{matched_reqs_by_track['M']} "
                 f"skipped_no_scope:{skipped_no_scope} skipped_no_signed:{skipped_no_signed} "
                 f"skipped_not_target:{skipped_not_target}"
+            )
+        )
+        self.stdout.write(
+            (
+                f"Scoped requests by title -> E:{scoped_reqs_by_track['E']} "
+                f"M:{scoped_reqs_by_track['M']}"
             )
         )
 
@@ -421,8 +431,8 @@ class Command(BaseCommand):
 
         signer_emails = _clean_valid_emails(signer_emails)
         signer_set = set(signer_emails)
-        req_complete = bool(raw_req.get("is_complete"))
-        req_declined = bool(raw_req.get("is_declined"))
+        req_complete = self._as_truthy(raw_req.get("is_complete"))
+        req_declined = self._as_truthy(raw_req.get("is_declined"))
         signed_emails = [email for email in _clean_valid_emails(signed_emails) if email in signer_set]
         if req_complete and not req_declined and not signed_emails and signer_emails:
             # Some list payloads omit detailed per-signer status when complete.
@@ -435,3 +445,14 @@ class Command(BaseCommand):
             signer_emails=signer_emails,
             signed_emails=signed_emails,
         )
+
+    @staticmethod
+    def _as_truthy(value) -> bool:
+        if isinstance(value, bool):
+            return value
+        if value is None:
+            return False
+        text = str(value).strip().lower()
+        if not text:
+            return False
+        return text in {"1", "true", "yes", "y"}

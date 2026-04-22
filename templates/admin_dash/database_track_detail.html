@@ -10,7 +10,7 @@
     <strong>Completaron la segunda parte (A2):</strong>
     {{ second_part_completed_count|default:0 }}
     {% if selected_group %}
-      {% if selected_group == 800 %}en April Recruitment{% else %}en Group {{ selected_group }}{% endif %}
+      en {{ selected_group_label }}
     {% endif %}
   </p>
 
@@ -19,9 +19,9 @@
       <label for="group_filter"><strong>Filter by group</strong></label><br>
       <select id="group_filter" name="group" class="vTextField">
         <option value="">All groups</option>
-        {% for g in group_options %}
-          <option value="{{ g }}" {% if selected_group == g %}selected{% endif %}>
-            {% if g == 800 %}April Recruitment{% else %}Group {{ g }}{% endif %}
+        {% for item in group_option_items %}
+          <option value="{{ item.number }}" {% if selected_group == item.number %}selected{% endif %}>
+            {{ item.label }}
           </option>
         {% endfor %}
       </select>
@@ -86,7 +86,7 @@
               <input type="checkbox" name="app_ids" value="{{ a.id }}" data-submission-checkbox style="margin-top:3px;">
               <span>
                 <a href="{% url 'admin_database_submission_detail' a.id %}">
-                  #{{ a.id }} — {% if a.form.group.number == 800 %}April Recruitment{% else %}Group {{ a.form.group.number|default:"?" }}{% endif %} — {{ a.created_at }} — {{ a.name }} ({{ a.email }})
+                  #{{ a.id }} — {% if a.form.group and a.form.group.custom_name %}{{ a.form.group.custom_name }}{% else %}Group {{ a.form.group.number|default:"?" }}{% endif %} — {{ a.created_at }} — {{ a.name }} ({{ a.email }})
                 </a>
               </span>
             </label>

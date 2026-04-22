@@ -112,11 +112,10 @@
     <details class="ce-dd" {% if forloop.first %}open{% endif %}>
       <summary>
         {% if g.number %}
-          {% if g.custom_name %}
+          {% if g.display_label %}
+            {{ g.display_label }}
+          {% elif g.custom_name %}
             {{ g.custom_name }}
-            <small style="color:#666; font-weight:normal;">
-              (Group {{ g.number }})
-            </small>
           {% else %}
             Group {{ g.number }}
           {% endif %}

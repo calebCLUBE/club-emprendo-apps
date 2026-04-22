@@ -119,7 +119,7 @@
     </button>
 
     <p style="margin:0; color:#666;">
-      This creates or updates the target group, copies matching applications from the source pool group, and seeds that group's participant list.
+      This creates or updates the target group and copies matching applications from the source pool group.
       Date values are copied automatically from the selected source pool group.
     </p>
   </form>
@@ -134,11 +134,7 @@
     {% for bucket in graded_files_by_group %}
       <details style="margin:10px 0 0 0; padding:8px; border:1px solid #eee; border-radius:8px;">
         <summary style="cursor:pointer; font-weight:600;">
-          {% if bucket.group_num == 800 %}
-            April Recruitment ({{ bucket.files|length }})
-          {% else %}
-            Group {{ bucket.group_num }} ({{ bucket.files|length }})
-          {% endif %}
+          {{ bucket.group_label }} ({{ bucket.files|length }})
         </summary>
         <ul style="margin:10px 0 0 0;">
           {% for f in bucket.files %}
@@ -295,11 +291,7 @@
   {% for block in group_blocks %}
     <details style="margin: 10px 0; padding: 10px; border: 1px solid #ddd; border-radius: 10px;">
       <summary style="cursor:pointer;">
-        {% if block.group.number == 800 %}
-          <strong>April Recruitment</strong>
-        {% else %}
-          <strong>Group {{ block.group.number }}</strong>
-        {% endif %}
+        <strong>{{ block.group_label }}</strong>
         — {{ block.group.start_month }} to {{ block.group.end_month }} {{ block.group.year }}
       </summary>
 
@@ -308,11 +300,7 @@
         <input type="hidden" name="group_num" value="{{ block.group.number }}">
         <input type="hidden" name="next" value="{{ database_next }}">
         <button type="submit" class="button">
-          {% if block.group.number == 800 %}
-            Sync April Recruitment To Drive
-          {% else %}
-            Sync Group {{ block.group.number }} To Drive
-          {% endif %}
+          Sync {{ block.group_label }} To Drive
         </button>
       </form>
 

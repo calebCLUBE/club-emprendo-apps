@@ -104,6 +104,9 @@ RECRUITMENT_POOL_SOURCES = {
     "april_recruitment": {
         "label": "April Recruitment",
         "group_num": 800,
+        "start_day": 1,
+        "start_month": "abril",
+        "end_month": "abril",
     },
 }
 
@@ -2005,6 +2008,99 @@ def _is_missing_group_custom_name_column_error(exc: Exception) -> bool:
     return ("no such column" in msg) or ("does not exist" in msg)
 
 
+def _is_generic_group_name(raw_name: str | None, group_number: int) -> bool:
+    name = str(raw_name or "").strip()
+    if not name:
+        return True
+    norm = re.sub(r"\s+", "", name.lower())
+    return norm in {f"group{group_number}", f"g{group_number}"}
+
+
+def _ensure_recruitment_pool_group(pool_key: str) -> dict:
+    """
+    Ensure the configured source pool group exists and has group forms attached.
+    Returns a summary dict with what was restored.
+    """
+    cfg = RECRUITMENT_POOL_SOURCES.get(pool_key)
+    if not cfg:
+        raise ValueError(f"Unknown recruitment pool key: {pool_key}")
+
+    label = str(cfg.get("label") or pool_key).strip() or pool_key
+    group_num = int(cfg.get("group_num") or 0)
+    if group_num <= 0:
+        raise ValueError(f"Invalid group_num for pool '{pool_key}'")
+
+    start_day = int(cfg.get("start_day") or 1)
+    start_month_cfg = str(cfg.get("start_month") or "abril")
+    end_month_cfg = str(cfg.get("end_month") or start_month_cfg)
+    start_month = _normalize_month_choice(start_month_cfg, fallback=start_month_cfg)
+    end_month = _normalize_month_choice(end_month_cfg, fallback=end_month_cfg)
+    year = int(cfg.get("year") or timezone.localdate().year)
+
+    group, group_created = FormGroup.objects.get_or_create(
+        number=group_num,
+        defaults={
+            "start_day": start_day,
+            "start_month": start_month,
+            "end_month": end_month,
+            "year": year,
+            "use_combined_application": True,
+            "custom_name": label,
+        },
+    )
+
+    group_updates: list[str] = []
+    if _is_generic_group_name(getattr(group, "custom_name", ""), group_num):
+        group.custom_name = label
+        group_updates.append("custom_name")
+    if not group.use_combined_application:
+        group.use_combined_application = True
+        group_updates.append("use_combined_application")
+    if group_created:
+        # Already covered via defaults; keep update_fields clean.
+        group_updates = [f for f in group_updates if f not in {"start_day", "start_month", "end_month", "year"}]
+    if group_updates:
+        group.save(update_fields=list(dict.fromkeys(group_updates)))
+
+    forms_created = 0
+    forms_relinked = 0
+    for master_slug in MASTER_SLUGS:
+        master = FormDefinition.objects.filter(slug=master_slug).first()
+        if not master:
+            continue
+        target_slug = f"G{group_num}_{master_slug}"
+        before = FormDefinition.objects.filter(slug=target_slug).first()
+        before_group_id = getattr(before, "group_id", None) if before else None
+        _clone_form(master, group)
+        after = FormDefinition.objects.filter(slug=target_slug).first()
+        if before is None and after is not None:
+            forms_created += 1
+        elif after is not None and before_group_id != group.id:
+            forms_relinked += 1
+
+    # Keep A1 form names aligned with the pool label.
+    FormDefinition.objects.filter(slug__in=[f"G{group_num}_E_A1", f"G{group_num}_M_A1"]).update(name=label)
+
+    return {
+        "pool_key": pool_key,
+        "label": label,
+        "group_num": group_num,
+        "group_created": group_created,
+        "forms_created": forms_created,
+        "forms_relinked": forms_relinked,
+    }
+
+
+def _ensure_recruitment_pool_groups() -> list[dict]:
+    results: list[dict] = []
+    for pool_key in RECRUITMENT_POOL_SOURCES:
+        try:
+            results.append(_ensure_recruitment_pool_group(pool_key))
+        except Exception:
+            logger.exception("Failed to ensure recruitment pool '%s'.", pool_key)
+    return results
+
+
 def _apply_group_reminder_schedule(
     group: FormGroup,
     reminder_1_at,
@@ -2268,6 +2364,37 @@ def _group_number_from_slug(slug: str) -> int | None:
         return int(m.group("num"))
     except Exception:
         return None
+
+
+def _group_label_for_number(
+    group_number: int | None,
+    group_map: dict[int, FormGroup] | None = None,
+) -> str:
+    if group_number is None:
+        return "Group ?"
+    group_obj = None
+    if group_map is not None:
+        group_obj = group_map.get(int(group_number))
+    if group_obj is None:
+        group_obj = FormGroup.objects.filter(number=int(group_number)).first()
+    custom_name = str(getattr(group_obj, "custom_name", "") or "").strip() if group_obj else ""
+    # Treat generic labels like "Group 800" as default/internal text so pool labels
+    # (for example "April Recruitment") can still show consistently.
+    custom_name_norm = re.sub(r"\s+", "", custom_name.lower()) if custom_name else ""
+    default_label_norm = f"group{int(group_number)}"
+    if custom_name and custom_name_norm != default_label_norm:
+        return custom_name
+
+    # Fallback to configured recruitment-pool labels when custom_name is empty.
+    for cfg in RECRUITMENT_POOL_SOURCES.values():
+        try:
+            if int(cfg.get("group_num", 0) or 0) == int(group_number):
+                label = str(cfg.get("label") or "").strip()
+                if label:
+                    return label
+        except Exception:
+            continue
+    return f"Group {int(group_number)}"
 
 
 def _group_forms_for_app_type(
@@ -2888,13 +3015,28 @@ def apps_list(request):
         except Exception:
             logger.exception("A1->A2 auto reminder scheduler check failed.")
 
+        pool_restore_results = _ensure_recruitment_pool_groups()
+        for restore in pool_restore_results:
+            if restore.get("group_created") or restore.get("forms_created") or restore.get("forms_relinked"):
+                messages.info(
+                    request,
+                    (
+                        f"Restored {restore['label']} "
+                        f"(group {restore['group_num']}): "
+                        f"created {restore.get('forms_created', 0)} forms, "
+                        f"relinked {restore.get('forms_relinked', 0)}."
+                    ),
+                )
+
         masters = list(FormDefinition.objects.filter(slug__in=MASTER_SLUGS).order_by("slug"))
 
         groups = list(FormGroup.objects.order_by("-number"))
+        groups_by_number = {int(g.number): g for g in groups}
         has_combined_groups = FormGroup.objects.filter(use_combined_application=True).exists()
         group_list = []
         for g in groups:
             _sync_group_open_close(g)
+            g.display_label = _group_label_for_number(int(g.number), groups_by_number)
             forms_for_group = list(FormDefinition.objects.filter(group=g).order_by("slug"))
             group_list.append((g, forms_for_group))
 
@@ -2938,9 +3080,11 @@ def create_group(request):
     if not form.is_valid():
         masters = list(FormDefinition.objects.filter(slug__in=MASTER_SLUGS).order_by("slug"))
         groups = list(FormGroup.objects.order_by("-number"))
+        groups_by_number = {int(g.number): g for g in groups}
         has_combined_groups = FormGroup.objects.filter(use_combined_application=True).exists()
         group_list = []
         for g in groups:
+            g.display_label = _group_label_for_number(int(g.number), groups_by_number)
             forms_for_group = list(FormDefinition.objects.filter(group=g).order_by("slug"))
             group_list.append((g, forms_for_group))
 
@@ -3249,6 +3393,8 @@ def update_group_dates(request, group_num: int):
 # ----------------------------
 @staff_member_required
 def database_home(request):
+    _ensure_recruitment_pool_groups()
+
     masters = list(FormDefinition.objects.filter(slug__in=MASTER_SLUGS).order_by("slug"))
 
     counts = {
@@ -3257,6 +3403,7 @@ def database_home(request):
     }
 
     groups = list(FormGroup.objects.order_by("number"))
+    groups_by_number = {int(g.number): g for g in groups}
     group_blocks: list[dict] = []
     combined_track_counts = {"E": 0, "M": 0}
     legacy_type_counts = {k: 0 for k in MASTER_SLUGS}
@@ -3264,6 +3411,7 @@ def database_home(request):
     for g in groups:
         forms_for_group = list(FormDefinition.objects.filter(group=g).order_by("slug"))
         use_combined = bool(getattr(g, "use_combined_application", False))
+        group_label = _group_label_for_number(int(g.number), groups_by_number)
 
         if use_combined:
             track_counts = {"E": 0, "M": 0}
@@ -3278,6 +3426,7 @@ def database_home(request):
             combined_track_counts["M"] += track_counts["M"]
             group_blocks.append({
                 "group": g,
+                "group_label": group_label,
                 "mode": "combined",
                 "track_counts": track_counts,
             })
@@ -3295,6 +3444,7 @@ def database_home(request):
 
         group_blocks.append({
             "group": g,
+            "group_label": group_label,
             "mode": "legacy",
             "forms": forms_for_group,
         })
@@ -3339,7 +3489,11 @@ def database_home(request):
         graded_files_by_group_map.setdefault(group_num, []).append(gf)
 
     graded_files_by_group = [
-        {"group_num": group_num, "files": graded_files_by_group_map[group_num]}
+        {
+            "group_num": group_num,
+            "group_label": _group_label_for_number(group_num, groups_by_number),
+            "files": graded_files_by_group_map[group_num],
+        }
         for group_num in sorted(graded_files_by_group_map.keys(), reverse=True)
     ]
 
@@ -3378,6 +3532,15 @@ def database_home(request):
         "track": PoolAssignmentForm.TRACK_EMPRENDEDORAS,
         "target_group_num": next_group_num,
     }
+    pool_source_choices: list[dict] = []
+    for key, cfg in RECRUITMENT_POOL_SOURCES.items():
+        group_num = int(cfg.get("group_num", 0) or 0)
+        pool_source_choices.append(
+            {
+                "value": key,
+                "label": _group_label_for_number(group_num, groups_by_number),
+            }
+        )
 
     return render(
         request,
@@ -3396,10 +3559,7 @@ def database_home(request):
             "graded_files_other": graded_files_other,
             "pairing_files": pairing_files,
             "transfer_form_options": transfer_form_options,
-            "pool_source_choices": [
-                {"value": key, "label": cfg["label"]}
-                for key, cfg in RECRUITMENT_POOL_SOURCES.items()
-            ],
+            "pool_source_choices": pool_source_choices,
             "pool_assignment_defaults": pool_assignment_defaults,
             "database_next": request.get_full_path(),
         },
@@ -3664,6 +3824,7 @@ def database_create_assigned_group(request):
         return _database_next_redirect(request, fallback_name="admin_database")
     source_group_num = int(source_cfg["group_num"])
     source_label = str(source_cfg["label"])
+    _ensure_recruitment_pool_group(source_pool)
     selected_track = str(form.cleaned_data["track"]).strip().upper()
     track_label = "Emprendedoras" if selected_track == "E" else "Mentoras"
     target_group_num = int(form.cleaned_data["target_group_num"])
@@ -3687,6 +3848,7 @@ def database_create_assigned_group(request):
             f"Source application pool '{source_label}' is not configured correctly.",
         )
         return _database_next_redirect(request, fallback_name="admin_database")
+    source_label = str(getattr(source_group, "custom_name", "") or "").strip() or source_label
 
     try:
         start_day = int(getattr(source_group, "start_day", 0) or 0)
@@ -3985,84 +4147,8 @@ def database_create_assigned_group(request):
                 mapping_mismatch_emails.difference(existing_any_target_track)
             )
 
-            from applications.admin_profiles_views import (
-                EMPRENDEDORAS_ACTA_COL,
-                EMPRENDEDORAS_EMAIL_COL,
-                MENTORAS_ACTA_COL,
-                MENTORAS_EMAIL_COL,
-                _apply_contract_signed_to_rows as _profiles_apply_contract_signed_to_rows,
-                _build_emprendedoras_rows as _profiles_build_emprendedoras_rows,
-                _build_mentoras_rows as _profiles_build_mentoras_rows,
-                _number_sheet_rows as _profiles_number_sheet_rows,
-            )
-
-            participant_list, _ = GroupParticipantList.objects.get_or_create(group=target_group)
-            current_mentoras = set(_norm_email_list(participant_list.mentoras_emails_text or ""))
-            current_emprendedoras = set(_norm_email_list(participant_list.emprendedoras_emails_text or ""))
-            if not current_mentoras:
-                current_mentoras = _emails_from_participant_sheet_rows(
-                    getattr(participant_list, "mentoras_sheet_rows", [])
-                )
-            if not current_emprendedoras:
-                current_emprendedoras = _emails_from_participant_sheet_rows(
-                    getattr(participant_list, "emprendedoras_sheet_rows", [])
-                )
-
-            merged_mentoras = (
-                sorted(wanted_emails)
-                if selected_track == "M"
-                else sorted(current_mentoras)
-            )
-            merged_emprendedoras = (
-                sorted(wanted_emails)
-                if selected_track == "E"
-                else sorted(current_emprendedoras)
-            )
-
-            participant_updates: list[str] = []
-            new_mentoras_text = "\n".join(merged_mentoras)
-            new_emprendedoras_text = "\n".join(merged_emprendedoras)
-            if participant_list.mentoras_emails_text != new_mentoras_text:
-                participant_list.mentoras_emails_text = new_mentoras_text
-                participant_updates.append("mentoras_emails_text")
-            if participant_list.emprendedoras_emails_text != new_emprendedoras_text:
-                participant_list.emprendedoras_emails_text = new_emprendedoras_text
-                participant_updates.append("emprendedoras_emails_text")
-
-            if selected_track == "M":
-                synced_mentoras_rows = _profiles_build_mentoras_rows(
-                    target_group.number,
-                    merged_mentoras,
-                )
-                synced_mentoras_rows = _profiles_apply_contract_signed_to_rows(
-                    synced_mentoras_rows,
-                    email_col=MENTORAS_EMAIL_COL,
-                    acta_col=MENTORAS_ACTA_COL,
-                )
-                synced_mentoras_rows = _profiles_number_sheet_rows(synced_mentoras_rows, number_col=2)
-                if (participant_list.mentoras_sheet_rows or []) != synced_mentoras_rows:
-                    participant_list.mentoras_sheet_rows = synced_mentoras_rows
-                    participant_updates.append("mentoras_sheet_rows")
-            else:
-                synced_emprendedoras_rows = _profiles_build_emprendedoras_rows(
-                    target_group.number,
-                    merged_emprendedoras,
-                )
-                synced_emprendedoras_rows = _profiles_apply_contract_signed_to_rows(
-                    synced_emprendedoras_rows,
-                    email_col=EMPRENDEDORAS_EMAIL_COL,
-                    acta_col=EMPRENDEDORAS_ACTA_COL,
-                )
-                synced_emprendedoras_rows = _profiles_number_sheet_rows(
-                    synced_emprendedoras_rows,
-                    number_col=2,
-                )
-                if (participant_list.emprendedoras_sheet_rows or []) != synced_emprendedoras_rows:
-                    participant_list.emprendedoras_sheet_rows = synced_emprendedoras_rows
-                    participant_updates.append("emprendedoras_sheet_rows")
-
-            if participant_updates:
-                participant_list.save(update_fields=participant_updates + ["updated_at"])
+            # Participant lists are not auto-created/synced from assignment anymore.
+            # They are managed explicitly from the Participants admin page.
 
     except Exception as exc:
         messages.error(request, f"Could not create assigned group: {exc}")
@@ -4110,13 +4196,6 @@ def database_create_assigned_group(request):
             if remainder_dupes:
                 dupes_text = f"{dupes_text}, ... (+{remainder_dupes} more)"
             messages.info(request, f"Duplicate pasted email(s) merged into one row each: {dupes_text}")
-    messages.info(
-        request,
-        (
-            f"Participants page synced for Group {target_group_num} "
-            f"({track_label}): {seeded_count} email(s)."
-        ),
-    )
     if skipped_existing:
         messages.info(
             request,
@@ -4349,6 +4428,19 @@ def database_type_detail(request, app_type: str):
         }
         if g is not None
     )
+    group_map = {
+        int(g.number): g
+        for g in FormGroup.objects.filter(number__in=group_options)
+    }
+    group_option_items = [
+        {"number": gnum, "label": _group_label_for_number(gnum, group_map)}
+        for gnum in group_options
+    ]
+    selected_group_label = (
+        _group_label_for_number(selected_group, group_map)
+        if selected_group is not None
+        else ""
+    )
 
     apps = (
         Application.objects.filter(form__in=forms)
@@ -4363,6 +4455,8 @@ def database_type_detail(request, app_type: str):
             "app_type": app_type,
             "selected_group": selected_group,
             "group_options": group_options,
+            "group_option_items": group_option_items,
+            "selected_group_label": selected_group_label,
             "apps": apps,
         },
     )
@@ -4392,6 +4486,19 @@ def database_type_sheet(request, app_type: str):
             for fd in all_forms
         }
         if g is not None
+    )
+    group_map = {
+        int(g.number): g
+        for g in FormGroup.objects.filter(number__in=group_options)
+    }
+    group_option_items = [
+        {"number": gnum, "label": _group_label_for_number(gnum, group_map)}
+        for gnum in group_options
+    ]
+    selected_group_label = (
+        _group_label_for_number(selected_group, group_map)
+        if selected_group is not None
+        else ""
     )
 
     return render(
@@ -4486,6 +4593,19 @@ def database_track_detail(request, track: str):
         }
         if g is not None
     )
+    group_map = {
+        int(g.number): g
+        for g in FormGroup.objects.filter(number__in=group_options)
+    }
+    group_option_items = [
+        {"number": gnum, "label": _group_label_for_number(gnum, group_map)}
+        for gnum in group_options
+    ]
+    selected_group_label = (
+        _group_label_for_number(selected_group, group_map)
+        if selected_group is not None
+        else ""
+    )
 
     apps_qs = (
         Application.objects.filter(form__in=forms)
@@ -4508,8 +4628,10 @@ def database_track_detail(request, track: str):
             "track": track,
             "track_label": track_label,
             "selected_group": selected_group,
+            "selected_group_label": selected_group_label,
             "completion_filter": completion_filter,
             "group_options": group_options,
+            "group_option_items": group_option_items,
             "apps": apps,
             "second_part_completed_count": second_part_completed_count,
         },

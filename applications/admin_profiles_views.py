@@ -1609,16 +1609,27 @@ def profiles_participants(request):
         if action == "delete_group_participants":
             group_number = selected_group.number
             try:
-                selected_group.delete()
-                messages.success(
+                participant_list = GroupParticipantList.objects.filter(group=selected_group).first()
+                if participant_list:
+                    participant_list.delete()
+                    messages.success(
+                        request,
+                        f"Deleted participant list for Group {group_number}.",
+                    )
+                else:
+                    messages.info(
+                        request,
+                        f"Group {group_number} has no participant list to delete.",
+                    )
+                messages.info(
                     request,
-                    f"Deleted Group {group_number} and its participant data.",
+                    f"Group {group_number} application/database records were not deleted.",
                 )
                 return redirect(reverse("admin_profiles_participants"))
             except Exception as exc:
                 messages.error(
                     request,
-                    f"Could not delete Group {group_number}: {exc}",
+                    f"Could not delete participant list for Group {group_number}: {exc}",
                 )
                 return redirect(f"{reverse('admin_profiles_participants')}?group={group_number}")
 

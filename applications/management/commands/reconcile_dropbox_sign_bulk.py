@@ -212,13 +212,26 @@ class Command(BaseCommand):
         )
 
         since_ts = int((timezone.now() - timedelta(days=max(days_back, 0))).timestamp())
-        requests = self._fetch_signature_requests(
+        list_requests = self._fetch_signature_requests(
             api_key=api_key,
             base_candidates=base_candidates,
             max_pages=max(max_pages, 1),
             since_ts=since_ts,
         )
-        self.stdout.write(f"Fetched {len(requests)} signature request(s) to inspect.")
+        bulk_job_requests = self._fetch_signature_requests_from_bulk_jobs(
+            api_key=api_key,
+            base_candidates=base_candidates,
+            max_pages=max(max_pages, 1),
+            since_ts=since_ts,
+            allowed_bulk_job_ids=bulk_send_job_filter,
+        )
+        requests = self._merge_signature_requests(list_requests, bulk_job_requests)
+        self.stdout.write(
+            (
+                f"Fetched {len(requests)} signature request(s) to inspect "
+                f"(list:{len(list_requests)} bulk_jobs:{len(bulk_job_requests)})."
+            )
+        )
         if title_exact_filter:
             self.stdout.write(f"Exact title filter count: {len(title_exact_filter)}")
         if bulk_send_job_filter:
@@ -625,6 +638,37 @@ class Command(BaseCommand):
         joined = " | ".join(errors) or "unknown error"
         raise CommandError(f"Could not fetch signature requests from Dropbox Sign API. {joined}")
 
+    def _fetch_signature_requests_from_bulk_jobs(
+        self,
+        *,
+        api_key: str,
+        base_candidates: list[str],
+        max_pages: int,
+        since_ts: int,
+        allowed_bulk_job_ids: set[str],
+    ) -> list[SignatureRequestLite]:
+        errors: list[str] = []
+        for base in base_candidates:
+            try:
+                return self._fetch_signature_requests_from_bulk_jobs_base(
+                    api_key=api_key,
+                    base=base.rstrip("/"),
+                    max_pages=max_pages,
+                    since_ts=since_ts,
+                    allowed_bulk_job_ids=allowed_bulk_job_ids,
+                )
+            except Exception as exc:
+                errors.append(f"{base}: {exc}")
+                continue
+        # Bulk job endpoint failure should not block reconciliation.
+        self.stdout.write(
+            self.style.WARNING(
+                "Bulk send job endpoint unavailable; falling back to signature_request/list only. "
+                + (" | ".join(errors) if errors else "")
+            )
+        )
+        return []
+
     def _fetch_signature_requests_from_base(
         self,
         *,
@@ -677,6 +721,180 @@ class Command(BaseCommand):
 
         return out
 
+    def _fetch_signature_requests_from_bulk_jobs_base(
+        self,
+        *,
+        api_key: str,
+        base: str,
+        max_pages: int,
+        since_ts: int,
+        allowed_bulk_job_ids: set[str],
+    ) -> list[SignatureRequestLite]:
+        out: list[SignatureRequestLite] = []
+        seen_jobs: set[str] = set()
+        seen_request_ids: set[str] = set()
+        list_url = f"{base}/bulk_send_job/list"
+
+        with httpx.Client(timeout=30.0, follow_redirects=True) as client:
+            for page in range(1, max_pages + 1):
+                resp = client.get(
+                    list_url,
+                    params={"page": page, "page_size": 100},
+                    auth=(api_key, ""),
+                )
+                if resp.status_code == 404:
+                    raise RuntimeError("404 Not Found")
+                if resp.status_code >= 400:
+                    raise RuntimeError(f"HTTP {resp.status_code}: {resp.text[:240]}")
+
+                data = resp.json() if resp.content else {}
+                jobs = data.get("bulk_send_jobs") or []
+                if not isinstance(jobs, list):
+                    jobs = []
+                if not jobs:
+                    break
+
+                for raw_job in jobs:
+                    if not isinstance(raw_job, dict):
+                        continue
+                    job_id = str(raw_job.get("bulk_send_job_id") or "").strip()
+                    if not job_id or job_id in seen_jobs:
+                        continue
+                    seen_jobs.add(job_id)
+                    if allowed_bulk_job_ids and job_id not in allowed_bulk_job_ids:
+                        continue
+
+                    created_at_raw = raw_job.get("created_at")
+                    try:
+                        created_at = int(created_at_raw) if created_at_raw is not None else None
+                    except Exception:
+                        created_at = None
+                    if created_at and created_at < since_ts:
+                        continue
+
+                    job_requests = self._fetch_signature_requests_for_bulk_job(
+                        client=client,
+                        api_key=api_key,
+                        base=base,
+                        bulk_send_job_id=job_id,
+                        max_pages=max_pages,
+                        since_ts=since_ts,
+                    )
+                    for req in job_requests:
+                        key = req.signature_request_id or ""
+                        if key and key in seen_request_ids:
+                            continue
+                        if key:
+                            seen_request_ids.add(key)
+                        out.append(req)
+
+                list_info = data.get("list_info") or {}
+                try:
+                    num_pages = int(list_info.get("num_pages") or 0)
+                except Exception:
+                    num_pages = 0
+                try:
+                    cur_page = int(list_info.get("page") or page)
+                except Exception:
+                    cur_page = page
+
+                has_more = bool(list_info.get("has_more"))
+                if num_pages and cur_page >= num_pages and not has_more:
+                    break
+                if not num_pages and not has_more:
+                    break
+
+        return out
+
+    def _fetch_signature_requests_for_bulk_job(
+        self,
+        *,
+        client: httpx.Client,
+        api_key: str,
+        base: str,
+        bulk_send_job_id: str,
+        max_pages: int,
+        since_ts: int,
+    ) -> list[SignatureRequestLite]:
+        out: list[SignatureRequestLite] = []
+        url = f"{base}/bulk_send_job/{bulk_send_job_id}"
+
+        for page in range(1, max_pages + 1):
+            resp = client.get(
+                url,
+                params={"page": page, "page_size": 100},
+                auth=(api_key, ""),
+            )
+            if resp.status_code >= 400:
+                raise RuntimeError(
+                    f"bulk_send_job/{bulk_send_job_id} HTTP {resp.status_code}: {resp.text[:240]}"
+                )
+
+            data = resp.json() if resp.content else {}
+            reqs = data.get("signature_requests") or []
+            if not isinstance(reqs, list):
+                reqs = []
+            if not reqs:
+                break
+
+            for raw_req in reqs:
+                if not isinstance(raw_req, dict):
+                    continue
+                lite = self._to_lite_request(raw_req)
+                if not lite.bulk_send_job_id:
+                    lite.bulk_send_job_id = bulk_send_job_id
+                created_at = lite.created_at or 0
+                if created_at and created_at < since_ts:
+                    continue
+                out.append(lite)
+
+            list_info = data.get("list_info") or {}
+            try:
+                num_pages = int(list_info.get("num_pages") or 0)
+            except Exception:
+                num_pages = 0
+            try:
+                cur_page = int(list_info.get("page") or page)
+            except Exception:
+                cur_page = page
+
+            has_more = bool(list_info.get("has_more"))
+            if num_pages and cur_page >= num_pages and not has_more:
+                break
+            if not num_pages and not has_more:
+                break
+
+        return out
+
+    @staticmethod
+    def _merge_signature_requests(
+        list_requests: list[SignatureRequestLite],
+        bulk_requests: list[SignatureRequestLite],
+    ) -> list[SignatureRequestLite]:
+        by_id: dict[str, SignatureRequestLite] = {}
+        out: list[SignatureRequestLite] = []
+
+        # Prefer bulk job payloads when request ids overlap because they align with
+        # the "Envio masivo" dashboard and include richer status context.
+        for req in bulk_requests:
+            rid = (req.signature_request_id or "").strip()
+            if rid:
+                by_id[rid] = req
+            else:
+                out.append(req)
+
+        for req in list_requests:
+            rid = (req.signature_request_id or "").strip()
+            if not rid:
+                out.append(req)
+                continue
+            if rid in by_id:
+                continue
+            by_id[rid] = req
+
+        out.extend(by_id.values())
+        return out
+
     def _to_lite_request(self, raw_req: dict) -> SignatureRequestLite:
         signature_request_id = str(raw_req.get("signature_request_id") or "").strip()
         bulk_send_job_id = str(raw_req.get("bulk_send_job_id") or "").strip()
@@ -695,19 +913,17 @@ class Command(BaseCommand):
         except Exception:
             created_at = None
 
-        signatures = raw_req.get("signatures") or []
-        if not isinstance(signatures, list):
-            signatures = []
-
         signer_emails: list[str] = []
         signed_emails: list[str] = []
-        for sig in signatures:
+        for sig in self._iter_signer_rows(raw_req):
             if not isinstance(sig, dict):
                 continue
             email = (
                 sig.get("signer_email_address")
                 or sig.get("email_address")
                 or sig.get("email")
+                or sig.get("signer_email")
+                or sig.get("recipient_email")
             )
             email_norm = str(email or "").strip().lower()
             if not email_norm:
@@ -719,10 +935,20 @@ class Command(BaseCommand):
                 or sig.get("status")
                 or sig.get("signer_status_code")
                 or sig.get("state")
+                or sig.get("signature_status")
             )
             signed_at_raw = str(sig.get("signed_at") or "").strip()
-            if _signature_status_is_signed(status_raw) or bool(signed_at_raw):
+            signed_flag = self._as_truthy(sig.get("has_signed")) or self._as_truthy(sig.get("signed"))
+            if _signature_status_is_signed(status_raw) or bool(signed_at_raw) or signed_flag:
                 signed_emails.append(email_norm)
+
+        # Fallback variants where signer emails are exposed only in top-level arrays.
+        raw_top_emails = raw_req.get("signer_email_addresses") or raw_req.get("signer_emails") or []
+        if isinstance(raw_top_emails, list):
+            for val in raw_top_emails:
+                email_norm = str(val or "").strip().lower()
+                if email_norm:
+                    signer_emails.append(email_norm)
 
         signer_emails = _clean_valid_emails(signer_emails)
         signer_set = set(signer_emails)
@@ -741,6 +967,30 @@ class Command(BaseCommand):
             signer_emails=signer_emails,
             signed_emails=signed_emails,
         )
+
+    @staticmethod
+    def _iter_signer_rows(raw_req: dict) -> list[dict]:
+        out: list[dict] = []
+
+        signatures = raw_req.get("signatures") or []
+        if isinstance(signatures, list):
+            out.extend(row for row in signatures if isinstance(row, dict))
+
+        signers = raw_req.get("signers") or []
+        if isinstance(signers, list):
+            out.extend(row for row in signers if isinstance(row, dict))
+
+        grouped = raw_req.get("grouped_signers") or raw_req.get("grouped_signatures") or []
+        if isinstance(grouped, list):
+            for group in grouped:
+                if not isinstance(group, dict):
+                    continue
+                for key in ("signatures", "signers", "grouped_signatures"):
+                    rows = group.get(key) or []
+                    if isinstance(rows, list):
+                        out.extend(row for row in rows if isinstance(row, dict))
+
+        return out
 
     @staticmethod
     def _as_truthy(value) -> bool:

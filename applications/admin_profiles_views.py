@@ -966,8 +966,8 @@ def _run_dropbox_reconcile_for_group(
     *,
     group_num: int,
     track: str = "both",
-    days_back: int = 180,
-    max_pages: int = 40,
+    days_back: int = 3650,
+    max_pages: int = 250,
 ) -> tuple[bool, str]:
     output = io.StringIO()
     try:
@@ -992,7 +992,7 @@ def _run_dropbox_reconcile_for_group(
     lines = [line.strip() for line in output.getvalue().splitlines() if line.strip()]
     if not lines:
         return True, "Dropbox check finished."
-    summary_line = lines[-1]
+    summary_line = " | ".join(lines[-4:])
     return True, summary_line
 
 
@@ -1874,6 +1874,8 @@ def profiles_participants(request):
             ok, summary = _run_dropbox_reconcile_for_group(
                 group_num=selected_group.number,
                 track="both",
+                days_back=3650,
+                max_pages=250,
             )
             if ok:
                 messages.success(
@@ -2347,6 +2349,8 @@ def profiles_participants_track_sheet(request, group_num: int, track: str):
             ok, summary = _run_dropbox_reconcile_for_group(
                 group_num=group.number,
                 track=target_track,
+                days_back=3650,
+                max_pages=250,
             )
             if ok:
                 messages.success(

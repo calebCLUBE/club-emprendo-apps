@@ -60,14 +60,14 @@ class Command(BaseCommand):
         parser.add_argument(
             "--days-back",
             type=int,
-            default=120,
-            help="Only inspect requests created in the last N days (default: 120).",
+            default=3650,
+            help="Only inspect requests created in the last N days (default: 3650).",
         )
         parser.add_argument(
             "--max-pages",
             type=int,
-            default=25,
-            help="Max pages to fetch from Dropbox Sign list API (default: 25).",
+            default=250,
+            help="Max pages to fetch from Dropbox Sign list API (default: 250).",
         )
         parser.add_argument(
             "--title-contains",
@@ -91,8 +91,8 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         group_num = int(options["group"])
         track_opt = str(options.get("track") or "both").strip().upper()
-        days_back = int(options.get("days_back") or 120)
-        max_pages = int(options.get("max_pages") or 25)
+        days_back = int(options.get("days_back") or 3650)
+        max_pages = int(options.get("max_pages") or 250)
         title_contains = str(options.get("title_contains") or "").strip().lower()
         dry_run = bool(options.get("dry_run"))
         api_base_override = str(options.get("api_base") or "").strip()
@@ -200,30 +200,28 @@ class Command(BaseCommand):
                 continue
 
             if applies_e:
-                # Safety: every signer in request should belong to this group's emprendedora pool.
-                if signer_pool and e_pool and not signer_pool.issubset(e_pool):
-                    skipped_not_target += 1
-                else:
-                    matched_signed = sorted(email for email in signed_set if email in e_pool)
-                    if matched_signed:
-                        matched_reqs_by_track["E"] += 1
-                        for email in matched_signed:
-                            signed_by_track["E"].add(email)
-                            if req.signature_request_id and email not in request_ids_by_email:
-                                request_ids_by_email[email] = req.signature_request_id
+                # Group number in title is the primary scope key for emprendedoras.
+                matched_signed = sorted(email for email in signed_set if email in e_pool)
+                if matched_signed:
+                    matched_reqs_by_track["E"] += 1
+                    for email in matched_signed:
+                        signed_by_track["E"].add(email)
+                        if req.signature_request_id and email not in request_ids_by_email:
+                            request_ids_by_email[email] = req.signature_request_id
 
             if applies_m:
                 # Mentora titles are groupless; target by signer membership in the selected group pool.
-                if signer_pool and m_pool and not signer_pool.issubset(m_pool):
-                    skipped_not_target += 1
-                else:
-                    matched_signed = sorted(email for email in signed_set if email in m_pool)
-                    if matched_signed:
-                        matched_reqs_by_track["M"] += 1
-                        for email in matched_signed:
-                            signed_by_track["M"].add(email)
-                            if req.signature_request_id and email not in request_ids_by_email:
-                                request_ids_by_email[email] = req.signature_request_id
+                matched_signed = sorted(email for email in signed_set if email in m_pool)
+                if matched_signed:
+                    if signer_pool and m_pool and not signer_pool.issubset(m_pool):
+                        # Keep a counter for diagnostics, but still apply signed emails that
+                        # clearly belong to this target group.
+                        skipped_not_target += 1
+                    matched_reqs_by_track["M"] += 1
+                    for email in matched_signed:
+                        signed_by_track["M"].add(email)
+                        if req.signature_request_id and email not in request_ids_by_email:
+                            request_ids_by_email[email] = req.signature_request_id
 
         union_signed = sorted(set().union(*signed_by_track.values()))
         self.stdout.write(
@@ -423,7 +421,12 @@ class Command(BaseCommand):
 
         signer_emails = _clean_valid_emails(signer_emails)
         signer_set = set(signer_emails)
+        req_complete = bool(raw_req.get("is_complete"))
+        req_declined = bool(raw_req.get("is_declined"))
         signed_emails = [email for email in _clean_valid_emails(signed_emails) if email in signer_set]
+        if req_complete and not req_declined and not signed_emails and signer_emails:
+            # Some list payloads omit detailed per-signer status when complete.
+            signed_emails = list(signer_emails)
 
         return SignatureRequestLite(
             signature_request_id=signature_request_id,

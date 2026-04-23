@@ -224,6 +224,9 @@ class Command(BaseCommand):
             max_pages=max(max_pages, 1),
             since_ts=since_ts,
             allowed_bulk_job_ids=bulk_send_job_filter,
+            title_contains=title_contains,
+            group_num=group_num,
+            track_opt=track_opt,
         )
         requests = self._merge_signature_requests(list_requests, bulk_job_requests)
         self.stdout.write(
@@ -646,6 +649,9 @@ class Command(BaseCommand):
         max_pages: int,
         since_ts: int,
         allowed_bulk_job_ids: set[str],
+        title_contains: str,
+        group_num: int,
+        track_opt: str,
     ) -> list[SignatureRequestLite]:
         errors: list[str] = []
         for base in base_candidates:
@@ -656,6 +662,9 @@ class Command(BaseCommand):
                     max_pages=max_pages,
                     since_ts=since_ts,
                     allowed_bulk_job_ids=allowed_bulk_job_ids,
+                    title_contains=title_contains,
+                    group_num=group_num,
+                    track_opt=track_opt,
                 )
             except Exception as exc:
                 errors.append(f"{base}: {exc}")
@@ -729,10 +738,15 @@ class Command(BaseCommand):
         max_pages: int,
         since_ts: int,
         allowed_bulk_job_ids: set[str],
+        title_contains: str,
+        group_num: int,
+        track_opt: str,
     ) -> list[SignatureRequestLite]:
         out: list[SignatureRequestLite] = []
         seen_jobs: set[str] = set()
         seen_request_ids: set[str] = set()
+        jobs_with_details = 0
+        jobs_detail_cap = min(max(max_pages, 1), 60)
         list_url = f"{base}/bulk_send_job/list"
 
         with httpx.Client(timeout=30.0, follow_redirects=True) as client:
@@ -757,12 +771,41 @@ class Command(BaseCommand):
                 for raw_job in jobs:
                     if not isinstance(raw_job, dict):
                         continue
+                    if jobs_with_details >= jobs_detail_cap:
+                        break
                     job_id = str(raw_job.get("bulk_send_job_id") or "").strip()
                     if not job_id or job_id in seen_jobs:
                         continue
                     seen_jobs.add(job_id)
                     if allowed_bulk_job_ids and job_id not in allowed_bulk_job_ids:
                         continue
+
+                    job_title = str(
+                        raw_job.get("name")
+                        or raw_job.get("title")
+                        or raw_job.get("subject")
+                        or ""
+                    ).strip()
+                    job_title_lower = job_title.lower()
+                    if title_contains and job_title and title_contains not in job_title_lower:
+                        continue
+                    if job_title:
+                        if "emprendedora" in job_title_lower:
+                            em = _EMPRENDEDORA_GROUP_TITLE_RE.search(job_title)
+                            if em:
+                                try:
+                                    hinted_group = int(em.group(1))
+                                except Exception:
+                                    hinted_group = None
+                                if hinted_group is not None and hinted_group != int(group_num):
+                                    continue
+                            elif track_opt in {"E"}:
+                                # For E-only runs, avoid scanning groupless emprendedora jobs.
+                                continue
+                        if "mentora" in job_title_lower and track_opt in {"E"}:
+                            continue
+                        if "emprendedora" in job_title_lower and track_opt in {"M"}:
+                            continue
 
                     created_at_raw = raw_job.get("created_at")
                     try:
@@ -772,14 +815,18 @@ class Command(BaseCommand):
                     if created_at and created_at < since_ts:
                         continue
 
-                    job_requests = self._fetch_signature_requests_for_bulk_job(
-                        client=client,
-                        api_key=api_key,
-                        base=base,
-                        bulk_send_job_id=job_id,
-                        max_pages=max_pages,
-                        since_ts=since_ts,
-                    )
+                    try:
+                        job_requests = self._fetch_signature_requests_for_bulk_job(
+                            client=client,
+                            api_key=api_key,
+                            base=base,
+                            bulk_send_job_id=job_id,
+                            max_pages=max_pages,
+                            since_ts=since_ts,
+                        )
+                    except Exception:
+                        continue
+                    jobs_with_details += 1
                     for req in job_requests:
                         key = req.signature_request_id or ""
                         if key and key in seen_request_ids:
@@ -803,6 +850,8 @@ class Command(BaseCommand):
                     break
                 if not num_pages and not has_more:
                     break
+                if jobs_with_details >= jobs_detail_cap:
+                    break
 
         return out
 
@@ -818,8 +867,9 @@ class Command(BaseCommand):
     ) -> list[SignatureRequestLite]:
         out: list[SignatureRequestLite] = []
         url = f"{base}/bulk_send_job/{bulk_send_job_id}"
+        page_cap = min(max(max_pages, 1), 2)
 
-        for page in range(1, max_pages + 1):
+        for page in range(1, page_cap + 1):
             resp = client.get(
                 url,
                 params={"page": page, "page_size": 100},

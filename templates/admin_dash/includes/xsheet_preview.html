@@ -946,6 +946,46 @@
       return isCheckboxCheckedValue(value) ? 'TRUE' : 'FALSE';
     }
 
+    function isCheckboxLikeFilterValues(values) {
+      if (!Array.isArray(values) || !values.length) {
+        return false;
+      }
+      const known = new Set([
+        'TRUE', 'FALSE',
+        '1', '0',
+        'CHECKED', 'UNCHECKED',
+        'ON', 'OFF',
+        'X', '✓',
+        '',
+      ]);
+      let hasBooleanToken = false;
+      for (let i = 0; i < values.length; i += 1) {
+        const token = String(values[i] == null ? '' : values[i]).trim().toUpperCase();
+        if (!known.has(token)) {
+          return false;
+        }
+        if (token === 'TRUE' || token === 'FALSE' || token === '1' || token === '0' || token === 'CHECKED' || token === 'UNCHECKED') {
+          hasBooleanToken = true;
+        }
+      }
+      return hasBooleanToken;
+    }
+
+    function normalizeCheckboxFilterValues(values) {
+      if (!Array.isArray(values)) {
+        return [];
+      }
+      const dedup = new Set();
+      values.forEach(function (v) {
+        dedup.add(normalizeCheckboxText(v));
+      });
+      return Array.from(dedup);
+    }
+
+    function filterTargetsCheckboxColumn(ci, values) {
+      return isCheckboxColumn(ci) || isCheckboxLikeFilterValues(values);
+    }
+
     function setCellTextSafe(ri, ci, value) {
       try {
         if (typeof activeSheetData.setCellText === 'function') {
@@ -2751,94 +2791,29 @@
       const originalReset = data.resetAutoFilter.bind(data);
       data.resetAutoFilter = function patchedResetAutoFilter() {
         const auto = this.autoFilter;
-        const rows = this.rows;
-        if (!auto || typeof auto.active !== 'function' || !auto.active()) {
-          return originalReset();
-        }
-
-        let range = null;
-        try {
-          range = typeof auto.range === 'function' ? auto.range() : null;
-        } catch (err) {
-          range = null;
-        }
-        if (
-          !range ||
-          !Number.isFinite(range.sri) ||
-          !Number.isFinite(range.eri)
-        ) {
-          return originalReset();
-        }
-
-        const filters = Array.isArray(auto.filters)
-          ? auto.filters.filter(Boolean)
-          : [];
-        const startRow = Number(range.sri) + 1;
-        const endRow = Number(range.eri);
-        const excludedRows = new Set();
-        const baseOrder = [];
-
-        for (let ri = startRow; ri <= endRow; ri += 1) {
-          let include = true;
-          for (let i = 0; i < filters.length; i += 1) {
-            const filter = filters[i];
-            if (!filter || typeof filter.includes !== 'function') {
-              continue;
+        if (auto && Array.isArray(auto.filters)) {
+          auto.filters.forEach(function (filter) {
+            if (!filter) {
+              return;
             }
             const colIdx = Number(filter.ci);
-            if (!Number.isFinite(colIdx) || colIdx < 0) {
-              continue;
+            if (!filterTargetsCheckboxColumn(colIdx, filter.value)) {
+              return;
             }
-            let cellText = cellTextFromRows(rows, ri, colIdx);
-            const isCheckbox = isCheckboxColumn(colIdx);
-            if (isCheckbox) {
-              cellText = normalizeCheckboxText(cellText);
+            const normalized = normalizeCheckboxFilterValues(filter.value);
+            if (normalized.length >= 2) {
+              filter.operator = 'all';
+              filter.value = [];
+            } else if (normalized.length === 1) {
+              filter.operator = 'in';
+              filter.value = normalized;
+            } else {
+              filter.operator = 'all';
+              filter.value = [];
             }
-            const operator = String(filter.operator || '').trim().toLowerCase();
-            if (operator === 'all') {
-              continue;
-            }
-            if (isCheckbox && Array.isArray(filter.value)) {
-              const allowed = new Set(filter.value.map(function (v) {
-                return normalizeCheckboxText(v);
-              }));
-              if (!allowed.has(cellText)) {
-                include = false;
-                break;
-              }
-              continue;
-            }
-            if (!filter.includes(cellText)) {
-              include = false;
-              break;
-            }
-          }
-          if (include) {
-            baseOrder.push(ri);
-          } else {
-            excludedRows.add(ri);
-          }
-        }
-
-        const sort = auto.sort;
-        const sortedOrder = baseOrder.slice();
-
-        if (sort && Number.isFinite(sort.ci)) {
-          const colIdx = Number(sort.ci);
-          sortedOrder.sort(function (rowA, rowB) {
-            return compareRowsByColumn(rows, colIdx, rowA, rowB, sort.order);
           });
         }
-
-        this.exceptRowSet = excludedRows;
-        this.sortedRowMap = new Map();
-        this.unsortedRowMap = new Map();
-        const self = this;
-        sortedOrder.forEach(function (sortedRi, idx) {
-          const sourceRi = baseOrder[idx];
-          self.sortedRowMap.set(sourceRi, sortedRi);
-          self.unsortedRowMap.set(sortedRi, sourceRi);
-        });
+        return originalReset();
       };
       data.__ceAutoFilterRuntimePatched = true;
     }
@@ -2865,13 +2840,24 @@
         const colIdx = Number.isFinite(ci) ? Number(ci) : Number(ci || 0);
         let nextItems = items;
         let nextFilter = filter;
-        if (isCheckboxColumn(colIdx)) {
+        const treatAsCheckbox = filterTargetsCheckboxColumn(
+          colIdx,
+          (nextFilter && nextFilter.value) || Object.keys(items || {})
+        );
+        if (treatAsCheckbox) {
           nextItems = normalizeCheckboxCountItems(items || {});
-          if (nextFilter && Array.isArray(nextFilter.value)) {
+          const existingValues = nextFilter && Array.isArray(nextFilter.value)
+            ? normalizeCheckboxFilterValues(nextFilter.value)
+            : [];
+          const existingOperator = String(
+            nextFilter && nextFilter.operator ? nextFilter.operator : ''
+          ).trim().toLowerCase();
+          if (existingOperator === 'all' || existingValues.length >= 2) {
+            nextFilter = null;
+          } else if (nextFilter) {
             nextFilter = Object.assign({}, nextFilter, {
-              value: nextFilter.value.map(function (v) {
-                return normalizeCheckboxText(v);
-              }),
+              operator: existingValues.length ? 'in' : 'all',
+              value: existingValues.length ? existingValues : [],
             });
           }
         }
@@ -2917,15 +2903,14 @@
           setMenuStatus(ensured.message, 'error');
           return;
         }
-        if (isCheckboxColumn(colIdx)) {
-          if (Array.isArray(values)) {
-            normalizedValues = Array.from(new Set(values.map(function (v) {
-              return normalizeCheckboxText(v);
-            })));
-            if (normalizedValues.length >= 2) {
-              normalizedOperator = 'all';
-              normalizedValues = [];
-            }
+        const treatAsCheckbox = filterTargetsCheckboxColumn(colIdx, values);
+        if (treatAsCheckbox) {
+          normalizedValues = normalizeCheckboxFilterValues(values);
+          if (normalizedValues.length >= 2 || !normalizedValues.length) {
+            normalizedOperator = 'all';
+            normalizedValues = [];
+          } else {
+            normalizedOperator = 'in';
           }
         }
         return originalOk(colIdx, normalizedOrder, normalizedOperator, normalizedValues);

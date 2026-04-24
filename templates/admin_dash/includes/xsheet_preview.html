@@ -2791,29 +2791,109 @@
       const originalReset = data.resetAutoFilter.bind(data);
       data.resetAutoFilter = function patchedResetAutoFilter() {
         const auto = this.autoFilter;
-        if (auto && Array.isArray(auto.filters)) {
-          auto.filters.forEach(function (filter) {
+        const rows = this.rows;
+        if (!auto || typeof auto.active !== 'function' || !auto.active()) {
+          return originalReset();
+        }
+
+        let range = null;
+        try {
+          range = typeof auto.range === 'function' ? auto.range() : null;
+        } catch (err) {
+          range = null;
+        }
+        if (
+          !range ||
+          !Number.isFinite(range.sri) ||
+          !Number.isFinite(range.eri)
+        ) {
+          return originalReset();
+        }
+
+        const filters = Array.isArray(auto.filters)
+          ? auto.filters.filter(Boolean)
+          : [];
+
+        filters.forEach(function (filter) {
+          if (!filter) {
+            return;
+          }
+          const colIdx = Number(filter.ci);
+          if (!filterTargetsCheckboxColumn(colIdx, filter.value)) {
+            return;
+          }
+          const normalized = normalizeCheckboxFilterValues(filter.value);
+          if (normalized.length >= 2 || !normalized.length) {
+            filter.operator = 'all';
+            filter.value = [];
+          } else {
+            filter.operator = 'in';
+            filter.value = normalized;
+          }
+        });
+
+        const startRow = Number(range.sri) + 1;
+        const endRow = Number(range.eri);
+        const excludedRows = new Set();
+        const includedRows = [];
+
+        for (let ri = startRow; ri <= endRow; ri += 1) {
+          let include = true;
+          for (let i = 0; i < filters.length; i += 1) {
+            const filter = filters[i];
             if (!filter) {
-              return;
+              continue;
+            }
+            const operator = String(filter.operator || '').trim().toLowerCase();
+            if (operator === 'all') {
+              continue;
             }
             const colIdx = Number(filter.ci);
-            if (!filterTargetsCheckboxColumn(colIdx, filter.value)) {
-              return;
+            if (!Number.isFinite(colIdx) || colIdx < 0) {
+              continue;
             }
-            const normalized = normalizeCheckboxFilterValues(filter.value);
-            if (normalized.length >= 2) {
-              filter.operator = 'all';
-              filter.value = [];
-            } else if (normalized.length === 1) {
-              filter.operator = 'in';
-              filter.value = normalized;
-            } else {
-              filter.operator = 'all';
-              filter.value = [];
+            const isCheckbox = filterTargetsCheckboxColumn(colIdx, filter.value);
+            let cellText = cellTextFromRows(rows, ri, colIdx);
+            if (isCheckbox) {
+              cellText = normalizeCheckboxText(cellText);
             }
-          });
+
+            if (operator === 'in') {
+              let allowedValues = Array.isArray(filter.value) ? filter.value.slice() : [];
+              if (isCheckbox) {
+                allowedValues = normalizeCheckboxFilterValues(allowedValues);
+              } else {
+                allowedValues = allowedValues.map(function (v) {
+                  return String(v == null ? '' : v);
+                });
+              }
+              if (!allowedValues.includes(cellText)) {
+                include = false;
+                break;
+              }
+              continue;
+            }
+
+            if (typeof filter.includes === 'function') {
+              if (!filter.includes(cellText)) {
+                include = false;
+                break;
+              }
+            }
+          }
+
+          if (include) {
+            includedRows.push(ri);
+          } else {
+            excludedRows.add(ri);
+          }
         }
-        return originalReset();
+
+        this.exceptRowSet = excludedRows;
+        // Keep row maps empty to avoid value/header misalignment when filtering.
+        // We prioritize correct filtering stability over row remapping sort behavior.
+        this.sortedRowMap = new Map();
+        this.unsortedRowMap = new Map();
       };
       data.__ceAutoFilterRuntimePatched = true;
     }

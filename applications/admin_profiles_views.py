@@ -4,8 +4,13 @@ import json
 import re
 import zipfile
 import hashlib
+import subprocess
+import sys
+import tempfile
 from collections import defaultdict
+from functools import lru_cache
 from io import BytesIO
+from pathlib import Path
 from xml.sax.saxutils import escape
 
 from django.conf import settings
@@ -14,6 +19,7 @@ from django.contrib.admin.views.decorators import staff_member_required
 from django.core.exceptions import ValidationError
 from django.core.management import call_command
 from django.core.validators import validate_email
+from django.db import connection
 from django.http import HttpResponse, JsonResponse, HttpResponseNotAllowed
 from django.shortcuts import redirect, render
 from django.urls import reverse
@@ -181,6 +187,33 @@ def _model_has_field(model, field_name: str) -> bool:
         return False
 
 
+@lru_cache(maxsize=1)
+def _formgroup_is_active_column_exists() -> bool:
+    if not _model_has_field(FormGroup, "is_active"):
+        return False
+    try:
+        with connection.cursor() as cursor:
+            columns = connection.introspection.get_table_description(cursor, FormGroup._meta.db_table)
+        return any(getattr(col, "name", "") == "is_active" for col in columns)
+    except Exception:
+        return False
+
+
+def _formgroup_safe_queryset():
+    # Keep FormGroup reads resilient if local DB is behind migrations and misses is_active.
+    base_fields = ["id", "number"]
+    if _formgroup_is_active_column_exists():
+        base_fields.append("is_active")
+    return FormGroup.objects.only(*base_fields)
+
+
+def _formgroup_active_queryset():
+    qs = _formgroup_safe_queryset().order_by("number")
+    if _formgroup_is_active_column_exists():
+        qs = qs.filter(is_active=True)
+    return qs
+
+
 def _normalize_identity(value: str | None) -> str:
     raw = (value or "").strip()
     if not raw:
@@ -301,7 +334,7 @@ def _mark_participant_sheet_acta_signed(
     if not signed_set:
         return 0, 0, "No valid signer emails to apply."
 
-    group = FormGroup.objects.filter(number=int(group_num)).first()
+    group = _formgroup_safe_queryset().filter(number=int(group_num)).first()
     if not group:
         return 0, 0, f"Group {group_num} not found."
 
@@ -968,8 +1001,46 @@ def _run_dropbox_reconcile_for_group(
     track: str = "both",
     days_back: int = 730,
     max_pages: int = 60,
+    background: bool = True,
 ) -> tuple[bool, str]:
     filters = _dropbox_group_file_filters(group_num=group_num, track=track)
+    cli_args = [
+        sys.executable,
+        str(Path(settings.BASE_DIR) / "manage.py"),
+        "reconcile_dropbox_sign_bulk",
+        "--group",
+        str(int(group_num)),
+        "--track",
+        str(track or "both"),
+        "--days-back",
+        str(int(days_back)),
+        "--max-pages",
+        str(int(max_pages)),
+    ]
+    for title in filters.get("title_exact", []):
+        cli_args.extend(["--title-exact", str(title)])
+    for job_id in filters.get("bulk_send_job_id", []):
+        cli_args.extend(["--bulk-send-job-id", str(job_id)])
+    for req_id in filters.get("signature_request_id", []):
+        cli_args.extend(["--signature-request-id", str(req_id)])
+
+    if background:
+        ts = timezone.now().strftime("%Y%m%d_%H%M%S")
+        log_path = Path(tempfile.gettempdir()) / f"dropbox_reconcile_g{group_num}_{track}_{ts}.log"
+        try:
+            with open(log_path, "ab", buffering=0) as log_file:
+                subprocess.Popen(
+                    cli_args,
+                    cwd=str(settings.BASE_DIR),
+                    stdout=log_file,
+                    stderr=subprocess.STDOUT,
+                    start_new_session=True,
+                    close_fds=True,
+                )
+            return True, f"Dropbox check started in background. Refresh in 1-2 minutes."
+        except Exception as exc:
+            return False, f"Could not start background Dropbox check: {exc}"
+
     output = io.StringIO()
     try:
         cmd_kwargs = dict(
@@ -1124,8 +1195,19 @@ def _number_sheet_rows(rows: list[list], number_col: int = 2) -> list[list]:
 def _app_group_number(app: Application) -> int | None:
     gnum = getattr(getattr(app, "form", None), "group_id", None)
     if gnum:
-        return getattr(app.form.group, "number", None)
+        return _formgroup_number_from_id(gnum)
     return _group_number_from_slug(getattr(app.form, "slug", ""))
+
+
+@lru_cache(maxsize=4096)
+def _formgroup_number_from_id(group_id: int | None) -> int | None:
+    if not group_id:
+        return None
+    try:
+        obj = _formgroup_safe_queryset().filter(id=int(group_id)).first()
+    except Exception:
+        return None
+    return getattr(obj, "number", None) if obj else None
 
 
 def _latest_apps_by_email_for_group_track(group_num: int, track: str) -> dict[str, dict]:
@@ -1134,7 +1216,7 @@ def _latest_apps_by_email_for_group_track(group_num: int, track: str) -> dict[st
         return {}
 
     apps = (
-        Application.objects.select_related("form", "form__group")
+        Application.objects.select_related("form")
         .prefetch_related("answers__question")
         .order_by("-created_at", "-id")
     )
@@ -1521,7 +1603,7 @@ def _build_grading_lookup(target_groups: set[int]) -> tuple[dict[tuple[int, str]
 
 def _build_profiles():
     apps = list(
-        Application.objects.select_related("form", "form__group")
+        Application.objects.select_related("form")
         .prefetch_related("answers__question")
         .order_by("-created_at", "-id")
     )
@@ -1603,11 +1685,7 @@ def _build_profiles():
         )
         latest_app_id_by_cluster[root] = latest_app_id
         latest_app = app_data_by_id[latest_app_id]["app"]
-        group_num = getattr(getattr(latest_app, "form", None), "group_id", None)
-        if group_num:
-            group_num = getattr(latest_app.form.group, "number", None)
-        else:
-            group_num = _group_number_from_slug(getattr(latest_app.form, "slug", ""))
+        group_num = _app_group_number(latest_app)
         if group_num:
             target_groups.add(group_num)
 
@@ -1619,11 +1697,7 @@ def _build_profiles():
         app = latest_payload["app"]
         answer_map = latest_payload["answer_map"]
 
-        group_num = getattr(getattr(app, "form", None), "group_id", None)
-        if group_num:
-            group_num = getattr(app.form.group, "number", None)
-        else:
-            group_num = _group_number_from_slug(getattr(app.form, "slug", ""))
+        group_num = _app_group_number(app)
         track = _track_from_slug(getattr(app.form, "slug", ""))
 
         cluster_tokens: set[str] = set()
@@ -1915,9 +1989,7 @@ def profiles_sheet(request):
 
 @staff_member_required
 def profiles_participants(request):
-    groups_qs = FormGroup.objects.order_by("number")
-    if _model_has_field(FormGroup, "is_active"):
-        groups_qs = groups_qs.filter(is_active=True)
+    groups_qs = _formgroup_active_queryset()
     groups = list(groups_qs)
     group_raw = (request.GET.get("group") or request.POST.get("group") or "").strip()
     selected_group = None
@@ -1934,9 +2006,7 @@ def profiles_participants(request):
             messages.error(request, "Please select a valid group.")
             return redirect(reverse("admin_profiles_participants"))
 
-        post_group_qs = FormGroup.objects.all()
-        if _model_has_field(FormGroup, "is_active"):
-            post_group_qs = post_group_qs.filter(is_active=True)
+        post_group_qs = _formgroup_active_queryset()
         selected_group = post_group_qs.filter(number=int(posted_group)).first()
         if not selected_group:
             messages.error(request, "Selected group does not exist or is archived.")
@@ -1954,16 +2024,19 @@ def profiles_participants(request):
             return redirect(f"{reverse('admin_profiles_participants')}?group={selected_group.number}")
 
         if action == "check_dropbox":
-            ok, summary = _run_dropbox_reconcile_for_group(
-                group_num=selected_group.number,
-                track="both",
-                days_back=730,
-                max_pages=60,
-            )
+            try:
+                ok, summary = _run_dropbox_reconcile_for_group(
+                    group_num=selected_group.number,
+                    track="both",
+                    days_back=730,
+                    max_pages=60,
+                )
+            except Exception as exc:
+                ok, summary = False, f"Unexpected error starting Dropbox check: {exc}"
             if ok:
                 messages.success(
                     request,
-                    f"Dropbox check completed for Group {selected_group.number}. {summary}",
+                    f"Dropbox check started for Group {selected_group.number}. {summary}",
                 )
             else:
                 messages.error(
@@ -1999,7 +2072,7 @@ def profiles_participants(request):
                         request,
                         f"Group {group_number} has no participant list data to clear.",
                     )
-                if _model_has_field(FormGroup, "is_active") and selected_group.is_active:
+                if _formgroup_is_active_column_exists() and getattr(selected_group, "is_active", True):
                     selected_group.is_active = False
                     selected_group.save(update_fields=["is_active"])
                     messages.success(
@@ -2388,7 +2461,7 @@ def profiles_participants(request):
 
 @staff_member_required
 def profiles_participants_track_sheet(request, group_num: int, track: str):
-    group = FormGroup.objects.filter(number=group_num).first()
+    group = _formgroup_safe_queryset().filter(number=group_num).first()
     if not group:
         messages.error(request, "Group not found.")
         return redirect(reverse("admin_profiles_participants"))
@@ -2429,16 +2502,19 @@ def profiles_participants_track_sheet(request, group_num: int, track: str):
         action = (request.POST.get("action") or "save_sheet").strip()
         if action == "check_dropbox":
             target_track = "M" if track_slug == "mentoras" else "E"
-            ok, summary = _run_dropbox_reconcile_for_group(
-                group_num=group.number,
-                track=target_track,
-                days_back=730,
-                max_pages=60,
-            )
+            try:
+                ok, summary = _run_dropbox_reconcile_for_group(
+                    group_num=group.number,
+                    track=target_track,
+                    days_back=730,
+                    max_pages=60,
+                )
+            except Exception as exc:
+                ok, summary = False, f"Unexpected error starting Dropbox check: {exc}"
             if ok:
                 messages.success(
                     request,
-                    f"Dropbox check completed for Group {group.number} {track_label}. {summary}",
+                    f"Dropbox check started for Group {group.number} {track_label}. {summary}",
                 )
             else:
                 messages.error(
@@ -2592,7 +2668,7 @@ def profiles_participants_track_sheet(request, group_num: int, track: str):
 
 @staff_member_required
 def profiles_participants_download(request, group_num: int):
-    group = FormGroup.objects.filter(number=group_num).first()
+    group = _formgroup_safe_queryset().filter(number=group_num).first()
     if not group:
         messages.error(request, "Group not found.")
         return redirect(reverse("admin_profiles_participants"))

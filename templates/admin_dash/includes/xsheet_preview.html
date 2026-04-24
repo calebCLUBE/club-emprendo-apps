@@ -2756,12 +2756,68 @@
           return originalReset();
         }
 
-        const sort = auto.sort;
-        const filtered = auto.filteredRows(function (ri, ci) {
-          return rows.getCell(ri, ci);
+        let range = null;
+        try {
+          range = typeof auto.range === 'function' ? auto.range() : null;
+        } catch (err) {
+          range = null;
+        }
+        if (
+          !range ||
+          !Number.isFinite(range.sri) ||
+          !Number.isFinite(range.eri)
+        ) {
+          return originalReset();
+        }
+
+        const filters = Array.isArray(auto.filters)
+          ? auto.filters.filter(Boolean)
+          : [];
+        const startRow = Number(range.sri) + 1;
+        const endRow = Number(range.eri);
+        const excludedRows = new Set();
+        const baseOrder = [];
+
+        filters.forEach(function (filter) {
+          const colIdx = Number(filter && filter.ci);
+          if (!Number.isFinite(colIdx) || colIdx < 0 || !isCheckboxColumn(colIdx)) {
+            return;
+          }
+          if (Array.isArray(filter.value)) {
+            filter.value = filter.value.map(function (v) {
+              return normalizeCheckboxText(v);
+            });
+          }
         });
-        const excludedRows = filtered && filtered.rset instanceof Set ? filtered.rset : new Set();
-        const baseOrder = filtered && filtered.fset instanceof Set ? Array.from(filtered.fset) : [];
+
+        for (let ri = startRow; ri <= endRow; ri += 1) {
+          let include = true;
+          for (let i = 0; i < filters.length; i += 1) {
+            const filter = filters[i];
+            if (!filter || typeof filter.includes !== 'function') {
+              continue;
+            }
+            const colIdx = Number(filter.ci);
+            if (!Number.isFinite(colIdx) || colIdx < 0) {
+              continue;
+            }
+            let cellText = cellTextFromRows(rows, ri, colIdx);
+            if (isCheckboxColumn(colIdx)) {
+              cellText = normalizeCheckboxText(cellText);
+            }
+            if (!filter.includes(cellText)) {
+              include = false;
+              break;
+            }
+          }
+          if (include) {
+            baseOrder.push(ri);
+          } else {
+            excludedRows.add(ri);
+          }
+        }
+
+        const sort = auto.sort;
         const sortedOrder = baseOrder.slice();
 
         if (sort && Number.isFinite(sort.ci)) {

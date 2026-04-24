@@ -2662,6 +2662,155 @@
       return { ok: true, message: 'Filters cleared.' };
     }
 
+    function isCheckboxColumn(ci) {
+      const idx = Number(ci);
+      if (!Number.isFinite(idx) || idx < 0) {
+        return false;
+      }
+      if (
+        Array.isArray(sheetColumnTypes) &&
+        idx < sheetColumnTypes.length &&
+        String(sheetColumnTypes[idx] || '').trim().toLowerCase() === 'checkbox'
+      ) {
+        return true;
+      }
+      for (let i = 0; i < validationRuleMeta.length; i += 1) {
+        const rule = validationRuleMeta[i];
+        if (!rule || rule.criteria !== 'checkbox' || !rule.range) {
+          continue;
+        }
+        if (idx >= rule.range.sci && idx <= rule.range.eci) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    function normalizeCheckboxColumn(ci) {
+      if (!isCheckboxColumn(ci) || !activeSheetData) {
+        return;
+      }
+      const rowLen = Number.isFinite(activeSheetData.rows && activeSheetData.rows.len)
+        ? Number(activeSheetData.rows.len)
+        : 0;
+      if (rowLen <= 1) {
+        return;
+      }
+      normalizeCheckboxCellsInRange({
+        sri: 1,
+        eri: rowLen - 1,
+        sci: Number(ci),
+        eci: Number(ci),
+      });
+    }
+
+    function cellTextFromRows(rows, ri, ci) {
+      if (!rows || typeof rows.getCell !== 'function') {
+        return '';
+      }
+      const cell = rows.getCell(ri, ci);
+      return parseCellText(cell).trim();
+    }
+
+    function compareRowsByColumn(rows, ci, rowA, rowB, order) {
+      const dir = String(order || '').toLowerCase() === 'desc' ? -1 : 1;
+      const aText = cellTextFromRows(rows, rowA, ci);
+      const bText = cellTextFromRows(rows, rowB, ci);
+
+      if (isCheckboxColumn(ci)) {
+        const aVal = isCheckboxCheckedValue(aText) ? 1 : 0;
+        const bVal = isCheckboxCheckedValue(bText) ? 1 : 0;
+        if (aVal !== bVal) {
+          return (aVal - bVal) * dir;
+        }
+      } else {
+        const aNum = Number(String(aText).replace(/,/g, ''));
+        const bNum = Number(String(bText).replace(/,/g, ''));
+        const bothNumeric = aText !== '' && bText !== '' && Number.isFinite(aNum) && Number.isFinite(bNum);
+        if (bothNumeric && aNum !== bNum) {
+          return (aNum - bNum) * dir;
+        }
+      }
+
+      const textCmp = aText.localeCompare(bText, undefined, {
+        numeric: true,
+        sensitivity: 'base',
+      });
+      if (textCmp !== 0) {
+        return textCmp * dir;
+      }
+      return (rowA - rowB) * dir;
+    }
+
+    function patchAutoFilterRuntime(spreadsheet) {
+      const sheetCore = spreadsheet && spreadsheet.sheet ? spreadsheet.sheet : null;
+      const data = sheetCore && sheetCore.data ? sheetCore.data : null;
+      if (!data || data.__ceAutoFilterRuntimePatched || typeof data.resetAutoFilter !== 'function') {
+        return;
+      }
+      const originalReset = data.resetAutoFilter.bind(data);
+      data.resetAutoFilter = function patchedResetAutoFilter() {
+        const auto = this.autoFilter;
+        const rows = this.rows;
+        if (!auto || typeof auto.active !== 'function' || !auto.active()) {
+          return originalReset();
+        }
+
+        const sort = auto.sort;
+        const filtered = auto.filteredRows(function (ri, ci) {
+          return rows.getCell(ri, ci);
+        });
+        const excludedRows = filtered && filtered.rset instanceof Set ? filtered.rset : new Set();
+        const baseOrder = filtered && filtered.fset instanceof Set ? Array.from(filtered.fset) : [];
+        const sortedOrder = baseOrder.slice();
+
+        if (sort && Number.isFinite(sort.ci)) {
+          const colIdx = Number(sort.ci);
+          sortedOrder.sort(function (rowA, rowB) {
+            return compareRowsByColumn(rows, colIdx, rowA, rowB, sort.order);
+          });
+        }
+
+        this.exceptRowSet = excludedRows;
+        this.sortedRowMap = new Map();
+        this.unsortedRowMap = new Map();
+        const self = this;
+        sortedOrder.forEach(function (sortedRi, idx) {
+          const sourceRi = baseOrder[idx];
+          self.sortedRowMap.set(sourceRi, sortedRi);
+          self.unsortedRowMap.set(sortedRi, sourceRi);
+        });
+      };
+      data.__ceAutoFilterRuntimePatched = true;
+    }
+
+    function patchSortFilterConfirm(spreadsheet) {
+      const sheetCore = spreadsheet && spreadsheet.sheet ? spreadsheet.sheet : null;
+      const sortFilter = sheetCore && sheetCore.sortFilter ? sheetCore.sortFilter : null;
+      if (!sortFilter || sortFilter.__ceConfirmPatched || typeof sortFilter.ok !== 'function') {
+        return;
+      }
+      const originalOk = sortFilter.ok.bind(sortFilter);
+      sortFilter.ok = function patchedSortFilterOk(ci, order, operator, values) {
+        const colIdx = Number.isFinite(ci) ? Number(ci) : 0;
+        const ensured = ensureFullRangeFilter({ reload: false });
+        if (!ensured.ok) {
+          setMenuStatus(ensured.message, 'error');
+          return;
+        }
+        if (isCheckboxColumn(colIdx)) {
+          normalizeCheckboxColumn(colIdx);
+          if (Array.isArray(values)) {
+            values = values.map(function (v) {
+              return normalizeCheckboxText(v);
+            });
+          }
+        }
+        return originalOk(colIdx, order, operator, values);
+      };
+      sortFilter.__ceConfirmPatched = true;
+    }
+
     function sortByActiveColumn(order) {
       const normalizedOrder = String(order || '').toLowerCase() === 'desc' ? 'desc' : 'asc';
       const sheetCore = activeSpreadsheet && activeSpreadsheet.sheet ? activeSpreadsheet.sheet : null;
@@ -2695,6 +2844,15 @@
       const ensureFilter = ensureFullRangeFilter({ reload: false });
       if (!ensureFilter.ok) {
         return ensureFilter;
+      }
+
+      if (isCheckboxColumn(ci)) {
+        normalizeCheckboxColumn(ci);
+        if (Array.isArray(values)) {
+          values = values.map(function (v) {
+            return normalizeCheckboxText(v);
+          });
+        }
       }
 
       data.setAutoFilter(ci, normalizedOrder, operator, values);
@@ -3582,6 +3740,8 @@
             spreadsheet.loadData(buildSheetPayload(matrix));
           }
           initValidationDrawer(spreadsheet);
+          patchAutoFilterRuntime(spreadsheet);
+          patchSortFilterConfirm(spreadsheet);
           patchToolbarAutofilter(spreadsheet);
           mountAutofillCornerFallback(spreadsheet);
           setSheetRegistryEntry({

@@ -2554,12 +2554,109 @@
       }
       try {
         fn();
-        if (activeSpreadsheet && typeof activeSpreadsheet.reRender === 'function') {
+        const sheetCore = activeSpreadsheet && activeSpreadsheet.sheet ? activeSpreadsheet.sheet : null;
+        if (sheetCore && typeof sheetCore.reload === 'function') {
+          sheetCore.reload();
+        } else if (activeSpreadsheet && typeof activeSpreadsheet.reRender === 'function') {
           activeSpreadsheet.reRender();
         }
       } catch (err) {
         setMenuStatus('Action failed.', 'error');
       }
+    }
+
+    function runUndo() {
+      const sheetCore = activeSpreadsheet && activeSpreadsheet.sheet ? activeSpreadsheet.sheet : null;
+      if (sheetCore && typeof sheetCore.undo === 'function') {
+        sheetCore.undo();
+        return true;
+      }
+      if (activeSheetData && typeof activeSheetData.undo === 'function') {
+        activeSheetData.undo();
+        return true;
+      }
+      return false;
+    }
+
+    function runRedo() {
+      const sheetCore = activeSpreadsheet && activeSpreadsheet.sheet ? activeSpreadsheet.sheet : null;
+      if (sheetCore && typeof sheetCore.redo === 'function') {
+        sheetCore.redo();
+        return true;
+      }
+      if (activeSheetData && typeof activeSheetData.redo === 'function') {
+        activeSheetData.redo();
+        return true;
+      }
+      return false;
+    }
+
+    function toggleFilter() {
+      const sheetCore = activeSpreadsheet && activeSpreadsheet.sheet ? activeSpreadsheet.sheet : null;
+      const data = sheetCore && sheetCore.data ? sheetCore.data : activeSheetData;
+      if (!data || typeof data.autofilter !== 'function') {
+        return false;
+      }
+      data.autofilter();
+      if (sheetCore && typeof sheetCore.reload === 'function') {
+        sheetCore.reload();
+      }
+      return true;
+    }
+
+    function sortByActiveColumn(order) {
+      const normalizedOrder = String(order || '').toLowerCase() === 'desc' ? 'desc' : 'asc';
+      const sheetCore = activeSpreadsheet && activeSpreadsheet.sheet ? activeSpreadsheet.sheet : null;
+      const data = sheetCore && sheetCore.data ? sheetCore.data : activeSheetData;
+      if (!data || typeof data.setAutoFilter !== 'function') {
+        return { ok: false, message: 'Sort is not available in this sheet.' };
+      }
+
+      const selector = data.selector || {};
+      const ci = Number.isFinite(selector.ci) ? Number(selector.ci) : 0;
+
+      let operator = 'all';
+      let values = [];
+      try {
+        const currentFilter = (
+          data.autoFilter &&
+          typeof data.autoFilter.getFilter === 'function'
+        ) ? data.autoFilter.getFilter(ci) : null;
+        if (currentFilter) {
+          if (typeof currentFilter.operator === 'string' && currentFilter.operator) {
+            operator = currentFilter.operator;
+          }
+          if (Array.isArray(currentFilter.value)) {
+            values = currentFilter.value.slice();
+          }
+        }
+      } catch (err) {
+        // keep defaults
+      }
+
+      try {
+        if (
+          data.autoFilter &&
+          typeof data.autoFilter.active === 'function' &&
+          !data.autoFilter.active() &&
+          typeof data.autofilter === 'function'
+        ) {
+          data.autofilter();
+        }
+      } catch (err) {
+        // no-op
+      }
+
+      data.setAutoFilter(ci, normalizedOrder, operator, values);
+      if (sheetCore && typeof sheetCore.reload === 'function') {
+        sheetCore.reload();
+      } else if (activeSpreadsheet && typeof activeSpreadsheet.reRender === 'function') {
+        activeSpreadsheet.reRender();
+      }
+      return {
+        ok: true,
+        message: `Sorted column ${colLabelFromIndex(ci)} ${normalizedOrder === 'asc' ? 'A-Z' : 'Z-A'}.`,
+      };
     }
 
     function performMenuAction(action) {
@@ -2664,10 +2761,18 @@
 
       switch (action) {
         case 'undo':
-          withSheetAction(function () { activeSheetData.undo(); });
+          withSheetAction(function () {
+            if (!runUndo()) {
+              throw new Error('undo_unavailable');
+            }
+          });
           break;
         case 'redo':
-          withSheetAction(function () { activeSheetData.redo(); });
+          withSheetAction(function () {
+            if (!runRedo()) {
+              throw new Error('redo_unavailable');
+            }
+          });
           break;
         case 'copy':
           withSheetAction(function () { activeSheetData.copy(); });
@@ -2743,8 +2848,32 @@
           withSheetAction(function () { activeSheetData.setFreeze(0, 0); });
           break;
         case 'toggle_filter':
-          withSheetAction(function () { activeSheetData.autofilter(); });
+          withSheetAction(function () {
+            if (!toggleFilter()) {
+              throw new Error('filter_unavailable');
+            }
+          });
           break;
+        case 'sort_sheet_asc':
+        case 'sort_range_asc': {
+          const sortedAsc = sortByActiveColumn('asc');
+          if (sortedAsc.ok) {
+            setMenuStatus(sortedAsc.message, 'ok');
+          } else {
+            setMenuStatus(sortedAsc.message, 'error');
+          }
+          break;
+        }
+        case 'sort_sheet_desc':
+        case 'sort_range_desc': {
+          const sortedDesc = sortByActiveColumn('desc');
+          if (sortedDesc.ok) {
+            setMenuStatus(sortedDesc.message, 'ok');
+          } else {
+            setMenuStatus(sortedDesc.message, 'error');
+          }
+          break;
+        }
         default:
           setMenuStatus('Action not available yet.', 'error');
       }
@@ -2902,8 +3031,10 @@
         {
           label: 'Data',
           items: [
-            { label: 'Sort sheet', action: 'not_implemented' },
-            { label: 'Sort range', action: 'not_implemented' },
+            { label: 'Sort sheet A-Z', action: 'sort_sheet_asc' },
+            { label: 'Sort sheet Z-A', action: 'sort_sheet_desc' },
+            { label: 'Sort range A-Z', action: 'sort_range_asc' },
+            { label: 'Sort range Z-A', action: 'sort_range_desc' },
             { label: 'Create a filter', action: 'toggle_filter' },
             { label: 'Filter views', action: 'not_implemented' },
             { separator: true },
@@ -3374,7 +3505,6 @@
               },
             },
           });
-          patchSortFilterOutsideClick(spreadsheet);
           if (typeof spreadsheet.loadData === 'function') {
             spreadsheet.loadData(buildSheetPayload(matrix));
           }
@@ -3410,7 +3540,6 @@
     }
 
     const seedMatrix = seedMatrixFromCsv();
-    shieldPopupEvents();
     fitToViewport();
     initSpreadsheet(seedMatrix);
     window.addEventListener('beforeunload', stopViewportPolling, { passive: true });

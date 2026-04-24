@@ -746,7 +746,7 @@ class Command(BaseCommand):
         seen_jobs: set[str] = set()
         seen_request_ids: set[str] = set()
         jobs_with_details = 0
-        jobs_detail_cap = min(max(max_pages, 1), 60)
+        jobs_detail_cap = min(max(max_pages, 1), 40)
         list_url = f"{base}/bulk_send_job/list"
 
         with httpx.Client(timeout=30.0, follow_redirects=True) as client:

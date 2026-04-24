@@ -2832,8 +2832,10 @@
           }
         });
 
-        const startRow = Number(range.sri) + 1;
-        const endRow = Number(range.eri);
+        // Never evaluate/filter row 0 (header row), even if vendor ref is malformed
+        // like A0:... from a column-header selection edge case.
+        const startRow = Math.max(1, Number(range.sri) + 1);
+        const endRow = Math.max(startRow, Number(range.eri));
         const excludedRows = new Set();
         const includedRows = [];
 
@@ -2991,6 +2993,18 @@
             normalizedValues = [];
           } else {
             normalizedOperator = 'in';
+          }
+          const data = sheetCore && sheetCore.data ? sheetCore.data : activeSheetData;
+          if (data && typeof data.setAutoFilter === 'function') {
+            // Apply checkbox filters directly to avoid vendor popup OK path
+            // introducing row remap/header corruption.
+            data.setAutoFilter(colIdx, null, normalizedOperator, normalizedValues);
+            if (sheetCore && typeof sheetCore.reload === 'function') {
+              sheetCore.reload();
+            } else if (activeSpreadsheet && typeof activeSpreadsheet.reRender === 'function') {
+              activeSpreadsheet.reRender();
+            }
+            return;
           }
         }
         return originalOk(colIdx, normalizedOrder, normalizedOperator, normalizedValues);

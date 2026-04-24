@@ -2778,18 +2778,6 @@
         const excludedRows = new Set();
         const baseOrder = [];
 
-        filters.forEach(function (filter) {
-          const colIdx = Number(filter && filter.ci);
-          if (!Number.isFinite(colIdx) || colIdx < 0 || !isCheckboxColumn(colIdx)) {
-            return;
-          }
-          if (Array.isArray(filter.value)) {
-            filter.value = filter.value.map(function (v) {
-              return normalizeCheckboxText(v);
-            });
-          }
-        });
-
         for (let ri = startRow; ri <= endRow; ri += 1) {
           let include = true;
           for (let i = 0; i < filters.length; i += 1) {
@@ -2802,8 +2790,23 @@
               continue;
             }
             let cellText = cellTextFromRows(rows, ri, colIdx);
-            if (isCheckboxColumn(colIdx)) {
+            const isCheckbox = isCheckboxColumn(colIdx);
+            if (isCheckbox) {
               cellText = normalizeCheckboxText(cellText);
+            }
+            const operator = String(filter.operator || '').trim().toLowerCase();
+            if (operator === 'all') {
+              continue;
+            }
+            if (isCheckbox && Array.isArray(filter.value)) {
+              const allowed = new Set(filter.value.map(function (v) {
+                return normalizeCheckboxText(v);
+              }));
+              if (!allowed.has(cellText)) {
+                include = false;
+                break;
+              }
+              continue;
             }
             if (!filter.includes(cellText)) {
               include = false;
@@ -2840,6 +2843,48 @@
       data.__ceAutoFilterRuntimePatched = true;
     }
 
+    function normalizeCheckboxCountItems(items) {
+      const out = {};
+      Object.keys(items || {}).forEach(function (key) {
+        const normalizedKey = normalizeCheckboxText(key);
+        const current = Number(out[normalizedKey] || 0);
+        const next = Number(items[key] || 0);
+        out[normalizedKey] = current + (Number.isFinite(next) ? next : 0);
+      });
+      return out;
+    }
+
+    function patchSortFilterSet(spreadsheet) {
+      const sheetCore = spreadsheet && spreadsheet.sheet ? spreadsheet.sheet : null;
+      const sortFilter = sheetCore && sheetCore.sortFilter ? sheetCore.sortFilter : null;
+      if (!sortFilter || sortFilter.__ceSetPatched || typeof sortFilter.set !== 'function') {
+        return;
+      }
+      const originalSet = sortFilter.set.bind(sortFilter);
+      sortFilter.set = function patchedSortFilterSet(ci, items, filter, sort) {
+        const colIdx = Number.isFinite(ci) ? Number(ci) : Number(ci || 0);
+        let nextItems = items;
+        let nextFilter = filter;
+        if (isCheckboxColumn(colIdx)) {
+          nextItems = normalizeCheckboxCountItems(items || {});
+          if (nextFilter && Array.isArray(nextFilter.value)) {
+            nextFilter = Object.assign({}, nextFilter, {
+              value: nextFilter.value.map(function (v) {
+                return normalizeCheckboxText(v);
+              }),
+            });
+          }
+        }
+        const result = originalSet(colIdx, nextItems, nextFilter, sort);
+        const hasSort = sort && (sort.order === 'asc' || sort.order === 'desc');
+        if (!hasSort) {
+          this.sort = null;
+        }
+        return result;
+      };
+      sortFilter.__ceSetPatched = true;
+    }
+
     function patchSortFilterConfirm(spreadsheet) {
       const sheetCore = spreadsheet && spreadsheet.sheet ? spreadsheet.sheet : null;
       const sortFilter = sheetCore && sheetCore.sortFilter ? sheetCore.sortFilter : null;
@@ -2849,20 +2894,41 @@
       const originalOk = sortFilter.ok.bind(sortFilter);
       sortFilter.ok = function patchedSortFilterOk(ci, order, operator, values) {
         const colIdx = Number.isFinite(ci) ? Number(ci) : 0;
+        const ascSelected = !!(
+          sortFilter.sortAscEl &&
+          typeof sortFilter.sortAscEl.hasClass === 'function' &&
+          sortFilter.sortAscEl.hasClass('checked')
+        );
+        const descSelected = !!(
+          sortFilter.sortDescEl &&
+          typeof sortFilter.sortDescEl.hasClass === 'function' &&
+          sortFilter.sortDescEl.hasClass('checked')
+        );
+        let normalizedOrder = null;
+        if (ascSelected) {
+          normalizedOrder = 'asc';
+        } else if (descSelected) {
+          normalizedOrder = 'desc';
+        }
+        let normalizedValues = values;
+        let normalizedOperator = operator;
         const ensured = ensureFullRangeFilter({ reload: false });
         if (!ensured.ok) {
           setMenuStatus(ensured.message, 'error');
           return;
         }
         if (isCheckboxColumn(colIdx)) {
-          normalizeCheckboxColumn(colIdx);
           if (Array.isArray(values)) {
-            values = values.map(function (v) {
+            normalizedValues = Array.from(new Set(values.map(function (v) {
               return normalizeCheckboxText(v);
-            });
+            })));
+            if (normalizedValues.length >= 2) {
+              normalizedOperator = 'all';
+              normalizedValues = [];
+            }
           }
         }
-        return originalOk(colIdx, order, operator, values);
+        return originalOk(colIdx, normalizedOrder, normalizedOperator, normalizedValues);
       };
       sortFilter.__ceConfirmPatched = true;
     }
@@ -2903,7 +2969,6 @@
       }
 
       if (isCheckboxColumn(ci)) {
-        normalizeCheckboxColumn(ci);
         if (Array.isArray(values)) {
           values = values.map(function (v) {
             return normalizeCheckboxText(v);
@@ -3797,6 +3862,7 @@
           }
           initValidationDrawer(spreadsheet);
           patchAutoFilterRuntime(spreadsheet);
+          patchSortFilterSet(spreadsheet);
           patchSortFilterConfirm(spreadsheet);
           patchToolbarAutofilter(spreadsheet);
           mountAutofillCornerFallback(spreadsheet);

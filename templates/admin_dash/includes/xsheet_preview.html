@@ -2591,17 +2591,75 @@
       return false;
     }
 
-    function toggleFilter() {
+    function fullSheetFilterRef(data) {
+      const rowLen = Number.isFinite(data && data.rows && data.rows.len)
+        ? Number(data.rows.len)
+        : 0;
+      const colLen = Number.isFinite(data && data.cols && data.cols.len)
+        ? Number(data.cols.len)
+        : 0;
+      if (rowLen < 2 || colLen < 1) {
+        return null;
+      }
+      const lastColLabel = colLabelFromIndex(colLen - 1);
+      return `A1:${lastColLabel}${rowLen}`;
+    }
+
+    function ensureFullRangeFilter(options) {
+      const opts = options && typeof options === 'object' ? options : {};
+      const shouldReload = opts.reload !== false;
+      const clearExisting = opts.clearExisting === true;
       const sheetCore = activeSpreadsheet && activeSpreadsheet.sheet ? activeSpreadsheet.sheet : null;
       const data = sheetCore && sheetCore.data ? sheetCore.data : activeSheetData;
-      if (!data || typeof data.autofilter !== 'function') {
-        return false;
+      if (!data || !data.autoFilter) {
+        return { ok: false, message: 'Filter is not available in this sheet.' };
       }
-      data.autofilter();
+
+      const ref = fullSheetFilterRef(data);
+      if (!ref) {
+        return { ok: false, message: 'Need at least one header row and one data row to filter.' };
+      }
+
+      const auto = data.autoFilter;
+      const currentRef = normalizeRangeRef(auto.ref || '');
+      const targetRef = normalizeRangeRef(ref);
+      const needsReset = clearExisting || currentRef !== targetRef;
+      if (needsReset && typeof auto.clear === 'function') {
+        auto.clear();
+      }
+      if (needsReset || !currentRef) {
+        auto.ref = ref;
+      }
+      if (!Array.isArray(auto.filters)) {
+        auto.filters = [];
+      }
+      if (typeof auto.active === 'function' && !auto.active()) {
+        auto.ref = ref;
+      }
+
+      if (shouldReload) {
+        if (sheetCore && typeof sheetCore.reload === 'function') {
+          sheetCore.reload();
+        } else if (activeSpreadsheet && typeof activeSpreadsheet.reRender === 'function') {
+          activeSpreadsheet.reRender();
+        }
+      }
+      return { ok: true, message: `Filter ready on ${ref}.` };
+    }
+
+    function clearFilters() {
+      const sheetCore = activeSpreadsheet && activeSpreadsheet.sheet ? activeSpreadsheet.sheet : null;
+      const data = sheetCore && sheetCore.data ? sheetCore.data : activeSheetData;
+      if (!data || !data.autoFilter || typeof data.autoFilter.clear !== 'function') {
+        return { ok: false, message: 'No filter state to clear.' };
+      }
+      data.autoFilter.clear();
       if (sheetCore && typeof sheetCore.reload === 'function') {
         sheetCore.reload();
+      } else if (activeSpreadsheet && typeof activeSpreadsheet.reRender === 'function') {
+        activeSpreadsheet.reRender();
       }
-      return true;
+      return { ok: true, message: 'Filters cleared.' };
     }
 
     function sortByActiveColumn(order) {
@@ -2634,17 +2692,9 @@
         // keep defaults
       }
 
-      try {
-        if (
-          data.autoFilter &&
-          typeof data.autoFilter.active === 'function' &&
-          !data.autoFilter.active() &&
-          typeof data.autofilter === 'function'
-        ) {
-          data.autofilter();
-        }
-      } catch (err) {
-        // no-op
+      const ensureFilter = ensureFullRangeFilter({ reload: false });
+      if (!ensureFilter.ok) {
+        return ensureFilter;
       }
 
       data.setAutoFilter(ci, normalizedOrder, operator, values);
@@ -2657,6 +2707,23 @@
         ok: true,
         message: `Sorted column ${colLabelFromIndex(ci)} ${normalizedOrder === 'asc' ? 'A-Z' : 'Z-A'}.`,
       };
+    }
+
+    function patchToolbarAutofilter(spreadsheet) {
+      const toolbar = spreadsheet && spreadsheet.sheet ? spreadsheet.sheet.toolbar : null;
+      if (!toolbar || toolbar.__ceAutofilterPatched || typeof toolbar.change !== 'function') {
+        return;
+      }
+      const originalChange = toolbar.change.bind(toolbar);
+      toolbar.change = function patchedToolbarChange(action, value) {
+        if (action === 'autofilter') {
+          const ensured = ensureFullRangeFilter({ reload: true });
+          setMenuStatus(ensured.message, ensured.ok ? 'ok' : 'error');
+          return;
+        }
+        return originalChange(action, value);
+      };
+      toolbar.__ceAutofilterPatched = true;
     }
 
     function performMenuAction(action) {
@@ -2848,11 +2915,16 @@
           withSheetAction(function () { activeSheetData.setFreeze(0, 0); });
           break;
         case 'toggle_filter':
-          withSheetAction(function () {
-            if (!toggleFilter()) {
-              throw new Error('filter_unavailable');
-            }
-          });
+          (function () {
+            const ensured = ensureFullRangeFilter({ reload: true });
+            setMenuStatus(ensured.message, ensured.ok ? 'ok' : 'error');
+          })();
+          break;
+        case 'clear_filter':
+          (function () {
+            const cleared = clearFilters();
+            setMenuStatus(cleared.message, cleared.ok ? 'ok' : 'error');
+          })();
           break;
         case 'sort_sheet_asc':
         case 'sort_range_asc': {
@@ -3036,6 +3108,7 @@
             { label: 'Sort range A-Z', action: 'sort_range_asc' },
             { label: 'Sort range Z-A', action: 'sort_range_desc' },
             { label: 'Create a filter', action: 'toggle_filter' },
+            { label: 'Clear filter', action: 'clear_filter' },
             { label: 'Filter views', action: 'not_implemented' },
             { separator: true },
             { label: 'Data validation rules', action: 'open_validation' },
@@ -3509,6 +3582,7 @@
             spreadsheet.loadData(buildSheetPayload(matrix));
           }
           initValidationDrawer(spreadsheet);
+          patchToolbarAutofilter(spreadsheet);
           mountAutofillCornerFallback(spreadsheet);
           setSheetRegistryEntry({
             isFallback: false,

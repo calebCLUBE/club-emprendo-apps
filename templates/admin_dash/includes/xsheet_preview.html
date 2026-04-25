@@ -2961,7 +2961,8 @@
       }
       const originalOk = sortFilter.ok.bind(sortFilter);
       sortFilter.ok = function patchedSortFilterOk(ci, order, operator, values) {
-        const colIdx = Number.isFinite(ci) ? Number(ci) : 0;
+        const parsedCi = Number(ci);
+        const colIdx = Number.isFinite(parsedCi) ? parsedCi : 0;
         const ascSelected = !!(
           sortFilter.sortAscEl &&
           typeof sortFilter.sortAscEl.hasClass === 'function' &&

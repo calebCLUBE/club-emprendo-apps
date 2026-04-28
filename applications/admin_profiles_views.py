@@ -1,6 +1,7 @@
 import csv
 import io
 import json
+import os
 import re
 import zipfile
 import hashlib
@@ -13,6 +14,7 @@ from io import BytesIO
 from pathlib import Path
 from xml.sax.saxutils import escape
 
+import httpx
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.admin.views.decorators import staff_member_required
@@ -76,6 +78,8 @@ _MENTORA_TITLE_RE = re.compile(
     r"acta\s+de\s+compromiso.*mentora",
     re.IGNORECASE,
 )
+WIX_CAPACITACION_EMPRENDEDORAS_PROGRAM_NAME = "Capacitacion programa de mentorias (Emprendedoras)"
+WIX_CAPACITACION_MENTORAS_PROGRAM_NAME = "Capacitacion de Mentoras"
 
 PROFILE_OVERVIEW_FIELDS = [
     ("full_name", "Full name"),
@@ -136,6 +140,8 @@ MENTORAS_ID_COL = 4
 EMPRENDEDORAS_ID_COL = 4
 MENTORAS_ACTA_COL = 9
 EMPRENDEDORAS_ACTA_COL = 9
+MENTORAS_CAPACITACION_COL = 11
+EMPRENDEDORAS_CAPACITACION_COL = 11
 MENTORAS_PROGRESS_DEFAULT_FALSE_COLS = [10, 11]  # Website, Capacitacion
 EMPRENDEDORAS_PROGRESS_DEFAULT_FALSE_COLS = [10, 11]  # Website, Capacitacion
 MENTORAS_BOOLEAN_COLS = [9, 10, 11, 12, 13, 14, 15]
@@ -1148,6 +1154,326 @@ def _dropbox_group_file_filters(*, group_num: int, track: str) -> dict[str, list
     if signature_request_id:
         out["signature_request_id"] = signature_request_id
     return out
+
+
+def _setting_or_env(name: str, default: str = "") -> str:
+    raw = getattr(settings, name, None)
+    if raw is not None:
+        text = str(raw).strip()
+        if text:
+            return text
+    return str(os.environ.get(name, default) or default).strip()
+
+
+def _wix_capacitacion_program_name(track_slug: str) -> str:
+    if track_slug == "mentoras":
+        return _setting_or_env(
+            "WIX_CAPACITACION_PROGRAM_MENTORAS",
+            WIX_CAPACITACION_MENTORAS_PROGRAM_NAME,
+        )
+    return _setting_or_env(
+        "WIX_CAPACITACION_PROGRAM_EMPRENDEDORAS",
+        WIX_CAPACITACION_EMPRENDEDORAS_PROGRAM_NAME,
+    )
+
+
+def _iter_nested_values(value):
+    if isinstance(value, dict):
+        yield value
+        for child in value.values():
+            yield from _iter_nested_values(child)
+        return
+    if isinstance(value, (list, tuple, set)):
+        for child in value:
+            yield from _iter_nested_values(child)
+        return
+    yield value
+
+
+def _extract_emails_from_any(value) -> list[str]:
+    raw_values: list[str] = []
+    for node in _iter_nested_values(value):
+        if isinstance(node, str):
+            if "@" in node:
+                raw_values.extend(EMAIL_SPLIT_RE.split(node))
+            continue
+        if isinstance(node, (int, float, bool)) or node is None:
+            continue
+        text = str(node or "").strip()
+        if "@" in text:
+            raw_values.extend(EMAIL_SPLIT_RE.split(text))
+    return _clean_valid_emails(raw_values)
+
+
+def _record_is_completed(record: dict) -> bool:
+    bool_keys = (
+        "completed",
+        "is_completed",
+        "isComplete",
+        "is_complete",
+        "done",
+        "finished",
+        "passed",
+    )
+    for key in bool_keys:
+        if key in record:
+            return _as_checkbox_bool(record.get(key))
+
+    date_keys = (
+        "completed_at",
+        "completedAt",
+        "completionDate",
+        "completion_date",
+        "finishedAt",
+        "finished_at",
+    )
+    for key in date_keys:
+        raw = str(record.get(key, "") or "").strip()
+        if raw:
+            return True
+
+    status_keys = (
+        "status",
+        "completion_status",
+        "completionStatus",
+        "progress_status",
+        "progressStatus",
+        "state",
+    )
+    positive_tokens = ("complete", "completed", "finished", "done", "passed")
+    negative_tokens = (
+        "incomplete",
+        "pending",
+        "started",
+        "in progress",
+        "in_progress",
+        "enrolled",
+        "invited",
+        "await",
+        "cancel",
+    )
+    for key in status_keys:
+        status = str(record.get(key, "") or "").strip().lower()
+        if not status:
+            continue
+        if any(token in status for token in negative_tokens):
+            return False
+        if any(token in status for token in positive_tokens):
+            return True
+    return False
+
+
+def _extract_completed_emails_from_wix_payload(payload) -> set[str]:
+    out: set[str] = set()
+    explicit_keys = {
+        "completedemails",
+        "completed_emails",
+        "signedemails",
+        "signed_emails",
+        "completedparticipants",
+        "completed_participants",
+    }
+    for node in _iter_nested_values(payload):
+        if not isinstance(node, dict):
+            continue
+        for key, value in node.items():
+            if str(key or "").strip().lower() in explicit_keys:
+                for email in _extract_emails_from_any(value):
+                    out.add(email)
+
+    for node in _iter_nested_values(payload):
+        if not isinstance(node, dict):
+            continue
+        if not _record_is_completed(node):
+            continue
+        candidate_values = []
+        for key, value in node.items():
+            if "email" in str(key or "").strip().lower():
+                candidate_values.append(value)
+        if not candidate_values:
+            continue
+        for email in _extract_emails_from_any(candidate_values):
+            out.add(email)
+    return out
+
+
+def _fetch_wix_capacitacion_completed_emails(
+    *,
+    program_name: str,
+    group_num: int,
+    track_slug: str,
+    participant_pool: set[str],
+) -> tuple[bool, set[str], str]:
+    completions_url = _setting_or_env("WIX_CAPACITACION_COMPLETIONS_URL", "")
+    if not completions_url:
+        return (
+            False,
+            set(),
+            "WIX_CAPACITACION_COMPLETIONS_URL is not configured.",
+        )
+
+    raw_timeout = _setting_or_env("WIX_CAPACITACION_TIMEOUT_SECONDS", "30")
+    try:
+        timeout = max(5.0, float(raw_timeout))
+    except Exception:
+        timeout = 30.0
+
+    api_key = _setting_or_env("WIX_CAPACITACION_API_KEY", "") or _setting_or_env("WIX_API_KEY", "")
+    auth_token = _setting_or_env("WIX_CAPACITACION_AUTH_TOKEN", "")
+    site_id = _setting_or_env("WIX_CAPACITACION_SITE_ID", "") or _setting_or_env("WIX_SITE_ID", "")
+    method = (_setting_or_env("WIX_CAPACITACION_HTTP_METHOD", "GET") or "GET").strip().upper()
+    if method not in {"GET", "POST"}:
+        method = "GET"
+
+    headers: dict[str, str] = {"Accept": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    elif auth_token:
+        headers["Authorization"] = f"Bearer {auth_token}"
+    if site_id:
+        headers["wix-site-id"] = site_id
+
+    params = {
+        "programName": program_name,
+        "program_name": program_name,
+        "group": str(group_num),
+        "track": str(track_slug),
+    }
+    body = {
+        "programName": program_name,
+        "group": int(group_num),
+        "track": str(track_slug),
+    }
+    if participant_pool:
+        body["participantEmails"] = sorted(participant_pool)
+
+    try:
+        with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+            if method == "POST":
+                resp = client.post(
+                    completions_url,
+                    headers=headers,
+                    params=params,
+                    json=body,
+                )
+            else:
+                resp = client.get(
+                    completions_url,
+                    headers=headers,
+                    params=params,
+                )
+    except Exception as exc:
+        return False, set(), f"Wix request failed: {exc}"
+
+    if resp.status_code >= 400:
+        return (
+            False,
+            set(),
+            f"Wix request failed (HTTP {resp.status_code}): {resp.text[:220]}",
+        )
+
+    try:
+        payload = resp.json() if resp.content else {}
+    except Exception:
+        return False, set(), "Wix response was not valid JSON."
+
+    completed = _extract_completed_emails_from_wix_payload(payload)
+    if participant_pool:
+        completed = {email for email in completed if email in participant_pool}
+
+    return (
+        True,
+        completed,
+        (
+            f"Wix completions fetched for '{program_name}'. "
+            f"Matched participant emails: {len(completed)}."
+        ),
+    )
+
+
+def _apply_capacitacion_to_rows(
+    *,
+    rows: list[list],
+    email_col: int,
+    capacitacion_col: int,
+    completed_emails: set[str],
+) -> tuple[list[list], int, int]:
+    out: list[list] = []
+    matched = 0
+    changed = 0
+    for row in rows:
+        row_copy = list(row)
+        email = ""
+        if email_col < len(row_copy):
+            email = _normalize_email(row_copy[email_col])
+        if email and email in completed_emails:
+            matched += 1
+            if capacitacion_col < len(row_copy):
+                if not _as_checkbox_bool(row_copy[capacitacion_col]):
+                    row_copy[capacitacion_col] = True
+                    changed += 1
+        out.append(row_copy)
+    return out, matched, changed
+
+
+def _run_wix_capacitacion_check_for_track(
+    *,
+    group: FormGroup,
+    track_slug: str,
+    headers: list[str],
+    bool_cols: list[int],
+    email_col: int,
+    capacitacion_col: int,
+    text_field: str,
+    rows_field: str,
+    build_rows,
+) -> tuple[bool, str]:
+    participant_list = GroupParticipantList.objects.filter(group=group).first()
+    if not participant_list:
+        return False, f"Group {group.number} has no participant list."
+
+    stored_rows = _normalize_sheet_rows(getattr(participant_list, rows_field, []), headers)
+    stored_rows = _coerce_bool_columns(stored_rows, bool_cols)
+    if stored_rows:
+        rows = _number_sheet_rows(stored_rows, number_col=2)
+    else:
+        emails_seed = _norm_email_list(getattr(participant_list, text_field, ""))
+        rows = _number_sheet_rows(build_rows(group.number, emails_seed), number_col=2)
+
+    participant_emails = _emails_from_sheet_rows(rows, email_col)
+    participant_pool = set(participant_emails)
+    if not participant_pool:
+        return False, "No participant emails found in this sheet."
+
+    program_name = _wix_capacitacion_program_name(track_slug)
+    ok, completed_emails, fetch_note = _fetch_wix_capacitacion_completed_emails(
+        program_name=program_name,
+        group_num=group.number,
+        track_slug=track_slug,
+        participant_pool=participant_pool,
+    )
+    if not ok:
+        return False, fetch_note
+
+    next_rows, matched_count, changed_count = _apply_capacitacion_to_rows(
+        rows=rows,
+        email_col=email_col,
+        capacitacion_col=capacitacion_col,
+        completed_emails=completed_emails,
+    )
+    next_rows = _number_sheet_rows(next_rows, number_col=2)
+
+    if getattr(participant_list, rows_field) != next_rows:
+        setattr(participant_list, rows_field, next_rows)
+        participant_list.save(update_fields=[rows_field, "updated_at"])
+
+    return (
+        True,
+        (
+            f"{fetch_note} "
+            f"Capacitacion rows matched: {matched_count}; changed: {changed_count}."
+        ),
+    )
 
 
 def _participant_list_email_keys() -> set[str]:
@@ -2475,6 +2801,7 @@ def profiles_participants_track_sheet(request, group_num: int, track: str):
         bool_cols = MENTORAS_BOOLEAN_COLS
         email_col = MENTORAS_EMAIL_COL
         acta_col = MENTORAS_ACTA_COL
+        capacitacion_col = MENTORAS_CAPACITACION_COL
         progress_default_false_cols = MENTORAS_PROGRESS_DEFAULT_FALSE_COLS
         text_field = "mentoras_emails_text"
         rows_field = "mentoras_sheet_rows"
@@ -2487,6 +2814,7 @@ def profiles_participants_track_sheet(request, group_num: int, track: str):
         bool_cols = EMPRENDEDORAS_BOOLEAN_COLS
         email_col = EMPRENDEDORAS_EMAIL_COL
         acta_col = EMPRENDEDORAS_ACTA_COL
+        capacitacion_col = EMPRENDEDORAS_CAPACITACION_COL
         progress_default_false_cols = EMPRENDEDORAS_PROGRESS_DEFAULT_FALSE_COLS
         text_field = "emprendedoras_emails_text"
         rows_field = "emprendedoras_sheet_rows"
@@ -2520,6 +2848,37 @@ def profiles_participants_track_sheet(request, group_num: int, track: str):
                 messages.error(
                     request,
                     f"Dropbox check failed for Group {group.number} {track_label}: {summary}",
+                )
+            return redirect(
+                reverse(
+                    "admin_profiles_participants_track_sheet",
+                    args=[group.number, track_slug],
+                )
+            )
+        if action == "check_capacitacion":
+            try:
+                ok, summary = _run_wix_capacitacion_check_for_track(
+                    group=group,
+                    track_slug=track_slug,
+                    headers=headers,
+                    bool_cols=bool_cols,
+                    email_col=email_col,
+                    capacitacion_col=capacitacion_col,
+                    text_field=text_field,
+                    rows_field=rows_field,
+                    build_rows=build_rows,
+                )
+            except Exception as exc:
+                ok, summary = False, f"Unexpected error running Wix capacitacion check: {exc}"
+            if ok:
+                messages.success(
+                    request,
+                    f"Wix capacitacion check completed for Group {group.number} {track_label}. {summary}",
+                )
+            else:
+                messages.error(
+                    request,
+                    f"Wix capacitacion check failed for Group {group.number} {track_label}: {summary}",
                 )
             return redirect(
                 reverse(

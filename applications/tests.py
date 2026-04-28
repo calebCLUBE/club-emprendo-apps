@@ -3,6 +3,7 @@ from django.urls import reverse
 from django.contrib.auth import get_user_model
 import json
 import re
+from unittest.mock import patch
 
 from applications.admin import QuestionAdminForm
 from applications.models import (
@@ -327,6 +328,62 @@ class ParticipantsPageSafetyTests(TestCase):
         self.participant_list.refresh_from_db()
         self.assertEqual(self.participant_list.mentoras_emails_text, "mentor@example.com")
         self.assertEqual(self.participant_list.emprendedoras_emails_text, "founder@example.com")
+
+
+class ParticipantsCapacitacionCheckTests(TestCase):
+    def setUp(self):
+        user_model = get_user_model()
+        self.staff_user = user_model.objects.create_superuser(
+            email="cap-admin@example.com",
+            password="testpass123",
+        )
+        self.client.force_login(self.staff_user)
+
+        self.group = FormGroup.objects.create(
+            number=993,
+            start_day=1,
+            start_month="abril",
+            end_month="abril",
+            year=2026,
+        )
+        self.participant_list = GroupParticipantList.objects.create(
+            group=self.group,
+            mentoras_sheet_rows=[
+                ["", "CP", 1, "Mentora 1", "M1", "m1@example.com", "", "", "", False, False, False, False, False, False, False],
+                ["", "CP", 2, "Mentora 2", "M2", "m2@example.com", "", "", "", False, False, False, False, False, False, False],
+            ],
+        )
+
+    def test_track_sheet_renders_check_capacitacion_button(self):
+        response = self.client.get(
+            reverse(
+                "admin_profiles_participants_track_sheet",
+                args=[self.group.number, "mentoras"],
+            )
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Check Capacitacion")
+
+    @patch("applications.admin_profiles_views._fetch_wix_capacitacion_completed_emails")
+    def test_check_capacitacion_marks_only_matching_rows(self, mock_fetch):
+        mock_fetch.return_value = (
+            True,
+            {"m1@example.com"},
+            "Wix completions fetched for mentoras.",
+        )
+
+        response = self.client.post(
+            reverse(
+                "admin_profiles_participants_track_sheet",
+                args=[self.group.number, "mentoras"],
+            ),
+            data={"action": "check_capacitacion"},
+        )
+        self.assertEqual(response.status_code, 302)
+
+        self.participant_list.refresh_from_db()
+        self.assertTrue(bool(self.participant_list.mentoras_sheet_rows[0][11]))
+        self.assertFalse(bool(self.participant_list.mentoras_sheet_rows[1][11]))
 
 
 class DropboxSignWebhookActaAutomationTests(TestCase):

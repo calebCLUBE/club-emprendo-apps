@@ -101,6 +101,11 @@
       <input type="hidden" name="action" value="check_dropbox">
       <button class="ce-sheet-btn" type="submit">Check Dropbox</button>
     </form>
+    <form method="post">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="check_capacitacion">
+      <button class="ce-sheet-btn" type="submit">Check Capacitacion</button>
+    </form>
   </div>
   <form method="post" id="sheet-save-form">
     {% csrf_token %}

@@ -2858,6 +2858,12 @@
         const filters = Array.isArray(auto.filters)
           ? auto.filters.filter(Boolean)
           : [];
+        const hasCheckboxFilter = filters.some(function (filter) {
+          if (!filter) {
+            return false;
+          }
+          return filterTargetsCheckboxColumn(Number(filter.ci), filter.value);
+        });
         filters.forEach(function (filter) {
           if (!filter) {
             return;
@@ -2875,6 +2881,117 @@
             filter.value = normalized;
           }
         });
+
+        if (hasCheckboxFilter) {
+          let range = null;
+          try {
+            range = typeof auto.range === 'function' ? auto.range() : null;
+          } catch (err) {
+            range = null;
+          }
+          if (
+            range &&
+            Number.isFinite(range.sri) &&
+            Number.isFinite(range.eri) &&
+            this.rows &&
+            typeof this.rows.getCell === 'function'
+          ) {
+            const startRow = Math.max(1, Number(range.sri) + 1);
+            const endRow = Math.max(startRow, Number(range.eri));
+            const excludedRows = new Set();
+            const includedRows = [];
+            const rows = this.rows;
+
+            for (let ri = startRow; ri <= endRow; ri += 1) {
+              let include = true;
+              for (let i = 0; i < filters.length; i += 1) {
+                const filter = filters[i];
+                if (!filter) {
+                  continue;
+                }
+                const operator = String(filter.operator || '').trim().toLowerCase();
+                if (operator === 'all') {
+                  continue;
+                }
+                const colIdx = Number(filter.ci);
+                if (!Number.isFinite(colIdx) || colIdx < 0) {
+                  continue;
+                }
+
+                const isCheckbox = filterTargetsCheckboxColumn(colIdx, filter.value);
+                let cellText = cellTextFromRows(rows, ri, colIdx);
+                if (isCheckbox) {
+                  cellText = normalizeCheckboxText(cellText);
+                }
+
+                if (operator === 'in') {
+                  let allowedValues = Array.isArray(filter.value) ? filter.value.slice() : [];
+                  if (isCheckbox) {
+                    allowedValues = normalizeCheckboxFilterValues(allowedValues);
+                  } else {
+                    allowedValues = allowedValues.map(function (v) {
+                      return String(v == null ? '' : v);
+                    });
+                  }
+                  if (!allowedValues.includes(cellText)) {
+                    include = false;
+                    break;
+                  }
+                  continue;
+                }
+
+                if (typeof filter.includes === 'function') {
+                  if (!filter.includes(cellText)) {
+                    include = false;
+                    break;
+                  }
+                }
+              }
+
+              if (include) {
+                includedRows.push(ri);
+              } else {
+                excludedRows.add(ri);
+              }
+            }
+
+            const sortInfo = auto && auto.sort ? auto.sort : null;
+            const sortedRows = includedRows.slice();
+            if (sortInfo && (sortInfo.order === 'asc' || sortInfo.order === 'desc')) {
+              const sortCi = Number(sortInfo.ci);
+              if (Number.isFinite(sortCi) && sortCi >= 0) {
+                sortedRows.sort(function (a, b) {
+                  return compareRowsByColumn(rows, sortCi, a, b, sortInfo.order);
+                });
+              }
+            }
+
+            this.exceptRowSet = excludedRows;
+            this.sortedRowMap = new Map();
+            this.unsortedRowMap = new Map();
+            includedRows.forEach((sourceRi, idx) => {
+              const sortedRi = sortedRows[idx];
+              this.sortedRowMap.set(sourceRi, sortedRi);
+              this.unsortedRowMap.set(sortedRi, sourceRi);
+            });
+
+            // Hard-stop protection for header row.
+            this.exceptRowSet.delete(0);
+            this.sortedRowMap.delete(0);
+            this.unsortedRowMap.delete(0);
+            this.sortedRowMap.forEach(function (mappedRi, sourceRi) {
+              if (mappedRi === 0) {
+                this.sortedRowMap.delete(sourceRi);
+              }
+            }, this);
+            this.unsortedRowMap.forEach(function (sourceRi, visibleRi) {
+              if (sourceRi === 0) {
+                this.unsortedRowMap.delete(visibleRi);
+              }
+            }, this);
+            return;
+          }
+        }
 
         const result = originalReset();
 

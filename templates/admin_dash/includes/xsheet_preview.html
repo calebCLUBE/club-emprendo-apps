@@ -946,8 +946,60 @@
       return isCheckboxCheckedValue(value) ? 'TRUE' : 'FALSE';
     }
 
+    function extractFilterValues(values) {
+      if (Array.isArray(values)) {
+        return values.slice();
+      }
+      if (values && typeof values === 'object') {
+        if (typeof values.forEach === 'function' && typeof values.entries === 'function') {
+          const out = [];
+          values.forEach(function (v) {
+            out.push(v);
+          });
+          return out;
+        }
+        const entries = Object.entries(values);
+        if (!entries.length) {
+          return [];
+        }
+        const numericEntries = entries
+          .filter(function (entry) { return /^\d+$/.test(entry[0]); })
+          .sort(function (a, b) { return Number(a[0]) - Number(b[0]); });
+        if (numericEntries.length) {
+          return numericEntries.map(function (entry) { return entry[1]; });
+        }
+        const selectedKeys = entries
+          .filter(function (entry) {
+            const raw = entry[1];
+            if (raw === true || raw === 1 || raw === '1') {
+              return true;
+            }
+            if (typeof raw === 'string' && raw.trim().toLowerCase() === 'true') {
+              return true;
+            }
+            if (raw && typeof raw === 'object') {
+              return raw.checked === true || raw.selected === true;
+            }
+            return false;
+          })
+          .map(function (entry) { return entry[0]; });
+        if (selectedKeys.length) {
+          return selectedKeys;
+        }
+        return [];
+      }
+      if (typeof values === 'string') {
+        return values
+          .split(',')
+          .map(function (v) { return v.trim(); })
+          .filter(function (v) { return v.length > 0; });
+      }
+      return [];
+    }
+
     function isCheckboxLikeFilterValues(values) {
-      if (!Array.isArray(values) || !values.length) {
+      const source = extractFilterValues(values);
+      if (!source.length) {
         return false;
       }
       const known = new Set([
@@ -959,8 +1011,8 @@
         '',
       ]);
       let hasBooleanToken = false;
-      for (let i = 0; i < values.length; i += 1) {
-        const token = String(values[i] == null ? '' : values[i]).trim().toUpperCase();
+      for (let i = 0; i < source.length; i += 1) {
+        const token = String(source[i] == null ? '' : source[i]).trim().toUpperCase();
         if (!known.has(token)) {
           return false;
         }
@@ -972,11 +1024,12 @@
     }
 
     function normalizeCheckboxFilterValues(values) {
-      if (!Array.isArray(values)) {
+      const source = extractFilterValues(values);
+      if (!source.length) {
         return [];
       }
       const dedup = new Set();
-      values.forEach(function (v) {
+      source.forEach(function (v) {
         dedup.add(normalizeCheckboxText(v));
       });
       return Array.from(dedup);
@@ -2791,29 +2844,20 @@
       const originalReset = data.resetAutoFilter.bind(data);
       data.resetAutoFilter = function patchedResetAutoFilter() {
         const auto = this.autoFilter;
-        const rows = this.rows;
         if (!auto || typeof auto.active !== 'function' || !auto.active()) {
           return originalReset();
         }
 
-        let range = null;
-        try {
-          range = typeof auto.range === 'function' ? auto.range() : null;
-        } catch (err) {
-          range = null;
-        }
-        if (
-          !range ||
-          !Number.isFinite(range.sri) ||
-          !Number.isFinite(range.eri)
-        ) {
-          return originalReset();
+        const targetRef = fullSheetFilterRef(this);
+        const currentRef = normalizeRangeRef(auto.ref || '');
+        const normalizedTargetRef = normalizeRangeRef(targetRef || '');
+        if (normalizedTargetRef && currentRef !== normalizedTargetRef) {
+          auto.ref = targetRef;
         }
 
         const filters = Array.isArray(auto.filters)
           ? auto.filters.filter(Boolean)
           : [];
-
         filters.forEach(function (filter) {
           if (!filter) {
             return;
@@ -2832,70 +2876,7 @@
           }
         });
 
-        // Never evaluate/filter row 0 (header row), even if vendor ref is malformed
-        // like A0:... from a column-header selection edge case.
-        const startRow = Math.max(1, Number(range.sri) + 1);
-        const endRow = Math.max(startRow, Number(range.eri));
-        const excludedRows = new Set();
-        const includedRows = [];
-
-        for (let ri = startRow; ri <= endRow; ri += 1) {
-          let include = true;
-          for (let i = 0; i < filters.length; i += 1) {
-            const filter = filters[i];
-            if (!filter) {
-              continue;
-            }
-            const operator = String(filter.operator || '').trim().toLowerCase();
-            if (operator === 'all') {
-              continue;
-            }
-            const colIdx = Number(filter.ci);
-            if (!Number.isFinite(colIdx) || colIdx < 0) {
-              continue;
-            }
-            const isCheckbox = filterTargetsCheckboxColumn(colIdx, filter.value);
-            let cellText = cellTextFromRows(rows, ri, colIdx);
-            if (isCheckbox) {
-              cellText = normalizeCheckboxText(cellText);
-            }
-
-            if (operator === 'in') {
-              let allowedValues = Array.isArray(filter.value) ? filter.value.slice() : [];
-              if (isCheckbox) {
-                allowedValues = normalizeCheckboxFilterValues(allowedValues);
-              } else {
-                allowedValues = allowedValues.map(function (v) {
-                  return String(v == null ? '' : v);
-                });
-              }
-              if (!allowedValues.includes(cellText)) {
-                include = false;
-                break;
-              }
-              continue;
-            }
-
-            if (typeof filter.includes === 'function') {
-              if (!filter.includes(cellText)) {
-                include = false;
-                break;
-              }
-            }
-          }
-
-          if (include) {
-            includedRows.push(ri);
-          } else {
-            excludedRows.add(ri);
-          }
-        }
-
-        this.exceptRowSet = excludedRows;
-        // Keep row maps empty to avoid value/header misalignment when filtering.
-        // We prioritize correct filtering stability over row remapping sort behavior.
-        this.sortedRowMap = new Map();
-        this.unsortedRowMap = new Map();
+        return originalReset();
       };
       data.__ceAutoFilterRuntimePatched = true;
     }
@@ -2978,6 +2959,8 @@
           normalizedOrder = 'asc';
         } else if (descSelected) {
           normalizedOrder = 'desc';
+        } else if (order === 'asc' || order === 'desc') {
+          normalizedOrder = order;
         }
         let normalizedValues = values;
         let normalizedOperator = operator;
@@ -2999,7 +2982,7 @@
           if (data && typeof data.setAutoFilter === 'function') {
             // Apply checkbox filters directly to avoid vendor popup OK path
             // introducing row remap/header corruption.
-            data.setAutoFilter(colIdx, null, normalizedOperator, normalizedValues);
+            data.setAutoFilter(colIdx, normalizedOrder, normalizedOperator, normalizedValues);
             if (sheetCore && typeof sheetCore.reload === 'function') {
               sheetCore.reload();
             } else if (activeSpreadsheet && typeof activeSpreadsheet.reRender === 'function') {
@@ -3049,11 +3032,7 @@
       }
 
       if (isCheckboxColumn(ci)) {
-        if (Array.isArray(values)) {
-          values = values.map(function (v) {
-            return normalizeCheckboxText(v);
-          });
-        }
+        values = normalizeCheckboxFilterValues(values);
       }
 
       data.setAutoFilter(ci, normalizedOrder, operator, values);

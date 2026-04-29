@@ -2956,9 +2956,26 @@
             }
 
             const sortInfo = auto && auto.sort ? auto.sort : null;
+            const firstCheckboxFilter = filters.find(function (filter) {
+              if (!filter) {
+                return false;
+              }
+              const ci = Number(filter.ci);
+              return Number.isFinite(ci) && ci >= 0 && filterTargetsCheckboxColumn(ci, filter.value);
+            });
             const sortedRows = includedRows.slice();
             if (sortInfo && (sortInfo.order === 'asc' || sortInfo.order === 'desc')) {
-              const sortCi = Number(sortInfo.ci);
+              let sortCi = Number(sortInfo.ci);
+              if (
+                (
+                  !Number.isFinite(sortCi) ||
+                  sortCi < 0 ||
+                  !filterTargetsCheckboxColumn(sortCi, [])
+                ) &&
+                firstCheckboxFilter
+              ) {
+                sortCi = Number(firstCheckboxFilter.ci);
+              }
               if (Number.isFinite(sortCi) && sortCi >= 0) {
                 sortedRows.sort(function (a, b) {
                   return compareRowsByColumn(rows, sortCi, a, b, sortInfo.order);
@@ -2969,24 +2986,27 @@
             this.exceptRowSet = excludedRows;
             this.sortedRowMap = new Map();
             this.unsortedRowMap = new Map();
-            includedRows.forEach((sourceRi, idx) => {
-              const sortedRi = sortedRows[idx];
-              this.sortedRowMap.set(sourceRi, sortedRi);
-              this.unsortedRowMap.set(sortedRi, sourceRi);
+            // Row-map direction in x-spreadsheet is:
+            // sortedRowMap: visibleRowIndex -> sourceRowIndex
+            // unsortedRowMap: sourceRowIndex -> visibleRowIndex
+            sortedRows.forEach((sourceRi, visibleOffset) => {
+              const visibleRi = startRow + visibleOffset;
+              this.sortedRowMap.set(visibleRi, sourceRi);
+              this.unsortedRowMap.set(sourceRi, visibleRi);
             });
 
             // Hard-stop protection for header row.
             this.exceptRowSet.delete(0);
             this.sortedRowMap.delete(0);
             this.unsortedRowMap.delete(0);
-            this.sortedRowMap.forEach(function (mappedRi, sourceRi) {
-              if (mappedRi === 0) {
-                this.sortedRowMap.delete(sourceRi);
+            this.sortedRowMap.forEach(function (sourceRi, visibleRi) {
+              if (sourceRi === 0 || visibleRi === 0) {
+                this.sortedRowMap.delete(visibleRi);
               }
             }, this);
-            this.unsortedRowMap.forEach(function (sourceRi, visibleRi) {
-              if (sourceRi === 0) {
-                this.unsortedRowMap.delete(visibleRi);
+            this.unsortedRowMap.forEach(function (visibleRi, sourceRi) {
+              if (sourceRi === 0 || visibleRi === 0) {
+                this.unsortedRowMap.delete(sourceRi);
               }
             }, this);
             return;
@@ -3004,9 +3024,9 @@
         if (this.sortedRowMap && typeof this.sortedRowMap.delete === 'function') {
           this.sortedRowMap.delete(0);
           const sortedKeysToDelete = [];
-          this.sortedRowMap.forEach(function (mappedRi, sourceRi) {
-            if (mappedRi === 0) {
-              sortedKeysToDelete.push(sourceRi);
+          this.sortedRowMap.forEach(function (sourceRi, visibleRi) {
+            if (sourceRi === 0 || visibleRi === 0) {
+              sortedKeysToDelete.push(visibleRi);
             }
           });
           sortedKeysToDelete.forEach((k) => this.sortedRowMap.delete(k));
@@ -3014,9 +3034,9 @@
         if (this.unsortedRowMap && typeof this.unsortedRowMap.delete === 'function') {
           this.unsortedRowMap.delete(0);
           const unsortedKeysToDelete = [];
-          this.unsortedRowMap.forEach(function (sourceRi, visibleRi) {
-            if (sourceRi === 0) {
-              unsortedKeysToDelete.push(visibleRi);
+          this.unsortedRowMap.forEach(function (visibleRi, sourceRi) {
+            if (sourceRi === 0 || visibleRi === 0) {
+              unsortedKeysToDelete.push(sourceRi);
             }
           });
           unsortedKeysToDelete.forEach((k) => this.unsortedRowMap.delete(k));

@@ -2876,7 +2876,36 @@
           }
         });
 
-        return originalReset();
+        const result = originalReset();
+
+        // Safety guard: the first row in our matrix is the header row.
+        // Never allow filter/sort maps to hide or remap it, even if
+        // vendor internals briefly derive a malformed range (e.g. A0:...).
+        if (this.exceptRowSet && typeof this.exceptRowSet.delete === 'function') {
+          this.exceptRowSet.delete(0);
+        }
+        if (this.sortedRowMap && typeof this.sortedRowMap.delete === 'function') {
+          this.sortedRowMap.delete(0);
+          const sortedKeysToDelete = [];
+          this.sortedRowMap.forEach(function (mappedRi, sourceRi) {
+            if (mappedRi === 0) {
+              sortedKeysToDelete.push(sourceRi);
+            }
+          });
+          sortedKeysToDelete.forEach((k) => this.sortedRowMap.delete(k));
+        }
+        if (this.unsortedRowMap && typeof this.unsortedRowMap.delete === 'function') {
+          this.unsortedRowMap.delete(0);
+          const unsortedKeysToDelete = [];
+          this.unsortedRowMap.forEach(function (sourceRi, visibleRi) {
+            if (sourceRi === 0) {
+              unsortedKeysToDelete.push(visibleRi);
+            }
+          });
+          unsortedKeysToDelete.forEach((k) => this.unsortedRowMap.delete(k));
+        }
+
+        return result;
       };
       data.__ceAutoFilterRuntimePatched = true;
     }
@@ -2964,12 +2993,15 @@
         }
         let normalizedValues = values;
         let normalizedOperator = operator;
-        const ensured = ensureFullRangeFilter({ reload: false });
+        const treatAsCheckbox = filterTargetsCheckboxColumn(colIdx, values);
+        const ensured = ensureFullRangeFilter({
+          reload: false,
+          clearExisting: treatAsCheckbox,
+        });
         if (!ensured.ok) {
           setMenuStatus(ensured.message, 'error');
           return;
         }
-        const treatAsCheckbox = filterTargetsCheckboxColumn(colIdx, values);
         if (treatAsCheckbox) {
           normalizedValues = normalizeCheckboxFilterValues(values);
           if (normalizedValues.length >= 2 || !normalizedValues.length) {

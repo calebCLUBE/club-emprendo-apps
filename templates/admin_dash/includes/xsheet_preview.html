@@ -4162,9 +4162,8 @@
             spreadsheet.loadData(buildSheetPayload(matrix));
           }
           initValidationDrawer(spreadsheet);
-          patchAutoFilterRuntime(spreadsheet);
-          patchSortFilterSet(spreadsheet);
-          patchSortFilterConfirm(spreadsheet);
+          // Use native x-spreadsheet filter/sort pipeline.
+          // Custom monkey-patches caused header remap/corruption regressions.
           patchToolbarAutofilter(spreadsheet);
           mountAutofillCornerFallback(spreadsheet);
           setSheetRegistryEntry({

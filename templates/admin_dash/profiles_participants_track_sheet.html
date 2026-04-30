@@ -488,15 +488,15 @@
         }
         return true;
       }
+      if (filterValue === '__BLANK__') {
+        return asText(row[colIdx]).trim() === '';
+      }
       const hay = asText(row[colIdx]).trim().toLowerCase();
       const needle = asText(filterValue).trim().toLowerCase();
       if (!needle) {
         return true;
       }
-      if (type === 'select') {
-        return hay === needle;
-      }
-      return hay.indexOf(needle) >= 0;
+      return hay === needle;
     }
 
     function compareRowsByCol(leftIdx, rightIdx, colIdx, dir) {
@@ -569,12 +569,6 @@
 
     function buildFilterControl(colIdx) {
       const type = columnTypes[colIdx] || 'text';
-      if (type === 'readonly_num') {
-        const span = document.createElement('span');
-        span.textContent = '';
-        return span;
-      }
-
       if (type === 'checkbox') {
         const select = document.createElement('select');
         select.className = 'filter-select';
@@ -592,35 +586,52 @@
         return select;
       }
 
+      const select = document.createElement('select');
+      select.className = 'filter-select';
+      select.dataset.col = String(colIdx);
+
+      const allOpt = document.createElement('option');
+      allOpt.value = '';
+      allOpt.textContent = 'All';
+      select.appendChild(allOpt);
+
+      const valuesMap = new Map();
       if (type === 'select') {
-        const select = document.createElement('select');
-        select.className = 'filter-select';
-        select.dataset.col = String(colIdx);
-
-        const allOpt = document.createElement('option');
-        allOpt.value = '';
-        allOpt.textContent = 'All';
-        select.appendChild(allOpt);
-
         statusOptions.forEach(function (optText) {
           const value = asText(optText).trim();
-          if (!value) {
-            return;
+          if (value) {
+            valuesMap.set(value.toLowerCase(), value);
           }
-          const opt = document.createElement('option');
-          opt.value = value;
-          opt.textContent = value;
-          select.appendChild(opt);
         });
-        return select;
+      }
+      state.rows.forEach(function (row) {
+        const raw = asText(row[colIdx]).trim();
+        if (raw) {
+          valuesMap.set(raw.toLowerCase(), raw);
+        }
+      });
+
+      const values = Array.from(valuesMap.values()).sort(function (a, b) {
+        return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+      });
+      values.forEach(function (value) {
+        const opt = document.createElement('option');
+        opt.value = value;
+        opt.textContent = value;
+        select.appendChild(opt);
+      });
+
+      const hasBlank = state.rows.some(function (row) {
+        return asText(row[colIdx]).trim() === '';
+      });
+      if (hasBlank) {
+        const blankOpt = document.createElement('option');
+        blankOpt.value = '__BLANK__';
+        blankOpt.textContent = '(Blanks)';
+        select.appendChild(blankOpt);
       }
 
-      const input = document.createElement('input');
-      input.type = 'text';
-      input.className = 'filter-input';
-      input.placeholder = 'Filter';
-      input.dataset.col = String(colIdx);
-      return input;
+      return select;
     }
 
     function buildCellEditor(rowIdx, colIdx) {
@@ -884,19 +895,6 @@
         state.rows[rowIdx][colIdx] = asText(target.value || '');
       }
       updateRegistry();
-    });
-
-    grid.addEventListener('input', function (ev) {
-      const target = ev.target;
-      if (!target || !target.matches('.filter-input')) {
-        return;
-      }
-      const colIdx = Number(target.dataset.col);
-      if (!Number.isFinite(colIdx)) {
-        return;
-      }
-      state.filters[colIdx] = asText(target.value || '');
-      renderGrid();
     });
 
     grid.addEventListener('input', function (ev) {

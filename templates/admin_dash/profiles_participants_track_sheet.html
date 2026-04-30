@@ -39,11 +39,78 @@
     overflow: hidden;
     background: #fff;
   }
+  .ce-sheet-chrome {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    z-index: 12;
+    border-bottom: 1px solid #e5e7eb;
+    background: #fff;
+  }
+  .ce-sheet-chrome-top {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    height: 34px;
+    padding: 0 14px;
+    border-bottom: 1px solid #eef2f7;
+    color: #344054;
+    font-size: 13px;
+  }
+  .ce-sheet-chip {
+    border: 1px solid #d0d7e2;
+    background: #f8fafc;
+    padding: 2px 8px;
+    border-radius: 7px;
+    font-weight: 600;
+  }
+  .ce-sheet-menu {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    padding: 0 14px;
+    height: 34px;
+    border-bottom: 1px solid #eef2f7;
+    color: #344054;
+    font-size: 14px;
+  }
+  .ce-sheet-toolbar {
+    display: grid;
+    grid-template-columns: 90px 1fr;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 14px;
+    height: 44px;
+    box-sizing: border-box;
+    border-bottom: 1px solid #e5e7eb;
+    background: #f9fafb;
+  }
+  .ce-name-box {
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    background: #fff;
+    height: 30px;
+    font-size: 13px;
+    color: #4b5563;
+    padding: 5px 8px;
+    box-sizing: border-box;
+  }
+  .ce-fx-box {
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    background: #fff;
+    height: 30px;
+    font-size: 13px;
+    color: #4b5563;
+    padding: 5px 8px;
+    box-sizing: border-box;
+  }
   .ce-sheet-actions {
     position: absolute;
     right: 14px;
-    top: 12px;
-    z-index: 20;
+    top: 6px;
+    z-index: 25;
     display: flex;
     gap: 8px;
     align-items: center;
@@ -79,10 +146,11 @@
     position: absolute;
     left: 0;
     right: 0;
-    top: 60px;
+    top: 112px;
     bottom: 0;
     overflow: auto;
     border-top: 1px solid #dfe3e8;
+    background: #fff;
   }
   .ce-grid {
     border-collapse: collapse;
@@ -96,33 +164,72 @@
   .ce-grid th,
   .ce-grid td {
     border: 1px solid #e5e7eb;
-    padding: 6px 8px;
+    padding: 4px 6px;
     white-space: nowrap;
     background: #fff;
     vertical-align: middle;
   }
   .ce-grid thead th {
     position: sticky;
-    top: 0;
-    z-index: 3;
     background: #f8fafc;
     font-weight: 700;
   }
+  .ce-grid thead tr.letters th {
+    top: 0;
+    z-index: 7;
+    background: #eef2f7;
+    color: #4b5563;
+    font-weight: 600;
+    text-align: center;
+    min-width: 74px;
+  }
+  .ce-grid thead tr.header-row th {
+    top: var(--ce-header-top, 28px);
+    z-index: 6;
+    background: #f8fafc;
+  }
   .ce-grid thead tr.filters th {
-    top: var(--ce-filter-top, 38px);
+    top: var(--ce-filter-top, 62px);
     z-index: 4;
     background: #f9fafb;
     font-weight: 500;
+  }
+  .ce-grid th.corner-cell,
+  .ce-grid th.row-num-cell,
+  .ce-grid td.row-num-cell {
+    position: sticky;
+    left: 0;
+    z-index: 8;
+    text-align: center;
+    min-width: 46px;
+    max-width: 46px;
+    width: 46px;
+    padding: 4px 0;
+    color: #4b5563;
+    background: #eef2f7;
+  }
+  .ce-grid thead tr.header-row th.row-num-cell {
+    background: #f1f5f9;
+    z-index: 9;
+  }
+  .ce-grid thead tr.filters th.row-num-cell {
+    background: #f8fafc;
+    z-index: 9;
+  }
+  .ce-grid td.row-num-cell {
+    background: #f8fafc;
+    font-size: 12px;
+    z-index: 2;
   }
   .ce-grid .filter-input,
   .ce-grid .filter-select,
   .ce-grid .cell-input,
   .ce-grid .cell-select {
     width: 100%;
-    min-width: 88px;
+    min-width: 78px;
     border: 1px solid #d1d5db;
     border-radius: 4px;
-    padding: 4px 6px;
+    padding: 3px 6px;
     font-size: 13px;
     box-sizing: border-box;
     background: #fff;
@@ -160,7 +267,7 @@
   .ce-grid-meta {
     position: absolute;
     left: 14px;
-    top: 20px;
+    top: 8px;
     z-index: 10;
     font-size: 13px;
     color: #374151;
@@ -183,6 +290,27 @@
       <input type="hidden" name="action" value="check_capacitacion">
       <button class="ce-sheet-btn" type="submit">Check Capacitacion</button>
     </form>
+  </div>
+  <div class="ce-sheet-chrome">
+    <div class="ce-sheet-chrome-top">
+      <span class="ce-sheet-chip">Club Emprendo</span>
+      <span>{{ track_label }} · Group {{ group.number }}</span>
+    </div>
+    <div class="ce-sheet-menu">
+      <span>File</span>
+      <span>Edit</span>
+      <span>View</span>
+      <span>Insert</span>
+      <span>Format</span>
+      <span>Data</span>
+      <span>Tools</span>
+      <span>Extensions</span>
+      <span>Help</span>
+    </div>
+    <div class="ce-sheet-toolbar">
+      <div class="ce-name-box">A1</div>
+      <div class="ce-fx-box">fx</div>
+    </div>
   </div>
 
   <form method="post" id="sheet-save-form">
@@ -332,6 +460,17 @@
         return '↕';
       }
       return state.sort.dir > 0 ? '▲' : '▼';
+    }
+
+    function columnLetter(colIdx) {
+      let n = Number(colIdx) + 1;
+      let out = '';
+      while (n > 0) {
+        const rem = (n - 1) % 26;
+        out = String.fromCharCode(65 + rem) + out;
+        n = Math.floor((n - 1) / 26);
+      }
+      return out || 'A';
     }
 
     function headerMatchesFilter(row, colIdx, filterValue) {
@@ -544,11 +683,33 @@
       computeVisibleIndexes();
 
       const thead = document.createElement('thead');
+      const lettersRow = document.createElement('tr');
+      lettersRow.className = 'letters';
       const headerRow = document.createElement('tr');
+      headerRow.className = 'header-row';
       const filterRow = document.createElement('tr');
       filterRow.className = 'filters';
 
+      const cornerCell = document.createElement('th');
+      cornerCell.className = 'corner-cell';
+      cornerCell.textContent = '';
+      lettersRow.appendChild(cornerCell);
+
+      const headerNumCell = document.createElement('th');
+      headerNumCell.className = 'row-num-cell';
+      headerNumCell.textContent = '1';
+      headerRow.appendChild(headerNumCell);
+
+      const filterNumCell = document.createElement('th');
+      filterNumCell.className = 'row-num-cell';
+      filterNumCell.textContent = '';
+      filterRow.appendChild(filterNumCell);
+
       for (let c = 0; c < headers.length; c += 1) {
+        const letterTh = document.createElement('th');
+        letterTh.textContent = columnLetter(c);
+        lettersRow.appendChild(letterTh);
+
         const th = document.createElement('th');
         th.textContent = asText(headers[c]);
 
@@ -569,12 +730,17 @@
         filterRow.appendChild(filterTh);
       }
 
+      thead.appendChild(lettersRow);
       thead.appendChild(headerRow);
       thead.appendChild(filterRow);
 
       const tbody = document.createElement('tbody');
       state.visibleIndexes.forEach(function (rowIdx) {
         const tr = document.createElement('tr');
+        const rowNumTd = document.createElement('td');
+        rowNumTd.className = 'row-num-cell';
+        rowNumTd.textContent = String(rowIdx + 2);
+        tr.appendChild(rowNumTd);
         for (let c = 0; c < headers.length; c += 1) {
           const td = document.createElement('td');
           if (checkboxCols.has(c)) {
@@ -594,7 +760,15 @@
       grid.appendChild(thead);
       grid.appendChild(tbody);
 
-      const filterTopPx = Math.max(0, Math.round(headerRow.getBoundingClientRect().height)) + 'px';
+      const lettersTopPx = Math.max(0, Math.round(lettersRow.getBoundingClientRect().height)) + 'px';
+      const filterTopPx =
+        Math.max(
+          0,
+          Math.round(lettersRow.getBoundingClientRect().height + headerRow.getBoundingClientRect().height)
+        ) + 'px';
+      headerRow.querySelectorAll('th').forEach(function (th) {
+        th.style.setProperty('--ce-header-top', lettersTopPx);
+      });
       filterRow.querySelectorAll('th').forEach(function (th) {
         th.style.setProperty('--ce-filter-top', filterTopPx);
       });
@@ -710,6 +884,19 @@
         state.rows[rowIdx][colIdx] = asText(target.value || '');
       }
       updateRegistry();
+    });
+
+    grid.addEventListener('input', function (ev) {
+      const target = ev.target;
+      if (!target || !target.matches('.filter-input')) {
+        return;
+      }
+      const colIdx = Number(target.dataset.col);
+      if (!Number.isFinite(colIdx)) {
+        return;
+      }
+      state.filters[colIdx] = asText(target.value || '');
+      renderGrid();
     });
 
     grid.addEventListener('input', function (ev) {

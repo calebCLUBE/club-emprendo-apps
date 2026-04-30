@@ -2,7 +2,6 @@
 {% load static %}
 
 {% block content %}
-<link rel="stylesheet" href="{% static 'vendor/x-data-spreadsheet/xspreadsheet.css' %}">
 <style>
   html,
   body {
@@ -43,27 +42,27 @@
   .ce-sheet-actions {
     position: absolute;
     right: 14px;
-    top: 10px;
-    z-index: 2400;
+    top: 12px;
+    z-index: 20;
     display: flex;
     gap: 8px;
     align-items: center;
   }
   .ce-sheet-actions form {
+    margin: 0 !important;
     width: auto !important;
     height: auto !important;
-    margin: 0 !important;
   }
   .ce-sheet-btn {
     display: inline-block;
-    padding: 6px 10px;
-    border-radius: 8px;
+    padding: 8px 12px;
+    border-radius: 10px;
     border: 1px solid #223413;
     background: #223413;
     color: #fff !important;
     text-decoration: none;
     font-weight: 600;
-    font-size: 12px;
+    font-size: 14px;
     line-height: 1.2;
     cursor: pointer;
   }
@@ -76,22 +75,100 @@
     height: 100%;
     margin: 0;
   }
-  .ce-sheet-shell .ce-sheet-preview-wrap {
-    width: 100%;
-    height: 100%;
-    overflow: visible !important;
-    border: 0 !important;
-    border-radius: 0 !important;
+  .ce-grid-wrap {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 60px;
+    bottom: 0;
+    overflow: auto;
+    border-top: 1px solid #dfe3e8;
   }
-  .ce-sheet-shell .ce-sheet-preview-canvas {
+  .ce-grid {
+    border-collapse: collapse;
+    width: max-content;
+    min-width: 100%;
+    font-family: Arial, sans-serif;
+    font-size: 14px;
+    color: #1f2937;
+    background: #fff;
+  }
+  .ce-grid th,
+  .ce-grid td {
+    border: 1px solid #e5e7eb;
+    padding: 6px 8px;
+    white-space: nowrap;
+    background: #fff;
+    vertical-align: middle;
+  }
+  .ce-grid thead th {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    background: #f8fafc;
+    font-weight: 700;
+  }
+  .ce-grid thead tr.filters th {
+    top: var(--ce-filter-top, 38px);
+    z-index: 4;
+    background: #f9fafb;
+    font-weight: 500;
+  }
+  .ce-grid .filter-input,
+  .ce-grid .filter-select,
+  .ce-grid .cell-input,
+  .ce-grid .cell-select {
     width: 100%;
-    height: 100%;
-    min-height: 0;
-    overflow: visible;
+    min-width: 88px;
+    border: 1px solid #d1d5db;
+    border-radius: 4px;
+    padding: 4px 6px;
+    font-size: 13px;
+    box-sizing: border-box;
+    background: #fff;
+  }
+  .ce-grid .filter-select {
+    min-width: 110px;
+  }
+  .ce-grid .cell-input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    min-width: 18px;
+    margin: 0 auto;
+    display: block;
+  }
+  .ce-grid td.checkbox-cell {
+    text-align: center;
+  }
+  .ce-grid .sort-btn {
+    margin-left: 6px;
+    border: 0;
+    background: transparent;
+    padding: 0;
+    cursor: pointer;
+    font-size: 12px;
+    color: #4b5563;
+  }
+  .ce-grid .sort-btn.is-active {
+    color: #111827;
+    font-weight: 700;
+  }
+  .ce-grid .readonly-cell {
+    background: #f9fafb;
+    color: #374151;
+  }
+  .ce-grid-meta {
+    position: absolute;
+    left: 14px;
+    top: 20px;
+    z-index: 10;
+    font-size: 13px;
+    color: #374151;
   }
 </style>
 
 <div class="ce-sheet-shell">
+  <div class="ce-grid-meta" id="ce-grid-meta"></div>
   <div class="ce-sheet-actions">
     <a class="ce-sheet-btn ce-sheet-btn--ghost" href="{% url 'admin_profiles_participants' %}?group={{ group.number }}">
       Back
@@ -107,25 +184,57 @@
       <button class="ce-sheet-btn" type="submit">Check Capacitacion</button>
     </form>
   </div>
+
   <form method="post" id="sheet-save-form">
     {% csrf_token %}
     <input type="hidden" name="action" value="save_sheet">
     <input type="hidden" id="sheet_data" name="sheet_data" value="">
-    {% include "admin_dash/includes/xsheet_preview.html" with sheet_id="participants-track-sheet" sheet_headers=sheet_headers sheet_rows=sheet_rows sheet_column_types=sheet_column_types sheet_height=1200 sheet_deferred=True %}
+    <div class="ce-grid-wrap">
+      <table class="ce-grid" id="ce-grid"></table>
+    </div>
   </form>
 </div>
 
 {{ sheet_headers|json_script:"ppt-headers" }}
 {{ sheet_column_types|json_script:"ppt-column-types" }}
+{{ sheet_rows|json_script:"ppt-rows" }}
+{{ sheet_status_options|json_script:"ppt-status-options" }}
 <script>
   (function () {
     const headers = JSON.parse(document.getElementById('ppt-headers').textContent || '[]');
     const columnTypes = JSON.parse(document.getElementById('ppt-column-types').textContent || '[]');
+    const initialRows = JSON.parse(document.getElementById('ppt-rows').textContent || '[]');
+    const statusOptions = JSON.parse(document.getElementById('ppt-status-options').textContent || '[]');
+
+    const grid = document.getElementById('ce-grid');
+    const meta = document.getElementById('ce-grid-meta');
     const form = document.getElementById('sheet-save-form');
     const sheetDataInput = document.getElementById('sheet_data');
     const csrfInput = form ? form.querySelector('input[name="csrfmiddlewaretoken"]') : null;
-    let lastSavedPayload = '';
+
+    if (!grid || !form || !sheetDataInput || !csrfInput) {
+      return;
+    }
+
+    const checkboxCols = new Set(
+      columnTypes
+        .map(function (type, idx) {
+          return type === 'checkbox' ? idx : -1;
+        })
+        .filter(function (idx) {
+          return idx >= 0;
+        })
+    );
+    const numberColIdx = columnTypes.indexOf('readonly_num');
+    const state = {
+      rows: [],
+      filters: {},
+      sort: { col: -1, dir: 0 },
+      visibleIndexes: [],
+    };
+
     let saveInFlight = false;
+    let lastSavedPayload = '';
 
     function fitShellToHeader() {
       const header = document.getElementById('header');
@@ -136,10 +245,10 @@
       const headerBottom = header
         ? Math.max(0, Math.round(header.getBoundingClientRect().bottom))
         : 48;
-      shell.style.top = `${headerBottom}px`;
+      shell.style.top = headerBottom + 'px';
     }
 
-    function checkboxValue(val) {
+    function asBool(val) {
       if (typeof val === 'boolean') {
         return val;
       }
@@ -150,26 +259,45 @@
       return ['1', 'true', 'checked', 'on', 'x', '✓'].includes(raw);
     }
 
-    function normalizeHeaderLabel(val) {
-      return String(val == null ? '' : val)
-        .trim()
-        .toLowerCase()
-        .replace(/\s+/g, ' ');
+    function asText(val) {
+      return String(val == null ? '' : val);
     }
 
-    function isDataRowEmpty(row, numberColIdx) {
-      for (let i = 0; i < row.length; i += 1) {
-        if (i === numberColIdx) {
+    function normalizeRows(rows) {
+      if (!Array.isArray(rows)) {
+        return [];
+      }
+      return rows.map(function (row, rowIdx) {
+        const src = Array.isArray(row) ? row : [];
+        const out = [];
+        for (let c = 0; c < headers.length; c += 1) {
+          const raw = c < src.length ? src[c] : '';
+          const type = columnTypes[c] || 'text';
+          if (type === 'checkbox') {
+            out.push(asBool(raw));
+          } else if (type === 'readonly_num') {
+            const parsed = parseInt(asText(raw).trim(), 10);
+            out.push(Number.isFinite(parsed) ? parsed : rowIdx + 1);
+          } else {
+            out.push(asText(raw));
+          }
+        }
+        return out;
+      });
+    }
+
+    function isDataRowEmpty(row) {
+      for (let c = 0; c < row.length; c += 1) {
+        if (c === numberColIdx) {
           continue;
         }
-        const val = row[i];
-        if (typeof val === 'boolean') {
-          if (val) {
+        const type = columnTypes[c] || 'text';
+        const val = row[c];
+        if (type === 'checkbox') {
+          if (asBool(val)) {
             return false;
           }
-          continue;
-        }
-        if (String(val == null ? '' : val).trim() !== '') {
+        } else if (String(val == null ? '' : val).trim() !== '') {
           return false;
         }
       }
@@ -177,96 +305,338 @@
     }
 
     function rowsForSave() {
-      const registry = window.__ceSheetRegistry || {};
-      const sheet = registry['participants-track-sheet'];
-      if (!sheet || typeof sheet.getMatrix !== 'function') {
-        return [];
-      }
-
-      const matrix = sheet.getMatrix();
-      const matrixHeaders = Array.isArray(matrix) && Array.isArray(matrix[0]) ? matrix[0] : [];
-      const bodyRows = Array.isArray(matrix) ? matrix.slice(1) : [];
-      const boolCols = columnTypes
-        .map((t, idx) => (t === 'checkbox' ? idx : -1))
-        .filter((idx) => idx >= 0);
-      const numberColIdx = columnTypes.findIndex((t) => t === 'readonly_num');
-      const width = headers.length;
-
-      // Map current visual columns back to canonical headers so column delete/insert
-      // keeps data aligned with the correct backend columns.
-      const sourceIndexByCanonical = Array(width).fill(-1);
-      const usedSourceIndexes = new Set();
-      for (let c = 0; c < width; c += 1) {
-        const targetNorm = normalizeHeaderLabel(headers[c]);
-        if (!targetNorm) {
-          continue;
-        }
-        for (let srcIdx = 0; srcIdx < matrixHeaders.length; srcIdx += 1) {
-          if (usedSourceIndexes.has(srcIdx)) {
-            continue;
-          }
-          if (normalizeHeaderLabel(matrixHeaders[srcIdx]) === targetNorm) {
-            sourceIndexByCanonical[c] = srcIdx;
-            usedSourceIndexes.add(srcIdx);
-            break;
-          }
-        }
-      }
-
-      const matchedHeaderCount = sourceIndexByCanonical.filter((idx) => idx >= 0).length;
-      if (matchedHeaderCount < Math.max(3, Math.floor(width * 0.6))) {
-        // Fallback to positional mapping to avoid destructive blanking when
-        // runtime filter/sort UI temporarily exposes a non-canonical header row.
-        for (let c = 0; c < width; c += 1) {
-          sourceIndexByCanonical[c] = c < matrixHeaders.length ? c : -1;
-        }
-      }
-
       const outRows = [];
-      for (let r = 0; r < bodyRows.length; r += 1) {
-        const src = Array.isArray(bodyRows[r]) ? bodyRows[r] : [];
+      for (let r = 0; r < state.rows.length; r += 1) {
+        const src = state.rows[r];
         const row = [];
-        for (let c = 0; c < width; c += 1) {
-          const sourceIdx = sourceIndexByCanonical[c];
-          const raw = sourceIdx >= 0 && sourceIdx < src.length ? src[sourceIdx] : '';
-          if (boolCols.includes(c)) {
-            row.push(checkboxValue(raw));
+        for (let c = 0; c < headers.length; c += 1) {
+          const type = columnTypes[c] || 'text';
+          const raw = c < src.length ? src[c] : '';
+          if (type === 'checkbox') {
+            row.push(asBool(raw));
+          } else if (type === 'readonly_num') {
+            row.push(r + 1);
           } else {
-            row.push(String(raw == null ? '' : raw));
+            row.push(asText(raw));
           }
         }
-        if (isDataRowEmpty(row, numberColIdx)) {
-          continue;
+        if (!isDataRowEmpty(row)) {
+          outRows.push(row);
         }
-        outRows.push(row);
-      }
-
-      if (numberColIdx >= 0) {
-        outRows.forEach((row, idx) => {
-          if (numberColIdx < row.length) {
-            row[numberColIdx] = idx + 1;
-          }
-        });
       }
       return outRows;
     }
 
-    async function saveIfChanged(force) {
-      if (!form || !sheetDataInput || !csrfInput || saveInFlight) {
-        return;
+    function sortIconFor(colIdx) {
+      if (state.sort.col !== colIdx || state.sort.dir === 0) {
+        return '↕';
       }
-      const sortFilterPopup = document.querySelector('.x-spreadsheet-sort-filter');
-      if (
-        sortFilterPopup &&
-        sortFilterPopup.classList &&
-        sortFilterPopup.classList.contains('active')
-      ) {
+      return state.sort.dir > 0 ? '▲' : '▼';
+    }
+
+    function headerMatchesFilter(row, colIdx, filterValue) {
+      const type = columnTypes[colIdx] || 'text';
+      if (!filterValue) {
+        return true;
+      }
+      if (type === 'checkbox') {
+        const rowBool = asBool(row[colIdx]);
+        if (filterValue === 'true') {
+          return rowBool;
+        }
+        if (filterValue === 'false') {
+          return !rowBool;
+        }
+        return true;
+      }
+      const hay = asText(row[colIdx]).trim().toLowerCase();
+      const needle = asText(filterValue).trim().toLowerCase();
+      if (!needle) {
+        return true;
+      }
+      if (type === 'select') {
+        return hay === needle;
+      }
+      return hay.indexOf(needle) >= 0;
+    }
+
+    function compareRowsByCol(leftIdx, rightIdx, colIdx, dir) {
+      const left = state.rows[leftIdx];
+      const right = state.rows[rightIdx];
+      const type = columnTypes[colIdx] || 'text';
+
+      if (type === 'checkbox') {
+        const a = asBool(left[colIdx]) ? 1 : 0;
+        const b = asBool(right[colIdx]) ? 1 : 0;
+        if (a === b) {
+          return leftIdx - rightIdx;
+        }
+        return dir > 0 ? a - b : b - a;
+      }
+
+      if (type === 'readonly_num') {
+        const a = Number(left[colIdx]) || 0;
+        const b = Number(right[colIdx]) || 0;
+        if (a === b) {
+          return leftIdx - rightIdx;
+        }
+        return dir > 0 ? a - b : b - a;
+      }
+
+      const aText = asText(left[colIdx]).trim();
+      const bText = asText(right[colIdx]).trim();
+      const aEmpty = aText === '';
+      const bEmpty = bText === '';
+      if (aEmpty !== bEmpty) {
+        return aEmpty ? 1 : -1;
+      }
+
+      const cmp = aText.localeCompare(bText, undefined, {
+        numeric: true,
+        sensitivity: 'base',
+      });
+      if (cmp === 0) {
+        return leftIdx - rightIdx;
+      }
+      return dir > 0 ? cmp : -cmp;
+    }
+
+    function computeVisibleIndexes() {
+      const out = [];
+      for (let r = 0; r < state.rows.length; r += 1) {
+        let keep = true;
+        for (let c = 0; c < headers.length; c += 1) {
+          const filterValue = state.filters[c] || '';
+          if (!headerMatchesFilter(state.rows[r], c, filterValue)) {
+            keep = false;
+            break;
+          }
+        }
+        if (keep) {
+          out.push(r);
+        }
+      }
+
+      if (state.sort.col >= 0 && state.sort.dir !== 0) {
+        const colIdx = state.sort.col;
+        const dir = state.sort.dir;
+        out.sort(function (a, b) {
+          return compareRowsByCol(a, b, colIdx, dir);
+        });
+      }
+
+      state.visibleIndexes = out;
+    }
+
+    function buildFilterControl(colIdx) {
+      const type = columnTypes[colIdx] || 'text';
+      if (type === 'readonly_num') {
+        const span = document.createElement('span');
+        span.textContent = '';
+        return span;
+      }
+
+      if (type === 'checkbox') {
+        const select = document.createElement('select');
+        select.className = 'filter-select';
+        select.dataset.col = String(colIdx);
+        [
+          { value: '', label: 'All' },
+          { value: 'true', label: 'Checked only' },
+          { value: 'false', label: 'Unchecked only' },
+        ].forEach(function (opt) {
+          const el = document.createElement('option');
+          el.value = opt.value;
+          el.textContent = opt.label;
+          select.appendChild(el);
+        });
+        return select;
+      }
+
+      if (type === 'select') {
+        const select = document.createElement('select');
+        select.className = 'filter-select';
+        select.dataset.col = String(colIdx);
+
+        const allOpt = document.createElement('option');
+        allOpt.value = '';
+        allOpt.textContent = 'All';
+        select.appendChild(allOpt);
+
+        statusOptions.forEach(function (optText) {
+          const value = asText(optText).trim();
+          if (!value) {
+            return;
+          }
+          const opt = document.createElement('option');
+          opt.value = value;
+          opt.textContent = value;
+          select.appendChild(opt);
+        });
+        return select;
+      }
+
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.className = 'filter-input';
+      input.placeholder = 'Filter';
+      input.dataset.col = String(colIdx);
+      return input;
+    }
+
+    function buildCellEditor(rowIdx, colIdx) {
+      const type = columnTypes[colIdx] || 'text';
+      const row = state.rows[rowIdx];
+      const value = row[colIdx];
+
+      if (type === 'checkbox') {
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.className = 'cell-input';
+        checkbox.dataset.row = String(rowIdx);
+        checkbox.dataset.col = String(colIdx);
+        checkbox.checked = asBool(value);
+        return checkbox;
+      }
+
+      if (type === 'readonly_num') {
+        const span = document.createElement('span');
+        span.className = 'readonly-cell';
+        span.textContent = asText(value);
+        return span;
+      }
+
+      if (type === 'select') {
+        const select = document.createElement('select');
+        select.className = 'cell-select';
+        select.dataset.row = String(rowIdx);
+        select.dataset.col = String(colIdx);
+
+        const blank = document.createElement('option');
+        blank.value = '';
+        blank.textContent = '';
+        select.appendChild(blank);
+
+        statusOptions.forEach(function (optText) {
+          const optionValue = asText(optText).trim();
+          if (!optionValue) {
+            return;
+          }
+          const opt = document.createElement('option');
+          opt.value = optionValue;
+          opt.textContent = optionValue;
+          select.appendChild(opt);
+        });
+        select.value = asText(value).trim();
+        return select;
+      }
+
+      const input = document.createElement('input');
+      input.type = type === 'email' ? 'email' : 'text';
+      input.className = 'cell-input';
+      input.dataset.row = String(rowIdx);
+      input.dataset.col = String(colIdx);
+      input.value = asText(value);
+      return input;
+    }
+
+    function renderGrid() {
+      computeVisibleIndexes();
+
+      const thead = document.createElement('thead');
+      const headerRow = document.createElement('tr');
+      const filterRow = document.createElement('tr');
+      filterRow.className = 'filters';
+
+      for (let c = 0; c < headers.length; c += 1) {
+        const th = document.createElement('th');
+        th.textContent = asText(headers[c]);
+
+        const sortBtn = document.createElement('button');
+        sortBtn.type = 'button';
+        sortBtn.className = 'sort-btn';
+        if (state.sort.col === c && state.sort.dir !== 0) {
+          sortBtn.classList.add('is-active');
+        }
+        sortBtn.dataset.col = String(c);
+        sortBtn.textContent = sortIconFor(c);
+        th.appendChild(sortBtn);
+
+        headerRow.appendChild(th);
+
+        const filterTh = document.createElement('th');
+        filterTh.appendChild(buildFilterControl(c));
+        filterRow.appendChild(filterTh);
+      }
+
+      thead.appendChild(headerRow);
+      thead.appendChild(filterRow);
+
+      const tbody = document.createElement('tbody');
+      state.visibleIndexes.forEach(function (rowIdx) {
+        const tr = document.createElement('tr');
+        for (let c = 0; c < headers.length; c += 1) {
+          const td = document.createElement('td');
+          if (checkboxCols.has(c)) {
+            td.classList.add('checkbox-cell');
+          }
+          const editor = buildCellEditor(rowIdx, c);
+          if ((columnTypes[c] || 'text') === 'readonly_num') {
+            td.classList.add('readonly-cell');
+          }
+          td.appendChild(editor);
+          tr.appendChild(td);
+        }
+        tbody.appendChild(tr);
+      });
+
+      grid.innerHTML = '';
+      grid.appendChild(thead);
+      grid.appendChild(tbody);
+
+      const filterTopPx = Math.max(0, Math.round(headerRow.getBoundingClientRect().height)) + 'px';
+      filterRow.querySelectorAll('th').forEach(function (th) {
+        th.style.setProperty('--ce-filter-top', filterTopPx);
+      });
+
+      Object.keys(state.filters).forEach(function (colKey) {
+        const colIdx = Number(colKey);
+        const selector = '[data-col="' + colIdx + '"]';
+        const filterEl = filterRow.querySelector(selector);
+        if (!filterEl) {
+          return;
+        }
+        filterEl.value = state.filters[colIdx] || '';
+      });
+
+      if (meta) {
+        meta.textContent =
+          'Rows: ' + state.visibleIndexes.length + ' shown of ' + state.rows.length + ' total';
+      }
+    }
+
+    function updateRegistry() {
+      window.__ceSheetRegistry = window.__ceSheetRegistry || {};
+      window.__ceSheetRegistry['participants-track-sheet'] = {
+        getMatrix: function () {
+          const out = [headers.slice()];
+          rowsForSave().forEach(function (row) {
+            out.push(row.slice());
+          });
+          return out;
+        },
+      };
+    }
+
+    async function saveIfChanged(force) {
+      if (saveInFlight) {
         return;
       }
       const payload = JSON.stringify(rowsForSave());
       if (!force && payload === lastSavedPayload) {
         return;
       }
+
       saveInFlight = true;
       sheetDataInput.value = payload;
       const body = new FormData(form);
@@ -277,29 +647,84 @@
             'X-Requested-With': 'XMLHttpRequest',
           },
           credentials: 'same-origin',
-          body,
+          body: body,
         });
         if (response.ok) {
           lastSavedPayload = payload;
         }
       } catch (err) {
-        // keep silent; next autosave attempt will retry
+        // silent retry on next autosave tick
       } finally {
         saveInFlight = false;
       }
     }
 
-    if (!form) {
-      return;
-    }
+    grid.addEventListener('click', function (ev) {
+      const btn = ev.target.closest('.sort-btn');
+      if (!btn) {
+        return;
+      }
+      const colIdx = Number(btn.dataset.col);
+      if (!Number.isFinite(colIdx)) {
+        return;
+      }
+      if (state.sort.col !== colIdx) {
+        state.sort.col = colIdx;
+        state.sort.dir = 1;
+      } else if (state.sort.dir === 1) {
+        state.sort.dir = -1;
+      } else if (state.sort.dir === -1) {
+        state.sort.dir = 0;
+      } else {
+        state.sort.dir = 1;
+      }
+      renderGrid();
+    });
 
-    fitShellToHeader();
-    window.addEventListener('resize', fitShellToHeader, { passive: true });
+    grid.addEventListener('change', function (ev) {
+      const target = ev.target;
+      if (!target) {
+        return;
+      }
 
-    lastSavedPayload = JSON.stringify(rowsForSave());
-    window.setInterval(function () {
-      saveIfChanged(false);
-    }, 3500);
+      if (target.matches('.filter-select, .filter-input')) {
+        const colIdx = Number(target.dataset.col);
+        if (!Number.isFinite(colIdx)) {
+          return;
+        }
+        state.filters[colIdx] = asText(target.value || '');
+        renderGrid();
+        return;
+      }
+
+      const rowIdx = Number(target.dataset.row);
+      const colIdx = Number(target.dataset.col);
+      if (!Number.isFinite(rowIdx) || !Number.isFinite(colIdx)) {
+        return;
+      }
+
+      const type = columnTypes[colIdx] || 'text';
+      if (type === 'checkbox') {
+        state.rows[rowIdx][colIdx] = Boolean(target.checked);
+      } else {
+        state.rows[rowIdx][colIdx] = asText(target.value || '');
+      }
+      updateRegistry();
+    });
+
+    grid.addEventListener('input', function (ev) {
+      const target = ev.target;
+      if (!target || !target.matches('.cell-input[type="text"], .cell-input[type="email"]')) {
+        return;
+      }
+      const rowIdx = Number(target.dataset.row);
+      const colIdx = Number(target.dataset.col);
+      if (!Number.isFinite(rowIdx) || !Number.isFinite(colIdx)) {
+        return;
+      }
+      state.rows[rowIdx][colIdx] = asText(target.value || '');
+      updateRegistry();
+    });
 
     document.addEventListener('keydown', function (ev) {
       const key = String(ev.key || '').toLowerCase();
@@ -308,6 +733,17 @@
         saveIfChanged(true);
       }
     });
+
+    state.rows = normalizeRows(initialRows);
+    updateRegistry();
+    fitShellToHeader();
+    window.addEventListener('resize', fitShellToHeader, { passive: true });
+    renderGrid();
+
+    lastSavedPayload = JSON.stringify(rowsForSave());
+    window.setInterval(function () {
+      saveIfChanged(false);
+    }, 3500);
   })();
 </script>
 {% endblock %}

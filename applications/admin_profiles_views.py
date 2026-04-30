@@ -2798,6 +2798,7 @@ def profiles_participants_track_sheet(request, group_num: int, track: str):
         track_label = "Mentoras"
         headers = MENTORAS_HEADERS
         column_types = MENTORAS_COLUMN_TYPES
+        status_options = MENTORAS_STATUS_OPTIONS
         bool_cols = MENTORAS_BOOLEAN_COLS
         email_col = MENTORAS_EMAIL_COL
         acta_col = MENTORAS_ACTA_COL
@@ -2811,6 +2812,7 @@ def profiles_participants_track_sheet(request, group_num: int, track: str):
         track_label = "Emprendedoras"
         headers = EMPRENDEDORAS_HEADERS
         column_types = EMPRENDEDORAS_COLUMN_TYPES
+        status_options = EMPRENDEDORAS_STATUS_OPTIONS
         bool_cols = EMPRENDEDORAS_BOOLEAN_COLS
         email_col = EMPRENDEDORAS_EMAIL_COL
         acta_col = EMPRENDEDORAS_ACTA_COL
@@ -3017,6 +3019,7 @@ def profiles_participants_track_sheet(request, group_num: int, track: str):
         "track_label": track_label,
         "sheet_headers": headers,
         "sheet_column_types": column_types,
+        "sheet_status_options": status_options,
         "sheet_rows": rows,
         "sheet_rows_json": json.dumps(rows),
         "emails_text": emails_text,

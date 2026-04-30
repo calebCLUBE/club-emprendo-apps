@@ -3106,10 +3106,69 @@
       if (!sortFilter || sortFilter.__ceConfirmPatched || typeof sortFilter.ok !== 'function') {
         return;
       }
+      function applyManualCheckboxFilter(data, colIdx, order, selectedValues) {
+        if (!data || !data.rows) {
+          return { ok: false, included: 0, excluded: 0 };
+        }
+        const rowLen = Number.isFinite(data.rows && data.rows.len)
+          ? Number(data.rows.len)
+          : 0;
+        if (rowLen <= 1) {
+          data.exceptRowSet = new Set();
+          data.sortedRowMap = new Map();
+          data.unsortedRowMap = new Map();
+          return { ok: true, included: 0, excluded: 0 };
+        }
+
+        const normalizedValues = normalizeCheckboxFilterValues(selectedValues);
+        const applyValueFilter = normalizedValues.length === 1;
+        const targetValue = applyValueFilter ? normalizedValues[0] : null;
+        const includedRows = [];
+        const excludedRows = new Set();
+
+        for (let ri = 1; ri < rowLen; ri += 1) {
+          const value = normalizeCheckboxText(cellTextFromRows(data.rows, ri, colIdx));
+          const include = !applyValueFilter || value === targetValue;
+          if (include) {
+            includedRows.push(ri);
+          } else {
+            excludedRows.add(ri);
+          }
+        }
+
+        const sortedRows = includedRows.slice();
+        if (order === 'asc' || order === 'desc') {
+          sortedRows.sort(function (a, b) {
+            return compareRowsByColumn(data.rows, colIdx, a, b, order);
+          });
+        }
+
+        data.exceptRowSet = excludedRows;
+        data.sortedRowMap = new Map();
+        data.unsortedRowMap = new Map();
+        // x-spreadsheet expects:
+        // sortedRowMap: visible row index -> source row index
+        // unsortedRowMap: source row index -> visible row index
+        includedRows.forEach((visibleRi, idx) => {
+          const sourceRi = sortedRows[idx];
+          data.sortedRowMap.set(visibleRi, sourceRi);
+          data.unsortedRowMap.set(sourceRi, visibleRi);
+        });
+        data.exceptRowSet.delete(0);
+        data.sortedRowMap.delete(0);
+        data.unsortedRowMap.delete(0);
+        return {
+          ok: true,
+          included: includedRows.length,
+          excluded: excludedRows.size,
+        };
+      }
+
       const originalOk = sortFilter.ok.bind(sortFilter);
       sortFilter.ok = function patchedSortFilterOk(ci, order, operator, values) {
         const parsedCi = Number(ci);
         const colIdx = Number.isFinite(parsedCi) ? parsedCi : 0;
+        const popupCi = Number.isFinite(Number(sortFilter.ci)) ? Number(sortFilter.ci) : null;
         const ascSelected = !!(
           sortFilter.sortAscEl &&
           typeof sortFilter.sortAscEl.hasClass === 'function' &&
@@ -3130,7 +3189,8 @@
         }
         let normalizedValues = values;
         let normalizedOperator = operator;
-        const treatAsCheckbox = filterTargetsCheckboxColumn(colIdx, values);
+        const treatAsCheckbox = filterTargetsCheckboxColumn(colIdx, values)
+          || (popupCi != null && filterTargetsCheckboxColumn(popupCi, values));
         const ensured = ensureFullRangeFilter({
           reload: false,
           clearExisting: treatAsCheckbox,
@@ -3149,13 +3209,26 @@
           }
           const data = sheetCore && sheetCore.data ? sheetCore.data : activeSheetData;
           if (data && typeof data.setAutoFilter === 'function') {
+            let targetCi = colIdx;
+            if (popupCi != null && isCheckboxColumn(popupCi)) {
+              targetCi = popupCi;
+            } else if (!isCheckboxColumn(targetCi) && popupCi != null) {
+              targetCi = popupCi;
+            }
             // Apply checkbox filters directly to avoid vendor popup OK path
             // introducing row remap/header corruption.
-            data.setAutoFilter(colIdx, normalizedOrder, normalizedOperator, normalizedValues);
+            data.setAutoFilter(targetCi, normalizedOrder, normalizedOperator, normalizedValues);
+            const manual = applyManualCheckboxFilter(data, targetCi, normalizedOrder, normalizedValues);
             if (sheetCore && typeof sheetCore.reload === 'function') {
               sheetCore.reload();
             } else if (activeSpreadsheet && typeof activeSpreadsheet.reRender === 'function') {
               activeSpreadsheet.reRender();
+            }
+            if (manual && manual.ok) {
+              setMenuStatus(
+                `Checkbox filter on ${colLabelFromIndex(targetCi)} -> shown:${manual.included} hidden:${manual.excluded}`,
+                'ok'
+              );
             }
             return;
           }

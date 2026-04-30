@@ -223,6 +223,7 @@
   }
   .ce-grid .filter-input,
   .ce-grid .filter-select,
+  .ce-grid .filter-search,
   .ce-grid .cell-input,
   .ce-grid .cell-select {
     width: 100%;
@@ -235,6 +236,15 @@
     background: #fff;
   }
   .ce-grid .filter-select {
+    min-width: 110px;
+  }
+  .ce-grid .filter-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 128px;
+  }
+  .ce-grid .filter-search {
     min-width: 110px;
   }
   .ce-grid .cell-input[type="checkbox"] {
@@ -357,6 +367,7 @@
     const state = {
       rows: [],
       filters: {},
+      filterSearches: {},
       sort: { col: -1, dir: 0 },
       visibleIndexes: [],
     };
@@ -567,34 +578,16 @@
       state.visibleIndexes = out;
     }
 
-    function buildFilterControl(colIdx) {
-      const type = columnTypes[colIdx] || 'text';
+    function collectFilterOptions(colIdx, type) {
       if (type === 'checkbox') {
-        const select = document.createElement('select');
-        select.className = 'filter-select';
-        select.dataset.col = String(colIdx);
-        [
+        return [
           { value: '', label: 'All' },
           { value: 'true', label: 'Checked only' },
           { value: 'false', label: 'Unchecked only' },
-        ].forEach(function (opt) {
-          const el = document.createElement('option');
-          el.value = opt.value;
-          el.textContent = opt.label;
-          select.appendChild(el);
-        });
-        return select;
+        ];
       }
 
-      const select = document.createElement('select');
-      select.className = 'filter-select';
-      select.dataset.col = String(colIdx);
-
-      const allOpt = document.createElement('option');
-      allOpt.value = '';
-      allOpt.textContent = 'All';
-      select.appendChild(allOpt);
-
+      const options = [{ value: '', label: 'All' }];
       const valuesMap = new Map();
       if (type === 'select') {
         statusOptions.forEach(function (optText) {
@@ -615,23 +608,75 @@
         return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
       });
       values.forEach(function (value) {
-        const opt = document.createElement('option');
-        opt.value = value;
-        opt.textContent = value;
-        select.appendChild(opt);
+        options.push({ value: value, label: value });
       });
 
       const hasBlank = state.rows.some(function (row) {
         return asText(row[colIdx]).trim() === '';
       });
       if (hasBlank) {
-        const blankOpt = document.createElement('option');
-        blankOpt.value = '__BLANK__';
-        blankOpt.textContent = '(Blanks)';
-        select.appendChild(blankOpt);
+        options.push({ value: '__BLANK__', label: '(Blanks)' });
       }
+      return options;
+    }
 
-      return select;
+    function populateFilterSelect(select, colIdx, type, searchText) {
+      const selectedValue = asText(state.filters[colIdx] || '');
+      const query = asText(searchText || '').trim().toLowerCase();
+      const options = collectFilterOptions(colIdx, type);
+
+      select.innerHTML = '';
+      let hasSelected = false;
+      options.forEach(function (opt) {
+        const valueText = asText(opt.value);
+        const labelText = asText(opt.label);
+        const isAll = valueText === '';
+        const keep =
+          !query ||
+          isAll ||
+          labelText.toLowerCase().indexOf(query) >= 0 ||
+          valueText.toLowerCase().indexOf(query) >= 0;
+        if (!keep && valueText !== selectedValue) {
+          return;
+        }
+        const el = document.createElement('option');
+        el.value = valueText;
+        el.textContent = labelText;
+        if (valueText === selectedValue) {
+          hasSelected = true;
+        }
+        select.appendChild(el);
+      });
+
+      if (selectedValue && !hasSelected) {
+        const el = document.createElement('option');
+        el.value = selectedValue;
+        el.textContent = selectedValue === '__BLANK__' ? '(Blanks)' : selectedValue;
+        select.appendChild(el);
+      }
+      select.value = selectedValue;
+    }
+
+    function buildFilterControl(colIdx) {
+      const type = columnTypes[colIdx] || 'text';
+      const wrap = document.createElement('div');
+      wrap.className = 'filter-stack';
+
+      const search = document.createElement('input');
+      search.type = 'text';
+      search.className = 'filter-search';
+      search.placeholder = 'Search...';
+      search.dataset.col = String(colIdx);
+      search.value = asText(state.filterSearches[colIdx] || '');
+
+      const select = document.createElement('select');
+      select.className = 'filter-select';
+      select.dataset.col = String(colIdx);
+      populateFilterSelect(select, colIdx, type, search.value);
+
+      wrap.appendChild(search);
+      wrap.appendChild(select);
+      return wrap;
     }
 
     function buildCellEditor(rowIdx, colIdx) {
@@ -786,7 +831,7 @@
 
       Object.keys(state.filters).forEach(function (colKey) {
         const colIdx = Number(colKey);
-        const selector = '[data-col="' + colIdx + '"]';
+        const selector = '.filter-select[data-col="' + colIdx + '"]';
         const filterEl = filterRow.querySelector(selector);
         if (!filterEl) {
           return;
@@ -895,6 +940,33 @@
         state.rows[rowIdx][colIdx] = asText(target.value || '');
       }
       updateRegistry();
+    });
+
+    grid.addEventListener('input', function (ev) {
+      const target = ev.target;
+      if (!target || !target.matches('.filter-search')) {
+        return;
+      }
+      const colIdx = Number(target.dataset.col);
+      if (!Number.isFinite(colIdx)) {
+        return;
+      }
+      const query = asText(target.value || '');
+      state.filterSearches[colIdx] = query;
+      const wrapper = target.closest('.filter-stack');
+      const select = wrapper ? wrapper.querySelector('.filter-select') : null;
+      if (!select) {
+        return;
+      }
+      const type = columnTypes[colIdx] || 'text';
+      populateFilterSelect(select, colIdx, type, query);
+    });
+
+    grid.addEventListener('keydown', function (ev) {
+      const target = ev.target;
+      if (target && target.matches('.filter-search') && ev.key === 'Enter') {
+        ev.preventDefault();
+      }
     });
 
     grid.addEventListener('input', function (ev) {

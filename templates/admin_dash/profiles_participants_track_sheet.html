@@ -239,7 +239,6 @@
   .ce-grid tr.is-selected-row td {
     background: #eaf2ff !important;
   }
-  .ce-grid .filter-select,
   .ce-grid .filter-search,
   .ce-grid .cell-input,
   .ce-grid .cell-select {
@@ -251,9 +250,6 @@
     font-size: 13px;
     box-sizing: border-box;
     background: #fff;
-  }
-  .ce-grid .filter-select {
-    min-width: 110px;
   }
   .ce-grid .header-label {
     display: flex;
@@ -313,8 +309,36 @@
   .ce-grid .filter-search {
     min-width: 110px;
   }
-  .ce-grid .filter-select {
+  .ce-grid .filter-options {
     min-height: 160px;
+    max-height: 200px;
+    overflow: auto;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    background: #fff;
+    padding: 4px;
+  }
+  .ce-grid .filter-option-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 3px 4px;
+    border-radius: 4px;
+  }
+  .ce-grid .filter-option-row:hover {
+    background: #f3f4f6;
+  }
+  .ce-grid .filter-opt-label {
+    font-size: 12px;
+    color: #111827;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .ce-grid .filter-opt-check {
+    width: 14px;
+    height: 14px;
+    min-width: 14px;
   }
   .ce-grid .filter-actions {
     margin-top: 6px;
@@ -513,7 +537,8 @@
     const canonicalNumberColIdx = canonicalColumnTypes.indexOf('readonly_num');
     const state = {
       rows: [],
-      filters: {},
+      filterSelections: {},
+      filterDraftSelections: {},
       filterSearches: {},
       openFilterCol: -1,
       selectedCol: -1,
@@ -783,7 +808,8 @@
         moveArrayItem(state.rows[r], from, to);
       }
       state.colWidths = remapColumnKeyedState(state.colWidths, from, to);
-      state.filters = remapColumnKeyedState(state.filters, from, to);
+      state.filterSelections = remapColumnKeyedState(state.filterSelections, from, to);
+      state.filterDraftSelections = remapColumnKeyedState(state.filterDraftSelections, from, to);
       state.filterSearches = remapColumnKeyedState(state.filterSearches, from, to);
       state.selectedCol = remapMovedIndex(state.selectedCol, from, to);
       state.openFilterCol = remapMovedIndex(state.openFilterCol, from, to);
@@ -911,30 +937,47 @@
       return out || 'A';
     }
 
-    function headerMatchesFilter(row, colIdx, filterValue) {
+    function normalizeSelectionValues(values) {
+      if (!Array.isArray(values)) {
+        return [];
+      }
+      const out = [];
+      const seen = new Set();
+      values.forEach(function (value) {
+        const normalized = asText(value).trim();
+        if (!normalized) {
+          return;
+        }
+        const key = normalized.toLowerCase();
+        if (seen.has(key)) {
+          return;
+        }
+        seen.add(key);
+        out.push(normalized);
+      });
+      return out;
+    }
+
+    function cellFilterToken(row, colIdx) {
       const type = columnTypes[colIdx] || 'text';
-      if (!filterValue) {
-        return true;
-      }
       if (type === 'checkbox') {
-        const rowBool = asBool(row[colIdx]);
-        if (filterValue === 'true') {
-          return rowBool;
-        }
-        if (filterValue === 'false') {
-          return !rowBool;
-        }
+        return asBool(row[colIdx]) ? 'true' : 'false';
+      }
+      const raw = asText(row[colIdx]).trim();
+      return raw ? raw.toLowerCase() : '__BLANK__';
+    }
+
+    function headerMatchesFilter(row, colIdx, selectedValues) {
+      const selected = normalizeSelectionValues(selectedValues);
+      if (!selected.length) {
         return true;
       }
-      if (filterValue === '__BLANK__') {
-        return asText(row[colIdx]).trim() === '';
-      }
-      const hay = asText(row[colIdx]).trim().toLowerCase();
-      const needle = asText(filterValue).trim().toLowerCase();
-      if (!needle) {
-        return true;
-      }
-      return hay === needle;
+      const selectedSet = new Set(
+        selected.map(function (value) {
+          return asText(value).trim().toLowerCase();
+        })
+      );
+      return selectedSet.has(cellFilterToken(row, colIdx));
     }
 
     function compareRowsByCol(leftIdx, rightIdx, colIdx, dir) {
@@ -983,8 +1026,8 @@
       for (let r = 0; r < state.rows.length; r += 1) {
         let keep = true;
         for (let c = 0; c < headers.length; c += 1) {
-          const filterValue = state.filters[c] || '';
-          if (!headerMatchesFilter(state.rows[r], c, filterValue)) {
+          const selectedValues = state.filterSelections[c] || [];
+          if (!headerMatchesFilter(state.rows[r], c, selectedValues)) {
             keep = false;
             break;
           }
@@ -1008,13 +1051,12 @@
     function collectFilterOptions(colIdx, type) {
       if (type === 'checkbox') {
         return [
-          { value: '', label: 'All' },
           { value: 'true', label: 'Checked only' },
           { value: 'false', label: 'Unchecked only' },
         ];
       }
 
-      const options = [{ value: '', label: 'All' }];
+      const options = [];
       const valuesMap = new Map();
       if (type === 'select') {
         statusOptions.forEach(function (optText) {
@@ -1047,44 +1089,71 @@
       return options;
     }
 
-    function populateFilterSelect(select, colIdx, type, searchText, selectedValueOverride) {
-      const selectedValue =
-        selectedValueOverride === undefined
-          ? asText(state.filters[colIdx] || '')
-          : asText(selectedValueOverride || '');
+    function populateFilterOptions(container, colIdx, type, searchText, selectedValuesOverride) {
+      const selectedValues =
+        selectedValuesOverride === undefined
+          ? normalizeSelectionValues(
+              state.filterDraftSelections[colIdx] || state.filterSelections[colIdx] || []
+            )
+          : normalizeSelectionValues(selectedValuesOverride);
+      const selectedSet = new Set(
+        selectedValues.map(function (value) {
+          return asText(value).toLowerCase();
+        })
+      );
       const query = asText(searchText || '').trim().toLowerCase();
       const options = collectFilterOptions(colIdx, type);
 
-      select.innerHTML = '';
-      let hasSelected = false;
+      container.innerHTML = '';
+      let rendered = 0;
       options.forEach(function (opt) {
         const valueText = asText(opt.value);
         const labelText = asText(opt.label);
-        const isAll = valueText === '';
         const keep =
           !query ||
-          isAll ||
           labelText.toLowerCase().indexOf(query) >= 0 ||
           valueText.toLowerCase().indexOf(query) >= 0;
-        if (!keep && valueText !== selectedValue) {
+        if (!keep) {
           return;
         }
-        const el = document.createElement('option');
-        el.value = valueText;
-        el.textContent = labelText;
-        if (valueText === selectedValue) {
-          hasSelected = true;
-        }
-        select.appendChild(el);
-      });
+        const row = document.createElement('label');
+        row.className = 'filter-option-row';
+        row.setAttribute('title', labelText);
 
-      if (selectedValue && !hasSelected) {
-        const el = document.createElement('option');
-        el.value = selectedValue;
-        el.textContent = selectedValue === '__BLANK__' ? '(Blanks)' : selectedValue;
-        select.appendChild(el);
+        const label = document.createElement('span');
+        label.className = 'filter-opt-label';
+        label.textContent = labelText;
+
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.className = 'filter-opt-check';
+        checkbox.dataset.col = String(colIdx);
+        checkbox.value = valueText;
+        checkbox.checked = selectedSet.has(valueText.toLowerCase());
+
+        row.appendChild(label);
+        row.appendChild(checkbox);
+        container.appendChild(row);
+        rendered += 1;
+      });
+      if (!rendered) {
+        const empty = document.createElement('div');
+        empty.className = 'filter-option-row';
+        empty.textContent = 'No matches';
+        container.appendChild(empty);
       }
-      select.value = selectedValue;
+    }
+
+    function getDraftSelectionsFromPopover(popover, fallbackColIdx) {
+      const out = [];
+      const checks = popover ? popover.querySelectorAll('.filter-opt-check:checked') : [];
+      checks.forEach(function (input) {
+        out.push(asText(input.value || '').trim());
+      });
+      if (popover) {
+        return normalizeSelectionValues(out);
+      }
+      return normalizeSelectionValues(state.filterDraftSelections[fallbackColIdx] || []);
     }
 
     function buildFilterControl(colIdx) {
@@ -1092,6 +1161,12 @@
       const wrap = document.createElement('div');
       wrap.className = 'filter-wrap';
       wrap.dataset.col = String(colIdx);
+      const committedSelections = normalizeSelectionValues(state.filterSelections[colIdx] || []);
+      if (state.openFilterCol === colIdx) {
+        if (!Array.isArray(state.filterDraftSelections[colIdx])) {
+          state.filterDraftSelections[colIdx] = committedSelections.slice();
+        }
+      }
 
       const toggle = document.createElement('button');
       toggle.type = 'button';
@@ -1099,7 +1174,7 @@
       toggle.dataset.col = String(colIdx);
       toggle.title = 'Filter';
       toggle.textContent = '⏷';
-      if (asText(state.filters[colIdx] || '')) {
+      if (committedSelections.length) {
         toggle.classList.add('is-active');
       }
 
@@ -1113,11 +1188,10 @@
       search.dataset.col = String(colIdx);
       search.value = asText(state.filterSearches[colIdx] || '');
 
-      const select = document.createElement('select');
-      select.className = 'filter-select';
-      select.dataset.col = String(colIdx);
-      select.size = 8;
-      populateFilterSelect(select, colIdx, type, search.value);
+      const optionsBox = document.createElement('div');
+      optionsBox.className = 'filter-options';
+      optionsBox.dataset.col = String(colIdx);
+      populateFilterOptions(optionsBox, colIdx, type, search.value);
 
       const actions = document.createElement('div');
       actions.className = 'filter-actions';
@@ -1140,7 +1214,7 @@
       const stack = document.createElement('div');
       stack.className = 'filter-stack';
       stack.appendChild(search);
-      stack.appendChild(select);
+      stack.appendChild(optionsBox);
       stack.appendChild(actions);
 
       popover.appendChild(stack);
@@ -1410,7 +1484,12 @@
         if (!Number.isFinite(colIdx)) {
           return;
         }
-        state.openFilterCol = state.openFilterCol === colIdx ? -1 : colIdx;
+        if (state.openFilterCol === colIdx) {
+          delete state.filterDraftSelections[colIdx];
+          state.openFilterCol = -1;
+        } else {
+          state.openFilterCol = colIdx;
+        }
         renderGrid();
         return;
       }
@@ -1444,9 +1523,13 @@
           return;
         }
         const popover = applyBtn.closest('.filter-popover');
-        const select = popover ? popover.querySelector('.filter-select') : null;
-        const nextValue = select ? asText(select.value || '') : '';
-        state.filters[colIdx] = nextValue;
+        const picked = getDraftSelectionsFromPopover(popover, colIdx);
+        if (picked.length) {
+          state.filterSelections[colIdx] = picked;
+        } else {
+          delete state.filterSelections[colIdx];
+        }
+        delete state.filterDraftSelections[colIdx];
         state.openFilterCol = -1;
         renderGrid();
         return;
@@ -1458,7 +1541,8 @@
         if (!Number.isFinite(colIdx)) {
           return;
         }
-        state.filters[colIdx] = '';
+        delete state.filterSelections[colIdx];
+        delete state.filterDraftSelections[colIdx];
         state.filterSearches[colIdx] = '';
         state.openFilterCol = -1;
         renderGrid();
@@ -1484,6 +1568,7 @@
         state.sort.dir = 1;
       }
       state.openFilterCol = -1;
+      state.filterDraftSelections = {};
       renderGrid();
     });
 
@@ -1653,7 +1738,13 @@
         return;
       }
 
-      if (target.matches('.filter-select')) {
+      if (target.matches('.filter-opt-check')) {
+        const colIdx = Number(target.dataset.col);
+        if (!Number.isFinite(colIdx)) {
+          return;
+        }
+        const popover = target.closest('.filter-popover');
+        state.filterDraftSelections[colIdx] = getDraftSelectionsFromPopover(popover, colIdx);
         return;
       }
 
@@ -1684,12 +1775,15 @@
       const query = asText(target.value || '');
       state.filterSearches[colIdx] = query;
       const popover = target.closest('.filter-popover');
-      const select = popover ? popover.querySelector('.filter-select') : null;
-      if (!select) {
+      const optionsBox = popover ? popover.querySelector('.filter-options') : null;
+      if (!optionsBox) {
         return;
       }
       const type = columnTypes[colIdx] || 'text';
-      populateFilterSelect(select, colIdx, type, query, select.value);
+      const draft = normalizeSelectionValues(
+        state.filterDraftSelections[colIdx] || state.filterSelections[colIdx] || []
+      );
+      populateFilterOptions(optionsBox, colIdx, type, query, draft);
     });
 
     grid.addEventListener('keydown', function (ev) {
@@ -1698,6 +1792,7 @@
         ev.preventDefault();
       }
       if (ev.key === 'Escape' && state.openFilterCol >= 0) {
+        delete state.filterDraftSelections[state.openFilterCol];
         state.openFilterCol = -1;
         renderGrid();
       }
@@ -1705,7 +1800,10 @@
 
     grid.addEventListener('input', function (ev) {
       const target = ev.target;
-      if (!target || !target.matches('.cell-input[type="text"], .cell-input[type="email"]')) {
+      if (
+        !target ||
+        !target.matches('.cell-input[type="text"], .cell-input[type="email"], .cell-input[type="number"]')
+      ) {
         return;
       }
       const rowIdx = Number(target.dataset.row);
@@ -1777,6 +1875,7 @@
       if (ev.target && ev.target.closest('.filter-wrap')) {
         return;
       }
+      delete state.filterDraftSelections[state.openFilterCol];
       state.openFilterCol = -1;
       renderGrid();
     });

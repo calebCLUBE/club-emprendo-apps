@@ -583,6 +583,9 @@
     const baseColumnCount = headers.length;
     const canonicalHeaders = headers.slice();
     const canonicalColumnTypes = columnTypes.slice();
+    const coreColumnIds = canonicalHeaders.map(function (_, idx) { return 'core:' + String(idx); });
+    const columnIds = coreColumnIds.slice();
+    let tempColumnSeq = 0;
     const canonicalNumberColIdx = canonicalColumnTypes.indexOf('readonly_num');
     const state = {
       rows: [],
@@ -642,6 +645,11 @@
       if (canonicalIdx < 0 || canonicalIdx >= canonicalHeaders.length) {
         return -1;
       }
+      const canonicalId = coreColumnIds[canonicalIdx];
+      const idIdx = columnIds.indexOf(canonicalId);
+      if (idIdx >= 0) {
+        return idIdx;
+      }
       const headerName = canonicalHeaders[canonicalIdx];
       const idx = headers.indexOf(headerName);
       if (idx >= 0) {
@@ -690,6 +698,7 @@
         buttons.push('<button type="button" class="ce-context-btn" data-action="insert-row-below">Insert Row Below</button>');
         buttons.push('<button type="button" class="ce-context-btn" data-action="delete-row">Delete Row</button>');
       } else if (kind === 'col') {
+        buttons.push('<button type="button" class="ce-context-btn" data-action="rename-col">Rename Column</button>');
         buttons.push('<button type="button" class="ce-context-btn" data-action="insert-col-right">Insert Column Right</button>');
         buttons.push('<button type="button" class="ce-context-btn" data-action="delete-col">Delete Column</button>');
         buttons.push('<button type="button" class="ce-context-btn" data-action="clear-column">Clear Column Values</button>');
@@ -753,6 +762,8 @@
         nextName = 'Temp Column ' + seq;
       }
       headers.splice(insertAt, 0, nextName);
+      tempColumnSeq += 1;
+      columnIds.splice(insertAt, 0, 'temp:' + String(tempColumnSeq));
       columnTypes.splice(insertAt, 0, 'text');
       for (let r = 0; r < state.rows.length; r += 1) {
         state.rows[r].splice(insertAt, 0, '');
@@ -772,12 +783,13 @@
         setNotice('Column index out of range.');
         return;
       }
-      const headerName = asText(headers[idx]);
-      if (canonicalHeaders.indexOf(headerName) >= 0) {
+      const colId = asText(columnIds[idx]);
+      if (coreColumnIds.indexOf(colId) >= 0) {
         setNotice('Core participant columns cannot be deleted.');
         return;
       }
       headers.splice(idx, 1);
+      columnIds.splice(idx, 1);
       columnTypes.splice(idx, 1);
       for (let r = 0; r < state.rows.length; r += 1) {
         state.rows[r].splice(idx, 1);
@@ -865,6 +877,7 @@
       }
 
       moveArrayItem(headers, from, to);
+      moveArrayItem(columnIds, from, to);
       moveArrayItem(columnTypes, from, to);
       for (let r = 0; r < state.rows.length; r += 1) {
         moveArrayItem(state.rows[r], from, to);
@@ -880,6 +893,26 @@
         state.sort.col = remapMovedIndex(state.sort.col, from, to);
       }
       updateRegistry();
+      renderGrid();
+    }
+
+    function renameColumn(colIdx) {
+      const idx = Number(colIdx);
+      if (!Number.isFinite(idx) || idx < 0 || idx >= headers.length) {
+        setNotice('Column index out of range.');
+        return;
+      }
+      const currentName = asText(headers[idx] || '');
+      const nextNameRaw = window.prompt('Rename column', currentName);
+      if (nextNameRaw === null) {
+        return;
+      }
+      const nextName = asText(nextNameRaw).trim();
+      if (!nextName) {
+        setNotice('Column name cannot be empty.');
+        return;
+      }
+      headers[idx] = nextName;
       renderGrid();
     }
 
@@ -1820,6 +1853,21 @@
       }
     });
 
+    grid.addEventListener('dblclick', function (ev) {
+      if (ev.target.closest('.filter-wrap') || ev.target.closest('.sort-btn')) {
+        return;
+      }
+      const headerCell = ev.target.closest('tr.header-row th[data-col]');
+      if (!headerCell) {
+        return;
+      }
+      const colIdx = Number(headerCell.dataset.col);
+      if (!Number.isFinite(colIdx)) {
+        return;
+      }
+      renameColumn(colIdx);
+    });
+
     grid.addEventListener('mousedown', function (ev) {
       const colHandle = ev.target.closest('.col-resize-handle');
       if (colHandle) {
@@ -1941,6 +1989,10 @@
         }
         updateRegistry();
         renderGrid();
+        return;
+      }
+      if (target.kind === 'col' && action === 'rename-col') {
+        renameColumn(target.index);
         return;
       }
       if (target.kind === 'col' && action === 'insert-col-right') {

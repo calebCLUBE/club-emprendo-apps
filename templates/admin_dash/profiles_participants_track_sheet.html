@@ -168,6 +168,7 @@
     white-space: nowrap;
     background: #fff;
     vertical-align: middle;
+    overflow: visible;
   }
   .ce-grid thead th {
     position: sticky;
@@ -187,12 +188,7 @@
     top: var(--ce-header-top, 28px);
     z-index: 6;
     background: #f8fafc;
-  }
-  .ce-grid thead tr.filters th {
-    top: var(--ce-filter-top, 62px);
-    z-index: 4;
-    background: #f9fafb;
-    font-weight: 500;
+    min-height: 28px;
   }
   .ce-grid th.corner-cell,
   .ce-grid th.row-num-cell,
@@ -212,16 +208,11 @@
     background: #f1f5f9;
     z-index: 9;
   }
-  .ce-grid thead tr.filters th.row-num-cell {
-    background: #f8fafc;
-    z-index: 9;
-  }
   .ce-grid td.row-num-cell {
     background: #f8fafc;
     font-size: 12px;
     z-index: 2;
   }
-  .ce-grid .filter-input,
   .ce-grid .filter-select,
   .ce-grid .filter-search,
   .ce-grid .cell-input,
@@ -238,14 +229,86 @@
   .ce-grid .filter-select {
     min-width: 110px;
   }
+  .ce-grid .header-label {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    width: 100%;
+  }
+  .ce-grid .filter-wrap {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+  }
+  .ce-grid .filter-toggle {
+    border: 0;
+    background: transparent;
+    color: #667085;
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    line-height: 1;
+    cursor: pointer;
+    border-radius: 4px;
+    font-size: 11px;
+  }
+  .ce-grid .filter-toggle:hover {
+    background: #e5e7eb;
+    color: #344054;
+  }
+  .ce-grid .filter-toggle.is-active {
+    color: #1d4ed8;
+    font-weight: 700;
+  }
+  .ce-grid .filter-popover {
+    position: absolute;
+    right: 0;
+    top: 20px;
+    z-index: 30;
+    min-width: 210px;
+    max-width: 260px;
+    background: #fff;
+    border: 1px solid #d0d5dd;
+    box-shadow: 0 10px 24px rgba(16, 24, 40, 0.12);
+    border-radius: 8px;
+    padding: 8px;
+    display: none;
+  }
+  .ce-grid .filter-popover.is-open {
+    display: block;
+  }
   .ce-grid .filter-stack {
     display: flex;
     flex-direction: column;
     gap: 4px;
-    min-width: 128px;
+    min-width: 192px;
   }
   .ce-grid .filter-search {
     min-width: 110px;
+  }
+  .ce-grid .filter-select {
+    min-height: 160px;
+  }
+  .ce-grid .filter-actions {
+    margin-top: 6px;
+    display: flex;
+    justify-content: space-between;
+    gap: 6px;
+  }
+  .ce-grid .filter-btn {
+    border: 1px solid #d0d5dd;
+    background: #fff;
+    color: #344054;
+    border-radius: 6px;
+    font-size: 12px;
+    padding: 3px 8px;
+    cursor: pointer;
+  }
+  .ce-grid .filter-btn.filter-btn-primary {
+    background: #1f6feb;
+    color: #fff;
+    border-color: #1f6feb;
   }
   .ce-grid .cell-input[type="checkbox"] {
     width: 18px;
@@ -368,6 +431,7 @@
       rows: [],
       filters: {},
       filterSearches: {},
+      openFilterCol: -1,
       sort: { col: -1, dir: 0 },
       visibleIndexes: [],
     };
@@ -620,8 +684,11 @@
       return options;
     }
 
-    function populateFilterSelect(select, colIdx, type, searchText) {
-      const selectedValue = asText(state.filters[colIdx] || '');
+    function populateFilterSelect(select, colIdx, type, searchText, selectedValueOverride) {
+      const selectedValue =
+        selectedValueOverride === undefined
+          ? asText(state.filters[colIdx] || '')
+          : asText(selectedValueOverride || '');
       const query = asText(searchText || '').trim().toLowerCase();
       const options = collectFilterOptions(colIdx, type);
 
@@ -660,7 +727,21 @@
     function buildFilterControl(colIdx) {
       const type = columnTypes[colIdx] || 'text';
       const wrap = document.createElement('div');
-      wrap.className = 'filter-stack';
+      wrap.className = 'filter-wrap';
+      wrap.dataset.col = String(colIdx);
+
+      const toggle = document.createElement('button');
+      toggle.type = 'button';
+      toggle.className = 'filter-toggle';
+      toggle.dataset.col = String(colIdx);
+      toggle.title = 'Filter';
+      toggle.textContent = '⏷';
+      if (asText(state.filters[colIdx] || '')) {
+        toggle.classList.add('is-active');
+      }
+
+      const popover = document.createElement('div');
+      popover.className = 'filter-popover' + (state.openFilterCol === colIdx ? ' is-open' : '');
 
       const search = document.createElement('input');
       search.type = 'text';
@@ -672,10 +753,36 @@
       const select = document.createElement('select');
       select.className = 'filter-select';
       select.dataset.col = String(colIdx);
+      select.size = 8;
       populateFilterSelect(select, colIdx, type, search.value);
 
-      wrap.appendChild(search);
-      wrap.appendChild(select);
+      const actions = document.createElement('div');
+      actions.className = 'filter-actions';
+
+      const clearBtn = document.createElement('button');
+      clearBtn.type = 'button';
+      clearBtn.className = 'filter-btn filter-clear';
+      clearBtn.dataset.col = String(colIdx);
+      clearBtn.textContent = 'Clear';
+
+      const applyBtn = document.createElement('button');
+      applyBtn.type = 'button';
+      applyBtn.className = 'filter-btn filter-btn-primary filter-apply';
+      applyBtn.dataset.col = String(colIdx);
+      applyBtn.textContent = 'Apply';
+
+      actions.appendChild(clearBtn);
+      actions.appendChild(applyBtn);
+
+      const stack = document.createElement('div');
+      stack.className = 'filter-stack';
+      stack.appendChild(search);
+      stack.appendChild(select);
+      stack.appendChild(actions);
+
+      popover.appendChild(stack);
+      wrap.appendChild(toggle);
+      wrap.appendChild(popover);
       return wrap;
     }
 
@@ -743,8 +850,6 @@
       lettersRow.className = 'letters';
       const headerRow = document.createElement('tr');
       headerRow.className = 'header-row';
-      const filterRow = document.createElement('tr');
-      filterRow.className = 'filters';
 
       const cornerCell = document.createElement('th');
       cornerCell.className = 'corner-cell';
@@ -756,18 +861,21 @@
       headerNumCell.textContent = '1';
       headerRow.appendChild(headerNumCell);
 
-      const filterNumCell = document.createElement('th');
-      filterNumCell.className = 'row-num-cell';
-      filterNumCell.textContent = '';
-      filterRow.appendChild(filterNumCell);
-
       for (let c = 0; c < headers.length; c += 1) {
         const letterTh = document.createElement('th');
         letterTh.textContent = columnLetter(c);
         lettersRow.appendChild(letterTh);
 
         const th = document.createElement('th');
-        th.textContent = asText(headers[c]);
+        const headerLabel = document.createElement('div');
+        headerLabel.className = 'header-label';
+
+        const headerText = document.createElement('span');
+        headerText.textContent = asText(headers[c]);
+        headerLabel.appendChild(headerText);
+
+        const filterControl = buildFilterControl(c);
+        headerLabel.appendChild(filterControl);
 
         const sortBtn = document.createElement('button');
         sortBtn.type = 'button';
@@ -777,18 +885,14 @@
         }
         sortBtn.dataset.col = String(c);
         sortBtn.textContent = sortIconFor(c);
-        th.appendChild(sortBtn);
+        headerLabel.appendChild(sortBtn);
 
+        th.appendChild(headerLabel);
         headerRow.appendChild(th);
-
-        const filterTh = document.createElement('th');
-        filterTh.appendChild(buildFilterControl(c));
-        filterRow.appendChild(filterTh);
       }
 
       thead.appendChild(lettersRow);
       thead.appendChild(headerRow);
-      thead.appendChild(filterRow);
 
       const tbody = document.createElement('tbody');
       state.visibleIndexes.forEach(function (rowIdx) {
@@ -817,26 +921,8 @@
       grid.appendChild(tbody);
 
       const lettersTopPx = Math.max(0, Math.round(lettersRow.getBoundingClientRect().height)) + 'px';
-      const filterTopPx =
-        Math.max(
-          0,
-          Math.round(lettersRow.getBoundingClientRect().height + headerRow.getBoundingClientRect().height)
-        ) + 'px';
       headerRow.querySelectorAll('th').forEach(function (th) {
         th.style.setProperty('--ce-header-top', lettersTopPx);
-      });
-      filterRow.querySelectorAll('th').forEach(function (th) {
-        th.style.setProperty('--ce-filter-top', filterTopPx);
-      });
-
-      Object.keys(state.filters).forEach(function (colKey) {
-        const colIdx = Number(colKey);
-        const selector = '.filter-select[data-col="' + colIdx + '"]';
-        const filterEl = filterRow.querySelector(selector);
-        if (!filterEl) {
-          return;
-        }
-        filterEl.value = state.filters[colIdx] || '';
       });
 
       if (meta) {
@@ -890,6 +976,45 @@
     }
 
     grid.addEventListener('click', function (ev) {
+      const toggle = ev.target.closest('.filter-toggle');
+      if (toggle) {
+        const colIdx = Number(toggle.dataset.col);
+        if (!Number.isFinite(colIdx)) {
+          return;
+        }
+        state.openFilterCol = state.openFilterCol === colIdx ? -1 : colIdx;
+        renderGrid();
+        return;
+      }
+
+      const applyBtn = ev.target.closest('.filter-apply');
+      if (applyBtn) {
+        const colIdx = Number(applyBtn.dataset.col);
+        if (!Number.isFinite(colIdx)) {
+          return;
+        }
+        const popover = applyBtn.closest('.filter-popover');
+        const select = popover ? popover.querySelector('.filter-select') : null;
+        const nextValue = select ? asText(select.value || '') : '';
+        state.filters[colIdx] = nextValue;
+        state.openFilterCol = -1;
+        renderGrid();
+        return;
+      }
+
+      const clearBtn = ev.target.closest('.filter-clear');
+      if (clearBtn) {
+        const colIdx = Number(clearBtn.dataset.col);
+        if (!Number.isFinite(colIdx)) {
+          return;
+        }
+        state.filters[colIdx] = '';
+        state.filterSearches[colIdx] = '';
+        state.openFilterCol = -1;
+        renderGrid();
+        return;
+      }
+
       const btn = ev.target.closest('.sort-btn');
       if (!btn) {
         return;
@@ -908,6 +1033,7 @@
       } else {
         state.sort.dir = 1;
       }
+      state.openFilterCol = -1;
       renderGrid();
     });
 
@@ -917,13 +1043,7 @@
         return;
       }
 
-      if (target.matches('.filter-select, .filter-input')) {
-        const colIdx = Number(target.dataset.col);
-        if (!Number.isFinite(colIdx)) {
-          return;
-        }
-        state.filters[colIdx] = asText(target.value || '');
-        renderGrid();
+      if (target.matches('.filter-select')) {
         return;
       }
 
@@ -953,19 +1073,23 @@
       }
       const query = asText(target.value || '');
       state.filterSearches[colIdx] = query;
-      const wrapper = target.closest('.filter-stack');
-      const select = wrapper ? wrapper.querySelector('.filter-select') : null;
+      const popover = target.closest('.filter-popover');
+      const select = popover ? popover.querySelector('.filter-select') : null;
       if (!select) {
         return;
       }
       const type = columnTypes[colIdx] || 'text';
-      populateFilterSelect(select, colIdx, type, query);
+      populateFilterSelect(select, colIdx, type, query, select.value);
     });
 
     grid.addEventListener('keydown', function (ev) {
       const target = ev.target;
       if (target && target.matches('.filter-search') && ev.key === 'Enter') {
         ev.preventDefault();
+      }
+      if (ev.key === 'Escape' && state.openFilterCol >= 0) {
+        state.openFilterCol = -1;
+        renderGrid();
       }
     });
 
@@ -989,6 +1113,17 @@
         ev.preventDefault();
         saveIfChanged(true);
       }
+    });
+
+    document.addEventListener('click', function (ev) {
+      if (state.openFilterCol < 0) {
+        return;
+      }
+      if (ev.target && ev.target.closest('.filter-wrap')) {
+        return;
+      }
+      state.openFilterCol = -1;
+      renderGrid();
     });
 
     state.rows = normalizeRows(initialRows);

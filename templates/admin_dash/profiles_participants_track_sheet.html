@@ -1089,11 +1089,28 @@
       return options;
     }
 
+    function getAllFilterOptionValues(colIdx, type) {
+      return normalizeSelectionValues(
+        collectFilterOptions(colIdx, type).map(function (opt) {
+          return opt.value;
+        })
+      );
+    }
+
+    function valuesSet(values) {
+      const out = new Set();
+      normalizeSelectionValues(values).forEach(function (value) {
+        out.add(asText(value).toLowerCase());
+      });
+      return out;
+    }
+
     function populateFilterOptions(container, colIdx, type, searchText, selectedValuesOverride) {
+      const defaultValues = getAllFilterOptionValues(colIdx, type);
       const selectedValues =
         selectedValuesOverride === undefined
           ? normalizeSelectionValues(
-              state.filterDraftSelections[colIdx] || state.filterSelections[colIdx] || []
+              state.filterDraftSelections[colIdx] || state.filterSelections[colIdx] || defaultValues
             )
           : normalizeSelectionValues(selectedValuesOverride);
       const selectedSet = new Set(
@@ -1145,15 +1162,9 @@
     }
 
     function getDraftSelectionsFromPopover(popover, fallbackColIdx) {
-      const out = [];
-      const checks = popover ? popover.querySelectorAll('.filter-opt-check:checked') : [];
-      checks.forEach(function (input) {
-        out.push(asText(input.value || '').trim());
-      });
-      if (popover) {
-        return normalizeSelectionValues(out);
-      }
-      return normalizeSelectionValues(state.filterDraftSelections[fallbackColIdx] || []);
+      const type = columnTypes[fallbackColIdx] || 'text';
+      const fallback = getAllFilterOptionValues(fallbackColIdx, type);
+      return normalizeSelectionValues(state.filterDraftSelections[fallbackColIdx] || fallback);
     }
 
     function buildFilterControl(colIdx) {
@@ -1164,7 +1175,9 @@
       const committedSelections = normalizeSelectionValues(state.filterSelections[colIdx] || []);
       if (state.openFilterCol === colIdx) {
         if (!Array.isArray(state.filterDraftSelections[colIdx])) {
-          state.filterDraftSelections[colIdx] = committedSelections.slice();
+          state.filterDraftSelections[colIdx] = committedSelections.length
+            ? committedSelections.slice()
+            : getAllFilterOptionValues(colIdx, type);
         }
       }
 
@@ -1523,8 +1536,17 @@
           return;
         }
         const popover = applyBtn.closest('.filter-popover');
+        const type = columnTypes[colIdx] || 'text';
         const picked = getDraftSelectionsFromPopover(popover, colIdx);
-        if (picked.length) {
+        const allValues = getAllFilterOptionValues(colIdx, type);
+        const pickedSet = valuesSet(picked);
+        const allSet = valuesSet(allValues);
+        const isAllSelected =
+          pickedSet.size === allSet.size &&
+          Array.from(allSet).every(function (value) {
+            return pickedSet.has(value);
+          });
+        if (picked.length && !isAllSelected) {
           state.filterSelections[colIdx] = picked;
         } else {
           delete state.filterSelections[colIdx];
@@ -1743,8 +1765,18 @@
         if (!Number.isFinite(colIdx)) {
           return;
         }
-        const popover = target.closest('.filter-popover');
-        state.filterDraftSelections[colIdx] = getDraftSelectionsFromPopover(popover, colIdx);
+        const type = columnTypes[colIdx] || 'text';
+        const base = normalizeSelectionValues(
+          state.filterDraftSelections[colIdx] || state.filterSelections[colIdx] || getAllFilterOptionValues(colIdx, type)
+        );
+        const baseSet = valuesSet(base);
+        const valueKey = asText(target.value || '').trim().toLowerCase();
+        if (target.checked) {
+          baseSet.add(valueKey);
+        } else {
+          baseSet.delete(valueKey);
+        }
+        state.filterDraftSelections[colIdx] = normalizeSelectionValues(Array.from(baseSet));
         return;
       }
 

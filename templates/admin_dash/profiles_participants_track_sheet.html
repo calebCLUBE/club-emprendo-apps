@@ -97,6 +97,9 @@
     box-sizing: border-box;
   }
   .ce-fx-box {
+    display: flex;
+    align-items: center;
+    gap: 6px;
     border: 1px solid #d1d5db;
     border-radius: 6px;
     background: #fff;
@@ -105,6 +108,32 @@
     color: #4b5563;
     padding: 5px 8px;
     box-sizing: border-box;
+  }
+  .ce-name-box[readonly] {
+    cursor: default;
+  }
+  .ce-fx-label {
+    color: #6b7280;
+    font-weight: 600;
+    user-select: none;
+  }
+  .ce-fx-input {
+    flex: 1;
+    border: 0;
+    outline: none;
+    font-size: 13px;
+    color: #374151;
+    background: transparent;
+    min-width: 0;
+  }
+  .ce-fx-input:disabled {
+    color: #9ca3af;
+    cursor: not-allowed;
+  }
+  .ce-grid td.is-active-cell {
+    outline: 2px solid #1a73e8;
+    outline-offset: -2px;
+    background: #e8f0fe !important;
   }
   .ce-sheet-actions {
     position: absolute;
@@ -482,8 +511,17 @@
       <span>Help</span>
     </div>
     <div class="ce-sheet-toolbar">
-      <div class="ce-name-box">A1</div>
-      <div class="ce-fx-box">fx</div>
+      <input id="ce-name-box" class="ce-name-box" type="text" value="A1" readonly>
+      <div class="ce-fx-box">
+        <span class="ce-fx-label">fx</span>
+        <input
+          id="ce-fx-input"
+          class="ce-fx-input"
+          type="text"
+          placeholder="Select a cell to edit its value"
+          disabled
+        >
+      </div>
     </div>
   </div>
 
@@ -517,8 +555,19 @@
     const form = document.getElementById('sheet-save-form');
     const sheetDataInput = document.getElementById('sheet_data');
     const csrfInput = form ? form.querySelector('input[name="csrfmiddlewaretoken"]') : null;
+    const nameBoxInput = document.getElementById('ce-name-box');
+    const formulaInput = document.getElementById('ce-fx-input');
 
-    if (!grid || !form || !sheetDataInput || !csrfInput || !contextMenu || !statusDataList) {
+    if (
+      !grid ||
+      !form ||
+      !sheetDataInput ||
+      !csrfInput ||
+      !contextMenu ||
+      !statusDataList ||
+      !nameBoxInput ||
+      !formulaInput
+    ) {
       return;
     }
 
@@ -543,6 +592,8 @@
       openFilterCol: -1,
       selectedCol: -1,
       selectedRow: -1,
+      activeCol: -1,
+      activeRow: -1,
       sort: { col: -1, dir: 0 },
       visibleIndexes: [],
       colWidths: {},
@@ -684,6 +735,9 @@
       const insertAt = Math.max(0, Math.min(state.rows.length, Number(sourceIdx)));
       shiftRowHeightsForInsert(insertAt);
       state.rows.splice(insertAt, 0, buildEmptyRow());
+      if (state.activeRow >= insertAt) {
+        state.activeRow += 1;
+      }
       state.selectedRow = insertAt;
       updateRegistry();
       renderGrid();
@@ -702,6 +756,9 @@
       columnTypes.splice(insertAt, 0, 'text');
       for (let r = 0; r < state.rows.length; r += 1) {
         state.rows[r].splice(insertAt, 0, '');
+      }
+      if (state.activeCol >= insertAt) {
+        state.activeCol += 1;
       }
       state.selectedCol = insertAt;
       setNotice('Temporary column added. It is for on-screen use and is not saved to the database.');
@@ -724,6 +781,11 @@
       columnTypes.splice(idx, 1);
       for (let r = 0; r < state.rows.length; r += 1) {
         state.rows[r].splice(idx, 1);
+      }
+      if (state.activeCol === idx) {
+        state.activeCol = -1;
+      } else if (state.activeCol > idx) {
+        state.activeCol -= 1;
       }
       if (state.selectedCol === idx) {
         state.selectedCol = -1;
@@ -811,6 +873,7 @@
       state.filterSelections = remapColumnKeyedState(state.filterSelections, from, to);
       state.filterDraftSelections = remapColumnKeyedState(state.filterDraftSelections, from, to);
       state.filterSearches = remapColumnKeyedState(state.filterSearches, from, to);
+      state.activeCol = remapMovedIndex(state.activeCol, from, to);
       state.selectedCol = remapMovedIndex(state.selectedCol, from, to);
       state.openFilterCol = remapMovedIndex(state.openFilterCol, from, to);
       if (state.sort.col >= 0) {
@@ -827,6 +890,11 @@
       }
       state.rows.splice(idx, 1);
       shiftRowHeightsForDelete(idx);
+      if (state.activeRow === idx) {
+        state.activeRow = -1;
+      } else if (state.activeRow > idx) {
+        state.activeRow -= 1;
+      }
       if (state.selectedRow === idx) {
         state.selectedRow = -1;
       } else if (state.selectedRow > idx) {
@@ -935,6 +1003,124 @@
         n = Math.floor((n - 1) / 26);
       }
       return out || 'A';
+    }
+
+    function rowNumberForCell(rowIdx) {
+      return Number(rowIdx) + 2;
+    }
+
+    function cellAddress(rowIdx, colIdx) {
+      if (!Number.isFinite(Number(rowIdx)) || !Number.isFinite(Number(colIdx))) {
+        return 'A1';
+      }
+      return columnLetter(colIdx) + String(rowNumberForCell(rowIdx));
+    }
+
+    function isValidCellCoords(rowIdx, colIdx) {
+      return (
+        Number.isFinite(Number(rowIdx)) &&
+        Number.isFinite(Number(colIdx)) &&
+        rowIdx >= 0 &&
+        colIdx >= 0 &&
+        rowIdx < state.rows.length &&
+        colIdx < headers.length
+      );
+    }
+
+    function getCellRawValue(rowIdx, colIdx) {
+      if (!isValidCellCoords(rowIdx, colIdx)) {
+        return '';
+      }
+      const type = columnTypes[colIdx] || 'text';
+      const raw = state.rows[rowIdx][colIdx];
+      if (type === 'checkbox') {
+        return asBool(raw) ? 'TRUE' : 'FALSE';
+      }
+      return asText(raw);
+    }
+
+    function getCellEditor(rowIdx, colIdx) {
+      return grid.querySelector(
+        '.cell-input[data-row="' + Number(rowIdx) + '"][data-col="' + Number(colIdx) + '"]'
+      );
+    }
+
+    function refreshActiveCellVisual() {
+      grid.querySelectorAll('td.is-active-cell').forEach(function (cell) {
+        cell.classList.remove('is-active-cell');
+      });
+      if (!isValidCellCoords(state.activeRow, state.activeCol)) {
+        return;
+      }
+      const td = grid.querySelector(
+        'td[data-row="' + Number(state.activeRow) + '"][data-col="' + Number(state.activeCol) + '"]'
+      );
+      if (td) {
+        td.classList.add('is-active-cell');
+      }
+    }
+
+    function syncFormulaBarFromActiveCell() {
+      if (!nameBoxInput || !formulaInput) {
+        return;
+      }
+      if (!isValidCellCoords(state.activeRow, state.activeCol)) {
+        nameBoxInput.value = 'A1';
+        formulaInput.value = '';
+        formulaInput.disabled = true;
+        return;
+      }
+      const type = columnTypes[state.activeCol] || 'text';
+      nameBoxInput.value = cellAddress(state.activeRow, state.activeCol);
+      formulaInput.value = getCellRawValue(state.activeRow, state.activeCol);
+      formulaInput.disabled = type === 'readonly_num';
+    }
+
+    function setActiveCell(rowIdx, colIdx) {
+      const nextRow = Number(rowIdx);
+      const nextCol = Number(colIdx);
+      if (!isValidCellCoords(nextRow, nextCol)) {
+        return;
+      }
+      state.activeRow = nextRow;
+      state.activeCol = nextCol;
+      refreshActiveCellVisual();
+      syncFormulaBarFromActiveCell();
+    }
+
+    function applyFormulaBarValue() {
+      if (!formulaInput || formulaInput.disabled) {
+        return;
+      }
+      const rowIdx = Number(state.activeRow);
+      const colIdx = Number(state.activeCol);
+      if (!isValidCellCoords(rowIdx, colIdx)) {
+        syncFormulaBarFromActiveCell();
+        return;
+      }
+      const type = columnTypes[colIdx] || 'text';
+      if (type === 'readonly_num') {
+        syncFormulaBarFromActiveCell();
+        return;
+      }
+
+      const nextRaw = asText(formulaInput.value || '');
+      if (type === 'checkbox') {
+        state.rows[rowIdx][colIdx] = asBool(nextRaw);
+      } else {
+        state.rows[rowIdx][colIdx] = nextRaw;
+      }
+      updateRegistry();
+
+      const editor = getCellEditor(rowIdx, colIdx);
+      if (editor) {
+        if (type === 'checkbox') {
+          editor.checked = asBool(state.rows[rowIdx][colIdx]);
+        } else {
+          editor.value = asText(state.rows[rowIdx][colIdx]);
+        }
+      }
+      syncFormulaBarFromActiveCell();
     }
 
     function normalizeSelectionValues(values) {
@@ -1414,6 +1600,8 @@
             'Rows: ' + state.visibleIndexes.length + ' shown of ' + state.rows.length + ' total';
         }
       }
+      refreshActiveCellVisual();
+      syncFormulaBarFromActiveCell();
     }
 
     function updateRegistry() {
@@ -1514,6 +1702,16 @@
           state.selectedRow = rowIdx;
           state.selectedCol = -1;
           renderGrid();
+        }
+        return;
+      }
+
+      const dataCell = ev.target.closest('td[data-row][data-col]');
+      if (dataCell) {
+        const rowIdx = Number(dataCell.dataset.row);
+        const colIdx = Number(dataCell.dataset.col);
+        if (Number.isFinite(rowIdx) && Number.isFinite(colIdx)) {
+          setActiveCell(rowIdx, colIdx);
         }
         return;
       }
@@ -1793,6 +1991,9 @@
         state.rows[rowIdx][colIdx] = asText(target.value || '');
       }
       updateRegistry();
+      if (state.activeRow === rowIdx && state.activeCol === colIdx) {
+        syncFormulaBarFromActiveCell();
+      }
     });
 
     grid.addEventListener('input', function (ev) {
@@ -1845,6 +2046,33 @@
       }
       state.rows[rowIdx][colIdx] = asText(target.value || '');
       updateRegistry();
+      if (state.activeRow === rowIdx && state.activeCol === colIdx) {
+        syncFormulaBarFromActiveCell();
+      }
+    });
+
+    grid.addEventListener('focusin', function (ev) {
+      const editor = ev.target && ev.target.closest('.cell-input[data-row][data-col]');
+      if (!editor) {
+        return;
+      }
+      const rowIdx = Number(editor.dataset.row);
+      const colIdx = Number(editor.dataset.col);
+      if (!Number.isFinite(rowIdx) || !Number.isFinite(colIdx)) {
+        return;
+      }
+      setActiveCell(rowIdx, colIdx);
+    });
+
+    formulaInput.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Enter') {
+        ev.preventDefault();
+        applyFormulaBarValue();
+      }
+    });
+
+    formulaInput.addEventListener('blur', function () {
+      applyFormulaBarValue();
     });
 
     document.addEventListener('keydown', function (ev) {
@@ -1914,6 +2142,10 @@
 
     renderStatusDataList();
     state.rows = normalizeRows(initialRows);
+    if (state.rows.length > 0 && headers.length > 0) {
+      state.activeRow = 0;
+      state.activeCol = 0;
+    }
     updateRegistry();
     fitShellToHeader();
     window.addEventListener('resize', fitShellToHeader, { passive: true });

@@ -183,6 +183,19 @@
     font-weight: 600;
     text-align: center;
     min-width: 74px;
+    position: sticky;
+    position: -webkit-sticky;
+  }
+  .ce-grid thead tr.letters th.col-header {
+    position: sticky;
+    position: -webkit-sticky;
+    cursor: pointer;
+    user-select: none;
+  }
+  .ce-grid thead tr.letters th.col-header.is-selected,
+  .ce-grid thead tr.header-row th.is-selected,
+  .ce-grid td.is-selected-col {
+    background: #eaf2ff !important;
   }
   .ce-grid thead tr.header-row th {
     top: var(--ce-header-top, 28px);
@@ -212,6 +225,12 @@
     background: #f8fafc;
     font-size: 12px;
     z-index: 2;
+    cursor: pointer;
+    user-select: none;
+  }
+  .ce-grid td.row-num-cell.is-selected,
+  .ce-grid tr.is-selected-row td {
+    background: #eaf2ff !important;
   }
   .ce-grid .filter-select,
   .ce-grid .filter-search,
@@ -320,6 +339,28 @@
   .ce-grid td.checkbox-cell {
     text-align: center;
   }
+  .ce-grid .col-resize-handle {
+    position: absolute;
+    top: 0;
+    right: -3px;
+    width: 6px;
+    height: 100%;
+    cursor: col-resize;
+    z-index: 12;
+  }
+  .ce-grid .row-resize-handle {
+    position: absolute;
+    left: 0;
+    bottom: -3px;
+    width: 100%;
+    height: 6px;
+    cursor: row-resize;
+    z-index: 12;
+  }
+  .ce-grid .col-header,
+  .ce-grid .row-num-cell {
+    position: relative;
+  }
   .ce-grid .sort-btn {
     margin-left: 6px;
     border: 0;
@@ -344,6 +385,35 @@
     z-index: 10;
     font-size: 13px;
     color: #374151;
+  }
+  .ce-context-menu {
+    position: fixed;
+    z-index: 60;
+    display: none;
+    min-width: 170px;
+    background: #fff;
+    border: 1px solid #d0d5dd;
+    box-shadow: 0 10px 24px rgba(16, 24, 40, 0.12);
+    border-radius: 8px;
+    padding: 6px;
+  }
+  .ce-context-menu.is-open {
+    display: block;
+  }
+  .ce-context-btn {
+    display: block;
+    width: 100%;
+    text-align: left;
+    border: 0;
+    background: transparent;
+    color: #111827;
+    border-radius: 6px;
+    font-size: 13px;
+    padding: 6px 8px;
+    cursor: pointer;
+  }
+  .ce-context-btn:hover {
+    background: #f3f4f6;
   }
 </style>
 
@@ -394,12 +464,14 @@
       <table class="ce-grid" id="ce-grid"></table>
     </div>
   </form>
+  <div id="ce-context-menu" class="ce-context-menu"></div>
 </div>
 
 {{ sheet_headers|json_script:"ppt-headers" }}
 {{ sheet_column_types|json_script:"ppt-column-types" }}
 {{ sheet_rows|json_script:"ppt-rows" }}
 {{ sheet_status_options|json_script:"ppt-status-options" }}
+<datalist id="ce-status-options-list"></datalist>
 <script>
   (function () {
     const headers = JSON.parse(document.getElementById('ppt-headers').textContent || '[]');
@@ -409,11 +481,13 @@
 
     const grid = document.getElementById('ce-grid');
     const meta = document.getElementById('ce-grid-meta');
+    const contextMenu = document.getElementById('ce-context-menu');
+    const statusDataList = document.getElementById('ce-status-options-list');
     const form = document.getElementById('sheet-save-form');
     const sheetDataInput = document.getElementById('sheet_data');
     const csrfInput = form ? form.querySelector('input[name="csrfmiddlewaretoken"]') : null;
 
-    if (!grid || !form || !sheetDataInput || !csrfInput) {
+    if (!grid || !form || !sheetDataInput || !csrfInput || !contextMenu || !statusDataList) {
       return;
     }
 
@@ -426,14 +500,21 @@
           return idx >= 0;
         })
     );
-    const numberColIdx = columnTypes.indexOf('readonly_num');
+    const baseColumnCount = headers.length;
     const state = {
       rows: [],
       filters: {},
       filterSearches: {},
       openFilterCol: -1,
+      selectedCol: -1,
+      selectedRow: -1,
       sort: { col: -1, dir: 0 },
       visibleIndexes: [],
+      colWidths: {},
+      rowHeights: {},
+      resizing: null,
+      contextTarget: null,
+      noticeText: '',
     };
 
     let saveInFlight = false;
@@ -466,6 +547,172 @@
       return String(val == null ? '' : val);
     }
 
+    function getNumberColIdx() {
+      return columnTypes.indexOf('readonly_num');
+    }
+
+    function buildEmptyRow() {
+      const out = [];
+      for (let c = 0; c < headers.length; c += 1) {
+        const type = columnTypes[c] || 'text';
+        if (type === 'checkbox') {
+          out.push(false);
+        } else if (type === 'readonly_num') {
+          out.push('');
+        } else {
+          out.push('');
+        }
+      }
+      return out;
+    }
+
+    function hideContextMenu() {
+      contextMenu.classList.remove('is-open');
+      contextMenu.innerHTML = '';
+      state.contextTarget = null;
+    }
+
+    function setNotice(text) {
+      state.noticeText = asText(text || '').trim();
+      renderGrid();
+      window.setTimeout(function () {
+        if (!state.noticeText) {
+          return;
+        }
+        state.noticeText = '';
+        renderGrid();
+      }, 2500);
+    }
+
+    function showContextMenu(kind, sourceIdx, x, y) {
+      const buttons = [];
+      if (kind === 'row') {
+        buttons.push('<button type="button" class="ce-context-btn" data-action="insert-row-above">Insert Row Above</button>');
+        buttons.push('<button type="button" class="ce-context-btn" data-action="insert-row-below">Insert Row Below</button>');
+        buttons.push('<button type="button" class="ce-context-btn" data-action="delete-row">Delete Row</button>');
+      } else if (kind === 'col') {
+        buttons.push('<button type="button" class="ce-context-btn" data-action="insert-col-right">Insert Column Right</button>');
+        buttons.push('<button type="button" class="ce-context-btn" data-action="delete-col">Delete Column</button>');
+        buttons.push('<button type="button" class="ce-context-btn" data-action="clear-column">Clear Column Values</button>');
+      }
+      if (!buttons.length) {
+        hideContextMenu();
+        return;
+      }
+      state.contextTarget = { kind: kind, index: sourceIdx };
+      contextMenu.innerHTML = buttons.join('');
+      contextMenu.style.left = Math.round(x) + 'px';
+      contextMenu.style.top = Math.round(y) + 'px';
+      contextMenu.classList.add('is-open');
+    }
+
+    function shiftRowHeightsForInsert(atIdx) {
+      const next = {};
+      Object.keys(state.rowHeights).forEach(function (key) {
+        const idx = Number(key);
+        if (!Number.isFinite(idx)) {
+          return;
+        }
+        const nextIdx = idx >= atIdx ? idx + 1 : idx;
+        next[nextIdx] = state.rowHeights[key];
+      });
+      state.rowHeights = next;
+    }
+
+    function shiftRowHeightsForDelete(atIdx) {
+      const next = {};
+      Object.keys(state.rowHeights).forEach(function (key) {
+        const idx = Number(key);
+        if (!Number.isFinite(idx) || idx === atIdx) {
+          return;
+        }
+        const nextIdx = idx > atIdx ? idx - 1 : idx;
+        next[nextIdx] = state.rowHeights[key];
+      });
+      state.rowHeights = next;
+    }
+
+    function insertRowAt(sourceIdx) {
+      const insertAt = Math.max(0, Math.min(state.rows.length, Number(sourceIdx)));
+      shiftRowHeightsForInsert(insertAt);
+      state.rows.splice(insertAt, 0, buildEmptyRow());
+      state.selectedRow = insertAt;
+      updateRegistry();
+      renderGrid();
+    }
+
+    function insertTemporaryColumn(afterColIdx) {
+      const insertAt = Math.max(baseColumnCount, Math.min(headers.length, Number(afterColIdx) + 1));
+      headers.splice(insertAt, 0, 'New Column');
+      columnTypes.splice(insertAt, 0, 'text');
+      for (let r = 0; r < state.rows.length; r += 1) {
+        state.rows[r].splice(insertAt, 0, '');
+      }
+      state.selectedCol = insertAt;
+      setNotice('Temporary column added. It is for on-screen use and is not saved to the database.');
+      updateRegistry();
+      renderGrid();
+    }
+
+    function deleteTemporaryColumn(colIdx) {
+      const idx = Number(colIdx);
+      if (!Number.isFinite(idx) || idx < baseColumnCount || idx >= headers.length) {
+        setNotice('Core participant columns cannot be deleted.');
+        return;
+      }
+      headers.splice(idx, 1);
+      columnTypes.splice(idx, 1);
+      for (let r = 0; r < state.rows.length; r += 1) {
+        state.rows[r].splice(idx, 1);
+      }
+      if (state.selectedCol === idx) {
+        state.selectedCol = -1;
+      } else if (state.selectedCol > idx) {
+        state.selectedCol -= 1;
+      }
+      const nextWidths = {};
+      Object.keys(state.colWidths).forEach(function (key) {
+        const oldIdx = Number(key);
+        if (!Number.isFinite(oldIdx) || oldIdx === idx) {
+          return;
+        }
+        const nextIdx = oldIdx > idx ? oldIdx - 1 : oldIdx;
+        nextWidths[nextIdx] = state.colWidths[key];
+      });
+      state.colWidths = nextWidths;
+      updateRegistry();
+      renderGrid();
+    }
+
+    function deleteRowAt(sourceIdx) {
+      const idx = Number(sourceIdx);
+      if (!Number.isFinite(idx) || idx < 0 || idx >= state.rows.length) {
+        return;
+      }
+      state.rows.splice(idx, 1);
+      shiftRowHeightsForDelete(idx);
+      if (state.selectedRow === idx) {
+        state.selectedRow = -1;
+      } else if (state.selectedRow > idx) {
+        state.selectedRow -= 1;
+      }
+      updateRegistry();
+      renderGrid();
+    }
+
+    function renderStatusDataList() {
+      statusDataList.innerHTML = '';
+      statusOptions.forEach(function (optText) {
+        const value = asText(optText).trim();
+        if (!value) {
+          return;
+        }
+        const opt = document.createElement('option');
+        opt.value = value;
+        statusDataList.appendChild(opt);
+      });
+    }
+
     function normalizeRows(rows) {
       if (!Array.isArray(rows)) {
         return [];
@@ -490,6 +737,7 @@
     }
 
     function isDataRowEmpty(row) {
+      const numberColIdx = getNumberColIdx();
       for (let c = 0; c < row.length; c += 1) {
         if (c === numberColIdx) {
           continue;
@@ -508,11 +756,12 @@
     }
 
     function rowsForSave() {
+      const saveWidth = baseColumnCount;
       const outRows = [];
       for (let r = 0; r < state.rows.length; r += 1) {
         const src = state.rows[r];
         const row = [];
-        for (let c = 0; c < headers.length; c += 1) {
+        for (let c = 0; c < saveWidth; c += 1) {
           const type = columnTypes[c] || 'text';
           const raw = c < src.length ? src[c] : '';
           if (type === 'checkbox') {
@@ -809,32 +1058,18 @@
       }
 
       if (type === 'select') {
-        const select = document.createElement('select');
-        select.className = 'cell-select';
-        select.dataset.row = String(rowIdx);
-        select.dataset.col = String(colIdx);
-
-        const blank = document.createElement('option');
-        blank.value = '';
-        blank.textContent = '';
-        select.appendChild(blank);
-
-        statusOptions.forEach(function (optText) {
-          const optionValue = asText(optText).trim();
-          if (!optionValue) {
-            return;
-          }
-          const opt = document.createElement('option');
-          opt.value = optionValue;
-          opt.textContent = optionValue;
-          select.appendChild(opt);
-        });
-        select.value = asText(value).trim();
-        return select;
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'cell-input';
+        input.dataset.row = String(rowIdx);
+        input.dataset.col = String(colIdx);
+        input.setAttribute('list', 'ce-status-options-list');
+        input.value = asText(value);
+        return input;
       }
 
       const input = document.createElement('input');
-      input.type = type === 'email' ? 'email' : 'text';
+      input.type = 'text';
       input.className = 'cell-input';
       input.dataset.row = String(rowIdx);
       input.dataset.col = String(colIdx);
@@ -862,11 +1097,35 @@
       headerRow.appendChild(headerNumCell);
 
       for (let c = 0; c < headers.length; c += 1) {
+        const colWidth = Number(state.colWidths[c] || 0);
         const letterTh = document.createElement('th');
+        letterTh.classList.add('col-header');
+        letterTh.dataset.col = String(c);
         letterTh.textContent = columnLetter(c);
+        if (state.selectedCol === c) {
+          letterTh.classList.add('is-selected');
+        }
+        if (colWidth > 0) {
+          letterTh.style.width = colWidth + 'px';
+          letterTh.style.minWidth = colWidth + 'px';
+          letterTh.style.maxWidth = colWidth + 'px';
+        }
+        const colHandle = document.createElement('div');
+        colHandle.className = 'col-resize-handle';
+        colHandle.dataset.col = String(c);
+        letterTh.appendChild(colHandle);
         lettersRow.appendChild(letterTh);
 
         const th = document.createElement('th');
+        th.dataset.col = String(c);
+        if (state.selectedCol === c) {
+          th.classList.add('is-selected');
+        }
+        if (colWidth > 0) {
+          th.style.width = colWidth + 'px';
+          th.style.minWidth = colWidth + 'px';
+          th.style.maxWidth = colWidth + 'px';
+        }
         const headerLabel = document.createElement('div');
         headerLabel.className = 'header-label';
 
@@ -897,12 +1156,39 @@
       const tbody = document.createElement('tbody');
       state.visibleIndexes.forEach(function (rowIdx) {
         const tr = document.createElement('tr');
+        tr.dataset.row = String(rowIdx);
+        if (state.selectedRow === rowIdx) {
+          tr.classList.add('is-selected-row');
+        }
+        const rowHeight = Number(state.rowHeights[rowIdx] || 0);
+        if (rowHeight > 0) {
+          tr.style.height = rowHeight + 'px';
+        }
         const rowNumTd = document.createElement('td');
         rowNumTd.className = 'row-num-cell';
+        rowNumTd.dataset.row = String(rowIdx);
+        if (state.selectedRow === rowIdx) {
+          rowNumTd.classList.add('is-selected');
+        }
         rowNumTd.textContent = String(rowIdx + 2);
+        const rowHandle = document.createElement('div');
+        rowHandle.className = 'row-resize-handle';
+        rowHandle.dataset.row = String(rowIdx);
+        rowNumTd.appendChild(rowHandle);
         tr.appendChild(rowNumTd);
         for (let c = 0; c < headers.length; c += 1) {
+          const cellColWidth = Number(state.colWidths[c] || 0);
           const td = document.createElement('td');
+          td.dataset.row = String(rowIdx);
+          td.dataset.col = String(c);
+          if (state.selectedCol === c) {
+            td.classList.add('is-selected-col');
+          }
+          if (cellColWidth > 0) {
+            td.style.width = cellColWidth + 'px';
+            td.style.minWidth = cellColWidth + 'px';
+            td.style.maxWidth = cellColWidth + 'px';
+          }
           if (checkboxCols.has(c)) {
             td.classList.add('checkbox-cell');
           }
@@ -926,8 +1212,12 @@
       });
 
       if (meta) {
-        meta.textContent =
-          'Rows: ' + state.visibleIndexes.length + ' shown of ' + state.rows.length + ' total';
+        if (state.noticeText) {
+          meta.textContent = state.noticeText;
+        } else {
+          meta.textContent =
+            'Rows: ' + state.visibleIndexes.length + ' shown of ' + state.rows.length + ' total';
+        }
       }
     }
 
@@ -975,7 +1265,37 @@
       }
     }
 
+    function beginColumnResize(colIdx, clientX) {
+      const th = grid.querySelector('th.col-header[data-col="' + colIdx + '"]');
+      const rect = th ? th.getBoundingClientRect() : null;
+      const startWidth = rect ? Math.round(rect.width) : Number(state.colWidths[colIdx] || 120);
+      state.resizing = {
+        kind: 'col',
+        colIdx: colIdx,
+        startX: Number(clientX),
+        startWidth: Math.max(60, startWidth),
+      };
+    }
+
+    function beginRowResize(rowIdx, clientY) {
+      const tr = grid.querySelector('tbody tr[data-row="' + rowIdx + '"]');
+      const rect = tr ? tr.getBoundingClientRect() : null;
+      const startHeight = rect ? Math.round(rect.height) : Number(state.rowHeights[rowIdx] || 30);
+      state.resizing = {
+        kind: 'row',
+        rowIdx: rowIdx,
+        startY: Number(clientY),
+        startHeight: Math.max(24, startHeight),
+      };
+    }
+
     grid.addEventListener('click', function (ev) {
+      hideContextMenu();
+
+      if (ev.target.closest('.col-resize-handle') || ev.target.closest('.row-resize-handle')) {
+        return;
+      }
+
       const toggle = ev.target.closest('.filter-toggle');
       if (toggle) {
         const colIdx = Number(toggle.dataset.col);
@@ -984,6 +1304,28 @@
         }
         state.openFilterCol = state.openFilterCol === colIdx ? -1 : colIdx;
         renderGrid();
+        return;
+      }
+
+      const rowHead = ev.target.closest('td.row-num-cell[data-row]');
+      if (rowHead) {
+        const rowIdx = Number(rowHead.dataset.row);
+        if (Number.isFinite(rowIdx)) {
+          state.selectedRow = rowIdx;
+          state.selectedCol = -1;
+          renderGrid();
+        }
+        return;
+      }
+
+      const colHead = ev.target.closest('th.col-header[data-col]');
+      if (colHead) {
+        const colIdx = Number(colHead.dataset.col);
+        if (Number.isFinite(colIdx)) {
+          state.selectedCol = colIdx;
+          state.selectedRow = -1;
+          renderGrid();
+        }
         return;
       }
 
@@ -1035,6 +1377,98 @@
       }
       state.openFilterCol = -1;
       renderGrid();
+    });
+
+    grid.addEventListener('contextmenu', function (ev) {
+      const rowHead = ev.target.closest('td.row-num-cell[data-row]');
+      if (rowHead) {
+        ev.preventDefault();
+        const rowIdx = Number(rowHead.dataset.row);
+        if (!Number.isFinite(rowIdx)) {
+          return;
+        }
+        state.selectedRow = rowIdx;
+        state.selectedCol = -1;
+        renderGrid();
+        showContextMenu('row', rowIdx, ev.clientX, ev.clientY);
+        return;
+      }
+      const colHead = ev.target.closest('th.col-header[data-col]');
+      if (colHead) {
+        ev.preventDefault();
+        const colIdx = Number(colHead.dataset.col);
+        if (!Number.isFinite(colIdx)) {
+          return;
+        }
+        state.selectedCol = colIdx;
+        state.selectedRow = -1;
+        renderGrid();
+        showContextMenu('col', colIdx, ev.clientX, ev.clientY);
+      }
+    });
+
+    grid.addEventListener('mousedown', function (ev) {
+      const colHandle = ev.target.closest('.col-resize-handle');
+      if (colHandle) {
+        ev.preventDefault();
+        const colIdx = Number(colHandle.dataset.col);
+        if (Number.isFinite(colIdx)) {
+          beginColumnResize(colIdx, ev.clientX);
+        }
+        return;
+      }
+      const rowHandle = ev.target.closest('.row-resize-handle');
+      if (rowHandle) {
+        ev.preventDefault();
+        const rowIdx = Number(rowHandle.dataset.row);
+        if (Number.isFinite(rowIdx)) {
+          beginRowResize(rowIdx, ev.clientY);
+        }
+      }
+    });
+
+    contextMenu.addEventListener('click', function (ev) {
+      const btn = ev.target.closest('[data-action]');
+      if (!btn || !state.contextTarget) {
+        return;
+      }
+      const action = String(btn.dataset.action || '').trim();
+      const target = state.contextTarget;
+      hideContextMenu();
+      if (target.kind === 'row') {
+        if (action === 'insert-row-above') {
+          insertRowAt(target.index);
+          return;
+        }
+        if (action === 'insert-row-below') {
+          insertRowAt(target.index + 1);
+          return;
+        }
+        if (action === 'delete-row') {
+          deleteRowAt(target.index);
+          return;
+        }
+      }
+      if (target.kind === 'col' && action === 'clear-column') {
+        const colIdx = Number(target.index);
+        if (!Number.isFinite(colIdx) || colIdx < 0 || colIdx >= headers.length) {
+          return;
+        }
+        for (let r = 0; r < state.rows.length; r += 1) {
+          const type = columnTypes[colIdx] || 'text';
+          state.rows[r][colIdx] = type === 'checkbox' ? false : '';
+        }
+        updateRegistry();
+        renderGrid();
+        return;
+      }
+      if (target.kind === 'col' && action === 'insert-col-right') {
+        insertTemporaryColumn(target.index);
+        return;
+      }
+      if (target.kind === 'col' && action === 'delete-col') {
+        deleteTemporaryColumn(target.index);
+      }
     });
 
     grid.addEventListener('change', function (ev) {
@@ -1115,7 +1549,52 @@
       }
     });
 
+    document.addEventListener('mousemove', function (ev) {
+      if (!state.resizing) {
+        return;
+      }
+      if (state.resizing.kind === 'col') {
+        const colIdx = Number(state.resizing.colIdx);
+        if (!Number.isFinite(colIdx)) {
+          return;
+        }
+        const dx = Number(ev.clientX) - Number(state.resizing.startX);
+        const width = Math.max(60, Number(state.resizing.startWidth) + dx);
+        state.colWidths[colIdx] = width;
+        grid.querySelectorAll('th[data-col="' + colIdx + '"], td[data-col="' + colIdx + '"]').forEach(function (cell) {
+          cell.style.width = width + 'px';
+          cell.style.minWidth = width + 'px';
+          cell.style.maxWidth = width + 'px';
+        });
+        return;
+      }
+      if (state.resizing.kind === 'row') {
+        const rowIdx = Number(state.resizing.rowIdx);
+        if (!Number.isFinite(rowIdx)) {
+          return;
+        }
+        const dy = Number(ev.clientY) - Number(state.resizing.startY);
+        const height = Math.max(24, Number(state.resizing.startHeight) + dy);
+        state.rowHeights[rowIdx] = height;
+        const tr = grid.querySelector('tbody tr[data-row="' + rowIdx + '"]');
+        if (tr) {
+          tr.style.height = height + 'px';
+        }
+      }
+    });
+
+    document.addEventListener('mouseup', function () {
+      if (!state.resizing) {
+        return;
+      }
+      state.resizing = null;
+      renderGrid();
+    });
+
     document.addEventListener('click', function (ev) {
+      if (contextMenu.classList.contains('is-open') && !(ev.target && ev.target.closest('#ce-context-menu'))) {
+        hideContextMenu();
+      }
       if (state.openFilterCol < 0) {
         return;
       }
@@ -1126,6 +1605,7 @@
       renderGrid();
     });
 
+    renderStatusDataList();
     state.rows = normalizeRows(initialRows);
     updateRegistry();
     fitShellToHeader();

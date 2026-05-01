@@ -189,8 +189,15 @@
   .ce-grid thead tr.letters th.col-header {
     position: sticky;
     position: -webkit-sticky;
-    cursor: pointer;
+    cursor: grab;
     user-select: none;
+  }
+  .ce-grid thead tr.letters th.col-header.is-dragging {
+    opacity: 0.55;
+    cursor: grabbing;
+  }
+  .ce-grid thead tr.letters th.col-header.is-drop-target {
+    box-shadow: inset 0 0 0 2px #1f6feb;
   }
   .ce-grid thead tr.letters th.col-header.is-selected,
   .ce-grid thead tr.header-row th.is-selected,
@@ -501,6 +508,9 @@
         })
     );
     const baseColumnCount = headers.length;
+    const canonicalHeaders = headers.slice();
+    const canonicalColumnTypes = columnTypes.slice();
+    const canonicalNumberColIdx = canonicalColumnTypes.indexOf('readonly_num');
     const state = {
       rows: [],
       filters: {},
@@ -515,6 +525,7 @@
       resizing: null,
       contextTarget: null,
       noticeText: '',
+      dragCol: -1,
     };
 
     let saveInFlight = false;
@@ -549,6 +560,18 @@
 
     function getNumberColIdx() {
       return columnTypes.indexOf('readonly_num');
+    }
+
+    function canonicalSourceIndex(canonicalIdx) {
+      if (canonicalIdx < 0 || canonicalIdx >= canonicalHeaders.length) {
+        return -1;
+      }
+      const headerName = canonicalHeaders[canonicalIdx];
+      const idx = headers.indexOf(headerName);
+      if (idx >= 0) {
+        return idx;
+      }
+      return canonicalIdx < headers.length ? canonicalIdx : -1;
     }
 
     function buildEmptyRow() {
@@ -642,8 +665,15 @@
     }
 
     function insertTemporaryColumn(afterColIdx) {
-      const insertAt = Math.max(baseColumnCount, Math.min(headers.length, Number(afterColIdx) + 1));
-      headers.splice(insertAt, 0, 'New Column');
+      const insertAt = Math.max(0, Math.min(headers.length, Number(afterColIdx) + 1));
+      let nextName = 'Temp Column';
+      let seq = 1;
+      const used = new Set(headers.map(function (h) { return asText(h); }));
+      while (used.has(nextName)) {
+        seq += 1;
+        nextName = 'Temp Column ' + seq;
+      }
+      headers.splice(insertAt, 0, nextName);
       columnTypes.splice(insertAt, 0, 'text');
       for (let r = 0; r < state.rows.length; r += 1) {
         state.rows[r].splice(insertAt, 0, '');
@@ -656,7 +686,12 @@
 
     function deleteTemporaryColumn(colIdx) {
       const idx = Number(colIdx);
-      if (!Number.isFinite(idx) || idx < baseColumnCount || idx >= headers.length) {
+      if (!Number.isFinite(idx) || idx < 0 || idx >= headers.length) {
+        setNotice('Column index out of range.');
+        return;
+      }
+      const headerName = asText(headers[idx]);
+      if (canonicalHeaders.indexOf(headerName) >= 0) {
         setNotice('Core participant columns cannot be deleted.');
         return;
       }
@@ -680,6 +715,81 @@
         nextWidths[nextIdx] = state.colWidths[key];
       });
       state.colWidths = nextWidths;
+      updateRegistry();
+      renderGrid();
+    }
+
+    function moveArrayItem(arr, fromIdx, toIdx) {
+      if (!Array.isArray(arr)) {
+        return;
+      }
+      const from = Number(fromIdx);
+      const to = Number(toIdx);
+      if (!Number.isFinite(from) || !Number.isFinite(to) || from === to) {
+        return;
+      }
+      if (from < 0 || from >= arr.length || to < 0 || to >= arr.length) {
+        return;
+      }
+      const moved = arr.splice(from, 1)[0];
+      arr.splice(to, 0, moved);
+    }
+
+    function remapMovedIndex(idx, fromIdx, toIdx) {
+      const n = Number(idx);
+      const from = Number(fromIdx);
+      const to = Number(toIdx);
+      if (!Number.isFinite(n) || !Number.isFinite(from) || !Number.isFinite(to)) {
+        return idx;
+      }
+      if (n === from) {
+        return to;
+      }
+      if (from < to && n > from && n <= to) {
+        return n - 1;
+      }
+      if (from > to && n >= to && n < from) {
+        return n + 1;
+      }
+      return n;
+    }
+
+    function remapColumnKeyedState(obj, fromIdx, toIdx) {
+      const next = {};
+      Object.keys(obj || {}).forEach(function (key) {
+        const idx = Number(key);
+        if (!Number.isFinite(idx)) {
+          return;
+        }
+        const remapped = remapMovedIndex(idx, fromIdx, toIdx);
+        next[remapped] = obj[key];
+      });
+      return next;
+    }
+
+    function moveColumn(fromIdx, toIdx) {
+      const from = Number(fromIdx);
+      const to = Number(toIdx);
+      if (!Number.isFinite(from) || !Number.isFinite(to) || from === to) {
+        return;
+      }
+      if (from < 0 || to < 0 || from >= headers.length || to >= headers.length) {
+        return;
+      }
+
+      moveArrayItem(headers, from, to);
+      moveArrayItem(columnTypes, from, to);
+      for (let r = 0; r < state.rows.length; r += 1) {
+        moveArrayItem(state.rows[r], from, to);
+      }
+      state.colWidths = remapColumnKeyedState(state.colWidths, from, to);
+      state.filters = remapColumnKeyedState(state.filters, from, to);
+      state.filterSearches = remapColumnKeyedState(state.filterSearches, from, to);
+      state.selectedCol = remapMovedIndex(state.selectedCol, from, to);
+      state.openFilterCol = remapMovedIndex(state.openFilterCol, from, to);
+      if (state.sort.col >= 0) {
+        state.sort.col = remapMovedIndex(state.sort.col, from, to);
+      }
       updateRegistry();
       renderGrid();
     }
@@ -736,8 +846,11 @@
       });
     }
 
-    function isDataRowEmpty(row) {
-      const numberColIdx = getNumberColIdx();
+    function isDataRowEmpty(row, numberColIdxOverride) {
+      const numberColIdx =
+        Number.isFinite(Number(numberColIdxOverride)) && Number(numberColIdxOverride) >= 0
+          ? Number(numberColIdxOverride)
+          : getNumberColIdx();
       for (let c = 0; c < row.length; c += 1) {
         if (c === numberColIdx) {
           continue;
@@ -762,8 +875,9 @@
         const src = state.rows[r];
         const row = [];
         for (let c = 0; c < saveWidth; c += 1) {
-          const type = columnTypes[c] || 'text';
-          const raw = c < src.length ? src[c] : '';
+          const type = canonicalColumnTypes[c] || 'text';
+          const sourceIdx = canonicalSourceIndex(c);
+          const raw = sourceIdx >= 0 && sourceIdx < src.length ? src[sourceIdx] : '';
           if (type === 'checkbox') {
             row.push(asBool(raw));
           } else if (type === 'readonly_num') {
@@ -772,7 +886,7 @@
             row.push(asText(raw));
           }
         }
-        if (!isDataRowEmpty(row)) {
+        if (!isDataRowEmpty(row, canonicalNumberColIdx)) {
           outRows.push(row);
         }
       }
@@ -1050,13 +1164,6 @@
         return checkbox;
       }
 
-      if (type === 'readonly_num') {
-        const span = document.createElement('span');
-        span.className = 'readonly-cell';
-        span.textContent = asText(value);
-        return span;
-      }
-
       if (type === 'select') {
         const input = document.createElement('input');
         input.type = 'text';
@@ -1069,7 +1176,7 @@
       }
 
       const input = document.createElement('input');
-      input.type = 'text';
+      input.type = type === 'readonly_num' ? 'number' : 'text';
       input.className = 'cell-input';
       input.dataset.row = String(rowIdx);
       input.dataset.col = String(colIdx);
@@ -1101,6 +1208,7 @@
         const letterTh = document.createElement('th');
         letterTh.classList.add('col-header');
         letterTh.dataset.col = String(c);
+        letterTh.setAttribute('draggable', 'true');
         letterTh.textContent = columnLetter(c);
         if (state.selectedCol === c) {
           letterTh.classList.add('is-selected');
@@ -1425,6 +1533,74 @@
           beginRowResize(rowIdx, ev.clientY);
         }
       }
+    });
+
+    grid.addEventListener('dragstart', function (ev) {
+      const colHead = ev.target.closest('th.col-header[data-col]');
+      if (!colHead) {
+        return;
+      }
+      const colIdx = Number(colHead.dataset.col);
+      if (!Number.isFinite(colIdx)) {
+        return;
+      }
+      state.dragCol = colIdx;
+      if (ev.dataTransfer) {
+        ev.dataTransfer.effectAllowed = 'move';
+        ev.dataTransfer.setData('text/plain', String(colIdx));
+      }
+      colHead.classList.add('is-dragging');
+    });
+
+    grid.addEventListener('dragover', function (ev) {
+      const colHead = ev.target.closest('th.col-header[data-col]');
+      if (!colHead) {
+        return;
+      }
+      ev.preventDefault();
+      grid.querySelectorAll('th.col-header.is-drop-target').forEach(function (el) {
+        el.classList.remove('is-drop-target');
+      });
+      colHead.classList.add('is-drop-target');
+      if (ev.dataTransfer) {
+        ev.dataTransfer.dropEffect = 'move';
+      }
+    });
+
+    grid.addEventListener('dragleave', function (ev) {
+      const colHead = ev.target.closest('th.col-header[data-col]');
+      if (!colHead) {
+        return;
+      }
+      colHead.classList.remove('is-drop-target');
+    });
+
+    grid.addEventListener('drop', function (ev) {
+      const colHead = ev.target.closest('th.col-header[data-col]');
+      if (!colHead) {
+        return;
+      }
+      ev.preventDefault();
+      const toCol = Number(colHead.dataset.col);
+      const fromCol =
+        Number.isFinite(Number(state.dragCol)) && Number(state.dragCol) >= 0
+          ? Number(state.dragCol)
+          : Number(ev.dataTransfer ? ev.dataTransfer.getData('text/plain') : -1);
+      grid.querySelectorAll('th.col-header.is-drop-target').forEach(function (el) {
+        el.classList.remove('is-drop-target');
+      });
+      if (Number.isFinite(fromCol) && Number.isFinite(toCol) && fromCol >= 0 && toCol >= 0) {
+        moveColumn(fromCol, toCol);
+      }
+      state.dragCol = -1;
+    });
+
+    grid.addEventListener('dragend', function () {
+      grid.querySelectorAll('th.col-header.is-dragging, th.col-header.is-drop-target').forEach(function (el) {
+        el.classList.remove('is-dragging');
+        el.classList.remove('is-drop-target');
+      });
+      state.dragCol = -1;
     });
 
     contextMenu.addEventListener('click', function (ev) {

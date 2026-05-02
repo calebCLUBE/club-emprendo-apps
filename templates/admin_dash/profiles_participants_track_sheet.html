@@ -74,6 +74,55 @@
     border-bottom: 1px solid #eef2f7;
     color: #344054;
     font-size: 14px;
+    position: relative;
+  }
+  .ce-sheet-menu-btn {
+    border: 0;
+    background: transparent;
+    color: #344054;
+    font-size: 14px;
+    padding: 2px 4px;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  .ce-sheet-menu-btn:hover,
+  .ce-sheet-menu-btn.is-open {
+    background: #e5e7eb;
+    color: #111827;
+  }
+  .ce-top-menu-popover {
+    position: absolute;
+    top: 31px;
+    min-width: 200px;
+    background: #fff;
+    border: 1px solid #d0d5dd;
+    box-shadow: 0 10px 24px rgba(16, 24, 40, 0.12);
+    border-radius: 8px;
+    padding: 6px;
+    z-index: 45;
+    display: none;
+  }
+  .ce-top-menu-popover.is-open {
+    display: block;
+  }
+  .ce-top-menu-item {
+    display: block;
+    width: 100%;
+    text-align: left;
+    border: 0;
+    background: transparent;
+    color: #111827;
+    border-radius: 6px;
+    font-size: 13px;
+    padding: 6px 8px;
+    cursor: pointer;
+  }
+  .ce-top-menu-item:hover {
+    background: #f3f4f6;
+  }
+  .ce-top-menu-item[disabled] {
+    opacity: 0.45;
+    cursor: not-allowed;
   }
   .ce-sheet-toolbar {
     display: grid;
@@ -285,9 +334,7 @@
   .ce-grid tr.is-selected-row td {
     background: #eaf2ff !important;
   }
-  .ce-grid .filter-search,
-  .ce-grid .cell-input,
-  .ce-grid .cell-select {
+  .ce-grid .filter-search {
     width: 100%;
     min-width: 78px;
     border: 1px solid #d1d5db;
@@ -296,6 +343,30 @@
     font-size: 13px;
     box-sizing: border-box;
     background: #fff;
+  }
+  .ce-grid .cell-input,
+  .ce-grid .cell-select {
+    width: 100%;
+    min-width: 0;
+    border: 0;
+    border-radius: 0;
+    padding: 0;
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.35;
+    color: #111827;
+    box-sizing: border-box;
+    background: transparent;
+    outline: none;
+    appearance: none;
+    -webkit-appearance: none;
+  }
+  .ce-grid .cell-readonly-value {
+    display: block;
+    width: 100%;
+    font-size: 14px;
+    line-height: 1.35;
+    color: #111827;
   }
   .ce-grid .header-label {
     display: flex;
@@ -535,15 +606,16 @@
       <span>{{ track_label }} · Group {{ group.number }}</span>
     </div>
     <div class="ce-sheet-menu">
-      <span>File</span>
-      <span>Edit</span>
-      <span>View</span>
-      <span>Insert</span>
-      <span>Format</span>
-      <span>Data</span>
-      <span>Tools</span>
-      <span>Extensions</span>
-      <span>Help</span>
+      <button type="button" class="ce-sheet-menu-btn" data-menu="file">File</button>
+      <button type="button" class="ce-sheet-menu-btn" data-menu="edit">Edit</button>
+      <button type="button" class="ce-sheet-menu-btn" data-menu="view">View</button>
+      <button type="button" class="ce-sheet-menu-btn" data-menu="insert">Insert</button>
+      <button type="button" class="ce-sheet-menu-btn" data-menu="format">Format</button>
+      <button type="button" class="ce-sheet-menu-btn" data-menu="data">Data</button>
+      <button type="button" class="ce-sheet-menu-btn" data-menu="tools">Tools</button>
+      <button type="button" class="ce-sheet-menu-btn" data-menu="extensions">Extensions</button>
+      <button type="button" class="ce-sheet-menu-btn" data-menu="help">Help</button>
+      <div id="ce-top-menu-popover" class="ce-top-menu-popover"></div>
     </div>
     <div class="ce-sheet-toolbar">
       <input id="ce-name-box" class="ce-name-box" type="text" value="A1" readonly>
@@ -587,6 +659,8 @@
     const meta = document.getElementById('ce-grid-meta');
     const contextMenu = document.getElementById('ce-context-menu');
     const statusDataList = document.getElementById('ce-status-options-list');
+    const topMenu = document.querySelector('.ce-sheet-menu');
+    const topMenuPopover = document.getElementById('ce-top-menu-popover');
     const form = document.getElementById('sheet-save-form');
     const sheetDataInput = document.getElementById('sheet_data');
     const csrfInput = form ? form.querySelector('input[name="csrfmiddlewaretoken"]') : null;
@@ -600,6 +674,8 @@
       !csrfInput ||
       !contextMenu ||
       !statusDataList ||
+      !topMenu ||
+      !topMenuPopover ||
       !nameBoxInput ||
       !formulaInput
     ) {
@@ -642,6 +718,7 @@
       dragCol: -1,
       headerEditCol: -1,
       fillDrag: null,
+      topMenuOpen: '',
     };
 
     let saveInFlight = false;
@@ -726,6 +803,191 @@
         state.noticeText = '';
         renderGrid();
       }, 2500);
+    }
+
+    function closeTopMenu() {
+      state.topMenuOpen = '';
+      topMenuPopover.classList.remove('is-open');
+      topMenuPopover.innerHTML = '';
+      topMenu.querySelectorAll('.ce-sheet-menu-btn.is-open').forEach(function (btn) {
+        btn.classList.remove('is-open');
+      });
+    }
+
+    function activeContextRow() {
+      if (Number.isFinite(Number(state.selectedRow)) && Number(state.selectedRow) >= 0) {
+        return Number(state.selectedRow);
+      }
+      if (Number.isFinite(Number(state.activeRow)) && Number(state.activeRow) >= 0) {
+        return Number(state.activeRow);
+      }
+      return state.rows.length ? state.rows.length - 1 : 0;
+    }
+
+    function activeContextCol() {
+      if (Number.isFinite(Number(state.selectedCol)) && Number(state.selectedCol) >= 0) {
+        return Number(state.selectedCol);
+      }
+      if (Number.isFinite(Number(state.activeCol)) && Number(state.activeCol) >= 0) {
+        return Number(state.activeCol);
+      }
+      return headers.length ? headers.length - 1 : 0;
+    }
+
+    function topMenuItems(menuName) {
+      const name = asText(menuName || '').toLowerCase();
+      if (name === 'file') {
+        return [
+          { label: 'Save now', action: 'save_now' },
+        ];
+      }
+      if (name === 'edit') {
+        return [
+          { label: 'Undo (coming soon)', action: 'undo', disabled: true },
+          { label: 'Redo (coming soon)', action: 'redo', disabled: true },
+        ];
+      }
+      if (name === 'view') {
+        return [
+          { label: 'Reset column widths', action: 'reset_col_widths' },
+          { label: 'Clear selection', action: 'clear_selection' },
+        ];
+      }
+      if (name === 'insert') {
+        return [
+          { label: 'Insert row below', action: 'insert_row_below' },
+          { label: 'Insert column right', action: 'insert_col_right' },
+        ];
+      }
+      if (name === 'format') {
+        return [
+          { label: 'Rename selected column', action: 'rename_selected_column' },
+        ];
+      }
+      if (name === 'data') {
+        return [
+          { label: 'Clear all filters', action: 'clear_all_filters' },
+          { label: 'Clear sort', action: 'clear_sort' },
+        ];
+      }
+      if (name === 'tools') {
+        return [
+          { label: 'Check Dropbox', action: 'submit_dropbox' },
+        ];
+      }
+      if (name === 'extensions') {
+        return [
+          { label: 'Check Capacitacion', action: 'submit_capacitacion' },
+        ];
+      }
+      if (name === 'help') {
+        return [
+          { label: 'Shortcuts', action: 'show_shortcuts' },
+        ];
+      }
+      return [];
+    }
+
+    function runTopMenuAction(actionName) {
+      const action = asText(actionName || '').trim();
+      if (!action) {
+        return;
+      }
+      if (action === 'save_now') {
+        saveIfChanged(true);
+        setNotice('Save requested.');
+        return;
+      }
+      if (action === 'reset_col_widths') {
+        state.colWidths = {};
+        renderGrid();
+        return;
+      }
+      if (action === 'clear_selection') {
+        state.selectedCol = -1;
+        state.selectedRow = -1;
+        renderGrid();
+        return;
+      }
+      if (action === 'insert_row_below') {
+        insertRowAt(activeContextRow() + 1);
+        return;
+      }
+      if (action === 'insert_col_right') {
+        insertTemporaryColumn(activeContextCol());
+        return;
+      }
+      if (action === 'rename_selected_column') {
+        const colIdx = activeContextCol();
+        if (!Number.isFinite(colIdx) || colIdx < 0 || colIdx >= headers.length) {
+          setNotice('Select a column first.');
+          return;
+        }
+        startInlineHeaderRename(colIdx);
+        return;
+      }
+      if (action === 'clear_all_filters') {
+        state.filterSelections = {};
+        state.filterDraftSelections = {};
+        state.filterSearches = {};
+        state.openFilterCol = -1;
+        renderGrid();
+        return;
+      }
+      if (action === 'clear_sort') {
+        state.sort = { col: -1, dir: 0 };
+        renderGrid();
+        return;
+      }
+      if (action === 'submit_dropbox') {
+        const formEl = document.querySelector('form input[name="action"][value="check_dropbox"]');
+        if (formEl && formEl.form) {
+          formEl.form.submit();
+          return;
+        }
+        setNotice('Check Dropbox action form not found.');
+        return;
+      }
+      if (action === 'submit_capacitacion') {
+        const formEl = document.querySelector('form input[name="action"][value="check_capacitacion"]');
+        if (formEl && formEl.form) {
+          formEl.form.submit();
+          return;
+        }
+        setNotice('Check Capacitacion action form not found.');
+        return;
+      }
+      if (action === 'show_shortcuts') {
+        setNotice('Shortcuts: Ctrl/Cmd+S Save, double-click header rename, drag blue handle fill.');
+      }
+    }
+
+    function openTopMenu(menuName, anchorBtn) {
+      const items = topMenuItems(menuName);
+      if (!items.length || !anchorBtn) {
+        closeTopMenu();
+        return;
+      }
+      topMenu.querySelectorAll('.ce-sheet-menu-btn').forEach(function (btn) {
+        btn.classList.remove('is-open');
+      });
+      anchorBtn.classList.add('is-open');
+      state.topMenuOpen = menuName;
+      topMenuPopover.innerHTML = '';
+      items.forEach(function (item) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'ce-top-menu-item';
+        btn.dataset.menuAction = asText(item.action || '');
+        btn.textContent = asText(item.label || '');
+        if (item.disabled) {
+          btn.disabled = true;
+        }
+        topMenuPopover.appendChild(btn);
+      });
+      const left = Math.max(0, Math.round(anchorBtn.offsetLeft));
+      topMenuPopover.style.left = String(left) + 'px';
+      topMenuPopover.classList.add('is-open');
     }
 
     function showContextMenu(kind, sourceIdx, x, y) {
@@ -1710,6 +1972,13 @@
       const row = state.rows[rowIdx];
       const value = row[colIdx];
 
+      if (type === 'readonly_num') {
+        const label = document.createElement('span');
+        label.className = 'cell-readonly-value';
+        label.textContent = asText(value);
+        return label;
+      }
+
       if (type === 'checkbox') {
         const checkbox = document.createElement('input');
         checkbox.type = 'checkbox';
@@ -1732,7 +2001,7 @@
       }
 
       const input = document.createElement('input');
-      input.type = type === 'readonly_num' ? 'number' : 'text';
+      input.type = 'text';
       input.className = 'cell-input';
       input.dataset.row = String(rowIdx);
       input.dataset.col = String(colIdx);
@@ -1959,6 +2228,7 @@
 
     grid.addEventListener('click', function (ev) {
       hideContextMenu();
+      closeTopMenu();
 
       if (ev.target.closest('.col-resize-handle') || ev.target.closest('.row-resize-handle')) {
         return;
@@ -2075,6 +2345,36 @@
       state.openFilterCol = -1;
       state.filterDraftSelections = {};
       renderGrid();
+    });
+
+    topMenu.addEventListener('click', function (ev) {
+      const menuBtn = ev.target.closest('.ce-sheet-menu-btn[data-menu]');
+      if (!menuBtn) {
+        return;
+      }
+      ev.preventDefault();
+      ev.stopPropagation();
+      const menuName = asText(menuBtn.dataset.menu || '').toLowerCase();
+      if (!menuName) {
+        return;
+      }
+      if (state.topMenuOpen === menuName && topMenuPopover.classList.contains('is-open')) {
+        closeTopMenu();
+        return;
+      }
+      openTopMenu(menuName, menuBtn);
+    });
+
+    topMenuPopover.addEventListener('click', function (ev) {
+      const actionBtn = ev.target.closest('.ce-top-menu-item[data-menu-action]');
+      if (!actionBtn || actionBtn.disabled) {
+        return;
+      }
+      ev.preventDefault();
+      ev.stopPropagation();
+      const action = asText(actionBtn.dataset.menuAction || '');
+      closeTopMenu();
+      runTopMenuAction(action);
     });
 
     grid.addEventListener('contextmenu', function (ev) {
@@ -2393,6 +2693,9 @@
 
     document.addEventListener('keydown', function (ev) {
       const key = String(ev.key || '').toLowerCase();
+      if (key === 'escape') {
+        closeTopMenu();
+      }
       if ((ev.ctrlKey || ev.metaKey) && key === 's') {
         ev.preventDefault();
         saveIfChanged(true);
@@ -2467,6 +2770,9 @@
     document.addEventListener('click', function (ev) {
       if (contextMenu.classList.contains('is-open') && !(ev.target && ev.target.closest('#ce-context-menu'))) {
         hideContextMenu();
+      }
+      if (state.topMenuOpen && !(ev.target && ev.target.closest('.ce-sheet-menu'))) {
+        closeTopMenu();
       }
       if (state.openFilterCol < 0) {
         return;

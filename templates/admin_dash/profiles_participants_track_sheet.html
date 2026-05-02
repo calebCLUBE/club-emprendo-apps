@@ -184,6 +184,9 @@
     outline-offset: -2px;
     background: #e8f0fe !important;
   }
+  .ce-grid td.is-range-selected {
+    background: #e8f0fe !important;
+  }
   .ce-grid td.is-fill-preview {
     background: #dbeafe !important;
   }
@@ -748,6 +751,15 @@
       dragCol: -1,
       headerEditCol: -1,
       fillDrag: null,
+      rangeSelection: {
+        startRow: -1,
+        startCol: -1,
+        endRow: -1,
+        endCol: -1,
+        dragging: false,
+        didDrag: false,
+      },
+      ignoreNextCellClick: false,
       topMenuOpen: '',
     };
 
@@ -1526,6 +1538,53 @@
       );
     }
 
+    function getNormalizedRangeSelection() {
+      const rs = state.rangeSelection || {};
+      const sr = Number(rs.startRow);
+      const sc = Number(rs.startCol);
+      const er = Number(rs.endRow);
+      const ec = Number(rs.endCol);
+      if (!isValidCellCoords(sr, sc) || !isValidCellCoords(er, ec)) {
+        return null;
+      }
+      return {
+        minR: Math.min(sr, er),
+        maxR: Math.max(sr, er),
+        minC: Math.min(sc, ec),
+        maxC: Math.max(sc, ec),
+      };
+    }
+
+    function isCellInRangeSelection(rowIdx, colIdx) {
+      const range = getNormalizedRangeSelection();
+      if (!range) {
+        return false;
+      }
+      const r = Number(rowIdx);
+      const c = Number(colIdx);
+      return r >= range.minR && r <= range.maxR && c >= range.minC && c <= range.maxC;
+    }
+
+    function refreshRangeSelectionVisual() {
+      grid.querySelectorAll('td.is-range-selected').forEach(function (cell) {
+        cell.classList.remove('is-range-selected');
+      });
+      const range = getNormalizedRangeSelection();
+      if (!range) {
+        return;
+      }
+      for (let r = range.minR; r <= range.maxR; r += 1) {
+        for (let c = range.minC; c <= range.maxC; c += 1) {
+          const td = grid.querySelector(
+            'td[data-row="' + String(r) + '"][data-col="' + String(c) + '"]'
+          );
+          if (td) {
+            td.classList.add('is-range-selected');
+          }
+        }
+      }
+    }
+
     function isEditableCell(rowIdx, colIdx) {
       if (!isValidCellCoords(rowIdx, colIdx)) {
         return false;
@@ -1705,7 +1764,15 @@
       }
       state.activeRow = nextRow;
       state.activeCol = nextCol;
+      if (!state.rangeSelection.dragging) {
+        state.rangeSelection.startRow = nextRow;
+        state.rangeSelection.startCol = nextCol;
+        state.rangeSelection.endRow = nextRow;
+        state.rangeSelection.endCol = nextCol;
+        state.rangeSelection.didDrag = false;
+      }
       refreshActiveCellVisual();
+      refreshRangeSelectionVisual();
       syncFormulaBarFromActiveCell();
     }
 
@@ -2261,6 +2328,7 @@
             'Rows: ' + state.visibleIndexes.length + ' shown of ' + state.rows.length + ' total';
         }
       }
+      refreshRangeSelectionVisual();
       refreshActiveCellVisual();
       syncFormulaBarFromActiveCell();
     }
@@ -2370,10 +2438,27 @@
 
       const dataCell = ev.target.closest('td[data-row][data-col]');
       if (dataCell) {
+        if (state.ignoreNextCellClick) {
+          state.ignoreNextCellClick = false;
+          return;
+        }
         const rowIdx = Number(dataCell.dataset.row);
         const colIdx = Number(dataCell.dataset.col);
         if (Number.isFinite(rowIdx) && Number.isFinite(colIdx)) {
           setActiveCell(rowIdx, colIdx);
+          const editor = ev.target.closest('.cell-input[data-row][data-col]');
+          if (editor && !editor.matches('select, input[type="checkbox"]')) {
+            window.setTimeout(function () {
+              try {
+                editor.focus();
+                if (typeof editor.select === 'function') {
+                  editor.select();
+                }
+              } catch (e) {
+                // ignore focus/select errors
+              }
+            }, 0);
+          }
         }
         return;
       }
@@ -2556,6 +2641,31 @@
         if (Number.isFinite(rowIdx)) {
           beginRowResize(rowIdx, ev.clientY);
         }
+        return;
+      }
+
+      const dataCell = ev.target.closest('td[data-row][data-col]');
+      if (ev.button === 0 && dataCell) {
+        const colIdx = Number(dataCell.dataset.col);
+        const rowIdx = Number(dataCell.dataset.row);
+        if (!Number.isFinite(rowIdx) || !Number.isFinite(colIdx)) {
+          return;
+        }
+        const onCheckbox = !!ev.target.closest('.cell-input[type="checkbox"]');
+        const onSelect = !!ev.target.closest('select.cell-select');
+        if (onCheckbox || onSelect) {
+          return;
+        }
+        ev.preventDefault();
+        state.ignoreNextCellClick = false;
+        setActiveCell(rowIdx, colIdx);
+        state.rangeSelection.startRow = rowIdx;
+        state.rangeSelection.startCol = colIdx;
+        state.rangeSelection.endRow = rowIdx;
+        state.rangeSelection.endCol = colIdx;
+        state.rangeSelection.dragging = true;
+        state.rangeSelection.didDrag = false;
+        refreshRangeSelectionVisual();
       }
     });
 
@@ -2826,6 +2936,25 @@
         paintFillPreview();
         return;
       }
+      if (state.rangeSelection && state.rangeSelection.dragging) {
+        const coords = getCellCoordsFromPoint(ev.clientX, ev.clientY);
+        if (!coords) {
+          return;
+        }
+        if (
+          coords.rowIdx === Number(state.rangeSelection.endRow) &&
+          coords.colIdx === Number(state.rangeSelection.endCol)
+        ) {
+          return;
+        }
+        state.rangeSelection.endRow = coords.rowIdx;
+        state.rangeSelection.endCol = coords.colIdx;
+        state.rangeSelection.didDrag =
+          coords.rowIdx !== Number(state.rangeSelection.startRow) ||
+          coords.colIdx !== Number(state.rangeSelection.startCol);
+        refreshRangeSelectionVisual();
+        return;
+      }
       if (!state.resizing) {
         return;
       }
@@ -2868,6 +2997,12 @@
           updateRegistry();
         }
         renderGrid();
+        return;
+      }
+      if (state.rangeSelection && state.rangeSelection.dragging) {
+        state.rangeSelection.dragging = false;
+        state.ignoreNextCellClick = Boolean(state.rangeSelection.didDrag);
+        refreshRangeSelectionVisual();
         return;
       }
       if (!state.resizing) {

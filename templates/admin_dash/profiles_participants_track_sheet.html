@@ -360,6 +360,21 @@
     outline: none;
     appearance: none;
     -webkit-appearance: none;
+    user-select: text;
+    -webkit-user-select: text;
+  }
+  .ce-grid .cell-status-bubble {
+    border: 1px solid rgba(15, 23, 42, 0.14);
+    border-radius: 999px;
+    padding: 1px 20px 1px 9px;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.45;
+    min-height: 22px;
+    background-repeat: no-repeat;
+    background-size: 10px 10px;
+    background-position: right 6px center;
+    text-overflow: ellipsis;
   }
   .ce-grid .cell-readonly-value {
     display: block;
@@ -392,6 +407,8 @@
     color: #111827;
     background: #fff;
     box-sizing: border-box;
+    user-select: text;
+    -webkit-user-select: text;
   }
   .ce-grid .filter-wrap {
     position: relative;
@@ -691,6 +708,19 @@
           return idx >= 0;
         })
     );
+    const statusChipColors = {
+      NFA: '#dbeafe',
+      NCC: '#fee2e2',
+      INCP: '#fef3c7',
+      INCPP: '#ffedd5',
+      CP: '#dcfce7',
+      DC: '#fecaca',
+      D: '#e5e7eb',
+      P: '#ede9fe',
+      'E/T': '#cffafe',
+      G: '#d1fae5',
+      SG: '#e0e7ff',
+    };
     const baseColumnCount = headers.length;
     const canonicalHeaders = headers.slice();
     const canonicalColumnTypes = columnTypes.slice();
@@ -749,6 +779,52 @@
 
     function asText(val) {
       return String(val == null ? '' : val);
+    }
+
+    function statusChipKey(rawValue) {
+      return asText(rawValue).trim().toUpperCase();
+    }
+
+    function normalizeHexColor(hexValue) {
+      const raw = asText(hexValue).trim();
+      if (/^#[0-9A-Fa-f]{6}$/.test(raw)) {
+        return raw;
+      }
+      return '#e5e7eb';
+    }
+
+    function readableTextColor(hexValue) {
+      const hex = normalizeHexColor(hexValue).replace('#', '');
+      const r = parseInt(hex.slice(0, 2), 16);
+      const g = parseInt(hex.slice(2, 4), 16);
+      const b = parseInt(hex.slice(4, 6), 16);
+      const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+      return luminance > 0.62 ? '#0f172a' : '#ffffff';
+    }
+
+    function statusChipTheme(rawValue) {
+      const key = statusChipKey(rawValue);
+      const bg = normalizeHexColor(statusChipColors[key] || '#e5e7eb');
+      const fg = readableTextColor(bg);
+      const border = 'rgba(15, 23, 42, 0.16)';
+      return { bg: bg, fg: fg, border: border };
+    }
+
+    function applyStatusChipStyle(control, rawValue) {
+      if (!control) {
+        return;
+      }
+      const value = asText(rawValue).trim();
+      const theme = statusChipTheme(value);
+      const arrowColor = encodeURIComponent(theme.fg);
+      control.style.backgroundColor = value ? theme.bg : '#ffffff';
+      control.style.color = value ? theme.fg : '#6b7280';
+      control.style.borderColor = value ? theme.border : '#d1d5db';
+      control.style.backgroundImage = value
+        ? "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M2 3.5l3 3 3-3' fill='none' stroke='" +
+          arrowColor +
+          "' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E\")"
+        : "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M2 3.5l3 3 3-3' fill='none' stroke='%236b7280' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E\")";
     }
 
     function getNumberColIdx() {
@@ -1652,6 +1728,8 @@
       const nextRaw = asText(formulaInput.value || '');
       if (type === 'checkbox') {
         state.rows[rowIdx][colIdx] = asBool(nextRaw);
+      } else if (type === 'select') {
+        state.rows[rowIdx][colIdx] = nextRaw.trim();
       } else {
         state.rows[rowIdx][colIdx] = nextRaw;
       }
@@ -1661,6 +1739,9 @@
       if (editor) {
         if (type === 'checkbox') {
           editor.checked = asBool(state.rows[rowIdx][colIdx]);
+        } else if (type === 'select') {
+          editor.value = asText(state.rows[rowIdx][colIdx]);
+          applyStatusChipStyle(editor, state.rows[rowIdx][colIdx]);
         } else {
           editor.value = asText(state.rows[rowIdx][colIdx]);
         }
@@ -1990,14 +2071,40 @@
       }
 
       if (type === 'select') {
-        const input = document.createElement('input');
-        input.type = 'text';
-        input.className = 'cell-input';
-        input.dataset.row = String(rowIdx);
-        input.dataset.col = String(colIdx);
-        input.setAttribute('list', 'ce-status-options-list');
-        input.value = asText(value);
-        return input;
+        const select = document.createElement('select');
+        select.className = 'cell-input cell-select cell-status-bubble';
+        select.dataset.row = String(rowIdx);
+        select.dataset.col = String(colIdx);
+
+        const current = asText(value).trim();
+        const optionValues = [];
+
+        const blank = document.createElement('option');
+        blank.value = '';
+        blank.textContent = '';
+        select.appendChild(blank);
+
+        statusOptions.forEach(function (optText) {
+          const normalized = asText(optText).trim();
+          if (!normalized) {
+            return;
+          }
+          optionValues.push(normalized);
+          const opt = document.createElement('option');
+          opt.value = normalized;
+          opt.textContent = normalized;
+          select.appendChild(opt);
+        });
+        if (current && optionValues.indexOf(current) < 0) {
+          const extra = document.createElement('option');
+          extra.value = current;
+          extra.textContent = current;
+          select.appendChild(extra);
+        }
+
+        select.value = current;
+        applyStatusChipStyle(select, current);
+        return select;
       }
 
       const input = document.createElement('input');
@@ -2603,6 +2710,9 @@
       const type = columnTypes[colIdx] || 'text';
       if (type === 'checkbox') {
         state.rows[rowIdx][colIdx] = Boolean(target.checked);
+      } else if (type === 'select') {
+        state.rows[rowIdx][colIdx] = asText(target.value || '').trim();
+        applyStatusChipStyle(target, state.rows[rowIdx][colIdx]);
       } else {
         state.rows[rowIdx][colIdx] = asText(target.value || '');
       }

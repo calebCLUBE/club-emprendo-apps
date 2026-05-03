@@ -3156,8 +3156,8 @@
         // x-spreadsheet expects:
         // sortedRowMap: visible row index -> source row index
         // unsortedRowMap: source row index -> visible row index
-        includedRows.forEach((visibleRi, idx) => {
-          const sourceRi = sortedRows[idx];
+        sortedRows.forEach((sourceRi, visibleOffset) => {
+          const visibleRi = 1 + visibleOffset;
           data.sortedRowMap.set(visibleRi, sourceRi);
           data.unsortedRowMap.set(sourceRi, visibleRi);
         });
@@ -4279,10 +4279,14 @@
             spreadsheet.loadData(buildSheetPayload(matrix));
           }
           initValidationDrawer(spreadsheet);
-          // Use native x-spreadsheet filter/sort pipeline.
-          // Custom monkey-patches caused header remap/corruption regressions.
+          // Keep filter/sort scoped to full-sheet range and normalize checkbox
+          // semantics so TRUE/FALSE filtering behaves like spreadsheet users expect.
+          shieldPopupEvents();
+          patchSortFilterOutsideClick(spreadsheet);
+          patchAutoFilterRuntime(spreadsheet);
+          patchSortFilterSet(spreadsheet);
+          patchSortFilterConfirm(spreadsheet);
           patchToolbarAutofilter(spreadsheet);
-          mountAutofillCornerFallback(spreadsheet);
           setSheetRegistryEntry({
             isFallback: false,
             getSpreadsheet: function () {

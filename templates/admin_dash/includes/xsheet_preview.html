@@ -347,6 +347,8 @@
     white-space: nowrap;
     text-overflow: ellipsis;
     box-sizing: border-box;
+    pointer-events: none;
+    user-select: none;
   }
   .ce-validation-cell-bubble .ce-validation-cell-bubble-arrow {
     font-size: 10px;
@@ -361,6 +363,8 @@
     border: 1px solid rgba(148, 163, 184, 0.35);
     border-radius: 4px;
     box-sizing: border-box;
+    pointer-events: none;
+    user-select: none;
   }
   .ce-validation-cell-checkbox-box {
     width: 16px;
@@ -2610,6 +2614,98 @@
       return seedMatrixFromCsv();
     }
 
+    function moveArrayItemInPlace(arr, fromIdx, toIdx) {
+      if (!Array.isArray(arr)) {
+        return false;
+      }
+      const len = arr.length;
+      if (!Number.isFinite(fromIdx) || !Number.isFinite(toIdx)) {
+        return false;
+      }
+      const from = Number(fromIdx);
+      const to = Number(toIdx);
+      if (from < 0 || to < 0 || from >= len || to >= len || from === to) {
+        return false;
+      }
+      const moved = arr.splice(from, 1);
+      if (!moved.length) {
+        return false;
+      }
+      arr.splice(to, 0, moved[0]);
+      return true;
+    }
+
+    function moveColumnTypeMetaInPlace(fromCi, toCi) {
+      if (!Array.isArray(sheetColumnTypes) || !sheetColumnTypes.length) {
+        return;
+      }
+      moveArrayItemInPlace(sheetColumnTypes, fromCi, toCi);
+    }
+
+    function moveColumnInCurrentSheet(fromCi, toCi) {
+      const matrix = getCurrentMatrix();
+      if (!Array.isArray(matrix) || !matrix.length) {
+        return false;
+      }
+
+      let colCount = 0;
+      matrix.forEach(function (row) {
+        if (Array.isArray(row) && row.length > colCount) {
+          colCount = row.length;
+        }
+      });
+      if (colCount <= 0) {
+        return false;
+      }
+
+      const from = Number(fromCi);
+      const to = Number(toCi);
+      if (
+        !Number.isFinite(from) ||
+        !Number.isFinite(to) ||
+        from < 0 ||
+        to < 0 ||
+        from >= colCount ||
+        to >= colCount ||
+        from === to
+      ) {
+        return false;
+      }
+
+      matrix.forEach(function (row, ri) {
+        if (!Array.isArray(row)) {
+          matrix[ri] = Array(colCount).fill('');
+          return;
+        }
+        while (row.length < colCount) {
+          row.push('');
+        }
+        moveArrayItemInPlace(row, from, to);
+      });
+      moveColumnTypeMetaInPlace(from, to);
+
+      if (!activeSpreadsheet || typeof activeSpreadsheet.loadData !== 'function') {
+        return false;
+      }
+      activeSpreadsheet.loadData(buildSheetPayload(matrix));
+      activeSheetData = getActiveSheetData(activeSpreadsheet);
+      if (activeSheetData) {
+        delete activeSheetData.__ceDefaultCheckboxColsApplied;
+        delete activeSheetData.__ceDefaultSelectColsApplied;
+      }
+      colorRules = [];
+      validationRuleMeta = [];
+      applyDefaultCheckboxColumnValidations();
+      applyDefaultSelectColumnValidations();
+      if (typeof activeSpreadsheet.reRender === 'function') {
+        activeSpreadsheet.reRender();
+      }
+      syncFormulaBarFromSelection();
+      scheduleValidationCellDropdownRefresh();
+      scheduleValidationBubblesRefresh();
+      return true;
+    }
+
     function csvEscapeCell(value) {
       const text = String(value == null ? '' : value);
       if (!/[",\n]/.test(text)) {
@@ -3311,6 +3407,245 @@
         return originalChange(action, value);
       };
       toolbar.__ceAutofilterPatched = true;
+    }
+
+    function mountColumnHeaderInteractions(spreadsheet) {
+      const sheetCore = spreadsheet && spreadsheet.sheet ? spreadsheet.sheet : null;
+      if (!sheetCore || sheetCore.__ceHeaderColumnInteractionsMounted) {
+        return;
+      }
+      const overlayer = root.querySelector('.x-spreadsheet-overlayer');
+      if (!overlayer) {
+        return;
+      }
+
+      const state = {
+        resizing: null,
+        dragging: null,
+      };
+      const edgePx = 6;
+      const dragPx = 6;
+
+      function eventPoint(ev) {
+        const rect = overlayer.getBoundingClientRect();
+        const x = ev.clientX - rect.left;
+        const y = ev.clientY - rect.top;
+        return {
+          x,
+          y,
+          inside: Number.isFinite(x) && Number.isFinite(y) && x >= 0 && y >= 0 && x <= rect.width && y <= rect.height,
+        };
+      }
+
+      function hitAtPoint(point) {
+        if (!point || !point.inside || !activeSheetData || typeof activeSheetData.getCellRectByXY !== 'function') {
+          return null;
+        }
+        try {
+          return activeSheetData.getCellRectByXY(point.x, point.y);
+        } catch (err) {
+          return null;
+        }
+      }
+
+      function isHeaderHit(hit) {
+        if (!hit) {
+          return false;
+        }
+        return Number(hit.ri) === -1 && Number.isFinite(Number(hit.ci)) && Number(hit.ci) >= 0;
+      }
+
+      function isResizeHotspot(hit, point) {
+        if (!isHeaderHit(hit) || !point) {
+          return false;
+        }
+        const rightEdge = Number(hit.left || 0) + Number(hit.width || 0);
+        return Math.abs(rightEdge - point.x) <= edgePx;
+      }
+
+      function isFilterHotspot(hit, point) {
+        if (!isHeaderHit(hit) || !point) {
+          return false;
+        }
+        const rightEdge = Number(hit.left || 0) + Number(hit.width || 0);
+        const bottomEdge = Number(hit.top || 0) + Number(hit.height || 0);
+        return point.x > (rightEdge - 22) && point.y > (bottomEdge - 22);
+      }
+
+      function clearHeaderCursor() {
+        overlayer.style.cursor = '';
+      }
+
+      overlayer.addEventListener('mousedown', function (ev) {
+        if (!allowStructureEdit) {
+          return;
+        }
+        const point = eventPoint(ev);
+        const hit = hitAtPoint(point);
+        if (!isHeaderHit(hit)) {
+          return;
+        }
+        if (isFilterHotspot(hit, point)) {
+          return;
+        }
+
+        const ci = Number(hit.ci);
+        if (isResizeHotspot(hit, point)) {
+          let startWidth = Number(hit.width || 0);
+          if (
+            activeSheetData &&
+            activeSheetData.cols &&
+            typeof activeSheetData.cols.getWidth === 'function'
+          ) {
+            const candidate = Number(activeSheetData.cols.getWidth(ci) || 0);
+            if (Number.isFinite(candidate) && candidate > 0) {
+              startWidth = candidate;
+            }
+          }
+          const minWidth = (
+            activeSheetData &&
+            activeSheetData.cols &&
+            Number.isFinite(activeSheetData.cols.minWidth)
+          ) ? Number(activeSheetData.cols.minWidth) : 48;
+          state.resizing = {
+            ci,
+            startX: point.x,
+            startWidth: Math.max(minWidth, Math.round(startWidth || minWidth)),
+            minWidth: Math.max(24, Math.round(minWidth)),
+            lastWidth: Math.max(minWidth, Math.round(startWidth || minWidth)),
+          };
+          overlayer.style.cursor = 'col-resize';
+          ev.preventDefault();
+          ev.stopPropagation();
+          if (typeof ev.stopImmediatePropagation === 'function') {
+            ev.stopImmediatePropagation();
+          }
+          return;
+        }
+
+        state.dragging = {
+          fromCi: ci,
+          targetCi: ci,
+          startX: point.x,
+          startY: point.y,
+          active: false,
+        };
+      }, true);
+
+      window.addEventListener('mousemove', function (ev) {
+        if (state.resizing) {
+          const point = eventPoint(ev);
+          const nextWidth = Math.max(
+            state.resizing.minWidth,
+            Math.round(state.resizing.startWidth + (point.x - state.resizing.startX))
+          );
+          if (
+            nextWidth !== state.resizing.lastWidth &&
+            activeSheetData &&
+            activeSheetData.cols &&
+            typeof activeSheetData.cols.setWidth === 'function'
+          ) {
+            activeSheetData.cols.setWidth(state.resizing.ci, nextWidth);
+            state.resizing.lastWidth = nextWidth;
+            if (sheetCore.table && typeof sheetCore.table.render === 'function') {
+              sheetCore.table.render();
+            } else if (activeSpreadsheet && typeof activeSpreadsheet.reRender === 'function') {
+              activeSpreadsheet.reRender();
+            }
+          }
+          ev.preventDefault();
+          ev.stopPropagation();
+          if (typeof ev.stopImmediatePropagation === 'function') {
+            ev.stopImmediatePropagation();
+          }
+          return;
+        }
+
+        if (!state.dragging) {
+          return;
+        }
+        const point = eventPoint(ev);
+        if (!state.dragging.active) {
+          const dx = Math.abs(point.x - state.dragging.startX);
+          const dy = Math.abs(point.y - state.dragging.startY);
+          if (Math.max(dx, dy) < dragPx) {
+            return;
+          }
+          state.dragging.active = true;
+        }
+        overlayer.style.cursor = 'grabbing';
+        const hit = hitAtPoint(point);
+        if (isHeaderHit(hit)) {
+          state.dragging.targetCi = Number(hit.ci);
+        }
+        ev.preventDefault();
+        ev.stopPropagation();
+        if (typeof ev.stopImmediatePropagation === 'function') {
+          ev.stopImmediatePropagation();
+        }
+      }, true);
+
+      window.addEventListener('mouseup', function (ev) {
+        let blocked = false;
+        if (state.resizing) {
+          if (activeSheetData && typeof activeSheetData.change === 'function' && typeof activeSheetData.getData === 'function') {
+            try {
+              activeSheetData.change(activeSheetData.getData());
+            } catch (err) {
+              // no-op
+            }
+          }
+          state.resizing = null;
+          clearHeaderCursor();
+          scheduleValidationCellDropdownRefresh();
+          scheduleValidationBubblesRefresh();
+          blocked = true;
+        }
+
+        if (state.dragging) {
+          const drag = state.dragging;
+          state.dragging = null;
+          clearHeaderCursor();
+          if (drag.active && drag.fromCi !== drag.targetCi) {
+            const moved = moveColumnInCurrentSheet(drag.fromCi, drag.targetCi);
+            if (moved) {
+              setMenuStatus(
+                `Moved column ${colLabelFromIndex(drag.fromCi)} to ${colLabelFromIndex(drag.targetCi)}.`,
+                'ok'
+              );
+            }
+            blocked = true;
+          }
+        }
+        if (blocked && ev) {
+          ev.preventDefault();
+          ev.stopPropagation();
+          if (typeof ev.stopImmediatePropagation === 'function') {
+            ev.stopImmediatePropagation();
+          }
+        }
+      }, true);
+
+      overlayer.addEventListener('mousemove', function (ev) {
+        if (state.resizing || (state.dragging && state.dragging.active)) {
+          return;
+        }
+        const point = eventPoint(ev);
+        const hit = hitAtPoint(point);
+        if (isResizeHotspot(hit, point)) {
+          overlayer.style.cursor = 'col-resize';
+        } else {
+          clearHeaderCursor();
+        }
+      });
+
+      overlayer.addEventListener('mouseleave', function () {
+        if (!state.resizing && !(state.dragging && state.dragging.active)) {
+          clearHeaderCursor();
+        }
+      });
+
+      sheetCore.__ceHeaderColumnInteractionsMounted = true;
     }
 
     function performMenuAction(action) {
@@ -4287,6 +4622,7 @@
           patchSortFilterSet(spreadsheet);
           patchSortFilterConfirm(spreadsheet);
           patchToolbarAutofilter(spreadsheet);
+          mountColumnHeaderInteractions(spreadsheet);
           setSheetRegistryEntry({
             isFallback: false,
             getSpreadsheet: function () {

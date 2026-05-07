@@ -4086,19 +4086,20 @@ def database_create_assigned_group(request):
                 .exclude(email__isnull=True)
                 .exclude(email__exact="")
                 .annotate(_email_norm=Lower("email"))
-                .order_by("_email_norm", "-created_at", "-id")
+                .order_by("form_id", "_email_norm", "-created_at", "-id")
             )
-            seen_dedupe_emails: set[str] = set()
+            seen_dedupe_keys: set[tuple[int, str]] = set()
             duplicate_ids: list[int] = []
             for app in dedupe_candidates:
                 email_norm = (getattr(app, "_email_norm", "") or "").strip().lower()
                 if not email_norm:
                     duplicate_ids.append(app.id)
                     continue
-                if email_norm in seen_dedupe_emails:
+                dedupe_key = (int(getattr(app, "form_id", 0) or 0), email_norm)
+                if dedupe_key in seen_dedupe_keys:
                     duplicate_ids.append(app.id)
                     continue
-                seen_dedupe_emails.add(email_norm)
+                seen_dedupe_keys.add(dedupe_key)
             if duplicate_ids:
                 duplicate_qs = Application.objects.filter(id__in=duplicate_ids)
                 removed_duplicates = duplicate_qs.count()
@@ -4130,6 +4131,21 @@ def database_create_assigned_group(request):
                 )
                 return _database_next_redirect(request, fallback_name="admin_database")
 
+            track_target_masters = [
+                master_slug
+                for master_slug in (f"{selected_track}_A1", f"{selected_track}_A2")
+                if master_slug in existing_target_emails_by_master
+            ]
+            if not track_target_masters:
+                messages.error(
+                    request,
+                    (
+                        f"Could not prepare both target applications for Group {target_group_num} "
+                        f"({track_label})."
+                    ),
+                )
+                return _database_next_redirect(request, fallback_name="admin_database")
+
             source_best_app_by_email: dict[str, Application] = {}
             for master_slug, source_form in source_forms_by_master.items():
                 if not master_slug.startswith(f"{selected_track}_"):
@@ -4151,82 +4167,72 @@ def database_create_assigned_group(request):
             existing_any_target_track: set[str] = set()
             for vals in existing_target_emails_by_master.values():
                 existing_any_target_track.update(vals)
+            existing_any_target_track_before_fill = set(existing_any_target_track)
 
             for email_norm, source_app in source_best_app_by_email.items():
                 matched_emails.add(email_norm)
-                if email_norm in existing_any_target_track:
-                    skipped_existing += 1
-                    assigned_track_emails[selected_track].add(email_norm)
-                    continue
-
-                source_form_slug = str(getattr(getattr(source_app, "form", None), "slug", "") or "").upper()
-                preferred_master = (
-                    f"{selected_track}_A2"
-                    if source_form_slug.endswith(f"{selected_track}_A2")
-                    else f"{selected_track}_A1"
-                )
-                fallback_master = (
-                    f"{selected_track}_A1"
-                    if preferred_master.endswith("_A2")
-                    else f"{selected_track}_A2"
-                )
-                target_master = preferred_master
-                target_form = target_forms_by_master.get(target_master)
-                if target_form is None:
-                    target_master = fallback_master
+                copied_or_present = False
+                for target_master in track_target_masters:
                     target_form = target_forms_by_master.get(target_master)
-                if target_form is None:
-                    mapping_mismatch_emails.add(email_norm)
-                    continue
+                    if target_form is None:
+                        mapping_mismatch_emails.add(email_norm)
+                        continue
+                    existing_for_master = existing_target_emails_by_master.setdefault(target_master, set())
+                    if email_norm in existing_for_master:
+                        skipped_existing += 1
+                        copied_or_present = True
+                        continue
+                    try:
+                        _new_app, copied_count, skipped_count = _copy_application_to_form(source_app, target_form)
+                    except ValueError:
+                        mapping_mismatch_emails.add(email_norm)
+                        continue
+                    copied_apps += 1
+                    copied_answers += copied_count
+                    skipped_no_match_answers += skipped_count
+                    copied_or_present = True
+                    existing_any_target_track.add(email_norm)
+                    existing_for_master.add(email_norm)
 
-                try:
-                    _new_app, copied_count, skipped_count = _copy_application_to_form(source_app, target_form)
-                except ValueError:
-                    mapping_mismatch_emails.add(email_norm)
-                    continue
-                copied_apps += 1
-                copied_answers += copied_count
-                skipped_no_match_answers += skipped_count
-                existing_any_target_track.add(email_norm)
-                existing_target_emails_by_master.setdefault(target_master, set()).add(email_norm)
-                assigned_track_emails[selected_track].add(email_norm)
+                if copied_or_present:
+                    assigned_track_emails[selected_track].add(email_norm)
 
             source_unmatched_emails = sorted(wanted_emails - matched_emails)
             unmatched_email_count = len(source_unmatched_emails)
-            emails_missing_in_target = sorted(wanted_emails - existing_any_target_track)
-
-            placeholder_master_slug = (
-                f"{selected_track}_A1"
-                if f"{selected_track}_A1" in existing_target_emails_by_master
-                else f"{selected_track}_A2"
-            )
-            placeholder_form = target_forms_by_master.get(placeholder_master_slug)
-            existing_for_placeholder = existing_target_emails_by_master.setdefault(
-                placeholder_master_slug,
-                set(),
+            unmatched_already_present = len(
+                [email for email in source_unmatched_emails if email in existing_any_target_track_before_fill]
             )
 
-            if placeholder_form:
-                for email in emails_missing_in_target:
-                    assigned_track_emails[selected_track].add(email)
-                    if email in existing_any_target_track:
-                        unmatched_already_present += 1
-                        continue
+            for target_master in track_target_masters:
+                target_form = target_forms_by_master.get(target_master)
+                if target_form is None:
+                    continue
+                existing_for_master = existing_target_emails_by_master.setdefault(target_master, set())
+                missing_for_master = sorted(wanted_emails - existing_for_master)
+                for email in missing_for_master:
                     Application.objects.create(
-                        form=placeholder_form,
+                        form=target_form,
                         name=(email or "")[:200],
                         email=email,
                     )
                     unmatched_inserted += 1
-                    existing_for_placeholder.add(email)
+                    existing_for_master.add(email)
                     existing_any_target_track.add(email)
+                    assigned_track_emails[selected_track].add(email)
 
             mapping_mismatch_fallback_inserted = len(
-                mapping_mismatch_emails.intersection(existing_any_target_track)
+                [
+                    email
+                    for email in mapping_mismatch_emails
+                    if all(
+                        email in existing_target_emails_by_master.get(master_slug, set())
+                        for master_slug in track_target_masters
+                    )
+                ]
             )
             mapping_mismatch_still_missing = len(
-                mapping_mismatch_emails.difference(existing_any_target_track)
-            )
+                mapping_mismatch_emails
+            ) - mapping_mismatch_fallback_inserted
 
             # Participant lists are not auto-created/synced from assignment anymore.
             # They are managed explicitly from the Participants admin page.

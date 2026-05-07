@@ -1963,6 +1963,69 @@ class PoolAssignmentForm(forms.Form):
         return cleaned
 
 
+ASSIGNMENT_SOURCE_GROUP_PREFIX = "group:"
+
+
+def _build_assignment_source_choices(
+    groups: list[FormGroup] | None = None,
+) -> list[dict]:
+    if groups is None:
+        groups = list(FormGroup.objects.order_by("number"))
+    group_map = {int(g.number): g for g in groups}
+
+    candidate_group_numbers: set[int] = set()
+    source_forms = FormDefinition.objects.filter(
+        is_master=False,
+        group__isnull=False,
+    ).select_related("group")
+    for fd in source_forms:
+        slug = str(getattr(fd, "slug", "") or "").strip()
+        if not GROUP_SLUG_RE.match(slug):
+            continue
+        group_obj = getattr(fd, "group", None)
+        group_num = getattr(group_obj, "number", None) or _group_number_from_slug(slug) or 0
+        try:
+            group_num = int(group_num)
+        except (TypeError, ValueError):
+            group_num = 0
+        if group_num > 0:
+            candidate_group_numbers.add(group_num)
+
+    choices: list[dict] = []
+    used_group_numbers: set[int] = set()
+
+    for key, cfg in RECRUITMENT_POOL_SOURCES.items():
+        try:
+            group_num = int(cfg.get("group_num", 0) or 0)
+        except (TypeError, ValueError):
+            group_num = 0
+        if group_num <= 0:
+            continue
+        choices.append(
+            {
+                "value": key,
+                "label": _group_label_for_number(group_num, group_map),
+                "group_num": group_num,
+                "kind": "pool",
+            }
+        )
+        used_group_numbers.add(group_num)
+
+    for group_num in sorted(candidate_group_numbers, reverse=True):
+        if group_num in used_group_numbers:
+            continue
+        choices.append(
+            {
+                "value": f"{ASSIGNMENT_SOURCE_GROUP_PREFIX}{group_num}",
+                "label": _group_label_for_number(group_num, group_map),
+                "group_num": group_num,
+                "kind": "group",
+            }
+        )
+
+    return choices
+
+
 # ----------------------------
 # Helpers
 # ----------------------------
@@ -3527,20 +3590,16 @@ def database_home(request):
     }
     cohort_numbers = [g.number for g in groups if g.number not in pool_group_numbers]
     next_group_num = max(cohort_numbers, default=8) + 1
+    pool_source_choices = _build_assignment_source_choices(groups)
+    default_source_value = source_pool_default_key
+    source_values = [str(c.get("value") or "") for c in pool_source_choices]
+    if default_source_value not in source_values and source_values:
+        default_source_value = source_values[0]
     pool_assignment_defaults = {
-        "source_pool": source_pool_default_key,
+        "source_pool": default_source_value,
         "track": PoolAssignmentForm.TRACK_EMPRENDEDORAS,
         "target_group_num": next_group_num,
     }
-    pool_source_choices: list[dict] = []
-    for key, cfg in RECRUITMENT_POOL_SOURCES.items():
-        group_num = int(cfg.get("group_num", 0) or 0)
-        pool_source_choices.append(
-            {
-                "value": key,
-                "label": _group_label_for_number(group_num, groups_by_number),
-            }
-        )
 
     return render(
         request,
@@ -3811,6 +3870,11 @@ def database_copy_application(request):
 @require_POST
 def database_create_assigned_group(request):
     form = PoolAssignmentForm(request.POST)
+    dynamic_source_choices = _build_assignment_source_choices()
+    form.fields["source_pool"].choices = [
+        (str(c.get("value") or ""), str(c.get("label") or ""))
+        for c in dynamic_source_choices
+    ]
     if not form.is_valid():
         for _field, errs in form.errors.items():
             for err in errs:
@@ -3819,12 +3883,29 @@ def database_create_assigned_group(request):
 
     source_pool = str(form.cleaned_data["source_pool"]).strip()
     source_cfg = RECRUITMENT_POOL_SOURCES.get(source_pool)
-    if not source_cfg:
-        messages.error(request, "Invalid source application pool selected.")
-        return _database_next_redirect(request, fallback_name="admin_database")
-    source_group_num = int(source_cfg["group_num"])
-    source_label = str(source_cfg["label"])
-    _ensure_recruitment_pool_group(source_pool)
+    source_group_num = 0
+    source_label = ""
+    if source_cfg:
+        source_group_num = int(source_cfg["group_num"])
+        source_label = str(source_cfg["label"])
+        _ensure_recruitment_pool_group(source_pool)
+    else:
+        raw_group_value = source_pool
+        if raw_group_value.startswith(ASSIGNMENT_SOURCE_GROUP_PREFIX):
+            raw_group_value = raw_group_value[len(ASSIGNMENT_SOURCE_GROUP_PREFIX):]
+        try:
+            source_group_num = int(raw_group_value)
+        except (TypeError, ValueError):
+            source_group_num = 0
+        if source_group_num <= 0:
+            messages.error(request, "Invalid source application selected.")
+            return _database_next_redirect(request, fallback_name="admin_database")
+        source_group = FormGroup.objects.filter(number=source_group_num).first()
+        if not source_group:
+            messages.error(request, "Selected source applications group was not found.")
+            return _database_next_redirect(request, fallback_name="admin_database")
+        source_label = _group_label_for_number(source_group_num)
+
     selected_track = str(form.cleaned_data["track"]).strip().upper()
     track_label = "Emprendedoras" if selected_track == "E" else "Mentoras"
     target_group_num = int(form.cleaned_data["target_group_num"])
@@ -3845,7 +3926,7 @@ def database_create_assigned_group(request):
     if not source_group:
         messages.error(
             request,
-            f"Source application pool '{source_label}' is not configured correctly.",
+            f"Source applications '{source_label}' are not configured correctly.",
         )
         return _database_next_redirect(request, fallback_name="admin_database")
     source_label = str(getattr(source_group, "custom_name", "") or "").strip() or source_label

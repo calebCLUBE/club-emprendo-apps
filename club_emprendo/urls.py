@@ -80,6 +80,8 @@ urlpatterns = [
     path("admin/database/combined/<slug:track>/", admin_views.database_track_detail, name="admin_database_track_detail"),
     path("admin/database/combined/<slug:track>/sheet/", admin_views.database_track_sheet, name="admin_database_track_sheet"),
     path("admin/database/combined/<slug:track>/master.csv", admin_views.database_track_master_csv, name="admin_database_track_master_csv"),
+    path("admin/database/encuestas/sheet/", admin_views.database_encuestas_sheet, name="admin_database_encuestas_sheet"),
+    path("admin/database/encuestas.csv", admin_views.database_encuestas_csv, name="admin_database_encuestas_csv"),
     path("admin/database/submission/<int:app_id>/", admin_views.database_submission_detail, name="admin_database_submission_detail"),
     path("admin/database/export/<slug:form_slug>.csv", admin_views.export_form_csv, name="admin_export_form_csv"),
 

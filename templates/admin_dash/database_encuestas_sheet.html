@@ -1,0 +1,61 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+  <style>
+    html, body {
+      height: 100%;
+      overflow: hidden;
+    }
+    #container, .main, #content, #content-main {
+      height: 100%;
+    }
+    #content, #content-main {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+    }
+    .ce-sheet-page {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 0;
+      height: calc(100vh - 66px);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .ce-sheet-head {
+      padding: 8px 14px 0 14px;
+      font-size: 12px;
+      color: #4b5563;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .ce-sheet-shell {
+      width: 100%;
+      margin: 0;
+      background: #fff;
+      border: 0;
+      border-radius: 0;
+      padding: 0;
+      box-sizing: border-box;
+      height: 100%;
+      overflow: visible;
+      display: flex;
+      flex-direction: column;
+    }
+  </style>
+
+  <div class="ce-sheet-page">
+    <div class="ce-sheet-head">
+      <a class="button" href="{% url 'admin_database' %}">Back</a>
+      <strong>{{ encuestas_label }}</strong>
+      <span>Source: {{ encuestas_source_name }}</span>
+      <span>File ID: {{ encuestas_source_file_id }}</span>
+    </div>
+    <div class="ce-sheet-shell">
+      {% include "admin_dash/includes/xsheet_preview.html" with sheet_id="db-encuestas-sheet" sheet_headers=sheet_headers sheet_rows=sheet_rows sheet_height=760 sheet_deferred=True %}
+    </div>
+  </div>
+{% endblock %}

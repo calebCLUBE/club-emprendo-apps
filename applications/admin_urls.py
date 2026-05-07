@@ -11,6 +11,8 @@ urlpatterns = [
     path("apps/delete-group/<int:group_num>/", admin_views.delete_group, name="admin_delete_group"),
     path("apps/forms/<int:form_id>/", admin_views.app_form_detail, name="admin_app_form_detail"),
     path("database/", admin_views.database_home, name="admin_database"),
+    path("database/encuestas/sheet/", admin_views.database_encuestas_sheet, name="admin_database_encuestas_sheet"),
+    path("database/encuestas.csv", admin_views.database_encuestas_csv, name="admin_database_encuestas_csv"),
     path(
         "database/create-assigned-group/",
         admin_views.database_create_assigned_group,

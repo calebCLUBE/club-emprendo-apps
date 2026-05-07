@@ -125,6 +125,28 @@
   </form>
 </details>
 
+<h2>{{ encuestas_label|default:"Encuestas" }}</h2>
+{% if encuestas_drive_file_ref %}
+  <ul style="margin: 8px 0 18px 0;">
+    <li style="margin:6px 0;">
+      <a href="{% url 'admin_database_encuestas_sheet' %}">
+        {{ encuestas_label|default:"Encuestas" }} — Google Drive file
+      </a>
+      &nbsp; — &nbsp;
+      <a href="{% url 'admin_database_encuestas_sheet' %}">Sheet</a>
+      &nbsp; — &nbsp;
+      <a href="{% url 'admin_database_encuestas_csv' %}">CSV</a>
+    </li>
+  </ul>
+{% else %}
+  <p style="margin-top:10px;">
+    <em>
+      {{ encuestas_label|default:"Encuestas" }} file is not configured yet.
+      Set <code>DATABASE_ENCUESTAS_DRIVE_FILE</code> (Google Drive file ID or URL).
+    </em>
+  </p>
+{% endif %}
+
 <details style="margin: 10px 0 18px; padding: 10px; border: 1px solid #ddd; border-radius: 10px;">
   <summary style="cursor:pointer; font-weight:600;">
     Graded Files

@@ -40,6 +40,7 @@ from applications.grader_e import grade_from_dataframe as grade_e_df
 from applications.grader_m import grade_from_dataframe as grade_m_df
 from applications.drive_sync import (
     ensure_group_drive_tree,
+    fetch_drive_csv_file_text,
     sync_generated_csv_artifact,
     sync_group_track_responses_csv,
 )
@@ -109,10 +110,32 @@ RECRUITMENT_POOL_SOURCES = {
         "end_month": "abril",
     },
 }
+DATABASE_ENCUESTAS_LABEL_DEFAULT = "Encuestas"
 
 
 def _reminder_lock_key(form_slug: str) -> str:
     return f"admin:reminders:lock:{(form_slug or '').strip().lower()}"
+
+
+def _setting_or_env(name: str, default: str = "") -> str:
+    raw = getattr(settings, name, None)
+    if raw is not None:
+        text = str(raw).strip()
+        if text:
+            return text
+    return str(os.environ.get(name, default) or default).strip()
+
+
+def _database_encuestas_drive_file_ref() -> str:
+    for key in (
+        "DATABASE_ENCUESTAS_DRIVE_FILE",
+        "DATABASE_ENCUESTAS_FILE_ID",
+        "ENCUESTAS_DRIVE_FILE",
+    ):
+        value = _setting_or_env(key, "")
+        if value:
+            return value
+    return ""
 
 @staff_member_required
 def download_graded_csv(request, graded_file_id: int):
@@ -3600,6 +3623,8 @@ def database_home(request):
         "track": PoolAssignmentForm.TRACK_EMPRENDEDORAS,
         "target_group_num": next_group_num,
     }
+    encuestas_label = _setting_or_env("DATABASE_ENCUESTAS_LABEL", DATABASE_ENCUESTAS_LABEL_DEFAULT)
+    encuestas_drive_file_ref = _database_encuestas_drive_file_ref()
 
     return render(
         request,
@@ -3620,6 +3645,8 @@ def database_home(request):
             "transfer_form_options": transfer_form_options,
             "pool_source_choices": pool_source_choices,
             "pool_assignment_defaults": pool_assignment_defaults,
+            "encuestas_label": encuestas_label,
+            "encuestas_drive_file_ref": encuestas_drive_file_ref,
             "database_next": request.get_full_path(),
         },
     )
@@ -4482,6 +4509,60 @@ def database_form_master_csv(request, form_slug: str):
     form_def = get_object_or_404(FormDefinition, slug=form_slug)
     headers, rows = _build_csv_for_form(form_def)
     return _csv_http_response(f"{form_slug}_MASTER.csv", headers, rows)
+
+
+def _load_database_encuestas_grid() -> tuple[str, list[str], list[list[str]], str, str]:
+    label = _setting_or_env("DATABASE_ENCUESTAS_LABEL", DATABASE_ENCUESTAS_LABEL_DEFAULT)
+    file_ref = _database_encuestas_drive_file_ref()
+    if not file_ref:
+        raise RuntimeError(
+            "Encuestas Drive file is not configured. Set DATABASE_ENCUESTAS_DRIVE_FILE "
+            "(file ID or full Google Drive/Sheets URL)."
+        )
+
+    csv_text, file_id, file_name = fetch_drive_csv_file_text(file_ref)
+    headers, rows = _csv_text_to_grid(csv_text)
+    if not headers:
+        raise RuntimeError(
+            "The configured Encuestas file returned no header row. "
+            "Confirm the file is a non-empty Google Sheet or CSV."
+        )
+    return label, headers, rows, file_name, file_id
+
+
+@staff_member_required
+def database_encuestas_sheet(request):
+    try:
+        label, headers, rows, file_name, file_id = _load_database_encuestas_grid()
+    except Exception as exc:
+        messages.error(request, f"Could not load Encuestas from Drive: {exc}")
+        return redirect("admin_database")
+
+    return render(
+        request,
+        "admin_dash/database_encuestas_sheet.html",
+        {
+            "encuestas_label": label,
+            "encuestas_source_name": file_name,
+            "encuestas_source_file_id": file_id,
+            "sheet_headers": headers,
+            "sheet_rows": rows,
+        },
+    )
+
+
+@staff_member_required
+def database_encuestas_csv(request):
+    try:
+        label, headers, rows, _file_name, _file_id = _load_database_encuestas_grid()
+    except Exception as exc:
+        messages.error(request, f"Could not load Encuestas from Drive: {exc}")
+        return redirect("admin_database")
+
+    safe_label = re.sub(r"[^A-Za-z0-9_-]+", "_", label or DATABASE_ENCUESTAS_LABEL_DEFAULT).strip("_")
+    if not safe_label:
+        safe_label = "encuestas"
+    return _csv_http_response(f"{safe_label}.csv", headers, rows)
 
 
 @staff_member_required

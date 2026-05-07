@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 FOLDER_MIMETYPE = "application/vnd.google-apps.folder"
 GROUP_PREFIX_RE = re.compile(r"^\s*2\.(?P<num>\d+)\b", re.IGNORECASE)
 FOLDER_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+FILE_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 GROUP_TRACK_FORM_RE = re.compile(r"^G(?P<num>\d+)_(?P<track>E|M)_A[12]$", re.IGNORECASE)
 PAIR_FORM_RE = re.compile(r"^PAIR_G(?P<num>\d+)$", re.IGNORECASE)
 
@@ -95,6 +96,27 @@ def _normalize_folder_id(value: str) -> str:
     if FOLDER_ID_RE.fullmatch(last):
         return last
     if FOLDER_ID_RE.fullmatch(v):
+        return v
+    return ""
+
+
+def _normalize_file_id(value: str) -> str:
+    v = (value or "").strip()
+    if not v:
+        return ""
+
+    m = re.search(r"/d/([A-Za-z0-9_-]+)", v)
+    if m:
+        return m.group(1)
+
+    m = re.search(r"[?&]id=([A-Za-z0-9_-]+)", v)
+    if m:
+        return m.group(1)
+
+    last = v.rstrip("/").split("/")[-1]
+    if FILE_ID_RE.fullmatch(last):
+        return last
+    if FILE_ID_RE.fullmatch(v):
         return v
     return ""
 
@@ -375,6 +397,87 @@ def _service_and_root() -> tuple[object, str]:
         ),
         root_folder_id,
     )
+
+
+def _service_for_drive_reads() -> object:
+    key_path, key_json, _root_folder_id = _load_config()
+    oauth_client_id, oauth_client_secret, oauth_refresh_token = _oauth_env_config()
+    has_oauth = _has_oauth_config(oauth_client_id, oauth_client_secret, oauth_refresh_token)
+    if not key_path and not key_json and not has_oauth:
+        raise RuntimeError(
+            "Missing Drive credentials. Set service-account credentials "
+            "(GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON_CONTENT_B64 or JSON/path variants) "
+            "or OAuth credentials "
+            "(GOOGLE_DRIVE_OAUTH_CLIENT_ID/SECRET/REFRESH_TOKEN)."
+        )
+    if key_path and not key_json and not has_oauth and not os.path.exists(key_path):
+        raise RuntimeError(f"Drive key file not found at {key_path}.")
+    return _build_service(
+        key_path,
+        key_json,
+        oauth_client_id=oauth_client_id,
+        oauth_client_secret=oauth_client_secret,
+        oauth_refresh_token=oauth_refresh_token,
+    )
+
+
+def fetch_drive_csv_file_text(file_ref: str) -> tuple[str, str, str]:
+    """
+    Download a CSV payload from Drive.
+
+    Supports:
+    - Google Sheets files (exported to CSV)
+    - Regular CSV files stored in Drive
+
+    Returns:
+      (csv_text, file_id, file_name)
+    """
+    file_id = _normalize_file_id(file_ref)
+    if not file_id:
+        raise ValueError("Invalid Drive file reference. Use a file ID or full Drive/Sheets URL.")
+
+    service = _service_for_drive_reads()
+    meta = (
+        service.files()
+        .get(
+            fileId=file_id,
+            fields="id,name,mimeType",
+            supportsAllDrives=True,
+        )
+        .execute()
+    )
+
+    mime_type = str(meta.get("mimeType") or "").strip().lower()
+    file_name = str(meta.get("name") or "").strip() or file_id
+
+    if mime_type == "application/vnd.google-apps.spreadsheet":
+        raw = (
+            service.files()
+            .export_media(
+                fileId=file_id,
+                mimeType="text/csv",
+            )
+            .execute()
+        )
+    elif mime_type in {"text/csv", "application/csv", "application/vnd.ms-excel"}:
+        raw = (
+            service.files()
+            .get_media(
+                fileId=file_id,
+                supportsAllDrives=True,
+            )
+            .execute()
+        )
+    else:
+        raise RuntimeError(
+            f"Unsupported Drive file type for CSV preview: {mime_type or 'unknown'}."
+        )
+
+    if isinstance(raw, bytes):
+        csv_text = raw.decode("utf-8-sig", errors="replace")
+    else:
+        csv_text = str(raw or "")
+    return csv_text, file_id, file_name
 
 
 def _build_group_track_rows(group_num: int, track: str) -> tuple[list[str], list[list[str]]]:

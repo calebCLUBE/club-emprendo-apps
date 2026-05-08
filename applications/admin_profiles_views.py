@@ -29,6 +29,7 @@ from django.utils.dateparse import parse_datetime
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 
+from .drive_sync import fetch_drive_csv_file_text
 from .models import (
     Answer,
     Application,
@@ -80,6 +81,8 @@ _MENTORA_TITLE_RE = re.compile(
 )
 WIX_CAPACITACION_EMPRENDEDORAS_PROGRAM_NAME = "Capacitacion programa de mentorias (Emprendedoras)"
 WIX_CAPACITACION_MENTORAS_PROGRAM_NAME = "Capacitacion de Mentoras"
+ENCUESTAS_GROUP_HEADER_KEYS = ("seleccionatugrupo", "seleccionagrupo", "grupo")
+ENCUESTAS_EMAIL_HEADER_KEYS = ("correo", "email", "correoelectronico", "correoelectrnico")
 
 PROFILE_OVERVIEW_FIELDS = [
     ("full_name", "Full name"),
@@ -127,13 +130,14 @@ EMPRENDEDORAS_HEADERS = [
     "Acta",
     "Website ",
     "Capacitacion ",
+    "Encuestas",
     "Plazo extra Cap",
     "Lanzamiento",
     "W/E",
 ]
 
 MENTORAS_COL_WIDTHS = [6.88, 14.38, 5.63, 31.5, 13.63, 28.13, 14.25, 12.5, 10.5, 7, 9, 12, 12, 12, 8, 8]
-EMPRENDEDORAS_COL_WIDTHS = [7.25, 14.38, 5.75, 18.38, 17.75, 32.13, 15.25, 12.5, 10.5, 7, 9, 12, 14, 12, 8]
+EMPRENDEDORAS_COL_WIDTHS = [7.25, 14.38, 5.75, 18.38, 17.75, 32.13, 15.25, 12.5, 10.5, 7, 9, 12, 11, 14, 12, 8]
 MENTORAS_EMAIL_COL = 5
 EMPRENDEDORAS_EMAIL_COL = 5
 MENTORAS_ID_COL = 4
@@ -142,10 +146,11 @@ MENTORAS_ACTA_COL = 9
 EMPRENDEDORAS_ACTA_COL = 9
 MENTORAS_CAPACITACION_COL = 11
 EMPRENDEDORAS_CAPACITACION_COL = 11
+EMPRENDEDORAS_ENCUESTAS_COL = 12
 MENTORAS_PROGRESS_DEFAULT_FALSE_COLS = [10, 11]  # Website, Capacitacion
 EMPRENDEDORAS_PROGRESS_DEFAULT_FALSE_COLS = [10, 11]  # Website, Capacitacion
 MENTORAS_BOOLEAN_COLS = [9, 10, 11, 12, 13, 14, 15]
-EMPRENDEDORAS_BOOLEAN_COLS = [9, 10, 11, 12, 13, 14]
+EMPRENDEDORAS_BOOLEAN_COLS = [9, 10, 11, 12, 13, 14, 15]
 MENTORAS_STATUS_OPTIONS = ["NFA", "NCC", "INCP", "INCPP", "CP", "DC", "D", "P", "E/T", "G", "SG"]
 EMPRENDEDORAS_STATUS_OPTIONS = ["NFA", "NCC", "INCP", "INCPP", "CP", "DC", "P", "E/T", "G", "SG"]
 MENTORAS_COLUMN_TYPES = [
@@ -179,6 +184,7 @@ EMPRENDEDORAS_COLUMN_TYPES = [
     "checkbox",      # Acta
     "checkbox",      # Website
     "checkbox",      # Capacitacion
+    "checkbox",      # Encuestas
     "checkbox",      # Plazo extra Cap
     "checkbox",      # Lanzamiento
     "checkbox",      # W/E
@@ -1391,6 +1397,103 @@ def _fetch_wix_capacitacion_completed_emails(
     )
 
 
+def _encuestas_drive_file_ref() -> str:
+    for key in (
+        "DATABASE_ENCUESTAS_DRIVE_FILE",
+        "DATABASE_ENCUESTAS_FILE_ID",
+        "ENCUESTAS_DRIVE_FILE",
+    ):
+        value = _setting_or_env(key, "")
+        if value:
+            return value
+    return ""
+
+
+def _group_number_from_any(value) -> int | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    match = re.search(r"\d+", raw)
+    if not match:
+        return None
+    try:
+        return int(match.group(0))
+    except Exception:
+        return None
+
+
+def _header_index(headers: list[str], candidates: tuple[str, ...]) -> int:
+    candidate_set = {str(v or "").strip().lower() for v in candidates if str(v or "").strip()}
+    for idx, header in enumerate(headers):
+        norm = _normalize_header(header)
+        if norm and norm in candidate_set:
+            return idx
+    return -1
+
+
+def _fetch_encuestas_emprendedoras_emails_for_group(
+    *,
+    group_num: int,
+    participant_pool: set[str],
+) -> tuple[bool, set[str], str]:
+    file_ref = _encuestas_drive_file_ref()
+    if not file_ref:
+        return (
+            False,
+            set(),
+            "Encuestas file is not configured. Set DATABASE_ENCUESTAS_DRIVE_FILE.",
+        )
+
+    try:
+        csv_text, _file_id, file_name = fetch_drive_csv_file_text(file_ref)
+    except Exception as exc:
+        return False, set(), f"Could not read encuestas file from Drive: {exc}"
+
+    parsed = list(csv.reader(io.StringIO(csv_text or "")))
+    if not parsed:
+        return False, set(), "Encuestas file is empty."
+
+    headers = [str(v or "") for v in parsed[0]]
+    rows = parsed[1:]
+    group_col = _header_index(headers, ENCUESTAS_GROUP_HEADER_KEYS)
+    email_col = _header_index(headers, ENCUESTAS_EMAIL_HEADER_KEYS)
+    if group_col < 0:
+        return False, set(), "Column 'Selecciona tu grupo' was not found in encuestas file."
+    if email_col < 0:
+        return False, set(), "Email column was not found in encuestas file."
+
+    matched_emails: set[str] = set()
+    scoped_rows = 0
+    for row in rows:
+        if not isinstance(row, list):
+            continue
+        group_val = row[group_col] if group_col < len(row) else ""
+        parsed_group = _group_number_from_any(group_val)
+        if parsed_group != int(group_num):
+            continue
+        scoped_rows += 1
+        email_raw = row[email_col] if email_col < len(row) else ""
+        email_norm = _normalize_email(email_raw)
+        if not email_norm:
+            continue
+        try:
+            validate_email(email_norm)
+        except ValidationError:
+            continue
+        if participant_pool and email_norm not in participant_pool:
+            continue
+        matched_emails.add(email_norm)
+
+    return (
+        True,
+        matched_emails,
+        (
+            f"Encuestas source '{file_name}' scanned. "
+            f"Group rows: {scoped_rows}; participant emails matched: {len(matched_emails)}."
+        ),
+    )
+
+
 def _apply_capacitacion_to_rows(
     *,
     rows: list[list],
@@ -1412,6 +1515,30 @@ def _apply_capacitacion_to_rows(
                 if not _as_checkbox_bool(row_copy[capacitacion_col]):
                     row_copy[capacitacion_col] = True
                     changed += 1
+        out.append(row_copy)
+    return out, matched, changed
+
+
+def _apply_encuestas_to_rows(
+    *,
+    rows: list[list],
+    email_col: int,
+    encuestas_col: int,
+    matched_emails: set[str],
+) -> tuple[list[list], int, int]:
+    out: list[list] = []
+    matched = 0
+    changed = 0
+    for row in rows:
+        row_copy = list(row)
+        email = ""
+        if email_col < len(row_copy):
+            email = _normalize_email(row_copy[email_col])
+        if email and email in matched_emails:
+            matched += 1
+            if encuestas_col < len(row_copy) and not _as_checkbox_bool(row_copy[encuestas_col]):
+                row_copy[encuestas_col] = True
+                changed += 1
         out.append(row_copy)
     return out, matched, changed
 
@@ -1472,6 +1599,66 @@ def _run_wix_capacitacion_check_for_track(
         (
             f"{fetch_note} "
             f"Capacitacion rows matched: {matched_count}; changed: {changed_count}."
+        ),
+    )
+
+
+def _run_encuestas_check_for_track(
+    *,
+    group: FormGroup,
+    track_slug: str,
+    headers: list[str],
+    bool_cols: list[int],
+    email_col: int,
+    encuestas_col: int,
+    text_field: str,
+    rows_field: str,
+    build_rows,
+) -> tuple[bool, str]:
+    if track_slug != "emprendedoras":
+        return False, "Encuestas check only applies to emprendedoras."
+
+    participant_list = GroupParticipantList.objects.filter(group=group).first()
+    if not participant_list:
+        return False, f"Group {group.number} has no participant list."
+
+    stored_rows = _normalize_sheet_rows(getattr(participant_list, rows_field, []), headers)
+    stored_rows = _coerce_bool_columns(stored_rows, bool_cols)
+    if stored_rows:
+        rows = _number_sheet_rows(stored_rows, number_col=2)
+    else:
+        emails_seed = _norm_email_list(getattr(participant_list, text_field, ""))
+        rows = _number_sheet_rows(build_rows(group.number, emails_seed), number_col=2)
+
+    participant_emails = _emails_from_sheet_rows(rows, email_col)
+    participant_pool = set(participant_emails)
+    if not participant_pool:
+        return False, "No participant emails found in this sheet."
+
+    ok, matched_emails, fetch_note = _fetch_encuestas_emprendedoras_emails_for_group(
+        group_num=group.number,
+        participant_pool=participant_pool,
+    )
+    if not ok:
+        return False, fetch_note
+
+    next_rows, matched_count, changed_count = _apply_encuestas_to_rows(
+        rows=rows,
+        email_col=email_col,
+        encuestas_col=encuestas_col,
+        matched_emails=matched_emails,
+    )
+    next_rows = _number_sheet_rows(next_rows, number_col=2)
+
+    if getattr(participant_list, rows_field) != next_rows:
+        setattr(participant_list, rows_field, next_rows)
+        participant_list.save(update_fields=[rows_field, "updated_at"])
+
+    return (
+        True,
+        (
+            f"{fetch_note} "
+            f"Encuestas rows matched: {matched_count}; changed: {changed_count}."
         ),
     )
 
@@ -1627,6 +1814,7 @@ def _build_emprendedoras_rows(group_num: int, emails: list[str]) -> list[list]:
             found.get("whatsapp", ""),
             found.get("country", ""),
             found.get("age", ""),
+            False,
             False,
             False,
             False,
@@ -2803,6 +2991,7 @@ def profiles_participants_track_sheet(request, group_num: int, track: str):
         email_col = MENTORAS_EMAIL_COL
         acta_col = MENTORAS_ACTA_COL
         capacitacion_col = MENTORAS_CAPACITACION_COL
+        encuestas_col = None
         progress_default_false_cols = MENTORAS_PROGRESS_DEFAULT_FALSE_COLS
         text_field = "mentoras_emails_text"
         rows_field = "mentoras_sheet_rows"
@@ -2817,6 +3006,7 @@ def profiles_participants_track_sheet(request, group_num: int, track: str):
         email_col = EMPRENDEDORAS_EMAIL_COL
         acta_col = EMPRENDEDORAS_ACTA_COL
         capacitacion_col = EMPRENDEDORAS_CAPACITACION_COL
+        encuestas_col = EMPRENDEDORAS_ENCUESTAS_COL
         progress_default_false_cols = EMPRENDEDORAS_PROGRESS_DEFAULT_FALSE_COLS
         text_field = "emprendedoras_emails_text"
         rows_field = "emprendedoras_sheet_rows"
@@ -2881,6 +3071,48 @@ def profiles_participants_track_sheet(request, group_num: int, track: str):
                 messages.error(
                     request,
                     f"Wix capacitacion check failed for Group {group.number} {track_label}: {summary}",
+                )
+            return redirect(
+                reverse(
+                    "admin_profiles_participants_track_sheet",
+                    args=[group.number, track_slug],
+                )
+            )
+        if action == "check_encuestas":
+            if encuestas_col is None:
+                messages.error(
+                    request,
+                    f"Encuestas check is not available for {track_label}.",
+                )
+                return redirect(
+                    reverse(
+                        "admin_profiles_participants_track_sheet",
+                        args=[group.number, track_slug],
+                    )
+                )
+            try:
+                ok, summary = _run_encuestas_check_for_track(
+                    group=group,
+                    track_slug=track_slug,
+                    headers=headers,
+                    bool_cols=bool_cols,
+                    email_col=email_col,
+                    encuestas_col=encuestas_col,
+                    text_field=text_field,
+                    rows_field=rows_field,
+                    build_rows=build_rows,
+                )
+            except Exception as exc:
+                ok, summary = False, f"Unexpected error running encuestas check: {exc}"
+            if ok:
+                messages.success(
+                    request,
+                    f"Encuestas check completed for Group {group.number} {track_label}. {summary}",
+                )
+            else:
+                messages.error(
+                    request,
+                    f"Encuestas check failed for Group {group.number} {track_label}: {summary}",
                 )
             return redirect(
                 reverse(

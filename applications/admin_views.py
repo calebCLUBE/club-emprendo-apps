@@ -110,7 +110,7 @@ RECRUITMENT_POOL_SOURCES = {
         "end_month": "abril",
     },
 }
-DATABASE_ENCUESTAS_LABEL_DEFAULT = "Encuestas"
+DATABASE_ENCUESTAS_LABEL_DEFAULT = "Encuestas - Emprendedoras"
 
 
 def _reminder_lock_key(form_slug: str) -> str:

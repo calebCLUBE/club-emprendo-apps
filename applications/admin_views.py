@@ -4538,6 +4538,13 @@ def database_encuestas_sheet(request):
         messages.error(request, f"Could not load Encuestas from Drive: {exc}")
         return redirect("admin_database")
 
+    refresh_requested = str(request.GET.get("refresh") or "").strip().lower() in {"1", "true", "yes"}
+    if refresh_requested:
+        messages.success(
+            request,
+            f"{label} refreshed from Drive: {len(rows)} row(s), {len(headers)} column(s).",
+        )
+
     return render(
         request,
         "admin_dash/database_encuestas_sheet.html",

@@ -1,6 +1,7 @@
 # applications/forms.py
 import json
 import re
+import unicodedata
 from django import forms
 from .models import FormDefinition, Question
 
@@ -9,6 +10,38 @@ _PRE_RE = re.compile(
     r"^\s*\[\[PRE(?P<attrs>[^\]]*)\]\]\s*\n(?P<body>.*?)\n\s*\[\[/PRE\]\]\s*\n?(?P<rest>.*)$",
     re.DOTALL,
 )
+
+
+def _confirm_text_canonical(value) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, (list, tuple)):
+        text = " ".join(str(v or "") for v in value)
+    else:
+        text = str(value or "")
+    text = unicodedata.normalize("NFKC", text)
+    text = text.replace("\u00a0", " ").replace("\u2007", " ").replace("\u202f", " ")
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
+def _normalize_confirm_value(value, *, source_field_name: str) -> str:
+    canonical = _confirm_text_canonical(value)
+    if not canonical:
+        return ""
+
+    field_key = (source_field_name or "").lower()
+
+    if "email" in field_key or "correo" in field_key:
+        return canonical.replace(" ", "").lower()
+
+    if any(
+        token in field_key
+        for token in ("whatsapp", "telefono", "celular", "phone", "movil")
+    ):
+        return re.sub(r"[^0-9+]", "", canonical.lower().replace(" ", ""))
+
+    return canonical
 
 
 def split_help_text(raw: str):
@@ -167,8 +200,14 @@ def build_application_form(form_slug: str):
         def clean(self):
             data = super().clean()
             for original, confirm in getattr(self, "_confirm_pairs", []):
-                v1 = data.get(original, "")
-                v2 = data.get(confirm, "")
+                v1 = _normalize_confirm_value(
+                    data.get(original, ""),
+                    source_field_name=original,
+                )
+                v2 = _normalize_confirm_value(
+                    data.get(confirm, ""),
+                    source_field_name=original,
+                )
                 if (v1 or v2) and v1 != v2:
                     msg = "Los valores no coinciden."
                     self.add_error(confirm, msg)

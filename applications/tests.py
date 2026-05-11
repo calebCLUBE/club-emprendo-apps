@@ -6,6 +6,7 @@ import re
 from unittest.mock import patch
 
 from applications.admin import QuestionAdminForm
+from applications.forms import build_application_form
 from applications.models import (
     Application,
     DropboxSignWebhookEvent,
@@ -242,6 +243,62 @@ class ApplicationFormRenderTests(TestCase):
                 re.DOTALL,
             ),
         )
+
+
+class ConfirmValueNormalizationTests(TestCase):
+    def test_confirm_email_accepts_case_and_spacing_differences(self):
+        form_def = FormDefinition.objects.create(
+            slug="test_confirm_email",
+            name="Test Confirm Email",
+            is_public=True,
+            accepting_responses=True,
+        )
+        Question.objects.create(
+            form=form_def,
+            text="Correo",
+            slug="correo",
+            field_type=Question.SHORT_TEXT,
+            required=True,
+            confirm_value=True,
+            position=1,
+            active=True,
+        )
+
+        FormCls = build_application_form(form_def.slug)
+        form = FormCls(
+            data={
+                "q_correo": "  Ana.Example@Gmail.com ",
+                "q_correo__confirm": "ana.example@gmail.com",
+            }
+        )
+        self.assertTrue(form.is_valid(), form.errors)
+
+    def test_confirm_phone_accepts_punctuation_differences(self):
+        form_def = FormDefinition.objects.create(
+            slug="test_confirm_phone",
+            name="Test Confirm Phone",
+            is_public=True,
+            accepting_responses=True,
+        )
+        Question.objects.create(
+            form=form_def,
+            text="WhatsApp",
+            slug="whatsapp",
+            field_type=Question.SHORT_TEXT,
+            required=True,
+            confirm_value=True,
+            position=1,
+            active=True,
+        )
+
+        FormCls = build_application_form(form_def.slug)
+        form = FormCls(
+            data={
+                "q_whatsapp": "+57 311-234-5678",
+                "q_whatsapp__confirm": "+57 (311) 234 5678",
+            }
+        )
+        self.assertTrue(form.is_valid(), form.errors)
 
 
 class ParticipantsPageSafetyTests(TestCase):

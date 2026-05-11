@@ -92,13 +92,11 @@
       <input type="hidden" name="action" value="check_capacitacion">
       <button class="ce-sheet-btn" type="submit">Check Capacitacion</button>
     </form>
-    {% if track_slug == "emprendedoras" %}
-      <form method="post">
-        {% csrf_token %}
-        <input type="hidden" name="action" value="check_encuestas">
-        <button class="ce-sheet-btn" type="submit">Check Encuestas</button>
-      </form>
-    {% endif %}
+    <form method="post">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="check_encuestas">
+      <button class="ce-sheet-btn" type="submit">Check Encuestas</button>
+    </form>
   </div>
 
   <form method="post" id="ce-sheet-save-form" style="display:none;">

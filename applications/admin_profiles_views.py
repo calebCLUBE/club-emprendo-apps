@@ -83,6 +83,9 @@ WIX_CAPACITACION_EMPRENDEDORAS_PROGRAM_NAME = "Capacitacion programa de mentoria
 WIX_CAPACITACION_MENTORAS_PROGRAM_NAME = "Capacitacion de Mentoras"
 ENCUESTAS_GROUP_HEADER_KEYS = ("seleccionatugrupo", "seleccionagrupo", "grupo")
 ENCUESTAS_EMAIL_HEADER_KEYS = ("correo", "email", "correoelectronico", "correoelectrnico")
+MENTORAS_ENCUESTAS_DRIVE_FILE_DEFAULT = (
+    "https://docs.google.com/spreadsheets/d/1oPndaqPrrD6vgstAd9KNfVc96fci_8h_x7oRRaUGEls/edit?gid=2016744608#gid=2016744608"
+)
 
 PROFILE_OVERVIEW_FIELDS = [
     ("full_name", "Full name"),
@@ -111,6 +114,7 @@ MENTORAS_HEADERS = [
     "Acta",
     "Website ",
     "Capacitacion ",
+    "Encuestas",
     "Plazo extra ",
     "Lanzamiento",
     "W/M",
@@ -136,7 +140,7 @@ EMPRENDEDORAS_HEADERS = [
     "W/E",
 ]
 
-MENTORAS_COL_WIDTHS = [6.88, 14.38, 5.63, 31.5, 13.63, 28.13, 14.25, 12.5, 10.5, 7, 9, 12, 12, 12, 8, 8]
+MENTORAS_COL_WIDTHS = [6.88, 14.38, 5.63, 31.5, 13.63, 28.13, 14.25, 12.5, 10.5, 7, 9, 12, 11, 12, 12, 8, 8]
 EMPRENDEDORAS_COL_WIDTHS = [7.25, 14.38, 5.75, 18.38, 17.75, 32.13, 15.25, 12.5, 10.5, 7, 9, 12, 11, 14, 12, 8]
 MENTORAS_EMAIL_COL = 5
 EMPRENDEDORAS_EMAIL_COL = 5
@@ -146,10 +150,11 @@ MENTORAS_ACTA_COL = 9
 EMPRENDEDORAS_ACTA_COL = 9
 MENTORAS_CAPACITACION_COL = 11
 EMPRENDEDORAS_CAPACITACION_COL = 11
+MENTORAS_ENCUESTAS_COL = 12
 EMPRENDEDORAS_ENCUESTAS_COL = 12
 MENTORAS_PROGRESS_DEFAULT_FALSE_COLS = [10, 11]  # Website, Capacitacion
 EMPRENDEDORAS_PROGRESS_DEFAULT_FALSE_COLS = [10, 11]  # Website, Capacitacion
-MENTORAS_BOOLEAN_COLS = [9, 10, 11, 12, 13, 14, 15]
+MENTORAS_BOOLEAN_COLS = [9, 10, 11, 12, 13, 14, 15, 16]
 EMPRENDEDORAS_BOOLEAN_COLS = [9, 10, 11, 12, 13, 14, 15]
 MENTORAS_STATUS_OPTIONS = ["NFA", "NCC", "INCP", "INCPP", "CP", "DC", "D", "P", "E/T", "G", "SG"]
 EMPRENDEDORAS_STATUS_OPTIONS = ["NFA", "NCC", "INCP", "INCPP", "CP", "DC", "P", "E/T", "G", "SG"]
@@ -166,6 +171,7 @@ MENTORAS_COLUMN_TYPES = [
     "checkbox",      # Acta
     "checkbox",      # Website
     "checkbox",      # Capacitacion
+    "checkbox",      # Encuestas
     "checkbox",      # Plazo extra
     "checkbox",      # Lanzamiento
     "checkbox",      # W/M
@@ -1397,13 +1403,24 @@ def _fetch_wix_capacitacion_completed_emails(
     )
 
 
-def _encuestas_drive_file_ref() -> str:
-    for key in (
+def _encuestas_drive_file_ref(track_slug: str) -> str:
+    key = (track_slug or "").strip().lower()
+    if key == "mentoras":
+        for env_key in (
+            "DATABASE_ENCUESTAS_MENTORAS_DRIVE_FILE",
+            "MENTORAS_ENCUESTAS_DRIVE_FILE",
+        ):
+            value = _setting_or_env(env_key, "")
+            if value:
+                return value
+        return MENTORAS_ENCUESTAS_DRIVE_FILE_DEFAULT
+
+    for env_key in (
         "DATABASE_ENCUESTAS_DRIVE_FILE",
         "DATABASE_ENCUESTAS_FILE_ID",
         "ENCUESTAS_DRIVE_FILE",
     ):
-        value = _setting_or_env(key, "")
+        value = _setting_or_env(env_key, "")
         if value:
             return value
     return ""
@@ -1431,17 +1448,18 @@ def _header_index(headers: list[str], candidates: tuple[str, ...]) -> int:
     return -1
 
 
-def _fetch_encuestas_emprendedoras_emails_for_group(
+def _fetch_encuestas_emails_for_group(
     *,
+    track_slug: str,
     group_num: int,
     participant_pool: set[str],
 ) -> tuple[bool, set[str], str]:
-    file_ref = _encuestas_drive_file_ref()
+    file_ref = _encuestas_drive_file_ref(track_slug)
     if not file_ref:
         return (
             False,
             set(),
-            "Encuestas file is not configured. Set DATABASE_ENCUESTAS_DRIVE_FILE.",
+            "Encuestas file is not configured for this track.",
         )
 
     try:
@@ -1615,9 +1633,6 @@ def _run_encuestas_check_for_track(
     rows_field: str,
     build_rows,
 ) -> tuple[bool, str]:
-    if track_slug != "emprendedoras":
-        return False, "Encuestas check only applies to emprendedoras."
-
     participant_list = GroupParticipantList.objects.filter(group=group).first()
     if not participant_list:
         return False, f"Group {group.number} has no participant list."
@@ -1635,7 +1650,8 @@ def _run_encuestas_check_for_track(
     if not participant_pool:
         return False, "No participant emails found in this sheet."
 
-    ok, matched_emails, fetch_note = _fetch_encuestas_emprendedoras_emails_for_group(
+    ok, matched_emails, fetch_note = _fetch_encuestas_emails_for_group(
+        track_slug=track_slug,
         group_num=group.number,
         participant_pool=participant_pool,
     )
@@ -1786,6 +1802,7 @@ def _build_mentoras_rows(group_num: int, emails: list[str]) -> list[list]:
             found.get("whatsapp", ""),
             found.get("country", ""),
             found.get("age", ""),
+            False,
             False,
             False,
             False,
@@ -2991,7 +3008,7 @@ def profiles_participants_track_sheet(request, group_num: int, track: str):
         email_col = MENTORAS_EMAIL_COL
         acta_col = MENTORAS_ACTA_COL
         capacitacion_col = MENTORAS_CAPACITACION_COL
-        encuestas_col = None
+        encuestas_col = MENTORAS_ENCUESTAS_COL
         progress_default_false_cols = MENTORAS_PROGRESS_DEFAULT_FALSE_COLS
         text_field = "mentoras_emails_text"
         rows_field = "mentoras_sheet_rows"

@@ -7,8 +7,10 @@ import base64
 import csv
 import io
 import threading
+from urllib.parse import parse_qs, urlparse
 from dataclasses import dataclass
 
+import httpx
 
 logger = logging.getLogger(__name__)
 
@@ -118,6 +120,23 @@ def _normalize_file_id(value: str) -> str:
         return last
     if FILE_ID_RE.fullmatch(v):
         return v
+    return ""
+
+
+def _extract_sheet_gid(value: str) -> str:
+    raw = (value or "").strip()
+    if not raw:
+        return ""
+    parsed = urlparse(raw)
+    for source in (parsed.query or "", parsed.fragment or ""):
+        if not source:
+            continue
+        params = parse_qs(source)
+        gid_values = params.get("gid") or []
+        if gid_values:
+            gid = str(gid_values[0] or "").strip()
+            if gid.isdigit():
+                return gid
     return ""
 
 
@@ -451,14 +470,45 @@ def fetch_drive_csv_file_text(file_ref: str) -> tuple[str, str, str]:
     file_name = str(meta.get("name") or "").strip() or file_id
 
     if mime_type == "application/vnd.google-apps.spreadsheet":
-        raw = (
-            service.files()
-            .export_media(
-                fileId=file_id,
-                mimeType="text/csv",
+        raw = None
+        gid = _extract_sheet_gid(file_ref)
+        if gid:
+            try:
+                creds = getattr(getattr(service, "_http", None), "credentials", None)
+                token = ""
+                if creds is not None:
+                    try:
+                        from google.auth.transport.requests import Request
+
+                        if not getattr(creds, "valid", False) or not getattr(creds, "token", ""):
+                            creds.refresh(Request())
+                    except Exception:
+                        pass
+                    token = str(getattr(creds, "token", "") or "").strip()
+                headers = {"Accept": "text/csv"}
+                if token:
+                    headers["Authorization"] = f"Bearer {token}"
+                export_url = f"https://docs.google.com/spreadsheets/d/{file_id}/export"
+                resp = httpx.get(
+                    export_url,
+                    params={"format": "csv", "gid": gid},
+                    headers=headers,
+                    timeout=30,
+                    follow_redirects=True,
+                )
+                if resp.status_code < 400 and resp.content:
+                    raw = resp.content
+            except Exception:
+                raw = None
+        if raw is None:
+            raw = (
+                service.files()
+                .export_media(
+                    fileId=file_id,
+                    mimeType="text/csv",
+                )
+                .execute()
             )
-            .execute()
-        )
     elif mime_type in {"text/csv", "application/csv", "application/vnd.ms-excel"}:
         raw = (
             service.files()

@@ -1853,7 +1853,12 @@ def _normalize_month_choice(value: str, fallback: str = "") -> str:
 
 
 class CreateGroupForm(forms.Form):
-    group_num = forms.IntegerField(min_value=1, label="Group number")
+    group_name = forms.CharField(
+        required=True,
+        max_length=120,
+        label="Group name",
+        widget=forms.TextInput(attrs={"placeholder": "e.g. Abril 2026 Cohorte"}),
+    )
     start_day = forms.IntegerField(min_value=1, max_value=31, label="Start day")
     start_month = forms.ChoiceField(choices=MONTH_CHOICES_ES, label="mes de inicio")
     end_month = forms.ChoiceField(choices=MONTH_CHOICES_ES, label="mes de fin")
@@ -2550,6 +2555,32 @@ def _group_label_for_number(
         except Exception:
             continue
     return f"Group {int(group_number)}"
+
+
+def _reserved_pool_group_numbers() -> set[int]:
+    out: set[int] = set()
+    for cfg in RECRUITMENT_POOL_SOURCES.values():
+        try:
+            raw = int(cfg.get("group_num", 0) or 0)
+        except Exception:
+            raw = 0
+        if raw > 0:
+            out.add(raw)
+    return out
+
+
+def _next_cohort_group_number(existing_numbers: list[int] | None = None) -> int:
+    numbers = [int(n) for n in (existing_numbers or []) if str(n).isdigit()]
+    if not numbers:
+        numbers = [int(v) for v in FormGroup.objects.values_list("number", flat=True)]
+
+    reserved = _reserved_pool_group_numbers()
+    cohort_numbers = [n for n in numbers if n not in reserved]
+    next_num = max(cohort_numbers, default=8) + 1
+    taken = set(numbers)
+    while next_num in taken:
+        next_num += 1
+    return next_num
 
 
 def _group_forms_for_app_type(
@@ -3255,7 +3286,7 @@ def create_group(request):
             },
         )
 
-    group_num = form.cleaned_data["group_num"]
+    group_name = (form.cleaned_data.get("group_name") or "").strip()
     start_month = form.cleaned_data["start_month"]
     end_month = form.cleaned_data["end_month"]
     year = form.cleaned_data["year"]
@@ -3268,38 +3299,26 @@ def create_group(request):
     reminder_3_at = form.cleaned_data.get("reminder_3_at")
 
     with transaction.atomic():
-        group, _created = FormGroup.objects.get_or_create(
-            number=group_num,
-            defaults={
-                "start_month": start_month,
-                "end_month": end_month,
-                "year": year,
-                "start_day": start_day,
-                "a2_deadline": a2_deadline,
-                "open_at": open_at,
-                "close_at": close_at,
-                "reminder_1_at": reminder_1_at,
-                "reminder_2_at": reminder_2_at,
-                "reminder_3_at": reminder_3_at,
-                "use_combined_application": True,
-            },
+        existing_numbers = list(
+            FormGroup.objects.select_for_update().values_list("number", flat=True)
         )
-        group.start_month = start_month
-        group.end_month = end_month
-        group.year = year
-        group.start_day = start_day
-        group.a2_deadline = a2_deadline
-        group.open_at = open_at
-        group.close_at = close_at
-        update_fields = [
-            "start_month",
-            "end_month",
-            "year",
-            "start_day",
-            "a2_deadline",
-            "open_at",
-            "close_at",
-        ]
+        group_num = _next_cohort_group_number(existing_numbers)
+        group = FormGroup.objects.create(
+            number=group_num,
+            start_month=start_month,
+            end_month=end_month,
+            year=year,
+            start_day=start_day,
+            a2_deadline=a2_deadline,
+            open_at=open_at,
+            close_at=close_at,
+            reminder_1_at=reminder_1_at,
+            reminder_2_at=reminder_2_at,
+            reminder_3_at=reminder_3_at,
+            use_combined_application=True,
+            custom_name=group_name,
+        )
+        update_fields: list[str] = []
         update_fields.extend(
             _apply_group_reminder_schedule(
                 group,
@@ -3308,7 +3327,8 @@ def create_group(request):
                 reminder_3_at,
             )
         )
-        group.save(update_fields=list(dict.fromkeys(update_fields)))
+        if update_fields:
+            group.save(update_fields=list(dict.fromkeys(update_fields)))
 
         masters = FormDefinition.objects.filter(slug__in=MASTER_SLUGS).order_by("slug")
         for master_fd in masters:
@@ -3330,12 +3350,15 @@ def create_group(request):
         messages.warning(
             request,
             (
-                f"Grupo {group_num} creado/actualizado, pero falló la creación de carpetas en Drive."
+                f"Grupo {group_num} creado, pero falló la creación de carpetas en Drive."
                 + (f" Error: {detail}" if detail else "")
             ),
         )
 
-    messages.success(request, f"Grupo {group_num} creado/actualizado y formularios clonados.")
+    if group_name:
+        messages.success(request, f"Grupo {group_num} ({group_name}) creado y formularios clonados.")
+    else:
+        messages.success(request, f"Grupo {group_num} creado y formularios clonados.")
     if drive_result:
         if drive_result.status == "created":
             messages.success(
@@ -3675,13 +3698,7 @@ def database_home(request):
     transfer_form_options.sort(key=lambda x: (-x["group_num"], x["slug"]))
 
     source_pool_default_key = "april_recruitment"
-    pool_group_numbers = {
-        int(cfg.get("group_num"))
-        for cfg in RECRUITMENT_POOL_SOURCES.values()
-        if str(cfg.get("group_num", "")).isdigit()
-    }
-    cohort_numbers = [g.number for g in groups if g.number not in pool_group_numbers]
-    next_group_num = max(cohort_numbers, default=8) + 1
+    next_group_num = _next_cohort_group_number([int(g.number) for g in groups])
     pool_source_choices = _build_assignment_source_choices(groups)
     default_source_value = source_pool_default_key
     source_values = [str(c.get("value") or "") for c in pool_source_choices]

@@ -149,6 +149,30 @@
   </p>
 {% endif %}
 
+<h2>{{ encuestas_mentoras_label|default:"Encuestas - Mentoras" }}</h2>
+{% if encuestas_mentoras_drive_file_ref %}
+  <ul style="margin: 8px 0 18px 0;">
+    <li style="margin:6px 0;">
+      <a href="{% url 'admin_database_encuestas_mentoras_sheet' %}">
+        {{ encuestas_mentoras_label|default:"Encuestas - Mentoras" }} — Google Drive file
+      </a>
+      &nbsp; — &nbsp;
+      <a href="{% url 'admin_database_encuestas_mentoras_sheet' %}">Sheet</a>
+      &nbsp; — &nbsp;
+      <a href="{% url 'admin_database_encuestas_mentoras_csv' %}">CSV</a>
+      &nbsp; — &nbsp;
+      <a href="{% url 'admin_database_encuestas_mentoras_sheet' %}?refresh=1">Refresh</a>
+    </li>
+  </ul>
+{% else %}
+  <p style="margin-top:10px;">
+    <em>
+      {{ encuestas_mentoras_label|default:"Encuestas - Mentoras" }} file is not configured yet.
+      Set <code>DATABASE_ENCUESTAS_MENTORAS_DRIVE_FILE</code> (Google Drive file ID or URL).
+    </em>
+  </p>
+{% endif %}
+
 <details style="margin: 10px 0 18px; padding: 10px; border: 1px solid #ddd; border-radius: 10px;">
   <summary style="cursor:pointer; font-weight:600;">
     Graded Files

@@ -14,6 +14,16 @@ urlpatterns = [
     path("database/encuestas/sheet/", admin_views.database_encuestas_sheet, name="admin_database_encuestas_sheet"),
     path("database/encuestas.csv", admin_views.database_encuestas_csv, name="admin_database_encuestas_csv"),
     path(
+        "database/encuestas-mentoras/sheet/",
+        admin_views.database_encuestas_mentoras_sheet,
+        name="admin_database_encuestas_mentoras_sheet",
+    ),
+    path(
+        "database/encuestas-mentoras.csv",
+        admin_views.database_encuestas_mentoras_csv,
+        name="admin_database_encuestas_mentoras_csv",
+    ),
+    path(
         "database/create-assigned-group/",
         admin_views.database_create_assigned_group,
         name="admin_database_create_assigned_group",

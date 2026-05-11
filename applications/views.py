@@ -874,6 +874,30 @@ def _resolve_a2_slug_from_first_app(first_app: Application, role: str) -> str:
     return form_slug
 
 
+def _invite_app_for_a2_token(token: str, target_form_slug: str) -> Application | None:
+    raw_token = (token or "").strip()
+    slug = (target_form_slug or "").strip()
+    if not raw_token:
+        return None
+    if not (slug.endswith("E_A2") or slug.endswith("M_A2")):
+        return None
+
+    app = (
+        Application.objects.select_related("form")
+        .filter(invite_token=raw_token)
+        .first()
+    )
+    if not app:
+        return None
+
+    source_slug = (getattr(getattr(app, "form", None), "slug", "") or "").strip()
+    if slug.endswith("E_A2"):
+        return app if (source_slug.endswith("E_A1") or source_slug.endswith("E_A2")) else None
+    if slug.endswith("M_A2"):
+        return app if (source_slug.endswith("M_A1") or source_slug.endswith("M_A2")) else None
+    return None
+
+
 def _handle_application_form(
     request,
     form_slug: str,
@@ -883,6 +907,12 @@ def _handle_application_form(
 ):
     _maybe_run_due_a1_to_a2_reminders()
     form_def = get_object_or_404(FormDefinition, slug=form_slug)
+    reuse_token = (invite_token or request.GET.get("token") or "").strip()
+    invite_source_app = _invite_app_for_a2_token(reuse_token, form_def.slug)
+    has_invite_access = invite_source_app is not None
+    if reuse_token and (form_def.slug.endswith("E_A2") or form_def.slug.endswith("M_A2")) and not has_invite_access:
+        raise Http404("Invalid invite token.")
+
     is_admin_preview = (
         request.method == "GET"
         and bool(getattr(request.user, "is_staff", False))
@@ -906,7 +936,7 @@ def _handle_application_form(
             form_def.accepting_responses = desired_open
 
     # Block new submissions when closed (we use is_public as "open" flag)
-    if not is_admin_preview and not form_def.is_public:
+    if not is_admin_preview and not has_invite_access and not form_def.is_public:
         return render(
             request,
             "applications/closed.html",
@@ -915,7 +945,11 @@ def _handle_application_form(
         )
 
 
-    if request.method == "POST" and not getattr(form_def, "accepting_responses", True):
+    if (
+        request.method == "POST"
+        and not has_invite_access
+        and not getattr(form_def, "accepting_responses", True)
+    ):
         return render(
             request,
             "applications/form_closed.html",
@@ -1011,14 +1045,9 @@ def _handle_application_form(
                         full_name = s
                         break
 
-        reuse_token = (invite_token or request.GET.get("token") or "").strip()
         existing_app = None
         if reuse_token and (form_def.slug.endswith("E_A2") or form_def.slug.endswith("M_A2")):
-            existing_app = (
-                Application.objects.select_related("form")
-                .filter(invite_token=reuse_token)
-                .first()
-            )
+            existing_app = invite_source_app
             if not existing_app:
                 raise Http404("Invalid invite token.")
 

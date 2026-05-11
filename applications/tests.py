@@ -376,6 +376,28 @@ class ThanksOverrideTests(TestCase):
         self.assertIn("Aplicación Emprendedoras A1", payload.get("custom_message_body", ""))
         self.assertEqual(payload.get("custom_message_variant"), "intro")
 
+    def test_custom_message_title_stays_blank_when_not_provided(self):
+        form_def = FormDefinition.objects.create(
+            slug="G8_M_A1",
+            name="Aplicación Mentoras A1",
+            is_public=True,
+            accepting_responses=True,
+            thanks_approved_title="",
+            thanks_approved_message="Mensaje aprobado",
+        )
+
+        payload = _thanks_override_payload(
+            form_def=form_def,
+            kind="a1",
+            approved=True,
+            disqualified=False,
+            group_num="8",
+            track="mentoras",
+        )
+
+        self.assertEqual(payload.get("custom_message_title"), "")
+        self.assertEqual(payload.get("custom_message_variant"), "alert")
+
 
 class ParticipantsPageSafetyTests(TestCase):
     def setUp(self):

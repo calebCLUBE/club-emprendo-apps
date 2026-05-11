@@ -933,7 +933,7 @@ def _thanks_override_payload(
         return {}
 
     return {
-        "custom_message_title": rendered_title or "¡Gracias! 💛",
+        "custom_message_title": rendered_title,
         "custom_message_body": rendered_message,
         "custom_message_variant": "alert" if kind == "a1" and is_positive else "intro",
     }

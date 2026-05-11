@@ -6,9 +6,11 @@
 {% block content %}
 
   {% if custom_message_body %}
-    <div class="ce-form-header">
-      <h1 class="ce-form-title ce-heading">{{ custom_message_title|default:"¡Gracias! 💛" }}</h1>
-    </div>
+    {% if custom_message_title %}
+      <div class="ce-form-header">
+        <h1 class="ce-form-title ce-heading">{{ custom_message_title }}</h1>
+      </div>
+    {% endif %}
     <div class="{% if custom_message_variant == 'alert' %}ce-alert{% else %}form-intro{% endif %}" style="margin-top:12px;">
       {{ custom_message_body|linebreaks }}
     </div>

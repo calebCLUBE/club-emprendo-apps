@@ -26,6 +26,7 @@ from .grader_m import _disqualification_reasons as _m_a2_disqualification_reason
 
 
 GROUP_SLUG_RE = re.compile(r"^G(?P<num>\d+)_")
+THANKS_PLACEHOLDER_RE = re.compile(r"{{\s*([a-zA-Z0-9_]+)\s*}}")
 logger = logging.getLogger(__name__)
 
 MONTH_NUM_TO_ES = {
@@ -843,6 +844,101 @@ def _combined_display_name_from_slug(slug: str) -> str | None:
     return None
 
 
+def _track_from_slug(slug: str) -> str:
+    s = (slug or "").strip()
+    if s.endswith("E_A1") or s.endswith("E_A2"):
+        return "emprendedoras"
+    if s.endswith("M_A1") or s.endswith("M_A2"):
+        return "mentoras"
+    return ""
+
+
+def _render_thanks_text_template(
+    raw_text: str,
+    *,
+    group_num: str,
+    track: str,
+    form_name: str,
+) -> str:
+    text = str(raw_text or "")
+    if not text.strip():
+        return ""
+
+    num = str(group_num or "").strip()
+    track_key = (track or "").strip().lower()
+    if not track_key:
+        track_label = "Club Emprendo"
+    elif track_key.startswith("e"):
+        track_label = "emprendedoras"
+    elif track_key.startswith("m"):
+        track_label = "mentoras"
+    else:
+        track_label = track_key
+
+    replacements = {
+        "group_num": num,
+        "group_label": f"Grupo {num}" if num else "Grupo #",
+        "track": track_label,
+        "track_label": track_label,
+        "form_name": str(form_name or "").strip(),
+    }
+
+    def _replace(match: re.Match) -> str:
+        key = (match.group(1) or "").strip()
+        return replacements.get(key, match.group(0))
+
+    return THANKS_PLACEHOLDER_RE.sub(_replace, text)
+
+
+def _thanks_override_payload(
+    *,
+    form_def: FormDefinition,
+    kind: str,
+    approved: bool,
+    disqualified: bool,
+    group_num: str,
+    track: str,
+) -> dict[str, str]:
+    is_positive = bool(approved)
+    if kind in {"mentor_final", "emprendedora_final"}:
+        is_positive = not bool(disqualified)
+
+    raw_title = (
+        (form_def.thanks_approved_title if is_positive else form_def.thanks_rejected_title)
+        if form_def
+        else ""
+    )
+    raw_message = (
+        (form_def.thanks_approved_message if is_positive else form_def.thanks_rejected_message)
+        if form_def
+        else ""
+    )
+    if not str(raw_message or "").strip():
+        return {}
+
+    track_value = (track or "").strip() or _track_from_slug(getattr(form_def, "slug", "") or "")
+    rendered_title = _render_thanks_text_template(
+        raw_title,
+        group_num=group_num,
+        track=track_value,
+        form_name=getattr(form_def, "name", "") or "",
+    ).strip()
+    rendered_message = _render_thanks_text_template(
+        raw_message,
+        group_num=group_num,
+        track=track_value,
+        form_name=getattr(form_def, "name", "") or "",
+    ).strip()
+    if not rendered_message:
+        return {}
+
+    return {
+        "custom_message_title": rendered_title or "¡Gracias! 💛",
+        "custom_message_body": rendered_message,
+        "custom_message_variant": "alert" if kind == "a1" and is_positive else "intro",
+    }
+
+
 def _slug_uses_combined_flow(slug: str) -> bool:
     fd = (
         FormDefinition.objects.select_related("group")
@@ -1147,6 +1243,16 @@ def _handle_application_form(
                 "group_num": _group_num_from_slug(form_def.slug or ""),
                 "track": _a1_track_from_slug(form_def.slug or ""),
             }
+            thanks_payload.update(
+                _thanks_override_payload(
+                    form_def=form_def,
+                    kind=str(thanks_payload.get("kind") or ""),
+                    approved=bool(thanks_payload.get("approved")),
+                    disqualified=bool(thanks_payload.get("disqualified")),
+                    group_num=str(thanks_payload.get("group_num") or ""),
+                    track=str(thanks_payload.get("track") or ""),
+                )
+            )
             if combined_flow:
                 return render(request, "applications/thanks.html", thanks_payload)
             request.session["ce_thanks_payload"] = thanks_payload
@@ -1189,6 +1295,17 @@ def _handle_application_form(
                 "group_num": group_num,
                 "track": track,
             }
+
+        thanks_payload.update(
+            _thanks_override_payload(
+                form_def=form_def,
+                kind=str(thanks_payload.get("kind") or ""),
+                approved=bool(thanks_payload.get("approved")),
+                disqualified=bool(thanks_payload.get("disqualified")),
+                group_num=str(thanks_payload.get("group_num") or ""),
+                track=str(thanks_payload.get("track") or ""),
+            )
+        )
 
         if combined_flow:
             return render(request, "applications/thanks.html", thanks_payload)

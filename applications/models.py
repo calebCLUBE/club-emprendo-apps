@@ -136,6 +136,40 @@ class FormDefinition(models.Model):
         default="Preguntas generales",
         help_text="Título para las preguntas sin sección asignada.",
     )
+    thanks_approved_title = models.CharField(
+        max_length=200,
+        blank=True,
+        default="",
+        help_text=(
+            "Optional custom title shown on pass/approved thank-you page. "
+            "Supports placeholders like {{ group_num }}, {{ group_label }}, {{ track_label }}, {{ form_name }}."
+        ),
+    )
+    thanks_approved_message = models.TextField(
+        blank=True,
+        default="",
+        help_text=(
+            "Optional custom body shown on pass/approved thank-you page. "
+            "Supports placeholders like {{ group_num }}, {{ group_label }}, {{ track_label }}, {{ form_name }}."
+        ),
+    )
+    thanks_rejected_title = models.CharField(
+        max_length=200,
+        blank=True,
+        default="",
+        help_text=(
+            "Optional custom title shown on rejected/disqualified page. "
+            "Supports placeholders like {{ group_num }}, {{ group_label }}, {{ track_label }}, {{ form_name }}."
+        ),
+    )
+    thanks_rejected_message = models.TextField(
+        blank=True,
+        default="",
+        help_text=(
+            "Optional custom body shown on rejected/disqualified page. "
+            "Supports placeholders like {{ group_num }}, {{ group_label }}, {{ track_label }}, {{ form_name }}."
+        ),
+    )
 
 
     def __str__(self) -> str:

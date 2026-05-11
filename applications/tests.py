@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from applications.admin import QuestionAdminForm
 from applications.forms import build_application_form
+from applications.views import _thanks_override_payload
 from applications.models import (
     Application,
     DropboxSignWebhookEvent,
@@ -345,6 +346,35 @@ class ConfirmValueNormalizationTests(TestCase):
             }
         )
         self.assertTrue(form.is_valid(), form.errors)
+
+
+class ThanksOverrideTests(TestCase):
+    def test_custom_rejected_message_renders_placeholders(self):
+        form_def = FormDefinition.objects.create(
+            slug="G8_E_A1",
+            name="Aplicación Emprendedoras A1",
+            is_public=True,
+            accepting_responses=True,
+            thanks_rejected_title="Resultado para {{ group_label }}",
+            thanks_rejected_message=(
+                "No quedaste en {{ group_label }} de {{ track_label }}.\n"
+                "Formulario: {{ form_name }}."
+            ),
+        )
+
+        payload = _thanks_override_payload(
+            form_def=form_def,
+            kind="a1",
+            approved=False,
+            disqualified=False,
+            group_num="8",
+            track="emprendedoras",
+        )
+
+        self.assertEqual(payload.get("custom_message_title"), "Resultado para Grupo 8")
+        self.assertIn("Grupo 8 de emprendedoras", payload.get("custom_message_body", ""))
+        self.assertIn("Aplicación Emprendedoras A1", payload.get("custom_message_body", ""))
+        self.assertEqual(payload.get("custom_message_variant"), "intro")
 
 
 class ParticipantsPageSafetyTests(TestCase):

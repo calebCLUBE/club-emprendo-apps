@@ -2358,6 +2358,50 @@ def _clone_form(master_fd: FormDefinition, group: FormGroup) -> FormDefinition:
             respond_month=respond_month,
         )
         or "",
+        thanks_approved_title=_fill_placeholders(
+            getattr(master_fd, "thanks_approved_title", ""),
+            group_num,
+            start_day,
+            start_month,
+            end_month,
+            year,
+            respond_day=respond_day,
+            respond_month=respond_month,
+        )
+        or "",
+        thanks_approved_message=_fill_placeholders(
+            getattr(master_fd, "thanks_approved_message", ""),
+            group_num,
+            start_day,
+            start_month,
+            end_month,
+            year,
+            respond_day=respond_day,
+            respond_month=respond_month,
+        )
+        or "",
+        thanks_rejected_title=_fill_placeholders(
+            getattr(master_fd, "thanks_rejected_title", ""),
+            group_num,
+            start_day,
+            start_month,
+            end_month,
+            year,
+            respond_day=respond_day,
+            respond_month=respond_month,
+        )
+        or "",
+        thanks_rejected_message=_fill_placeholders(
+            getattr(master_fd, "thanks_rejected_message", ""),
+            group_num,
+            start_day,
+            start_month,
+            end_month,
+            year,
+            respond_day=respond_day,
+            respond_month=respond_month,
+        )
+        or "",
         is_master=False,
         group=group,
         is_public=master_fd.is_public,

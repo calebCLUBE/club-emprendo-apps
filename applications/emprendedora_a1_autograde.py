@@ -7,6 +7,7 @@ from django.conf import settings
 from django.core.mail import EmailMultiAlternatives
 from django.urls import reverse
 
+from .email_templates import build_form_email_context, resolve_form_email_template
 from .models import Application
 
 
@@ -97,13 +98,13 @@ def autograde_and_email_emprendedora_a1(request, app: Application):
             reverse("apply_emprendedora_second", kwargs={"token": app.invite_token})
         )
 
-        subject = "Próximo paso para recibir mentorías 💛"
         deadline_str = ""
         grp = getattr(app.form, "group", None)
         if grp and getattr(grp, "a2_deadline", None):
             deadline_str = grp.a2_deadline.strftime("%d/%m/%Y")
 
-        html_body = (
+        default_subject = "Próximo paso para recibir mentorías 💛"
+        default_html_body = (
             '<div style="font-family:Arial,Helvetica,sans-serif;line-height:1.6;max-width:700px;'
             'margin:0 auto;word-break:break-word;white-space:normal;">'
             "<p>Hola,</p>"
@@ -119,6 +120,25 @@ def autograde_and_email_emprendedora_a1(request, app: Application):
             "<p>Con cariño,<br><strong>El equipo de Club Emprendo</strong></p>"
             "</div>"
         )
+        replacements = build_form_email_context(
+            form_def=app.form,
+            role_word="emprendedora",
+            a2_link=form2_url,
+            deadline=getattr(grp, "a2_deadline", None) if grp else None,
+        )
+        subject = resolve_form_email_template(
+            form_def=app.form,
+            field_name="email_a1_approved_subject",
+            default_text=default_subject,
+            replacements=replacements,
+            is_subject=True,
+        )
+        html_body = resolve_form_email_template(
+            form_def=app.form,
+            field_name="email_a1_approved_body",
+            default_text=default_html_body,
+            replacements=replacements,
+        )
         _send_html_email(app.email, subject, html_body)
         return
 
@@ -126,8 +146,8 @@ def autograde_and_email_emprendedora_a1(request, app: Application):
     app.invited_to_second_stage = False
     app.save(update_fields=["invited_to_second_stage"])
 
-    subject = "Sobre tu aplicación al programa de mentoría de Club Emprendo 💛"
-    html_body = (
+    default_subject = "Sobre tu aplicación al programa de mentoría de Club Emprendo 💛"
+    default_html_body = (
         '<div style="font-family:Arial,Helvetica,sans-serif;line-height:1.6;max-width:700px;'
         'margin:0 auto;word-break:break-word;white-space:normal;">'
         "<p>Querida emprendedora,</p>"
@@ -136,5 +156,23 @@ def autograde_and_email_emprendedora_a1(request, app: Application):
         "o con la disponibilidad necesaria para participar en esta cohorte, por eso no podremos enviarte el paso 2.</p>"
         "<p>Con cariño,<br><strong>El equipo de Club Emprendo</strong></p>"
         "</div>"
+    )
+    replacements = build_form_email_context(
+        form_def=app.form,
+        role_word="emprendedora",
+        deadline=getattr(getattr(app.form, "group", None), "a2_deadline", None),
+    )
+    subject = resolve_form_email_template(
+        form_def=app.form,
+        field_name="email_a1_rejected_subject",
+        default_text=default_subject,
+        replacements=replacements,
+        is_subject=True,
+    )
+    html_body = resolve_form_email_template(
+        form_def=app.form,
+        field_name="email_a1_rejected_body",
+        default_text=default_html_body,
+        replacements=replacements,
     )
     _send_html_email(app.email, subject, html_body)

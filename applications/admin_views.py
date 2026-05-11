@@ -44,6 +44,7 @@ from applications.drive_sync import (
     sync_generated_csv_artifact,
     sync_group_track_responses_csv,
 )
+from applications.email_templates import build_form_email_context, resolve_form_email_template
 import math
 from django.db import connection
 from applications.models import (
@@ -6030,8 +6031,8 @@ def _build_second_stage_reminder_payload(form_slug: str) -> tuple[dict | None, s
     )
     a2_link = f"https://apply.clubemprendo.org/apply/{form_slug}/"
 
-    subject = "Últimos días para completar la segunda aplicación"
-    html_body = f"""
+    default_subject = "Últimos días para completar la segunda aplicación"
+    default_html_body = f"""
     <div style="font-family:Arial,Helvetica,sans-serif;line-height:1.6;max-width:700px;margin:0 auto;">
       <p>Hola,</p>
       <p>Esperamos que te encuentres muy bien.</p>
@@ -6056,6 +6057,25 @@ def _build_second_stage_reminder_payload(form_slug: str) -> tuple[dict | None, s
       <p>Con cariño,<br><strong>Melanie Guzmán</strong></p>
     </div>
     """
+    replacements = build_form_email_context(
+        form_def=a2_form,
+        role_word=track_word,
+        a2_link=a2_link,
+        deadline=deadline,
+    )
+    subject = resolve_form_email_template(
+        form_def=a2_form,
+        field_name="email_a2_final_reminder_subject",
+        default_text=default_subject,
+        replacements=replacements,
+        is_subject=True,
+    )
+    html_body = resolve_form_email_template(
+        form_def=a2_form,
+        field_name="email_a2_final_reminder_body",
+        default_text=default_html_body,
+        replacements=replacements,
+    )
 
     return {
         "form_slug": form_slug,

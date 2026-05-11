@@ -4,6 +4,12 @@ from django.db import models
 from django.utils import timezone
 import uuid
 
+EMAIL_TEMPLATE_PLACEHOLDERS_HELP = (
+    "Supports placeholders like {{ group_num }}, {{ group_label }}, {{ track_label }}, "
+    "{{ form_name }}, {{ role_word }}, {{ a2_link }}, {{ deadline_text }}, "
+    "{{ respond_by_day }}, {{ respond_by_month }}, {{ respond_by_year }}."
+)
+
 
 class FormGroup(models.Model):
     """
@@ -168,6 +174,108 @@ class FormDefinition(models.Model):
         help_text=(
             "Optional custom body shown on rejected/disqualified page. "
             "Supports placeholders like {{ group_num }}, {{ group_label }}, {{ track_label }}, {{ form_name }}."
+        ),
+    )
+    email_a1_approved_subject = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text=(
+            "Optional custom subject for A1 approved/invite email. "
+            + EMAIL_TEMPLATE_PLACEHOLDERS_HELP
+        ),
+    )
+    email_a1_approved_body = models.TextField(
+        blank=True,
+        default="",
+        help_text=(
+            "Optional custom HTML body for A1 approved/invite email. "
+            + EMAIL_TEMPLATE_PLACEHOLDERS_HELP
+        ),
+    )
+    email_a1_rejected_subject = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text=(
+            "Optional custom subject for A1 rejected email. "
+            + EMAIL_TEMPLATE_PLACEHOLDERS_HELP
+        ),
+    )
+    email_a1_rejected_body = models.TextField(
+        blank=True,
+        default="",
+        help_text=(
+            "Optional custom HTML body for A1 rejected email. "
+            + EMAIL_TEMPLATE_PLACEHOLDERS_HELP
+        ),
+    )
+    email_a1_to_a2_reminder_subject = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text=(
+            "Optional custom subject for automatic A1→A2 reminder email. "
+            + EMAIL_TEMPLATE_PLACEHOLDERS_HELP
+        ),
+    )
+    email_a1_to_a2_reminder_body = models.TextField(
+        blank=True,
+        default="",
+        help_text=(
+            "Optional custom HTML body for automatic A1→A2 reminder email. "
+            + EMAIL_TEMPLATE_PLACEHOLDERS_HELP
+        ),
+    )
+    email_a2_received_subject = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text=(
+            "Optional custom subject for A2 received/valid submission email. "
+            + EMAIL_TEMPLATE_PLACEHOLDERS_HELP
+        ),
+    )
+    email_a2_received_body = models.TextField(
+        blank=True,
+        default="",
+        help_text=(
+            "Optional custom HTML body for A2 received/valid submission email. "
+            + EMAIL_TEMPLATE_PLACEHOLDERS_HELP
+        ),
+    )
+    email_a2_rejected_subject = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text=(
+            "Optional custom subject for A2 rejected/disqualified email. "
+            + EMAIL_TEMPLATE_PLACEHOLDERS_HELP
+        ),
+    )
+    email_a2_rejected_body = models.TextField(
+        blank=True,
+        default="",
+        help_text=(
+            "Optional custom HTML body for A2 rejected/disqualified email. "
+            + EMAIL_TEMPLATE_PLACEHOLDERS_HELP
+        ),
+    )
+    email_a2_final_reminder_subject = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text=(
+            "Optional custom subject for manual/final A2 reminder email. "
+            + EMAIL_TEMPLATE_PLACEHOLDERS_HELP
+        ),
+    )
+    email_a2_final_reminder_body = models.TextField(
+        blank=True,
+        default="",
+        help_text=(
+            "Optional custom HTML body for manual/final A2 reminder email. "
+            + EMAIL_TEMPLATE_PLACEHOLDERS_HELP
         ),
     )
 

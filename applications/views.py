@@ -17,6 +17,7 @@ import json
 from .forms import build_application_form
 from .models import Application, Answer, FormDefinition, Question, Section, scheduled_group_open_state
 from .drive_sync import schedule_group_track_responses_sync
+from .email_templates import build_form_email_context, resolve_form_email_template
 from .emprendedora_a1_autograde import (
     autograde_and_email_emprendedora_a1,
     emprendedora_a1_passes,
@@ -165,8 +166,8 @@ def _build_a1_to_a2_reminder_email(app: Application) -> tuple[str, str]:
         else ""
     )
 
-    subject = "Recordatorio: completa tu segunda aplicación"
-    html_body = f"""
+    default_subject = "Recordatorio: completa tu segunda aplicación"
+    default_html_body = f"""
     <div style="font-family:Arial,Helvetica,sans-serif;line-height:1.6;max-width:700px;margin:0 auto;">
       <p>Hola,</p>
       <p>
@@ -181,6 +182,25 @@ def _build_a1_to_a2_reminder_email(app: Application) -> tuple[str, str]:
       <p>Con cariño,<br><strong>Equipo Club Emprendo</strong></p>
     </div>
     """
+    replacements = build_form_email_context(
+        form_def=app.form,
+        role_word=role_word,
+        a2_link=a2_link,
+        deadline=deadline,
+    )
+    subject = resolve_form_email_template(
+        form_def=app.form,
+        field_name="email_a1_to_a2_reminder_subject",
+        default_text=default_subject,
+        replacements=replacements,
+        is_subject=True,
+    )
+    html_body = resolve_form_email_template(
+        form_def=app.form,
+        field_name="email_a1_to_a2_reminder_body",
+        default_text=default_html_body,
+        replacements=replacements,
+    )
     return subject, html_body
 
 
@@ -316,9 +336,15 @@ def _send_a2_submission_email(app: Application, answer_map: dict[str, str]):
         return False
 
     send_disqualified_email = _is_a2_na_candidate(slug, answer_map)
+    role_word = "emprendedora" if slug.endswith("E_A2") else "mentora"
+    replacements = build_form_email_context(
+        form_def=app.form,
+        role_word=role_word,
+        deadline=getattr(getattr(app.form, "group", None), "a2_deadline", None),
+    )
 
-    subject_na = "Sobre tu aplicación al Programa de Mentorías"
-    html_na = (
+    default_subject_na = "Sobre tu aplicación al Programa de Mentorías"
+    default_html_na = (
         '<div style="font-family:Arial,Helvetica,sans-serif;line-height:1.6;max-width:700px;margin:0 auto;word-break:break-word;white-space:normal;">'
         "<p>Hola querida aplicante,</p>"
         "<p>Gracias por tomarte el tiempo de completar la segunda aplicación para nuestro programa de mentorías. "
@@ -339,13 +365,13 @@ def _send_a2_submission_email(app: Application, answer_map: dict[str, str]):
         "</div>"
     )
 
-    subject_ok = "Hemos recibido tu aplicación – Programa de Mentorías"
+    default_subject_ok = "Hemos recibido tu aplicación – Programa de Mentorías"
     intro_ok = (
         "Gracias por completar tu aplicación para ser mentora en nuestro Programa de Mentorías."
         if slug.endswith("M_A2")
         else "Gracias por completar tu aplicación para recibir mentoría en nuestro Programa de Mentorías."
     )
-    html_ok = (
+    default_html_ok = (
         '<div style="font-family:Arial,Helvetica,sans-serif;line-height:1.6;max-width:700px;margin:0 auto;word-break:break-word;white-space:normal;">'
         "<p>Hola querida aplicante ✨</p>"
         f"<p>{intro_ok}</p>"
@@ -364,11 +390,40 @@ def _send_a2_submission_email(app: Application, answer_map: dict[str, str]):
         "</div>"
     )
 
+    if send_disqualified_email:
+        subject = resolve_form_email_template(
+            form_def=app.form,
+            field_name="email_a2_rejected_subject",
+            default_text=default_subject_na,
+            replacements=replacements,
+            is_subject=True,
+        )
+        html_body = resolve_form_email_template(
+            form_def=app.form,
+            field_name="email_a2_rejected_body",
+            default_text=default_html_na,
+            replacements=replacements,
+        )
+    else:
+        subject = resolve_form_email_template(
+            form_def=app.form,
+            field_name="email_a2_received_subject",
+            default_text=default_subject_ok,
+            replacements=replacements,
+            is_subject=True,
+        )
+        html_body = resolve_form_email_template(
+            form_def=app.form,
+            field_name="email_a2_received_body",
+            default_text=default_html_ok,
+            replacements=replacements,
+        )
+
     try:
         _send_html_email(
             to_email,
-            subject_na if send_disqualified_email else subject_ok,
-            html_na if send_disqualified_email else html_ok,
+            subject,
+            html_body,
         )
     except Exception:
         logger.exception(
@@ -478,8 +533,8 @@ def _mentor_a1_autograde_and_email(request, app: Application):
         if grp and getattr(grp, "a2_deadline", None):
             deadline_str = grp.a2_deadline.strftime("%d/%m/%Y")
 
-        subject = "Siguiente paso: Completa la segunda solicitud"
-        html_body = (
+        default_subject = "Siguiente paso: Completa la segunda solicitud"
+        default_html_body = (
             '<div style="font-family:Arial,Helvetica,sans-serif;line-height:1.6;max-width:700px;margin:0 auto;word-break:break-word;white-space:normal;">'
             "<p><strong>Querida aplicante a Mentora,</strong></p>"
             "<p>Gracias por completar la primera aplicación para ser mentora en Club Emprendo. 🌱</p>"
@@ -495,20 +550,57 @@ def _mentor_a1_autograde_and_email(request, app: Application):
             "<p>Con cariño,<br><strong>El equipo de Club Emprendo</strong></p>"
             "</div>"
         )
+        replacements = build_form_email_context(
+            form_def=app.form,
+            role_word="mentora",
+            a2_link=form2_url,
+            deadline=getattr(grp, "a2_deadline", None) if grp else None,
+        )
+        subject = resolve_form_email_template(
+            form_def=app.form,
+            field_name="email_a1_approved_subject",
+            default_text=default_subject,
+            replacements=replacements,
+            is_subject=True,
+        )
+        html_body = resolve_form_email_template(
+            form_def=app.form,
+            field_name="email_a1_approved_body",
+            default_text=default_html_body,
+            replacements=replacements,
+        )
         _send_html_email(app.email, subject, html_body)
         return
 
     app.invited_to_second_stage = False
     app.save(update_fields=["invited_to_second_stage"])
 
-    subject = "Sobre tu aplicación como mentora voluntaria 🌟"
-    html_body = (
+    default_subject = "Sobre tu aplicación como mentora voluntaria 🌟"
+    default_html_body = (
         '<div style="font-family:Arial,Helvetica,sans-serif;line-height:1.6;max-width:700px;margin:0 auto;word-break:break-word;white-space:normal;">'
         "<p>Querida aplicante a mentora,</p>"
         "<p>Gracias por tu interés en ser parte del programa de mentoría de Club Emprendo. 💛</p>"
         "<p>En la aplicación indicaste que no cumples uno o más requisitos o disponibilidad para esta cohorte, por eso no podremos enviarte el paso 2.</p>"
         "<p>Con cariño,<br><strong>El equipo de Club Emprendo</strong></p>"
         "</div>"
+    )
+    replacements = build_form_email_context(
+        form_def=app.form,
+        role_word="mentora",
+        deadline=getattr(getattr(app.form, "group", None), "a2_deadline", None),
+    )
+    subject = resolve_form_email_template(
+        form_def=app.form,
+        field_name="email_a1_rejected_subject",
+        default_text=default_subject,
+        replacements=replacements,
+        is_subject=True,
+    )
+    html_body = resolve_form_email_template(
+        form_def=app.form,
+        field_name="email_a1_rejected_body",
+        default_text=default_html_body,
+        replacements=replacements,
     )
     _send_html_email(app.email, subject, html_body)
 

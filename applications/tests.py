@@ -1,3 +1,4 @@
+from datetime import date
 from django.test import TestCase
 from django.urls import reverse
 from django.contrib.auth import get_user_model
@@ -6,6 +7,7 @@ import re
 from unittest.mock import patch
 
 from applications.admin import QuestionAdminForm
+from applications.email_templates import build_form_email_context, resolve_form_email_template
 from applications.forms import build_application_form
 from applications.views import _thanks_override_payload
 from applications.models import (
@@ -397,6 +399,49 @@ class ThanksOverrideTests(TestCase):
 
         self.assertEqual(payload.get("custom_message_title"), "")
         self.assertEqual(payload.get("custom_message_variant"), "alert")
+
+
+class EmailTemplateTests(TestCase):
+    def test_email_template_replaces_group_deadline_and_link_placeholders(self):
+        group = FormGroup.objects.create(
+            number=8,
+            start_day=1,
+            start_month="abril",
+            end_month="abril",
+            year=2026,
+            a2_deadline=date(2026, 5, 20),
+        )
+        form_def = FormDefinition.objects.create(
+            slug="G8_E_A1",
+            name="Aplicación Emprendedoras A1",
+            group=group,
+            email_a1_approved_subject="Paso 2 - {{ group_label }}",
+            email_a1_approved_body="Link: {{ a2_link }} | Fecha: {{ deadline_text }}",
+        )
+        replacements = build_form_email_context(
+            form_def=form_def,
+            role_word="emprendedora",
+            a2_link="https://apply.clubemprendo.org/apply/emprendedora/abc/",
+            deadline=group.a2_deadline,
+        )
+
+        subject = resolve_form_email_template(
+            form_def=form_def,
+            field_name="email_a1_approved_subject",
+            default_text="Default subject",
+            replacements=replacements,
+            is_subject=True,
+        )
+        body = resolve_form_email_template(
+            form_def=form_def,
+            field_name="email_a1_approved_body",
+            default_text="Default body",
+            replacements=replacements,
+        )
+
+        self.assertEqual(subject, "Paso 2 - Grupo 8")
+        self.assertIn("https://apply.clubemprendo.org/apply/emprendedora/abc/", body)
+        self.assertIn("20 de mayo de 2026", body)
 
 
 class ParticipantsPageSafetyTests(TestCase):

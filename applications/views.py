@@ -683,7 +683,7 @@ def _m2_sections(form_def: FormDefinition):
     return sections, owned_business_field
 
 
-def _sections_from_model(form_def: FormDefinition, form):
+def _sections_from_model(form_def: FormDefinition, form, default_intro: str = ""):
     """
     Build a list of section dictionaries using Section model assignments.
     """
@@ -739,7 +739,7 @@ def _sections_from_model(form_def: FormDefinition, form):
     default_bucket = {
         "id": "unassigned",
         "title": form_def.default_section_title or "Preguntas generales",
-        "intro": "",
+        "intro": str(default_intro or "").strip(),
         "fields": [],
     }
 
@@ -970,11 +970,6 @@ def _handle_application_form(
                 rendered_description = str(v)
                 break
 
-    if rendered_description.strip() and (
-        rendered_description.strip() == (form_def.description or "").strip()
-    ):
-        rendered_description = ""
-
     if request.method == "POST":
         form = ApplicationForm(request.POST)
     else:
@@ -982,7 +977,18 @@ def _handle_application_form(
 
     _apply_question_conditions(form)
 
-    sections = _sections_from_model(form_def, form)
+    sections = _sections_from_model(form_def, form, default_intro=rendered_description)
+    if sections:
+        default_with_fields = next(
+            (
+                s for s in sections
+                if s.get("id") == "unassigned" and s.get("fields")
+            ),
+            None,
+        )
+        if default_with_fields and (default_with_fields.get("intro") or "").strip():
+            # Keep description with the default section block instead of duplicating it above.
+            rendered_description = ""
     m2_gate_field = None
 
     # Legacy: fallback to heuristic sections for Mentora A2 if no explicit sections exist

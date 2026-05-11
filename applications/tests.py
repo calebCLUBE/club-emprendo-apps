@@ -15,6 +15,7 @@ from applications.models import (
     GroupParticipantList,
     ParticipantEmailStatus,
     Question,
+    Section,
 )
 
 
@@ -243,6 +244,51 @@ class ApplicationFormRenderTests(TestCase):
                 re.DOTALL,
             ),
         )
+
+    def test_default_section_renders_form_description_intro(self):
+        form_def = FormDefinition.objects.create(
+            slug="test_default_section_intro",
+            name="Test Default Section Intro",
+            description="Descripción visible para sección por defecto.",
+            is_public=True,
+            accepting_responses=True,
+        )
+        explicit_section = Section.objects.create(
+            form=form_def,
+            title="Sección explícita",
+            description="Intro explícita",
+            position=1,
+        )
+
+        Question.objects.create(
+            form=form_def,
+            text="Pregunta en sección explícita",
+            slug="q_in_section",
+            field_type=Question.SHORT_TEXT,
+            required=False,
+            position=1,
+            active=True,
+            section=explicit_section,
+        )
+        Question.objects.create(
+            form=form_def,
+            text="Pregunta sin sección",
+            slug="q_unassigned",
+            field_type=Question.SHORT_TEXT,
+            required=False,
+            position=2,
+            active=True,
+            section=None,
+        )
+
+        response = self.client.get(
+            reverse("apply_by_slug", kwargs={"form_slug": form_def.slug}),
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        html = response.content.decode("utf-8")
+        self.assertIn("Descripción visible para sección por defecto.", html)
 
 
 class ConfirmValueNormalizationTests(TestCase):

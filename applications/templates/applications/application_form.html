@@ -21,7 +21,7 @@
     {% endif %}
 
     <h1 class="ce-form-title ce-heading">{{ display_form_name|default:form_def.name }}</h1>
-    {% if form_def.description and not combined_flow %}
+    {% if form_def.description and not combined_flow and not rendered_description and not sections %}
       <p class="ce-form-subtitle">{{ form_def.description|linebreaks }}</p>
     {% endif %}
   </div>

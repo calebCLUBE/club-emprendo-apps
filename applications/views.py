@@ -1,11 +1,8 @@
 # applications/views.py
 import re
 import logging
-import threading
-from datetime import timedelta
 
 from django.conf import settings
-from django.core.cache import cache
 from django.core.mail import EmailMultiAlternatives
 from django.db import transaction
 from django.http import Http404
@@ -29,24 +26,6 @@ from .grader_m import _disqualification_reasons as _m_a2_disqualification_reason
 GROUP_SLUG_RE = re.compile(r"^G(?P<num>\d+)_")
 THANKS_PLACEHOLDER_RE = re.compile(r"{{\s*([a-zA-Z0-9_]+)\s*}}")
 logger = logging.getLogger(__name__)
-
-MONTH_NUM_TO_ES = {
-    1: "enero",
-    2: "febrero",
-    3: "marzo",
-    4: "abril",
-    5: "mayo",
-    6: "junio",
-    7: "julio",
-    8: "agosto",
-    9: "septiembre",
-    10: "octubre",
-    11: "noviembre",
-    12: "diciembre",
-}
-A1_TO_A2_REMINDER_DELAY_HOURS = 24
-A1_TO_A2_REMINDER_CHECK_THROTTLE_SECONDS = 45
-A1_TO_A2_REMINDER_RUN_LOCK_TTL_SECONDS = 60 * 15
 
 
 # -------------------------
@@ -96,126 +75,15 @@ def _is_a1_form_slug(slug: str) -> bool:
     return (slug or "").endswith("E_A1") or (slug or "").endswith("M_A1")
 
 
-def _a2_candidate_slugs_for_a1_slug(a1_slug: str) -> list[str]:
-    slug = a1_slug or ""
-    if slug.endswith("E_A1"):
-        master = "E_A2"
-        grouped = slug.replace("_E_A1", "_E_A2") if slug.startswith("G") and "_E_A1" in slug else None
-    elif slug.endswith("M_A1"):
-        master = "M_A2"
-        grouped = slug.replace("_M_A1", "_M_A2") if slug.startswith("G") and "_M_A1" in slug else None
-    else:
-        return []
-
-    candidates: list[str] = []
-    if grouped:
-        candidates.append(grouped)
-    candidates.append(master)
-    return candidates
-
-
-def _a2_completed_for_a1_app(app: Application) -> bool:
-    email = (app.email or "").strip()
-    if not email:
-        return False
-
-    candidate_slugs = _a2_candidate_slugs_for_a1_slug(app.form.slug or "")
-    if not candidate_slugs:
-        return False
-
-    return Application.objects.filter(
-        form__slug__in=candidate_slugs,
-        email__iexact=email,
-    ).exists()
-
-
-def _second_stage_link_for_a1_app(app: Application) -> str:
-    if not app.invite_token:
-        app.generate_invite_token()
-        app.save(update_fields=["invite_token"])
-
-    if (app.form.slug or "").endswith("E_A1"):
-        path = reverse("apply_emprendedora_second", kwargs={"token": str(app.invite_token)})
-    else:
-        path = reverse("apply_mentora_second", kwargs={"token": str(app.invite_token)})
-
-    base_url = (getattr(settings, "SITE_URL", "") or "").strip().rstrip("/")
-    if not base_url:
-        base_url = "https://apply.clubemprendo.org"
-    return f"{base_url}{path}"
-
-
-def _build_a1_to_a2_reminder_email(app: Application) -> tuple[str, str]:
-    is_emprendedora = (app.form.slug or "").endswith("E_A1")
-    role_word = "emprendedora" if is_emprendedora else "mentora"
-
-    deadline_text = ""
-    group = getattr(app.form, "group", None)
-    deadline = getattr(group, "a2_deadline", None) if group else None
-    if deadline:
-        month = MONTH_NUM_TO_ES.get(deadline.month, "")
-        if month:
-            deadline_text = f"{deadline.day} de {month} de {deadline.year}"
-        else:
-            deadline_text = deadline.strftime("%d/%m/%Y")
-
-    a2_link = _second_stage_link_for_a1_app(app)
-    deadline_sentence = (
-        f"<p>Te recordamos que la fecha límite para completar tu aplicación es el <strong>{deadline_text}</strong>.</p>"
-        if deadline_text
-        else ""
-    )
-
-    default_subject = "Recordatorio: completa tu segunda aplicación"
-    default_html_body = f"""
-    <div style="font-family:Arial,Helvetica,sans-serif;line-height:1.6;max-width:700px;margin:0 auto;">
-      <p>Hola,</p>
-      <p>
-        Queremos recordarte que según tu primera aplicación fuiste invitada a continuar al segundo paso del
-        proceso para participar como <strong>{role_word}</strong> en Club Emprendo.
-      </p>
-      {deadline_sentence}
-      <p>
-        Si aún no has completado la segunda aplicación, puedes hacerlo aquí:
-        👉 <a href="{a2_link}">{a2_link}</a>
-      </p>
-      <p>Con cariño,<br><strong>Equipo Club Emprendo</strong></p>
-    </div>
-    """
-    replacements = build_form_email_context(
-        form_def=app.form,
-        role_word=role_word,
-        a2_link=a2_link,
-        deadline=deadline,
-    )
-    subject = resolve_form_email_template(
-        form_def=app.form,
-        field_name="email_a1_to_a2_reminder_subject",
-        default_text=default_subject,
-        replacements=replacements,
-        is_subject=True,
-    )
-    html_body = resolve_form_email_template(
-        form_def=app.form,
-        field_name="email_a1_to_a2_reminder_body",
-        default_text=default_html_body,
-        replacements=replacements,
-    )
-    return subject, html_body
-
-
 def _schedule_a1_to_a2_reminder(app: Application):
     slug = app.form.slug or ""
     if not _is_a1_form_slug(slug):
         return
 
-    target_due_at = None
-    if app.invited_to_second_stage:
-        target_due_at = app.created_at + timedelta(hours=A1_TO_A2_REMINDER_DELAY_HOURS)
-
     update_fields: list[str] = []
-    if app.second_stage_reminder_due_at != target_due_at:
-        app.second_stage_reminder_due_at = target_due_at
+    # A1 non-rejection emails are disabled, so clear any pending reminder state.
+    if app.second_stage_reminder_due_at is not None:
+        app.second_stage_reminder_due_at = None
         update_fields.append("second_stage_reminder_due_at")
     if app.second_stage_reminder_sent_at is not None:
         app.second_stage_reminder_sent_at = None
@@ -225,88 +93,12 @@ def _schedule_a1_to_a2_reminder(app: Application):
         app.save(update_fields=update_fields)
 
 
-def _mark_a1_reminder_sent(form_slug: str, email: str):
-    now = timezone.now()
-    Application.objects.filter(
-        form__slug=form_slug,
-        email__iexact=email,
-        invited_to_second_stage=True,
-        second_stage_reminder_sent_at__isnull=True,
-    ).update(second_stage_reminder_sent_at=now)
-
-
 def _run_due_a1_to_a2_reminders():
-    now = timezone.now()
-    due_apps = list(
-        Application.objects.select_related("form", "form__group")
-        .filter(
-            invited_to_second_stage=True,
-            second_stage_reminder_due_at__isnull=False,
-            second_stage_reminder_due_at__lte=now,
-            second_stage_reminder_sent_at__isnull=True,
-        )
-        .exclude(email__isnull=True)
-        .exclude(email__exact="")
-        .order_by("second_stage_reminder_due_at", "id")[:300]
-    )
-
-    processed_keys: set[tuple[str, str]] = set()
-    for app in due_apps:
-        email = (app.email or "").strip().lower()
-        if not email:
-            continue
-        key = (app.form.slug or "", email)
-        if key in processed_keys:
-            continue
-        processed_keys.add(key)
-
-        try:
-            fresh = (
-                Application.objects.select_related("form", "form__group")
-                .filter(
-                    id=app.id,
-                    invited_to_second_stage=True,
-                    second_stage_reminder_due_at__isnull=False,
-                    second_stage_reminder_due_at__lte=timezone.now(),
-                    second_stage_reminder_sent_at__isnull=True,
-                )
-                .first()
-            )
-            if not fresh:
-                continue
-
-            if _a2_completed_for_a1_app(fresh):
-                _mark_a1_reminder_sent(fresh.form.slug or "", fresh.email or "")
-                continue
-
-            subject, html_body = _build_a1_to_a2_reminder_email(fresh)
-            _send_html_email((fresh.email or "").strip(), subject, html_body)
-            _mark_a1_reminder_sent(fresh.form.slug or "", fresh.email or "")
-        except Exception:
-            logger.exception(
-                "Automatic A1->A2 reminder failed (app_id=%s, form=%s, email=%s)",
-                app.id,
-                app.form.slug,
-                app.email,
-            )
+    return
 
 
 def _maybe_run_due_a1_to_a2_reminders():
-    gate_key = "public:reminders:a1_to_a2:check"
-    if not cache.add(gate_key, "1", timeout=A1_TO_A2_REMINDER_CHECK_THROTTLE_SECONDS):
-        return
-
-    run_lock_key = "public:reminders:a1_to_a2:runlock"
-    if not cache.add(run_lock_key, "1", timeout=A1_TO_A2_REMINDER_RUN_LOCK_TTL_SECONDS):
-        return
-
-    def _runner():
-        try:
-            _run_due_a1_to_a2_reminders()
-        finally:
-            cache.delete(run_lock_key)
-
-    threading.Thread(target=_runner, daemon=True).start()
+    return
 
 
 def _is_e_a2_na_candidate(answer_map: dict[str, str]) -> bool:
@@ -523,53 +315,6 @@ def _mentor_a1_autograde_and_email(request, app: Application):
         app.generate_invite_token()
         app.invited_to_second_stage = True
         app.save(update_fields=["invite_token", "invited_to_second_stage"])
-
-        form2_url = request.build_absolute_uri(
-            reverse("apply_mentora_second", kwargs={"token": app.invite_token})
-        )
-
-        deadline_str = ""
-        grp = getattr(app.form, "group", None)
-        if grp and getattr(grp, "a2_deadline", None):
-            deadline_str = grp.a2_deadline.strftime("%d/%m/%Y")
-
-        default_subject = "Siguiente paso: Completa la segunda solicitud"
-        default_html_body = (
-            '<div style="font-family:Arial,Helvetica,sans-serif;line-height:1.6;max-width:700px;margin:0 auto;word-break:break-word;white-space:normal;">'
-            "<p><strong>Querida aplicante a Mentora,</strong></p>"
-            "<p>Gracias por completar la primera aplicación para ser mentora en Club Emprendo. 🌱</p>"
-            "<p>Con base en tus respuestas, confirmamos que cumples con los requisitos y la disponibilidad necesaria, por lo que estás habilitada para continuar con el proceso.</p>"
-            "<p>A continuación, te compartimos la <strong>Aplicación #2</strong>, que es el segundo y último paso para postularte como mentora voluntaria.</p>"
-            "<p><strong>📌 Instrucciones para acceder a la Aplicación #2:</strong></p>"
-            "<ol>"
-            f'<li>Haz clic aquí: 👉 <a href="{form2_url}">Aplicación 2</a>'
-            f'{" — Fecha límite: " + deadline_str if deadline_str else ""}</li>'
-            "<li>Lee con atención y responde cada pregunta.</li>"
-            "</ol>"
-            "<p>Gracias nuevamente por tu interés y compromiso con otras mujeres emprendedoras 💛</p>"
-            "<p>Con cariño,<br><strong>El equipo de Club Emprendo</strong></p>"
-            "</div>"
-        )
-        replacements = build_form_email_context(
-            form_def=app.form,
-            role_word="mentora",
-            a2_link=form2_url,
-            deadline=getattr(grp, "a2_deadline", None) if grp else None,
-        )
-        subject = resolve_form_email_template(
-            form_def=app.form,
-            field_name="email_a1_approved_subject",
-            default_text=default_subject,
-            replacements=replacements,
-            is_subject=True,
-        )
-        html_body = resolve_form_email_template(
-            form_def=app.form,
-            field_name="email_a1_approved_body",
-            default_text=default_html_body,
-            replacements=replacements,
-        )
-        _send_html_email(app.email, subject, html_body)
         return
 
     app.invited_to_second_stage = False

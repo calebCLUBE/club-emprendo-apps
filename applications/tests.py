@@ -2,6 +2,7 @@ from datetime import date
 from django.test import TestCase
 from django.urls import reverse
 from django.contrib.auth import get_user_model
+from django.utils import timezone
 import json
 import re
 from unittest.mock import patch
@@ -9,8 +10,10 @@ from unittest.mock import patch
 from applications.admin import QuestionAdminForm
 from applications.email_templates import build_form_email_context, resolve_form_email_template
 from applications.forms import build_application_form
-from applications.views import _thanks_override_payload
+from applications.emprendedora_a1_autograde import autograde_and_email_emprendedora_a1
+from applications.views import _thanks_override_payload, _mentor_a1_autograde_and_email, _schedule_a1_to_a2_reminder
 from applications.models import (
+    Answer,
     Application,
     DropboxSignWebhookEvent,
     FormDefinition,
@@ -442,6 +445,122 @@ class EmailTemplateTests(TestCase):
         self.assertEqual(subject, "Paso 2 - Grupo 8")
         self.assertIn("https://apply.clubemprendo.org/apply/emprendedora/abc/", body)
         self.assertIn("20 de mayo de 2026", body)
+
+
+class A1EmailBehaviorTests(TestCase):
+    def test_emprendedora_a1_approved_does_not_send_email(self):
+        form_def = FormDefinition.objects.create(
+            slug="G8_E_A1",
+            name="Aplicación Emprendedoras A1",
+            is_public=True,
+            accepting_responses=True,
+        )
+        app = Application.objects.create(
+            form=form_def,
+            name="Ana",
+            email="ana@example.com",
+        )
+        q_reqs = Question.objects.create(
+            form=form_def,
+            text="Requisitos",
+            slug="meets_requirements",
+            field_type=Question.CHOICE,
+            required=True,
+            position=1,
+            active=True,
+        )
+        q_avail = Question.objects.create(
+            form=form_def,
+            text="Disponibilidad",
+            slug="available_period",
+            field_type=Question.CHOICE,
+            required=True,
+            position=2,
+            active=True,
+        )
+        q_business = Question.objects.create(
+            form=form_def,
+            text="Emprendimiento activo",
+            slug="business_active",
+            field_type=Question.CHOICE,
+            required=True,
+            position=3,
+            active=True,
+        )
+        Answer.objects.create(application=app, question=q_reqs, value="yes")
+        Answer.objects.create(application=app, question=q_avail, value="yes")
+        Answer.objects.create(application=app, question=q_business, value="yes")
+
+        with patch("applications.emprendedora_a1_autograde._send_html_email") as mocked_send:
+            autograde_and_email_emprendedora_a1(None, app)
+
+        app.refresh_from_db()
+        self.assertTrue(app.invited_to_second_stage)
+        self.assertIsNotNone(app.invite_token)
+        mocked_send.assert_not_called()
+
+    def test_mentora_a1_approved_does_not_send_email(self):
+        form_def = FormDefinition.objects.create(
+            slug="G8_M_A1",
+            name="Aplicación Mentoras A1",
+            is_public=True,
+            accepting_responses=True,
+        )
+        app = Application.objects.create(
+            form=form_def,
+            name="Mara",
+            email="mara@example.com",
+        )
+        q_reqs = Question.objects.create(
+            form=form_def,
+            text="Requisitos",
+            slug="meets_requirements",
+            field_type=Question.CHOICE,
+            required=True,
+            position=1,
+            active=True,
+        )
+        q_avail = Question.objects.create(
+            form=form_def,
+            text="Disponibilidad",
+            slug="available_period",
+            field_type=Question.CHOICE,
+            required=True,
+            position=2,
+            active=True,
+        )
+        Answer.objects.create(application=app, question=q_reqs, value="yes")
+        Answer.objects.create(application=app, question=q_avail, value="yes")
+
+        with patch("applications.views._send_html_email") as mocked_send:
+            _mentor_a1_autograde_and_email(None, app)
+
+        app.refresh_from_db()
+        self.assertTrue(app.invited_to_second_stage)
+        self.assertIsNotNone(app.invite_token)
+        mocked_send.assert_not_called()
+
+    def test_schedule_a1_reminder_clears_existing_values(self):
+        form_def = FormDefinition.objects.create(
+            slug="G8_E_A1",
+            name="Aplicación Emprendedoras A1",
+            is_public=True,
+            accepting_responses=True,
+        )
+        app = Application.objects.create(
+            form=form_def,
+            name="Reminder",
+            email="reminder@example.com",
+            invited_to_second_stage=True,
+            second_stage_reminder_due_at=timezone.now(),
+            second_stage_reminder_sent_at=timezone.now(),
+        )
+
+        _schedule_a1_to_a2_reminder(app)
+        app.refresh_from_db()
+
+        self.assertIsNone(app.second_stage_reminder_due_at)
+        self.assertIsNone(app.second_stage_reminder_sent_at)
 
 
 class ParticipantsPageSafetyTests(TestCase):

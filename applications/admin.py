@@ -411,7 +411,7 @@ class FormDefinitionAdmin(admin.ModelAdmin):
     list_display = ("__str__", "slug", "submission_count", "preview_link", "survey_public_link", "survey_data_link")
     search_fields = ("slug", "name")
     readonly_fields = ("preview_link", "survey_public_link", "survey_data_link")
-    fields = (
+    base_fields = (
         "slug",
         "name",
         "description",
@@ -420,26 +420,45 @@ class FormDefinitionAdmin(admin.ModelAdmin):
         "is_public",
         "accepting_responses",
         "default_section_title",
+    )
+    thanks_fields = (
         "thanks_approved_title",
         "thanks_approved_message",
         "thanks_rejected_title",
         "thanks_rejected_message",
-        "email_a1_approved_subject",
-        "email_a1_approved_body",
+    )
+    a1_email_fields = (
         "email_a1_rejected_subject",
         "email_a1_rejected_body",
-        "email_a1_to_a2_reminder_subject",
-        "email_a1_to_a2_reminder_body",
+    )
+    a2_email_fields = (
         "email_a2_received_subject",
         "email_a2_received_body",
         "email_a2_rejected_subject",
         "email_a2_rejected_body",
         "email_a2_final_reminder_subject",
         "email_a2_final_reminder_body",
+    )
+    link_fields = (
         "preview_link",
         "survey_public_link",
         "survey_data_link",
     )
+
+    def get_fields(self, request, obj=None):
+        fields = list(self.base_fields + self.thanks_fields)
+        slug = ((getattr(obj, "slug", "") or "").strip().upper()) if obj else ""
+
+        if slug.endswith("E_A1") or slug.endswith("M_A1"):
+            fields += list(self.a1_email_fields)
+        elif slug.endswith("E_A2") or slug.endswith("M_A2"):
+            fields += list(self.a2_email_fields)
+        else:
+            fields += list(self.a1_email_fields)
+            fields += list(self.a2_email_fields)
+
+        fields += list(self.link_fields)
+        return fields
 
     def _should_follow_default(self, request):
         return any(

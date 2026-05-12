@@ -5,7 +5,6 @@ import unicodedata
 
 from django.conf import settings
 from django.core.mail import EmailMultiAlternatives
-from django.urls import reverse
 
 from .email_templates import build_form_email_context, resolve_form_email_template
 from .models import Application
@@ -78,7 +77,7 @@ def autograde_and_email_emprendedora_a1(request, app: Application):
       - available_period   (yes/no)
       - business_active    (yes/no)
 
-    If all are yes -> APPROVED (invite token + email with link to A2).
+    If all are yes -> APPROVED (invite token only; no A1 approved email).
     Else -> REJECTED email.
 
     Also sets app.invited_to_second_stage.
@@ -93,53 +92,6 @@ def autograde_and_email_emprendedora_a1(request, app: Application):
         app.generate_invite_token()
         app.invited_to_second_stage = True
         app.save(update_fields=["invite_token", "invited_to_second_stage"])
-
-        form2_url = request.build_absolute_uri(
-            reverse("apply_emprendedora_second", kwargs={"token": app.invite_token})
-        )
-
-        deadline_str = ""
-        grp = getattr(app.form, "group", None)
-        if grp and getattr(grp, "a2_deadline", None):
-            deadline_str = grp.a2_deadline.strftime("%d/%m/%Y")
-
-        default_subject = "Próximo paso para recibir mentorías 💛"
-        default_html_body = (
-            '<div style="font-family:Arial,Helvetica,sans-serif;line-height:1.6;max-width:700px;'
-            'margin:0 auto;word-break:break-word;white-space:normal;">'
-            "<p>Hola,</p>"
-            "<p>Gracias por completar la primera aplicación para participar en nuestro programa de mentoría como emprendedora. "
-            "Nos alegra contarte que, según tus respuestas, cumples con los requisitos y la disponibilidad necesaria, por lo que "
-            "puedes avanzar al siguiente paso. 🌟</p>"
-            "<p>A continuación, te compartimos la <strong>Aplicación #2</strong>, que es el último paso del proceso de postulación.</p>"
-            "<p><strong>📌 Instrucciones para completar la Aplicación #2:</strong></p>"
-            "<ul>"
-            f'<li>👉 <a href="{form2_url}">Haz clic aquí para completar la Aplicación #2</a>'
-            f"{' - Fecha límite: ' + deadline_str if deadline_str else ''}</li>"
-            "</ul>"
-            "<p>Con cariño,<br><strong>El equipo de Club Emprendo</strong></p>"
-            "</div>"
-        )
-        replacements = build_form_email_context(
-            form_def=app.form,
-            role_word="emprendedora",
-            a2_link=form2_url,
-            deadline=getattr(grp, "a2_deadline", None) if grp else None,
-        )
-        subject = resolve_form_email_template(
-            form_def=app.form,
-            field_name="email_a1_approved_subject",
-            default_text=default_subject,
-            replacements=replacements,
-            is_subject=True,
-        )
-        html_body = resolve_form_email_template(
-            form_def=app.form,
-            field_name="email_a1_approved_body",
-            default_text=default_html_body,
-            replacements=replacements,
-        )
-        _send_html_email(app.email, subject, html_body)
         return
 
     # ❌ Not eligible

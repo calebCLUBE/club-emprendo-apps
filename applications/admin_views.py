@@ -111,8 +111,8 @@ RECRUITMENT_POOL_SOURCES = {
         "end_month": "abril",
     },
 }
-DATABASE_ENCUESTAS_LABEL_DEFAULT = "Encuestas - Emprendedoras"
-DATABASE_ENCUESTAS_MENTORAS_LABEL_DEFAULT = "Encuestas - Mentoras"
+DATABASE_ENCUESTAS_LABEL_DEFAULT = "Encuesta inicial - Emprendedoras"
+DATABASE_ENCUESTAS_MENTORAS_LABEL_DEFAULT = "Encuesta inicial - Mentoras"
 DATABASE_ENCUESTAS_MENTORAS_DRIVE_FILE_DEFAULT = (
     "https://docs.google.com/spreadsheets/d/1oPndaqPrrD6vgstAd9KNfVc96fci_8h_x7oRRaUGEls/edit?gid=2016744608#gid=2016744608"
 )
@@ -4612,7 +4612,7 @@ def _load_database_encuestas_grid(kind: str) -> tuple[str, list[str], list[list[
         else:
             hint = "DATABASE_ENCUESTAS_DRIVE_FILE"
         raise RuntimeError(
-            f"Encuestas Drive file is not configured. Set {hint} "
+            f"Encuesta inicial Drive file is not configured. Set {hint} "
             "(file ID or full Google Drive/Sheets URL)."
         )
 
@@ -4620,7 +4620,7 @@ def _load_database_encuestas_grid(kind: str) -> tuple[str, list[str], list[list[
     headers, rows = _csv_text_to_grid(csv_text)
     if not headers:
         raise RuntimeError(
-            "The configured Encuestas file returned no header row. "
+            "The configured Encuesta inicial file returned no header row. "
             "Confirm the file is a non-empty Google Sheet or CSV."
         )
     return label, headers, rows, file_name, file_id
@@ -4631,7 +4631,7 @@ def database_encuestas_sheet(request):
     try:
         label, headers, rows, file_name, file_id = _load_database_encuestas_grid("emprendedoras")
     except Exception as exc:
-        messages.error(request, f"Could not load Encuestas from Drive: {exc}")
+        messages.error(request, f"Could not load Encuesta inicial from Drive: {exc}")
         return redirect("admin_database")
 
     refresh_requested = str(request.GET.get("refresh") or "").strip().lower() in {"1", "true", "yes"}
@@ -4660,7 +4660,7 @@ def database_encuestas_csv(request):
     try:
         label, headers, rows, _file_name, _file_id = _load_database_encuestas_grid("emprendedoras")
     except Exception as exc:
-        messages.error(request, f"Could not load Encuestas from Drive: {exc}")
+        messages.error(request, f"Could not load Encuesta inicial from Drive: {exc}")
         return redirect("admin_database")
 
     safe_label = re.sub(r"[^A-Za-z0-9_-]+", "_", label or DATABASE_ENCUESTAS_LABEL_DEFAULT).strip("_")
@@ -4674,7 +4674,7 @@ def database_encuestas_mentoras_sheet(request):
     try:
         label, headers, rows, file_name, file_id = _load_database_encuestas_grid("mentoras")
     except Exception as exc:
-        messages.error(request, f"Could not load Encuestas from Drive: {exc}")
+        messages.error(request, f"Could not load Encuesta inicial from Drive: {exc}")
         return redirect("admin_database")
 
     refresh_requested = str(request.GET.get("refresh") or "").strip().lower() in {"1", "true", "yes"}
@@ -4703,7 +4703,7 @@ def database_encuestas_mentoras_csv(request):
     try:
         label, headers, rows, _file_name, _file_id = _load_database_encuestas_grid("mentoras")
     except Exception as exc:
-        messages.error(request, f"Could not load Encuestas from Drive: {exc}")
+        messages.error(request, f"Could not load Encuesta inicial from Drive: {exc}")
         return redirect("admin_database")
 
     safe_label = re.sub(

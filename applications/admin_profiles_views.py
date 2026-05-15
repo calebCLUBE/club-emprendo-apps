@@ -114,7 +114,7 @@ MENTORAS_HEADERS = [
     "Acta",
     "Website ",
     "Capacitacion ",
-    "Encuestas",
+    "Encuesta inicial",
     "Plazo extra ",
     "Lanzamiento",
     "W/M",
@@ -134,7 +134,7 @@ EMPRENDEDORAS_HEADERS = [
     "Acta",
     "Website ",
     "Capacitacion ",
-    "Encuestas",
+    "Encuesta inicial",
     "Plazo extra Cap",
     "Lanzamiento",
     "W/E",
@@ -171,7 +171,7 @@ MENTORAS_COLUMN_TYPES = [
     "checkbox",      # Acta
     "checkbox",      # Website
     "checkbox",      # Capacitacion
-    "checkbox",      # Encuestas
+    "checkbox",      # Encuesta inicial
     "checkbox",      # Plazo extra
     "checkbox",      # Lanzamiento
     "checkbox",      # W/M
@@ -190,7 +190,7 @@ EMPRENDEDORAS_COLUMN_TYPES = [
     "checkbox",      # Acta
     "checkbox",      # Website
     "checkbox",      # Capacitacion
-    "checkbox",      # Encuestas
+    "checkbox",      # Encuesta inicial
     "checkbox",      # Plazo extra Cap
     "checkbox",      # Lanzamiento
     "checkbox",      # W/E
@@ -1459,7 +1459,7 @@ def _fetch_encuestas_emails_for_group(
         return (
             False,
             set(),
-            "Encuestas file is not configured for this track.",
+            "Encuesta inicial file is not configured for this track.",
         )
 
     try:
@@ -1469,7 +1469,7 @@ def _fetch_encuestas_emails_for_group(
 
     parsed = list(csv.reader(io.StringIO(csv_text or "")))
     if not parsed:
-        return False, set(), "Encuestas file is empty."
+        return False, set(), "Encuesta inicial file is empty."
 
     headers = [str(v or "") for v in parsed[0]]
     rows = parsed[1:]
@@ -1506,7 +1506,7 @@ def _fetch_encuestas_emails_for_group(
         True,
         matched_emails,
         (
-            f"Encuestas source '{file_name}' scanned. "
+            f"Encuesta inicial source '{file_name}' scanned. "
             f"Group rows: {scoped_rows}; participant emails matched: {len(matched_emails)}."
         ),
     )
@@ -1674,7 +1674,7 @@ def _run_encuestas_check_for_track(
         True,
         (
             f"{fetch_note} "
-            f"Encuestas rows matched: {matched_count}; changed: {changed_count}."
+            f"Encuesta inicial rows matched: {matched_count}; changed: {changed_count}."
         ),
     )
 
@@ -3099,7 +3099,7 @@ def profiles_participants_track_sheet(request, group_num: int, track: str):
             if encuestas_col is None:
                 messages.error(
                     request,
-                    f"Encuestas check is not available for {track_label}.",
+                    f"Encuesta inicial check is not available for {track_label}.",
                 )
                 return redirect(
                     reverse(
@@ -3124,12 +3124,12 @@ def profiles_participants_track_sheet(request, group_num: int, track: str):
             if ok:
                 messages.success(
                     request,
-                    f"Encuestas check completed for Group {group.number} {track_label}. {summary}",
+                    f"Encuesta inicial check completed for Group {group.number} {track_label}. {summary}",
                 )
             else:
                 messages.error(
                     request,
-                    f"Encuestas check failed for Group {group.number} {track_label}: {summary}",
+                    f"Encuesta inicial check failed for Group {group.number} {track_label}: {summary}",
                 )
             return redirect(
                 reverse(

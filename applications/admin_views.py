@@ -29,6 +29,7 @@ from django.db.models import Model, Count, Q
 from django.db.models.functions import Lower
 from django.http import HttpResponse, Http404
 from django.shortcuts import get_object_or_404, redirect, render
+from django.utils.text import slugify
 from django.urls import reverse
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
@@ -2134,6 +2135,55 @@ def _is_generic_group_name(raw_name: str | None, group_number: int) -> bool:
     return norm in {f"group{group_number}", f"g{group_number}"}
 
 
+def _group_form_name_from_custom_name(group: FormGroup, master_slug: str, master_name: str) -> str:
+    """
+    Build group form display names from custom group names when available.
+    Keeps slugs stable (G#_...) and only changes the human-readable name.
+    """
+    fallback = f"Grupo {group.number} — {master_name}"
+    custom_name = str(getattr(group, "custom_name", "") or "").strip()
+    if not custom_name or _is_generic_group_name(custom_name, int(group.number)):
+        return fallback
+
+    token = slugify(custom_name).replace("-", "_")
+    token = re.sub(r"_+", "_", token).strip("_")
+    if not token:
+        return fallback
+
+    suffix_map = {
+        "E_A1": "e_1",
+        "E_A2": "e_2",
+        "M_A1": "m_1",
+        "M_A2": "m_2",
+    }
+    suffix = suffix_map.get((master_slug or "").strip().upper())
+    if not suffix:
+        return fallback
+    return f"{token}_{suffix}"
+
+
+def _sync_group_form_names(group: FormGroup):
+    """
+    Ensure all A1/A2 group forms use the naming convention based on group custom_name.
+    """
+    master_name_map = {
+        fd.slug: fd.name
+        for fd in FormDefinition.objects.filter(slug__in=MASTER_SLUGS).only("slug", "name")
+    }
+    group_forms = FormDefinition.objects.filter(group=group).only("id", "slug", "name")
+    for fd in group_forms:
+        m = GROUP_SLUG_RE.match((fd.slug or "").strip())
+        if not m:
+            continue
+        master_slug = (m.group("master") or "").strip().upper()
+        if master_slug not in MASTER_SLUGS:
+            continue
+        master_name = master_name_map.get(master_slug) or fd.name
+        expected_name = _group_form_name_from_custom_name(group, master_slug, master_name)
+        if (fd.name or "") != expected_name:
+            FormDefinition.objects.filter(id=fd.id).update(name=expected_name)
+
+
 def _ensure_recruitment_pool_group(pool_key: str) -> dict:
     """
     Ensure the configured source pool group exists and has group forms attached.
@@ -2196,8 +2246,8 @@ def _ensure_recruitment_pool_group(pool_key: str) -> dict:
         elif after is not None and before_group_id != group.id:
             forms_relinked += 1
 
-    # Keep A1 form names aligned with the pool label.
-    FormDefinition.objects.filter(slug__in=[f"G{group_num}_E_A1", f"G{group_num}_M_A1"]).update(name=label)
+    # Keep all A1/A2 form names aligned with the group naming convention.
+    _sync_group_form_names(group)
 
     return {
         "pool_key": pool_key,
@@ -2333,7 +2383,7 @@ def _clone_form(master_fd: FormDefinition, group: FormGroup) -> FormDefinition:
         respond_month = MONTH_NUM_TO_ES.get(group.a2_deadline.month, "")
 
     new_slug = f"G{group_num}_{master_fd.slug}"
-    new_name = f"Grupo {group_num} — {master_fd.name}"
+    new_name = _group_form_name_from_custom_name(group, master_fd.slug, master_fd.name)
 
     existing = FormDefinition.objects.filter(slug=new_slug).first()
     if existing:
@@ -2347,6 +2397,9 @@ def _clone_form(master_fd: FormDefinition, group: FormGroup) -> FormDefinition:
         if existing.is_master:
             existing.is_master = False
             update_fields.append("is_master")
+        if (existing.name or "") != new_name:
+            existing.name = new_name
+            update_fields.append("name")
         if update_fields:
             existing.save(update_fields=update_fields)
         return existing
@@ -3398,6 +3451,7 @@ def rename_group(request, group_num: int):
     custom_name = (request.POST.get("custom_name") or "").strip()
     group.custom_name = custom_name
     group.save(update_fields=["custom_name"])
+    _sync_group_form_names(group)
 
     if custom_name:
         messages.success(request, f"Group {group.number} renamed to '{custom_name}'.")
@@ -6035,13 +6089,17 @@ def _build_second_stage_reminder_payload(form_slug: str) -> tuple[dict | None, s
 
     targets: list[str] = []
     seen: set[str] = set()
+    scanned_a1_apps = 0
+    eligible_count = 0
+    ineligible_count = 0
+    already_completed_count = 0
     for app in a1_apps_qs:
+        scanned_a1_apps += 1
         email = (app.email or "").strip().lower()
         if not email or email in seen or email in completed_emails:
+            if email and email in completed_emails:
+                already_completed_count += 1
             continue
-
-        # Keep only the latest A1 submission per email.
-        seen.add(email)
 
         is_eligible = bool(getattr(app, "invited_to_second_stage", False))
         if not is_eligible:
@@ -6055,7 +6113,11 @@ def _build_second_stage_reminder_payload(form_slug: str) -> tuple[dict | None, s
                 is_eligible = _mentor_a1_passes(answers)
 
         if is_eligible:
+            seen.add(email)
+            eligible_count += 1
             targets.append(email)
+        else:
+            ineligible_count += 1
 
     deadline = getattr(group, "a2_deadline", None)
     if not deadline:
@@ -6123,6 +6185,12 @@ def _build_second_stage_reminder_payload(form_slug: str) -> tuple[dict | None, s
         "targets": targets,
         "subject": subject,
         "html_body": html_body,
+        "debug_counts": {
+            "a1_scanned": scanned_a1_apps,
+            "eligible": eligible_count,
+            "ineligible": ineligible_count,
+            "already_completed_a2": already_completed_count,
+        },
     }, None
 
 
@@ -6135,7 +6203,20 @@ def _start_second_stage_reminders(form_slug: str) -> tuple[str, int, str]:
 
     targets = payload["targets"]
     if not targets:
-        return "no_targets", 0, f"No hay personas pendientes para {form_slug}."
+        counts = payload.get("debug_counts") or {}
+        a1_scanned = int(counts.get("a1_scanned") or 0)
+        eligible = int(counts.get("eligible") or 0)
+        ineligible = int(counts.get("ineligible") or 0)
+        completed = int(counts.get("already_completed_a2") or 0)
+        return (
+            "no_targets",
+            0,
+            (
+                f"No hay personas pendientes para {form_slug}. "
+                f"A1 revisadas: {a1_scanned}; elegibles: {eligible}; "
+                f"ya con A2: {completed}; no elegibles: {ineligible}."
+            ),
+        )
 
     lock_key = _reminder_lock_key(form_slug)
     if not cache.add(lock_key, "1", timeout=REMINDER_LOCK_TTL_SECONDS):

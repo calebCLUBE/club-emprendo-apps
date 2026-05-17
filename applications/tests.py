@@ -8,7 +8,7 @@ import re
 from unittest.mock import patch
 
 from applications.admin import QuestionAdminForm
-from applications.admin_views import _build_second_stage_reminder_payload
+from applications.admin_views import _build_second_stage_reminder_payload, _clone_form, _sync_group_form_names
 from applications.email_templates import build_form_email_context, resolve_form_email_template
 from applications.forms import build_application_form
 from applications.emprendedora_a1_autograde import autograde_and_email_emprendedora_a1
@@ -193,6 +193,65 @@ class QuestionAdminFormTests(TestCase):
         obj = form.save(commit=False)
         self.assertEqual(obj.show_if_value, "no")
         self.assertEqual(obj.show_if_conditions[0]["value"], "no")
+
+
+class GroupFormNamingTests(TestCase):
+    def setUp(self):
+        self.master_e_a1 = FormDefinition.objects.create(
+            slug="E_A1",
+            name="Aplicacion Emprendedora 1",
+            is_master=True,
+            is_public=True,
+            accepting_responses=True,
+        )
+        self.master_m_a1 = FormDefinition.objects.create(
+            slug="M_A1",
+            name="Aplicacion Mentora 1",
+            is_master=True,
+            is_public=True,
+            accepting_responses=True,
+        )
+
+    def test_clone_form_uses_custom_group_name_token_for_form_name(self):
+        group = FormGroup.objects.create(
+            number=811,
+            start_day=1,
+            start_month="abril",
+            end_month="abril",
+            year=2026,
+            custom_name="April Group",
+            use_combined_application=True,
+        )
+
+        clone = _clone_form(self.master_m_a1, group)
+
+        self.assertEqual(clone.slug, "G811_M_A1")
+        self.assertEqual(clone.name, "april_group_m_1")
+
+    def test_sync_group_form_names_updates_existing_group_forms_after_rename(self):
+        group = FormGroup.objects.create(
+            number=812,
+            start_day=1,
+            start_month="abril",
+            end_month="abril",
+            year=2026,
+            custom_name="",
+            use_combined_application=True,
+        )
+        clone_e = _clone_form(self.master_e_a1, group)
+        clone_m = _clone_form(self.master_m_a1, group)
+
+        self.assertEqual(clone_e.name, "Grupo 812 — Aplicacion Emprendedora 1")
+        self.assertEqual(clone_m.name, "Grupo 812 — Aplicacion Mentora 1")
+
+        group.custom_name = "April Group"
+        group.save(update_fields=["custom_name"])
+        _sync_group_form_names(group)
+
+        clone_e.refresh_from_db()
+        clone_m.refresh_from_db()
+        self.assertEqual(clone_e.name, "april_group_e_1")
+        self.assertEqual(clone_m.name, "april_group_m_1")
 
 
 class ApplicationFormRenderTests(TestCase):
@@ -643,7 +702,7 @@ class A2ReminderRecipientSelectionTests(TestCase):
         self.assertIsNotNone(payload)
         self.assertEqual(payload["targets"], ["passed@example.com"])
 
-    def test_reminder_uses_latest_a1_submission_per_email(self):
+    def test_reminder_keeps_email_if_any_a1_submission_is_eligible(self):
         self._create_a1_submission(
             email="latest-wins@example.com",
             invited=True,
@@ -663,7 +722,7 @@ class A2ReminderRecipientSelectionTests(TestCase):
 
         self.assertIsNone(error)
         self.assertIsNotNone(payload)
-        self.assertEqual(payload["targets"], [])
+        self.assertEqual(payload["targets"], ["latest-wins@example.com"])
 
 
 class ParticipantsPageSafetyTests(TestCase):

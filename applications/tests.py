@@ -8,6 +8,7 @@ import re
 from unittest.mock import patch
 
 from applications.admin import QuestionAdminForm
+from applications.admin_views import _build_second_stage_reminder_payload
 from applications.email_templates import build_form_email_context, resolve_form_email_template
 from applications.forms import build_application_form
 from applications.emprendedora_a1_autograde import autograde_and_email_emprendedora_a1
@@ -561,6 +562,108 @@ class A1EmailBehaviorTests(TestCase):
 
         self.assertIsNone(app.second_stage_reminder_due_at)
         self.assertIsNone(app.second_stage_reminder_sent_at)
+
+
+class A2ReminderRecipientSelectionTests(TestCase):
+    def setUp(self):
+        self.group = FormGroup.objects.create(
+            number=820,
+            start_day=1,
+            start_month="abril",
+            end_month="abril",
+            year=2026,
+            a2_deadline=date(2026, 5, 25),
+        )
+        self.form_a1_e = FormDefinition.objects.create(
+            slug="G820_E_A1",
+            name="G820 Emprendedoras A1",
+            group=self.group,
+            is_public=True,
+            accepting_responses=True,
+        )
+        self.form_a2_e = FormDefinition.objects.create(
+            slug="G820_E_A2",
+            name="G820 Emprendedoras A2",
+            group=self.group,
+            is_public=False,
+            accepting_responses=True,
+        )
+        self.q_reqs = Question.objects.create(
+            form=self.form_a1_e,
+            text="Requisitos",
+            slug="meets_requirements",
+            field_type=Question.CHOICE,
+            required=True,
+            position=1,
+            active=True,
+        )
+        self.q_avail = Question.objects.create(
+            form=self.form_a1_e,
+            text="Disponibilidad",
+            slug="available_period",
+            field_type=Question.CHOICE,
+            required=True,
+            position=2,
+            active=True,
+        )
+        self.q_business = Question.objects.create(
+            form=self.form_a1_e,
+            text="Emprendimiento activo",
+            slug="business_active",
+            field_type=Question.CHOICE,
+            required=True,
+            position=3,
+            active=True,
+        )
+
+    def _create_a1_submission(self, *, email: str, invited: bool, req: str, avail: str, business: str):
+        app = Application.objects.create(
+            form=self.form_a1_e,
+            name="Applicant",
+            email=email,
+            invited_to_second_stage=invited,
+        )
+        Answer.objects.create(application=app, question=self.q_reqs, value=req)
+        Answer.objects.create(application=app, question=self.q_avail, value=avail)
+        Answer.objects.create(application=app, question=self.q_business, value=business)
+        return app
+
+    def test_reminder_targets_include_passed_a1_even_if_invite_flag_is_false(self):
+        self._create_a1_submission(
+            email="passed@example.com",
+            invited=False,
+            req="yes",
+            avail="yes",
+            business="yes",
+        )
+
+        payload, error = _build_second_stage_reminder_payload("G820_E_A2")
+
+        self.assertIsNone(error)
+        self.assertIsNotNone(payload)
+        self.assertEqual(payload["targets"], ["passed@example.com"])
+
+    def test_reminder_uses_latest_a1_submission_per_email(self):
+        self._create_a1_submission(
+            email="latest-wins@example.com",
+            invited=True,
+            req="yes",
+            avail="yes",
+            business="yes",
+        )
+        self._create_a1_submission(
+            email="latest-wins@example.com",
+            invited=False,
+            req="no",
+            avail="yes",
+            business="yes",
+        )
+
+        payload, error = _build_second_stage_reminder_payload("G820_E_A2")
+
+        self.assertIsNone(error)
+        self.assertIsNotNone(payload)
+        self.assertEqual(payload["targets"], [])
 
 
 class ParticipantsPageSafetyTests(TestCase):

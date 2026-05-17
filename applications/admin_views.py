@@ -44,6 +44,7 @@ from applications.drive_sync import (
     sync_generated_csv_artifact,
     sync_group_track_responses_csv,
 )
+from applications.emprendedora_a1_autograde import emprendedora_a1_passes
 from applications.email_templates import build_form_email_context, resolve_form_email_template
 import math
 from django.db import connection
@@ -5937,6 +5938,31 @@ def _a1_slug_for_a2(form_slug: str) -> str | None:
     return None
 
 
+def _mentor_a1_passes(answers: dict[str, str]) -> bool:
+    answers = {k: (v or "") for k, v in (answers or {}).items()}
+
+    def yesish(v: str) -> bool:
+        t = (v or "").strip().lower()
+        return ("si" in t) or ("sí" in t) or ("yes" in t) or (t == "true") or (t == "1")
+
+    requisitos = (
+        answers.get("meets_requirements")
+        or answers.get("m1_meet_requirements")
+        or answers.get("m1_meets_requirements")
+        or answers.get("m1_requirements_ok")
+        or ""
+    )
+    disponibilidad = (
+        answers.get("available_period")
+        or answers.get("availability_ok")
+        or answers.get("m1_availability_ok")
+        or answers.get("m1_available_period")
+        or answers.get("m1_available")
+        or ""
+    )
+    return yesish(requisitos) and yesish(disponibilidad)
+
+
 @staff_member_required
 @require_POST
 def send_second_stage_reminders(request, form_slug: str):
@@ -5990,10 +6016,10 @@ def _build_second_stage_reminder_payload(form_slug: str) -> tuple[dict | None, s
 
     a1_apps_qs = (
         Application.objects.filter(form__in=a1_forms)
-        .filter(invited_to_second_stage=True)
         .exclude(email__isnull=True)
         .exclude(email__exact="")
-        .only("id", "email", "created_at")
+        .only("id", "email", "created_at", "invited_to_second_stage")
+        .prefetch_related("answers__question")
         .order_by("-created_at", "-id")
     )
 
@@ -6013,8 +6039,23 @@ def _build_second_stage_reminder_payload(form_slug: str) -> tuple[dict | None, s
         email = (app.email or "").strip().lower()
         if not email or email in seen or email in completed_emails:
             continue
+
+        # Keep only the latest A1 submission per email.
         seen.add(email)
-        targets.append(email)
+
+        is_eligible = bool(getattr(app, "invited_to_second_stage", False))
+        if not is_eligible:
+            answers = {
+                a.question.slug: (a.value or "")
+                for a in app.answers.all()
+            }
+            if is_emprendedora:
+                is_eligible = emprendedora_a1_passes(answers)
+            else:
+                is_eligible = _mentor_a1_passes(answers)
+
+        if is_eligible:
+            targets.append(email)
 
     deadline = getattr(group, "a2_deadline", None)
     if not deadline:

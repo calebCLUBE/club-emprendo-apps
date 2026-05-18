@@ -225,7 +225,7 @@ class GroupFormNamingTests(TestCase):
 
         clone = _clone_form(self.master_m_a1, group)
 
-        self.assertEqual(clone.slug, "G811_M_A1")
+        self.assertEqual(clone.slug, "april_group_M_A1")
         self.assertEqual(clone.name, "april_group_m_1")
 
     def test_sync_group_form_names_updates_existing_group_forms_after_rename(self):

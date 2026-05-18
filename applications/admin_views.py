@@ -68,13 +68,13 @@ import logging
 
 logger = logging.getLogger(__name__)
 MASTER_SLUGS = ["E_A1", "E_A2", "M_A1", "M_A2"]
-GROUP_SLUG_RE = re.compile(r"^G(?P<num>\d+)_(?P<master>E_A1|E_A2|M_A1|M_A2)$")
+GROUP_SLUG_RE = re.compile(r"^(?:G(?P<num>\d+)|[A-Za-z0-9_]+)_(?P<master>E_A1|E_A2|M_A1|M_A2)$")
 GRADED_GROUP_RE = re.compile(r"^G(?P<num>\d+)_")
 EMAIL_EXTRACT_RE = re.compile(r"[A-Z0-9._%+\-']+@[A-Z0-9.\-]+\.[A-Z]{2,}", re.IGNORECASE)
 EMAIL_TOKEN_SPLIT_RE = re.compile(r"[\s,;,]+")
 TEST_E_A2_SLUG = "TEST_E_A2"
 TEST_M_A2_SLUG = "TEST_M_A2"
-A2_FORM_RE = re.compile(r"^(G\d+_)?(E_A2|M_A2)$")
+A2_FORM_RE = re.compile(r"^(?:[A-Za-z0-9_]+_)?(?:E_A2|M_A2)$")
 TEST_A2_FORM_RE = re.compile(r"^TEST_(E_A2|M_A2)$")
 REMINDER_LOCK_TTL_SECONDS = 60 * 60
 AUTO_REMINDER_CHECK_THROTTLE_SECONDS = 45
@@ -405,12 +405,25 @@ def _group_number_from_form(form_slug: str, form_def: FormDefinition | None = No
         except Exception:
             return None
     match = re.match(r"^G(?P<num>\d+)_", (form_slug or "").strip(), flags=re.IGNORECASE)
-    if not match:
-        return None
-    try:
-        return int(match.group("num"))
-    except (TypeError, ValueError):
-        return None
+    if match:
+        try:
+            return int(match.group("num"))
+        except (TypeError, ValueError):
+            return None
+
+    # Custom group-name slug fallback.
+    linked = (
+        FormDefinition.objects.select_related("group")
+        .only("id", "group__number")
+        .filter(slug=(form_slug or "").strip())
+        .first()
+    )
+    if linked and getattr(linked, "group_id", None):
+        try:
+            return int(linked.group.number)
+        except Exception:
+            return None
+    return None
 
 
 def _mentor_dual_applicant_identifiers(
@@ -420,11 +433,16 @@ def _mentor_dual_applicant_identifiers(
     if not (mentor_form_slug or "").strip().upper().endswith("M_A2"):
         return set(), set()
 
-    group_num = _group_number_from_form(mentor_form_slug, mentor_form)
-    if not group_num:
-        return set(), set()
+    group_obj = getattr(mentor_form, "group", None)
+    if not group_obj:
+        group_num = _group_number_from_form(mentor_form_slug, mentor_form)
+        if not group_num:
+            return set(), set()
+        group_obj = FormGroup.objects.filter(number=group_num).first()
+        if not group_obj:
+            return set(), set()
 
-    empr_form = FormDefinition.objects.filter(slug=f"G{group_num}_E_A2").first()
+    empr_form = _group_form_for_master(group_obj, "E_A2")
     if not empr_form:
         return set(), set()
 
@@ -1331,11 +1349,12 @@ def _pair_one_group(
       - PAIR_HEADERS
     """
 
-    emp_slug = f"G{group_num}_E_A2"
-    mentor_slug = f"G{group_num}_M_A2"
-
-    emp_fd = get_object_or_404(FormDefinition, slug=emp_slug)
-    mentor_fd = get_object_or_404(FormDefinition, slug=mentor_slug)
+    emp_fd = _group_form_for_number_master(group_num, "E_A2")
+    mentor_fd = _group_form_for_number_master(group_num, "M_A2")
+    if not emp_fd or not mentor_fd:
+        raise Http404(f"Could not resolve A2 forms for group {group_num}.")
+    emp_slug = emp_fd.slug
+    mentor_slug = mentor_fd.slug
 
     if log_fn:
         log_fn(f"📥 Loading DB master data for {emp_slug} and {mentor_slug}")
@@ -2037,7 +2056,7 @@ def _build_assignment_source_choices(
     ).select_related("group")
     for fd in source_forms:
         slug = str(getattr(fd, "slug", "") or "").strip()
-        if not GROUP_SLUG_RE.match(slug):
+        if not _master_slug_from_group_form_slug(slug):
             continue
         group_obj = getattr(fd, "group", None)
         group_num = getattr(group_obj, "number", None) or _group_number_from_slug(slug) or 0
@@ -2136,10 +2155,27 @@ def _is_generic_group_name(raw_name: str | None, group_number: int) -> bool:
     return norm in {f"group{group_number}", f"g{group_number}"}
 
 
+def _group_form_slug_from_custom_name(group: FormGroup, master_slug: str) -> str:
+    """
+    Build group form slugs from custom group names when available.
+    Falls back to legacy G#_MASTER slug when custom_name is generic/empty.
+    """
+    legacy_slug = f"G{group.number}_{(master_slug or '').strip().upper()}"
+    custom_name = str(getattr(group, "custom_name", "") or "").strip()
+    if not custom_name or _is_generic_group_name(custom_name, int(group.number)):
+        return legacy_slug
+
+    token = slugify(custom_name).replace("-", "_")
+    token = re.sub(r"_+", "_", token).strip("_")
+    if not token:
+        return legacy_slug
+    return f"{token}_{(master_slug or '').strip().upper()}"
+
+
 def _group_form_name_from_custom_name(group: FormGroup, master_slug: str, master_name: str) -> str:
     """
     Build group form display names from custom group names when available.
-    Keeps slugs stable (G#_...) and only changes the human-readable name.
+    Names stay human-readable while slugs are resolved separately.
     """
     fallback = f"Grupo {group.number} — {master_name}"
     custom_name = str(getattr(group, "custom_name", "") or "").strip()
@@ -2163,6 +2199,69 @@ def _group_form_name_from_custom_name(group: FormGroup, master_slug: str, master
     return f"{token}_{suffix}"
 
 
+def _master_slug_from_group_form_slug(raw_slug: str) -> str | None:
+    slug = (raw_slug or "").strip()
+    if not slug:
+        return None
+    m = GROUP_SLUG_RE.match(slug)
+    if not m:
+        return None
+    master = (m.group("master") or "").strip().upper()
+    return master if master in MASTER_SLUGS else None
+
+
+def _group_form_for_master(group: FormGroup | None, master_slug: str) -> FormDefinition | None:
+    if not group:
+        return None
+    normalized_master = (master_slug or "").strip().upper()
+    if normalized_master not in MASTER_SLUGS:
+        return None
+
+    expected_slug = _group_form_slug_from_custom_name(group, normalized_master)
+    exact = (
+        FormDefinition.objects.filter(group=group, is_master=False, slug=expected_slug)
+        .order_by("id")
+        .first()
+    )
+    if exact:
+        return exact
+
+    legacy_slug = f"G{group.number}_{normalized_master}"
+    if legacy_slug != expected_slug:
+        legacy = (
+            FormDefinition.objects.filter(group=group, is_master=False, slug=legacy_slug)
+            .order_by("id")
+            .first()
+        )
+        if legacy:
+            return legacy
+
+    return (
+        FormDefinition.objects.filter(group=group, is_master=False, slug__endswith=normalized_master)
+        .order_by("id")
+        .first()
+    )
+
+
+def _group_form_for_number_master(group_num: int, master_slug: str) -> FormDefinition | None:
+    group = FormGroup.objects.filter(number=group_num).first()
+    if group:
+        return _group_form_for_master(group, master_slug)
+
+    normalized_master = (master_slug or "").strip().upper()
+    if normalized_master not in MASTER_SLUGS:
+        return None
+    return (
+        FormDefinition.objects.filter(
+            is_master=False,
+            group__number=group_num,
+            slug__endswith=normalized_master,
+        )
+        .order_by("id")
+        .first()
+    )
+
+
 def _sync_group_form_names(group: FormGroup):
     """
     Ensure all A1/A2 group forms use the naming convention based on group custom_name.
@@ -2173,10 +2272,7 @@ def _sync_group_form_names(group: FormGroup):
     }
     group_forms = FormDefinition.objects.filter(group=group).only("id", "slug", "name")
     for fd in group_forms:
-        m = GROUP_SLUG_RE.match((fd.slug or "").strip())
-        if not m:
-            continue
-        master_slug = (m.group("master") or "").strip().upper()
+        master_slug = _master_slug_from_group_form_slug(fd.slug or "")
         if master_slug not in MASTER_SLUGS:
             continue
         master_name = master_name_map.get(master_slug) or fd.name
@@ -2237,11 +2333,10 @@ def _ensure_recruitment_pool_group(pool_key: str) -> dict:
         master = FormDefinition.objects.filter(slug=master_slug).first()
         if not master:
             continue
-        target_slug = f"G{group_num}_{master_slug}"
-        before = FormDefinition.objects.filter(slug=target_slug).first()
+        before = _group_form_for_master(group, master_slug)
         before_group_id = getattr(before, "group_id", None) if before else None
         _clone_form(master, group)
-        after = FormDefinition.objects.filter(slug=target_slug).first()
+        after = _group_form_for_master(group, master_slug)
         if before is None and after is not None:
             forms_created += 1
         elif after is not None and before_group_id != group.id:
@@ -2383,10 +2478,45 @@ def _clone_form(master_fd: FormDefinition, group: FormGroup) -> FormDefinition:
         respond_day = str(group.a2_deadline.day)
         respond_month = MONTH_NUM_TO_ES.get(group.a2_deadline.month, "")
 
-    new_slug = f"G{group_num}_{master_fd.slug}"
+    preferred_slug = _group_form_slug_from_custom_name(group, master_fd.slug)
+    legacy_slug = f"G{group_num}_{master_fd.slug}"
+    new_slug = preferred_slug
     new_name = _group_form_name_from_custom_name(group, master_fd.slug, master_fd.name)
 
     existing = FormDefinition.objects.filter(slug=new_slug).first()
+    if not existing and preferred_slug != legacy_slug:
+        # Backward compatibility: keep using the legacy slug if this group already
+        # has one from previous runs.
+        existing = FormDefinition.objects.filter(slug=legacy_slug).first()
+        if existing:
+            new_slug = legacy_slug
+    elif existing and existing.group_id not in {None, group.id}:
+        # Avoid hijacking another group's form when custom names collide.
+        base_slug = preferred_slug
+        master_suffix = str(master_fd.slug or "").strip().upper()
+        base_prefix = base_slug
+        if master_suffix and base_slug.endswith(master_suffix):
+            base_prefix = (base_slug[: -len(master_suffix)]).rstrip("_")
+        if base_prefix:
+            candidate_slug = f"{base_prefix}_g{group_num}_{master_suffix}"
+        else:
+            candidate_slug = f"g{group_num}_{master_suffix}"
+        attempt = 2
+        while True:
+            conflict = (
+                FormDefinition.objects.filter(slug=candidate_slug)
+                .exclude(group=group)
+                .exists()
+            )
+            if not conflict:
+                break
+            if base_prefix:
+                candidate_slug = f"{base_prefix}_g{group_num}_{attempt}_{master_suffix}"
+            else:
+                candidate_slug = f"g{group_num}_{attempt}_{master_suffix}"
+            attempt += 1
+        new_slug = candidate_slug
+        existing = FormDefinition.objects.filter(slug=new_slug).first()
     if existing:
         # If a group was deleted, group-specific forms may survive with group=None
         # (FormDefinition.group uses SET_NULL). Reattach by slug so assignment
@@ -2574,12 +2704,26 @@ def _build_csv_for_form(form_def: FormDefinition) -> Tuple[List[str], List[List[
 
 def _group_number_from_slug(slug: str) -> int | None:
     m = GROUP_SLUG_RE.match((slug or "").strip())
-    if not m:
-        return None
-    try:
-        return int(m.group("num"))
-    except Exception:
-        return None
+    if m:
+        raw_num = (m.groupdict() or {}).get("num")
+        if raw_num:
+            try:
+                return int(raw_num)
+            except Exception:
+                return None
+
+    linked = (
+        FormDefinition.objects.select_related("group")
+        .only("id", "group__number")
+        .filter(slug=(slug or "").strip())
+        .first()
+    )
+    if linked and getattr(linked, "group_id", None):
+        try:
+            return int(linked.group.number)
+        except Exception:
+            return None
+    return None
 
 
 def _group_label_for_number(
@@ -2649,17 +2793,16 @@ def _group_forms_for_app_type(
 
     candidates = list(
         FormDefinition.objects.filter(
-            slug__startswith="G",
-            slug__endswith=f"_{app_type}",
+            is_master=False,
+            group__isnull=False,
+            slug__endswith=app_type,
         ).select_related("group")
     )
 
     forms: list[FormDefinition] = []
     for fd in candidates:
-        m = GROUP_SLUG_RE.match((fd.slug or "").strip())
-        if not m:
-            continue
-        if m.group("master") != app_type:
+        master_slug = _master_slug_from_group_form_slug(fd.slug or "")
+        if master_slug != app_type:
             continue
         if include_combined_groups is not None:
             use_combined = bool(getattr(getattr(fd, "group", None), "use_combined_application", False))
@@ -3059,12 +3202,17 @@ def _csv_preview_html(headers: List[str], rows: List[List[str]], max_rows: int |
         info_text = f"Showing all {len(preview)} rows."
     else:
         info_text = f"Showing {len(preview)} of {len(rows)} rows."
+    empty_row_html = (
+        f"<tr><td colspan=\"{max(1, len(headers))}\" style=\"padding:8px;\">"
+        "No submissions yet.</td></tr>"
+    )
+    tbody_html = "".join(body) if body else empty_row_html
 
     return (
         f"<div id='{table_id}' style='overflow:auto;border:1px solid #ddd;border-radius:8px;'>"
         "<table style='border-collapse:collapse;width:100%;font-size:13px;table-layout:auto;'>"
         f"<thead><tr>{ths}</tr><tr>{filter_ths}</tr></thead>"
-        f"<tbody>{''.join(body) if body else f'<tr><td colspan=\"{max(1, len(headers))}\" style=\"padding:8px;\">No submissions yet.</td></tr>'}</tbody>"
+        f"<tbody>{tbody_html}</tbody>"
         "</table>"
         "</div>"
         f"<p data-csv-count style='margin-top:8px;color:#666;font-size:12px;'>{info_text}</p>"
@@ -3713,15 +3861,31 @@ def database_home(request):
         key=lambda item: (item.created_at, item.id),
         reverse=True,
     )[:200]
+    graded_slugs = {
+        (gf.form_slug or "").strip()
+        for gf in graded_files
+        if str(getattr(gf, "form_slug", "") or "").strip()
+    }
+    graded_slug_group_map = {
+        row["slug"]: row["group__number"]
+        for row in FormDefinition.objects.filter(slug__in=graded_slugs).values("slug", "group__number")
+    }
     graded_files_by_group_map = {}
     graded_files_other = []
     for gf in graded_files:
-        m = GRADED_GROUP_RE.match((gf.form_slug or "").strip())
-        if not m:
+        graded_slug = (gf.form_slug or "").strip()
+        group_num = graded_slug_group_map.get(graded_slug)
+        if group_num is None:
+            m = GRADED_GROUP_RE.match(graded_slug)
+            if m:
+                try:
+                    group_num = int(m.group("num"))
+                except (TypeError, ValueError):
+                    group_num = None
+        if group_num is None:
             graded_files_other.append(gf)
             continue
-        group_num = int(m.group("num"))
-        graded_files_by_group_map.setdefault(group_num, []).append(gf)
+        graded_files_by_group_map.setdefault(int(group_num), []).append(gf)
 
     graded_files_by_group = [
         {
@@ -3815,7 +3979,16 @@ def _sync_drive_for_group_number(group_num: int) -> list[tuple[str, str, str]]:
             logger.exception("Drive manual sync failed for %s", label)
             out.append(("error", label, str(exc)))
 
-    for slug in (f"G{group_num}_E_A2", f"G{group_num}_M_A2", f"PAIR_G{group_num}"):
+    artifact_slugs: list[str] = []
+    for master_slug in ("E_A2", "M_A2"):
+        fd = _group_form_for_number_master(group_num, master_slug)
+        if fd:
+            artifact_slugs.append(fd.slug)
+        else:
+            artifact_slugs.append(f"G{group_num}_{master_slug}")
+    artifact_slugs.append(f"PAIR_G{group_num}")
+
+    for slug in artifact_slugs:
         gf = GradedFile.objects.filter(form_slug=slug).order_by("-created_at").first()
         if not gf:
             out.append(("skipped", slug, "No CSV found in database yet."))
@@ -3834,10 +4007,7 @@ def _group_forms_by_master_slug(group: FormGroup) -> dict[str, FormDefinition]:
     out: dict[str, FormDefinition] = {}
     forms_for_group = FormDefinition.objects.filter(group=group, is_master=False).order_by("slug", "id")
     for fd in forms_for_group:
-        m = GROUP_SLUG_RE.match((fd.slug or "").strip())
-        if not m:
-            continue
-        master_slug = (m.group("master") or "").strip().upper()
+        master_slug = _master_slug_from_group_form_slug(fd.slug or "")
         if master_slug and master_slug not in out:
             out[master_slug] = fd
     return out
@@ -4197,8 +4367,11 @@ def database_create_assigned_group(request):
             # Extra recovery: if group-specific slugs exist but are detached from
             # this group (e.g. prior group deletion), relink them explicitly.
             for master_slug in required_master_slugs:
-                target_slug = f"G{target_group_num}_{master_slug}"
-                existing_target = FormDefinition.objects.filter(slug=target_slug).first()
+                expected_slug = _group_form_slug_from_custom_name(target_group, master_slug)
+                existing_target = FormDefinition.objects.filter(slug=expected_slug).first()
+                if not existing_target:
+                    legacy_slug = f"G{target_group_num}_{master_slug}"
+                    existing_target = FormDefinition.objects.filter(slug=legacy_slug).first()
                 if not existing_target:
                     continue
                 target_updates: list[str] = []
@@ -4219,9 +4392,12 @@ def database_create_assigned_group(request):
             ]
             selected_target_form_ids = [fd.id for fd in selected_target_forms]
             if not selected_target_form_ids:
-                expected_slugs = [f"G{target_group_num}_{m}" for m in required_master_slugs]
+                expected_slugs = [
+                    _group_form_slug_from_custom_name(target_group, m)
+                    for m in required_master_slugs
+                ]
                 found_slugs = list(
-                    FormDefinition.objects.filter(slug__in=expected_slugs)
+                    FormDefinition.objects.filter(group=target_group)
                     .order_by("slug")
                     .values_list("slug", flat=True)
                 )
@@ -5405,7 +5581,7 @@ def delete_application_files(request, app_id: int):
 # Grading (Admin) — BATCH PER FORM + CSV UPLOAD + MASTER CSV
 # ============================================================
 
-A2_FORM_RE = re.compile(r"^(G\d+_)?(E_A2|M_A2)$")
+A2_FORM_RE = re.compile(r"^(?:[A-Za-z0-9_]+_)?(?:E_A2|M_A2)$")
 
 
 def _redirect_back_to_grading(request):
@@ -5419,9 +5595,9 @@ def _redirect_back_to_grading(request):
 def grading_home(request):
     group = (request.GET.get("group") or "").strip()
 
-    fds = FormDefinition.objects.filter(slug__regex=r"^(G\d+_)?(E_A2|M_A2)$").order_by("slug")
+    fds = FormDefinition.objects.filter(slug__regex=r"^(?:[A-Za-z0-9_]+_)?(?:E_A2|M_A2)$").order_by("slug")
     if group:
-        fds = fds.filter(slug__startswith=f"G{group}_")
+        fds = fds.filter(group__number=group)
 
     form_slugs = [fd.slug for fd in fds]
     latest_graded_by_slug: dict[str, GradedFile] = {}
@@ -5981,14 +6157,10 @@ def _a1_slug_for_a2(form_slug: str) -> str | None:
         return None
 
     if form_slug.endswith("M_A2"):
-        if form_slug.startswith("G") and "_M_A2" in form_slug:
-            return form_slug.replace("_M_A2", "_M_A1")
-        return "M_A1"
+        return f"{form_slug[:-1]}1"
 
     if form_slug.endswith("E_A2"):
-        if form_slug.startswith("G") and "_E_A2" in form_slug:
-            return form_slug.replace("_E_A2", "_E_A1")
-        return "E_A1"
+        return f"{form_slug[:-1]}1"
 
     return None
 

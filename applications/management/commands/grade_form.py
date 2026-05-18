@@ -7,14 +7,14 @@ from applications.grading import grade_from_answers
 from applications.models import Application, FormDefinition
 
 
-A2_RE = re.compile(r"^(G\d+_)?(E_A2|M_A2)$")
+A2_RE = re.compile(r"^(?:[A-Za-z0-9_]+_)?(?:E_A2|M_A2)$")
 
 
 class Command(BaseCommand):
     help = "Grade all submissions for a given form slug (typically A2)."
 
     def add_arguments(self, parser):
-        parser.add_argument("--form-slug", required=True, help="e.g. G6_E_A2 or G6_M_A2")
+        parser.add_argument("--form-slug", required=True, help="e.g. april_group_E_A2 or G6_E_A2")
         parser.add_argument(
             "--only-pending",
             action="store_true",

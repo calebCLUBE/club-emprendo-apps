@@ -36,13 +36,12 @@ def _latest_group_form_slug(
     combined_only: bool | None = None,
     public_only: bool = False,
 ) -> str | None:
-    pattern = re.compile(rf"^G(?P<num>\d+)_{re.escape(suffix)}$")
     best = None
     best_num = -1
 
-    for fd in FormDefinition.objects.filter(slug__endswith=suffix).select_related("group"):
-        m = pattern.match(fd.slug or "")
-        if not m:
+    for fd in FormDefinition.objects.filter(is_master=False, slug__endswith=suffix).select_related("group"):
+        group_num = _group_num_from_form_def(fd)
+        if not group_num:
             continue
         if public_only and not bool(getattr(fd, "is_public", False)):
             continue
@@ -52,8 +51,8 @@ def _latest_group_form_slug(
                 continue
             if not combined_only and use_combined:
                 continue
-        n = int(m.group("num"))
-        if n > best_num: 
+        n = int(group_num)
+        if n > best_num:
             best_num = n
             best = fd.slug
 
@@ -73,6 +72,34 @@ def _send_html_email(to_email: str, subject: str, html_body: str):
 
 def _is_a1_form_slug(slug: str) -> bool:
     return (slug or "").endswith("E_A1") or (slug or "").endswith("M_A1")
+
+
+def _group_num_from_form_def(form_def: FormDefinition | None) -> str:
+    if not form_def:
+        return ""
+    group = getattr(form_def, "group", None)
+    if group and getattr(group, "number", None):
+        return str(group.number)
+    return _group_num_from_slug(getattr(form_def, "slug", "") or "")
+
+
+def _group_form_slug_for_master(group, master_slug: str) -> str | None:
+    if not group:
+        return None
+
+    target_master = (master_slug or "").strip().upper()
+    if target_master not in {"E_A1", "E_A2", "M_A1", "M_A2"}:
+        return None
+
+    exact = (
+        FormDefinition.objects.filter(group=group, is_master=False, slug__endswith=target_master)
+        .order_by("id")
+        .values_list("slug", flat=True)
+        .first()
+    )
+    if exact:
+        return str(exact)
+    return None
 
 
 def _schedule_a1_to_a2_reminder(app: Application):
@@ -672,15 +699,6 @@ def _a1_track_from_slug(slug: str) -> str:
     return ""
 
 
-def _combined_display_name_from_slug(slug: str) -> str | None:
-    s = slug or ""
-    if s.endswith("E_A1") or s.endswith("E_A2"):
-        return "Formulario de Emprendedoras"
-    if s.endswith("M_A1") or s.endswith("M_A2"):
-        return "Formulario de Mentoras"
-    return None
-
-
 def _track_from_slug(slug: str) -> str:
     s = (slug or "").strip()
     if s.endswith("E_A1") or s.endswith("E_A2"):
@@ -793,15 +811,19 @@ def _resolve_a2_slug_from_first_app(first_app: Application, role: str) -> str:
     """
     if role == "E":
         form_slug = "E_A2"
-        candidate_suffix = "_E_A2"
+        target_master = "E_A2"
     else:
         form_slug = "M_A2"
-        candidate_suffix = "_M_A2"
+        target_master = "M_A2"
+
+    grouped_slug = _group_form_slug_for_master(getattr(first_app.form, "group", None), target_master)
+    if grouped_slug:
+        return grouped_slug
 
     m = GROUP_SLUG_RE.match(first_app.form.slug or "")
     if m:
         gnum = m.group("num")
-        candidate = f"G{gnum}{candidate_suffix}"
+        candidate = f"G{gnum}_{target_master}"
         if FormDefinition.objects.filter(slug=candidate).exists():
             form_slug = candidate
     return form_slug
@@ -1040,7 +1062,7 @@ def _handle_application_form(
                 answer_map[q.slug] = stored_value
 
         try:
-            gnum_raw = _group_num_from_slug(form_def.slug or "")
+            gnum_raw = _group_num_from_form_def(form_def)
             if gnum_raw:
                 track = "M" if (form_def.slug or "").endswith("M_A1") or (form_def.slug or "").endswith("M_A2") else "E"
                 schedule_group_track_responses_sync(int(gnum_raw), track)
@@ -1077,7 +1099,7 @@ def _handle_application_form(
             thanks_payload = {
                 "kind": "a1",
                 "approved": False,
-                "group_num": _group_num_from_slug(form_def.slug or ""),
+                "group_num": _group_num_from_form_def(form_def),
                 "track": _a1_track_from_slug(form_def.slug or ""),
             }
             thanks_payload.update(
@@ -1106,8 +1128,7 @@ def _handle_application_form(
             app.refresh_from_db()
             _schedule_a1_to_a2_reminder(app)
 
-        # group number (from slug like G5_M_A1)
-        group_num = _group_num_from_slug(form_def.slug or "")
+        group_num = _group_num_from_form_def(form_def)
 
         # Track for rejection message
         track = _a1_track_from_slug(form_def.slug or "")
@@ -1157,7 +1178,7 @@ def _handle_application_form(
             "form_def": form_def,
             "second_stage": second_stage,
             "combined_flow": combined_flow,
-            "display_form_name": _combined_display_name_from_slug(form_def.slug) if combined_flow else None,
+            "display_form_name": None,
             "rendered_description": rendered_description,
             "sections": sections,
             "m2_gate_field": m2_gate_field,
@@ -1265,14 +1286,7 @@ def apply_mentora_combined(request):
 
 def apply_emprendedora_second(request, token):
     first_app = get_object_or_404(Application, invite_token=token)
-
-    form_slug = "E_A2"
-    m = GROUP_SLUG_RE.match(first_app.form.slug or "")
-    if m:
-        gnum = m.group("num")
-        candidate = f"G{gnum}_E_A2"
-        if FormDefinition.objects.filter(slug=candidate).exists():
-            form_slug = candidate
+    form_slug = _resolve_a2_slug_from_first_app(first_app, role="E")
 
     combined_flow = (request.GET.get("combined") or "").strip().lower() in {"1", "true", "yes"}
     return _handle_application_form(
@@ -1286,14 +1300,7 @@ def apply_emprendedora_second(request, token):
 
 def apply_mentora_second(request, token):
     first_app = get_object_or_404(Application, invite_token=token)
-
-    form_slug = "M_A2"
-    m = GROUP_SLUG_RE.match(first_app.form.slug or "")
-    if m:
-        gnum = m.group("num")
-        candidate = f"G{gnum}_M_A2"
-        if FormDefinition.objects.filter(slug=candidate).exists():
-            form_slug = candidate
+    form_slug = _resolve_a2_slug_from_first_app(first_app, role="M")
 
     combined_flow = (request.GET.get("combined") or "").strip().lower() in {"1", "true", "yes"}
     return _handle_application_form(

@@ -6068,6 +6068,7 @@ def _build_second_stage_reminder_payload(form_slug: str) -> tuple[dict | None, s
             f"No se pudo enviar reminders para {form_slug}: "
             "el formulario A2 no está vinculado a un grupo."
         )
+    use_combined_flow = bool(getattr(group, "use_combined_application", False))
 
     a1_suffix = "_E_A1" if is_emprendedora else "_M_A1"
     a1_forms = list(
@@ -6086,29 +6087,30 @@ def _build_second_stage_reminder_payload(form_slug: str) -> tuple[dict | None, s
         .order_by("-created_at", "-id")
     )
 
-    # Treat A2 as completed primarily when the A2 submit flow marked the row.
-    # Legacy fallback: scored/graded A2 rows.
-    completed_a2_qs = (
-        Application.objects.filter(form=a2_form)
-        .filter(
-            Q(second_stage_reminder_sent_at__isnull=False)
-            | (Q(recommendation__isnull=False) & ~Q(recommendation__exact=""))
-            | Q(overall_score__gt=0)
-            | Q(tablestakes_score__gt=0)
-            | Q(commitment_score__gt=0)
-            | Q(nice_to_have_score__gt=0)
-        )
-        .only("id", "email", "name")
-    )
     completed_emails: set[str] = set()
     completed_names: set[str] = set()
-    for a2_app in completed_a2_qs:
-        email_norm = (a2_app.email or "").strip().lower()
-        name_norm = _normalize_person_name(getattr(a2_app, "name", ""))
-        if email_norm:
-            completed_emails.add(email_norm)
-        if name_norm:
-            completed_names.add(name_norm)
+    if not use_combined_flow:
+        # Non-combined cohorts may keep A1 and A2 as separate rows, so we must
+        # detect completed A2 identities to avoid reminding those users again.
+        completed_a2_qs = (
+            Application.objects.filter(form=a2_form)
+            .filter(
+                Q(second_stage_reminder_sent_at__isnull=False)
+                | (Q(recommendation__isnull=False) & ~Q(recommendation__exact=""))
+                | Q(overall_score__gt=0)
+                | Q(tablestakes_score__gt=0)
+                | Q(commitment_score__gt=0)
+                | Q(nice_to_have_score__gt=0)
+            )
+            .only("id", "email", "name")
+        )
+        for a2_app in completed_a2_qs:
+            email_norm = (a2_app.email or "").strip().lower()
+            name_norm = _normalize_person_name(getattr(a2_app, "name", ""))
+            if email_norm:
+                completed_emails.add(email_norm)
+            if name_norm:
+                completed_names.add(name_norm)
 
     targets: list[str] = []
     sent_emails: set[str] = set()

@@ -850,6 +850,33 @@ class A2ReminderRecipientSelectionTests(TestCase):
         self.assertIsNotNone(payload)
         self.assertEqual(payload["targets"], [])
 
+    def test_combined_group_ignores_a2_identity_matching_and_uses_a1_pending(self):
+        self.group.use_combined_application = True
+        self.group.save(update_fields=["use_combined_application"])
+
+        a1_app = self._create_a1_submission(
+            email="combined@example.com",
+            invited=True,
+            req="yes",
+            avail="yes",
+            business="yes",
+        )
+        a1_app.name = "Combined Person"
+        a1_app.save(update_fields=["name"])
+
+        Application.objects.create(
+            form=self.form_a2_e,
+            name="Combined Person",
+            email="combined@example.com",
+            second_stage_reminder_sent_at=timezone.now(),
+        )
+
+        payload, error = _build_second_stage_reminder_payload("G820_E_A2")
+
+        self.assertIsNone(error)
+        self.assertIsNotNone(payload)
+        self.assertEqual(payload["targets"], ["combined@example.com"])
+
 
 class ParticipantsPageSafetyTests(TestCase):
     def setUp(self):

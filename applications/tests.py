@@ -754,16 +754,18 @@ class A2ReminderRecipientSelectionTests(TestCase):
         self.assertEqual(payload["targets"], ["needs-reminder@example.com"])
 
     def test_a2_row_marked_as_submitted_counts_as_completed(self):
-        self._create_a1_submission(
+        a1_app = self._create_a1_submission(
             email="done@example.com",
             invited=True,
             req="yes",
             avail="yes",
             business="yes",
         )
+        a1_app.name = "Done Person"
+        a1_app.save(update_fields=["name"])
         a2_app = Application.objects.create(
             form=self.form_a2_e,
-            name="Done",
+            name="Done Person",
             email="done@example.com",
             second_stage_reminder_sent_at=timezone.now(),
         )
@@ -775,17 +777,67 @@ class A2ReminderRecipientSelectionTests(TestCase):
         self.assertIsNotNone(payload)
         self.assertEqual(payload["targets"], [])
 
+    def test_completed_a2_match_uses_name_when_available(self):
+        a1_app = self._create_a1_submission(
+            email="candidate@example.com",
+            invited=True,
+            req="yes",
+            avail="yes",
+            business="yes",
+        )
+        a1_app.name = "María Pérez"
+        a1_app.save(update_fields=["name"])
+
+        Application.objects.create(
+            form=self.form_a2_e,
+            name="Maria Perez",
+            email="different@example.com",
+            second_stage_reminder_sent_at=timezone.now(),
+        )
+
+        payload, error = _build_second_stage_reminder_payload("G820_E_A2")
+
+        self.assertIsNone(error)
+        self.assertIsNotNone(payload)
+        self.assertEqual(payload["targets"], [])
+
+    def test_name_mismatch_does_not_mark_completed_even_if_email_matches(self):
+        a1_app = self._create_a1_submission(
+            email="shared@example.com",
+            invited=True,
+            req="yes",
+            avail="yes",
+            business="yes",
+        )
+        a1_app.name = "Ana Uno"
+        a1_app.save(update_fields=["name"])
+
+        Application.objects.create(
+            form=self.form_a2_e,
+            name="Otra Persona",
+            email="shared@example.com",
+            second_stage_reminder_sent_at=timezone.now(),
+        )
+
+        payload, error = _build_second_stage_reminder_payload("G820_E_A2")
+
+        self.assertIsNone(error)
+        self.assertIsNotNone(payload)
+        self.assertEqual(payload["targets"], ["shared@example.com"])
+
     def test_legacy_scored_a2_row_counts_as_completed(self):
-        self._create_a1_submission(
+        a1_app = self._create_a1_submission(
             email="legacy-complete@example.com",
             invited=True,
             req="yes",
             avail="yes",
             business="yes",
         )
+        a1_app.name = "Legacy Person"
+        a1_app.save(update_fields=["name"])
         a2_app = Application.objects.create(
             form=self.form_a2_e,
-            name="Legacy Done",
+            name="Legacy Person",
             email="legacy-complete@example.com",
             overall_score=7.5,
             recommendation="CP",

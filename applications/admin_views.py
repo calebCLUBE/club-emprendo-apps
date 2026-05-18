@@ -6,6 +6,7 @@ import io
 import json
 import re
 import zipfile
+import unicodedata
 from typing import List, Tuple
 from urllib.parse import urlparse
 from xml.sax.saxutils import escape
@@ -6017,6 +6018,16 @@ def _mentor_a1_passes(answers: dict[str, str]) -> bool:
     return yesish(requisitos) and yesish(disponibilidad)
 
 
+def _normalize_person_name(raw_value: str | None) -> str:
+    text = str(raw_value or "").strip()
+    if not text:
+        return ""
+    text = unicodedata.normalize("NFD", text)
+    text = "".join(ch for ch in text if unicodedata.category(ch) != "Mn")
+    text = re.sub(r"\s+", " ", text).strip().lower()
+    return text
+
+
 @staff_member_required
 @require_POST
 def send_second_stage_reminders(request, form_slug: str):
@@ -6070,59 +6081,57 @@ def _build_second_stage_reminder_payload(form_slug: str) -> tuple[dict | None, s
 
     a1_apps_qs = (
         Application.objects.filter(form__in=a1_forms)
-        .exclude(email__isnull=True)
-        .exclude(email__exact="")
-        .only("id", "email", "created_at", "invited_to_second_stage")
+        .only("id", "email", "name", "created_at", "invited_to_second_stage")
         .prefetch_related("answers__question")
         .order_by("-created_at", "-id")
     )
 
     # Treat A2 as completed primarily when the A2 submit flow marked the row.
-    # This avoids false positives from pre-seeded/copied A2 rows.
-    completed_emails: set[str] = {
-        (email or "").strip().lower()
-        for email in (
-            Application.objects.filter(form=a2_form)
-            .exclude(email__isnull=True)
-            .exclude(email__exact="")
-            .exclude(second_stage_reminder_sent_at__isnull=True)
-            .values_list("email", flat=True)
+    # Legacy fallback: scored/graded A2 rows.
+    completed_a2_qs = (
+        Application.objects.filter(form=a2_form)
+        .filter(
+            Q(second_stage_reminder_sent_at__isnull=False)
+            | (Q(recommendation__isnull=False) & ~Q(recommendation__exact=""))
+            | Q(overall_score__gt=0)
+            | Q(tablestakes_score__gt=0)
+            | Q(commitment_score__gt=0)
+            | Q(nice_to_have_score__gt=0)
         )
-        if (email or "").strip()
-    }
-
-    # Legacy fallback: rows that were graded/scored as A2 also count as completed,
-    # even if second_stage_reminder_sent_at was never set in older data.
-    legacy_scored_emails = {
-        (email or "").strip().lower()
-        for email in (
-            Application.objects.filter(form=a2_form)
-            .exclude(email__isnull=True)
-            .exclude(email__exact="")
-            .filter(
-                Q(recommendation__isnull=False) & ~Q(recommendation__exact="")
-                | Q(overall_score__gt=0)
-                | Q(tablestakes_score__gt=0)
-                | Q(commitment_score__gt=0)
-                | Q(nice_to_have_score__gt=0)
-            )
-            .values_list("email", flat=True)
-        )
-        if (email or "").strip()
-    }
-    completed_emails.update(legacy_scored_emails)
+        .only("id", "email", "name")
+    )
+    completed_emails: set[str] = set()
+    completed_names: set[str] = set()
+    for a2_app in completed_a2_qs:
+        email_norm = (a2_app.email or "").strip().lower()
+        name_norm = _normalize_person_name(getattr(a2_app, "name", ""))
+        if email_norm:
+            completed_emails.add(email_norm)
+        if name_norm:
+            completed_names.add(name_norm)
 
     targets: list[str] = []
-    seen: set[str] = set()
+    sent_emails: set[str] = set()
+    counted_completed_people: set[str] = set()
     scanned_a1_apps = 0
     eligible_count = 0
     ineligible_count = 0
     already_completed_count = 0
+    missing_email_count = 0
     for app in a1_apps_qs:
         scanned_a1_apps += 1
         email = (app.email or "").strip().lower()
-        if not email or email in seen or email in completed_emails:
-            if email and email in completed_emails:
+        name_norm = _normalize_person_name(getattr(app, "name", ""))
+        person_key = name_norm or email or f"app:{app.id}"
+
+        has_completed_a2 = False
+        if name_norm:
+            has_completed_a2 = name_norm in completed_names
+        elif email:
+            has_completed_a2 = email in completed_emails
+        if has_completed_a2:
+            if person_key not in counted_completed_people:
+                counted_completed_people.add(person_key)
                 already_completed_count += 1
             continue
 
@@ -6138,9 +6147,12 @@ def _build_second_stage_reminder_payload(form_slug: str) -> tuple[dict | None, s
                 is_eligible = _mentor_a1_passes(answers)
 
         if is_eligible:
-            seen.add(email)
             eligible_count += 1
-            targets.append(email)
+            if email and email not in sent_emails:
+                sent_emails.add(email)
+                targets.append(email)
+            elif not email:
+                missing_email_count += 1
         else:
             ineligible_count += 1
 
@@ -6215,6 +6227,7 @@ def _build_second_stage_reminder_payload(form_slug: str) -> tuple[dict | None, s
             "eligible": eligible_count,
             "ineligible": ineligible_count,
             "already_completed_a2": already_completed_count,
+            "eligible_missing_email": missing_email_count,
         },
     }, None
 
@@ -6233,13 +6246,15 @@ def _start_second_stage_reminders(form_slug: str) -> tuple[str, int, str]:
         eligible = int(counts.get("eligible") or 0)
         ineligible = int(counts.get("ineligible") or 0)
         completed = int(counts.get("already_completed_a2") or 0)
+        missing_email = int(counts.get("eligible_missing_email") or 0)
         return (
             "no_targets",
             0,
             (
                 f"No hay personas pendientes para {form_slug}. "
                 f"A1 revisadas: {a1_scanned}; elegibles: {eligible}; "
-                f"ya con A2: {completed}; no elegibles: {ineligible}."
+                f"ya con A2: {completed}; no elegibles: {ineligible}; "
+                f"elegibles sin email para enviar: {missing_email}."
             ),
         )
 

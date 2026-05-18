@@ -6077,15 +6077,23 @@ def _build_second_stage_reminder_payload(form_slug: str) -> tuple[dict | None, s
         .order_by("-created_at", "-id")
     )
 
-    completed_emails = {
-        (email or "").strip().lower()
-        for email in Application.objects.filter(form=a2_form)
+    # Consider A2 as completed only when there is at least one non-empty answer value.
+    # This avoids treating pre-seeded/placeholder A2 rows (email only) as completed.
+    completed_emails: set[str] = set()
+    a2_existing_qs = (
+        Application.objects.filter(form=a2_form)
         .exclude(email__isnull=True)
         .exclude(email__exact="")
-        .values_list("email", flat=True)
-        if (email or "").strip()
-    }
-    completed_emails.discard("")
+        .prefetch_related("answers")
+        .only("id", "email")
+    )
+    for a2_app in a2_existing_qs:
+        email_norm = (a2_app.email or "").strip().lower()
+        if not email_norm:
+            continue
+        has_non_empty_answer = any(str(a.value or "").strip() for a in a2_app.answers.all())
+        if has_non_empty_answer:
+            completed_emails.add(email_norm)
 
     targets: list[str] = []
     seen: set[str] = set()

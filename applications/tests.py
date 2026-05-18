@@ -674,6 +674,15 @@ class A2ReminderRecipientSelectionTests(TestCase):
             position=3,
             active=True,
         )
+        self.q_a2 = Question.objects.create(
+            form=self.form_a2_e,
+            text="Motivación",
+            slug="motivation",
+            field_type=Question.SHORT_TEXT,
+            required=True,
+            position=1,
+            active=True,
+        )
 
     def _create_a1_submission(self, *, email: str, invited: bool, req: str, avail: str, business: str):
         app = Application.objects.create(
@@ -723,6 +732,47 @@ class A2ReminderRecipientSelectionTests(TestCase):
         self.assertIsNone(error)
         self.assertIsNotNone(payload)
         self.assertEqual(payload["targets"], ["latest-wins@example.com"])
+
+    def test_placeholder_a2_row_without_answers_does_not_count_as_completed(self):
+        self._create_a1_submission(
+            email="needs-reminder@example.com",
+            invited=True,
+            req="yes",
+            avail="yes",
+            business="yes",
+        )
+        Application.objects.create(
+            form=self.form_a2_e,
+            name="Needs Reminder",
+            email="needs-reminder@example.com",
+        )
+
+        payload, error = _build_second_stage_reminder_payload("G820_E_A2")
+
+        self.assertIsNone(error)
+        self.assertIsNotNone(payload)
+        self.assertEqual(payload["targets"], ["needs-reminder@example.com"])
+
+    def test_a2_row_with_answers_counts_as_completed(self):
+        self._create_a1_submission(
+            email="done@example.com",
+            invited=True,
+            req="yes",
+            avail="yes",
+            business="yes",
+        )
+        a2_app = Application.objects.create(
+            form=self.form_a2_e,
+            name="Done",
+            email="done@example.com",
+        )
+        Answer.objects.create(application=a2_app, question=self.q_a2, value="Ya contesté")
+
+        payload, error = _build_second_stage_reminder_payload("G820_E_A2")
+
+        self.assertIsNone(error)
+        self.assertIsNotNone(payload)
+        self.assertEqual(payload["targets"], [])
 
 
 class ParticipantsPageSafetyTests(TestCase):

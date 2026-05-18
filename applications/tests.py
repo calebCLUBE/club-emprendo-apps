@@ -753,7 +753,7 @@ class A2ReminderRecipientSelectionTests(TestCase):
         self.assertIsNotNone(payload)
         self.assertEqual(payload["targets"], ["needs-reminder@example.com"])
 
-    def test_a2_row_with_answers_counts_as_completed(self):
+    def test_a2_row_marked_as_submitted_counts_as_completed(self):
         self._create_a1_submission(
             email="done@example.com",
             invited=True,
@@ -765,8 +765,32 @@ class A2ReminderRecipientSelectionTests(TestCase):
             form=self.form_a2_e,
             name="Done",
             email="done@example.com",
+            second_stage_reminder_sent_at=timezone.now(),
         )
         Answer.objects.create(application=a2_app, question=self.q_a2, value="Ya contesté")
+
+        payload, error = _build_second_stage_reminder_payload("G820_E_A2")
+
+        self.assertIsNone(error)
+        self.assertIsNotNone(payload)
+        self.assertEqual(payload["targets"], [])
+
+    def test_legacy_scored_a2_row_counts_as_completed(self):
+        self._create_a1_submission(
+            email="legacy-complete@example.com",
+            invited=True,
+            req="yes",
+            avail="yes",
+            business="yes",
+        )
+        a2_app = Application.objects.create(
+            form=self.form_a2_e,
+            name="Legacy Done",
+            email="legacy-complete@example.com",
+            overall_score=7.5,
+            recommendation="CP",
+        )
+        Answer.objects.create(application=a2_app, question=self.q_a2, value="Completado")
 
         payload, error = _build_second_stage_reminder_payload("G820_E_A2")
 

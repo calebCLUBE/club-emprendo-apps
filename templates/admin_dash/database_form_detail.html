@@ -13,6 +13,25 @@
     <p style="margin:6px 0 12px; color:#333;">
       Sent second application: <strong>{{ second_stage_sent_count }}</strong>
     </p>
+    <form method="get" style="margin:10px 0 12px; padding:10px; border:1px solid #ddd; border-radius:10px; display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap;">
+      <div>
+        <label for="a1_pass_filter"><strong>Filter A1 result</strong></label><br>
+        <select id="a1_pass_filter" name="a1_pass" class="vTextField">
+          <option value="" {% if not a1_pass_filter %}selected{% endif %}>All</option>
+          <option value="passed" {% if a1_pass_filter == "passed" %}selected{% endif %}>Passed</option>
+          <option value="not_passed" {% if a1_pass_filter == "not_passed" %}selected{% endif %}>Did not pass</option>
+        </select>
+      </div>
+      <div>
+        <button type="submit" class="button default">Apply</button>
+        <a class="button" href="{% url 'admin_database_form_detail' form_def.slug %}" style="margin-left:6px;">Clear</a>
+      </div>
+    </form>
+    {% if a1_pass_filter %}
+      <p style="margin:6px 0 12px; color:#555;">
+        Showing <strong>{{ submission_count }}</strong> of <strong>{{ submission_total_count }}</strong> submissions.
+      </p>
+    {% endif %}
   {% endif %}
   {% if apps %}
     <form method="post"

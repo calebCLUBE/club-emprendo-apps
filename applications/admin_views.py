@@ -81,6 +81,7 @@ AUTO_REMINDER_CHECK_THROTTLE_SECONDS = 45
 TRACK_COMPLETION_FILTER_ALL = ""
 TRACK_COMPLETION_FILTER_A1_ONLY = "a1_only"
 TRACK_COMPLETION_FILTER_A1_A2 = "a1_a2"
+TRACK_COMPLETION_FILTER_A1_NOT_PASSED = "a1_not_passed"
 TRACK_COMPLETION_FILTER_EXCLUDE_A2_ONLY = "exclude_a2_only"
 IDENTITY_EMAIL_SLUGS = {"email", "correo", "correo_electronico"}
 IDENTITY_DOCUMENT_SLUGS = {
@@ -486,6 +487,41 @@ def _application_answer_map(app: Application) -> dict[str, str]:
         (getattr(getattr(ans, "question", None), "slug", "") or "").strip().lower(): (ans.value or "")
         for ans in app.answers.all()
     }
+
+
+def _normalized_a1_pass_filter(raw_value: str | None) -> str:
+    value = (raw_value or "").strip().lower()
+    if value in {"passed", "not_passed"}:
+        return value
+    return ""
+
+
+def _a1_application_is_passed(app: Application) -> bool:
+    slug = (getattr(getattr(app, "form", None), "slug", "") or "").strip().upper()
+    if not (slug.endswith("E_A1") or slug.endswith("M_A1")):
+        return False
+    if bool(getattr(app, "invited_to_second_stage", False)):
+        return True
+
+    answer_map = _application_answer_map(app)
+    if slug.endswith("E_A1"):
+        return bool(emprendedora_a1_passes(answer_map))
+    return bool(_mentor_a1_passes(answer_map))
+
+
+def _filter_a1_apps_by_pass_status(apps: list[Application], pass_filter: str) -> list[Application]:
+    normalized = _normalized_a1_pass_filter(pass_filter)
+    if not normalized:
+        return apps
+
+    filtered: list[Application] = []
+    for app in apps:
+        is_passed = _a1_application_is_passed(app)
+        if normalized == "passed" and is_passed:
+            filtered.append(app)
+        elif normalized == "not_passed" and not is_passed:
+            filtered.append(app)
+    return filtered
 
 
 def _application_doc_id_key(answer_map: dict[str, str]) -> str:
@@ -4786,15 +4822,24 @@ def database_sync_drive(request):
 def database_form_detail(request, form_slug: str):
     form_def = get_object_or_404(FormDefinition, slug=form_slug)
 
-    apps = (
+    apps_qs = (
         Application.objects.filter(form=form_def)
-        .prefetch_related("answers__question", "form")
+        .select_related("form")
         .order_by("-created_at", "-id")
     )
-    submission_count = apps.count()
     is_first_application = (form_def.slug or "").endswith("E_A1") or (form_def.slug or "").endswith("M_A1")
+    a1_pass_filter = _normalized_a1_pass_filter(request.GET.get("a1_pass"))
+    if is_first_application:
+        apps_qs = apps_qs.prefetch_related("answers__question")
+
+    submission_total_count = apps_qs.count()
+    apps = list(apps_qs)
+    if is_first_application and a1_pass_filter:
+        apps = _filter_a1_apps_by_pass_status(apps, a1_pass_filter)
+    submission_count = len(apps)
+
     second_stage_sent_count = (
-        apps.filter(invited_to_second_stage=True).count()
+        apps_qs.filter(invited_to_second_stage=True).count()
         if is_first_application
         else None
     )
@@ -4806,8 +4851,10 @@ def database_form_detail(request, form_slug: str):
             "form_def": form_def,
             "apps": apps,
             "submission_count": submission_count,
+            "submission_total_count": submission_total_count,
             "is_first_application": is_first_application,
             "second_stage_sent_count": second_stage_sent_count,
+            "a1_pass_filter": a1_pass_filter,
         },
     )
 
@@ -4956,6 +5003,8 @@ def database_type_detail(request, app_type: str):
 
     group_raw = (request.GET.get("group") or "").strip()
     selected_group: int | None = int(group_raw) if group_raw.isdigit() else None
+    is_first_application_type = app_type.endswith("_A1")
+    a1_pass_filter = _normalized_a1_pass_filter(request.GET.get("a1_pass")) if is_first_application_type else ""
 
     all_forms = _group_forms_for_app_type(app_type, include_combined_groups=False)
     if selected_group is None:
@@ -4993,11 +5042,20 @@ def database_type_detail(request, app_type: str):
         else ""
     )
 
-    apps = (
+    apps_qs = (
         Application.objects.filter(form__in=forms)
         .select_related("form", "form__group")
         .order_by("-created_at", "-id")
-    ) if forms else []
+    ) if forms else Application.objects.none()
+
+    if is_first_application_type:
+        apps_qs = apps_qs.prefetch_related("answers__question")
+
+    submission_total_count = apps_qs.count()
+    apps = list(apps_qs)
+    if is_first_application_type and a1_pass_filter:
+        apps = _filter_a1_apps_by_pass_status(apps, a1_pass_filter)
+    submission_count = len(apps)
 
     return render(
         request,
@@ -5009,6 +5067,10 @@ def database_type_detail(request, app_type: str):
             "group_option_items": group_option_items,
             "selected_group_label": selected_group_label,
             "apps": apps,
+            "submission_count": submission_count,
+            "submission_total_count": submission_total_count,
+            "is_first_application_type": is_first_application_type,
+            "a1_pass_filter": a1_pass_filter,
         },
     )
 
@@ -5103,6 +5165,7 @@ def database_track_detail(request, track: str):
         TRACK_COMPLETION_FILTER_ALL,
         TRACK_COMPLETION_FILTER_A1_ONLY,
         TRACK_COMPLETION_FILTER_A1_A2,
+        TRACK_COMPLETION_FILTER_A1_NOT_PASSED,
     }:
         completion_filter = TRACK_COMPLETION_FILTER_ALL
 
@@ -5168,8 +5231,15 @@ def database_track_detail(request, track: str):
         apps_qs = apps_qs.filter(form__slug__iendswith=f"{track}_A1")
     elif completion_filter == TRACK_COMPLETION_FILTER_A1_A2:
         apps_qs = apps_qs.filter(form__slug__iendswith=f"{track}_A2")
+    elif completion_filter == TRACK_COMPLETION_FILTER_A1_NOT_PASSED:
+        apps_qs = (
+            apps_qs.filter(form__slug__iendswith=f"{track}_A1")
+            .prefetch_related("answers__question")
+        )
 
     apps = list(apps_qs)
+    if completion_filter == TRACK_COMPLETION_FILTER_A1_NOT_PASSED:
+        apps = _filter_a1_apps_by_pass_status(apps, "not_passed")
 
     track_label = "Emprendedoras" if track == "E" else "Mentoras"
     return render(
@@ -5204,6 +5274,7 @@ def database_track_sheet(request, track: str):
         TRACK_COMPLETION_FILTER_ALL,
         TRACK_COMPLETION_FILTER_A1_ONLY,
         TRACK_COMPLETION_FILTER_A1_A2,
+        TRACK_COMPLETION_FILTER_A1_NOT_PASSED,
     }:
         completion_filter = TRACK_COMPLETION_FILTER_ALL
 
@@ -5246,9 +5317,21 @@ def database_track_sheet(request, track: str):
         apps_qs = apps_qs.filter(form__slug__iendswith=f"{track}_A1")
     elif completion_filter == TRACK_COMPLETION_FILTER_A1_A2:
         apps_qs = apps_qs.filter(form__slug__iendswith=f"{track}_A2")
+    elif completion_filter == TRACK_COMPLETION_FILTER_A1_NOT_PASSED:
+        apps_qs = (
+            apps_qs.filter(form__slug__iendswith=f"{track}_A1")
+            .prefetch_related("answers__question")
+        )
 
     apps = list(apps_qs)
-    if completion_filter in {TRACK_COMPLETION_FILTER_A1_ONLY, TRACK_COMPLETION_FILTER_A1_A2} and rows:
+    if completion_filter == TRACK_COMPLETION_FILTER_A1_NOT_PASSED:
+        apps = _filter_a1_apps_by_pass_status(apps, "not_passed")
+
+    if completion_filter in {
+        TRACK_COMPLETION_FILTER_A1_ONLY,
+        TRACK_COMPLETION_FILTER_A1_A2,
+        TRACK_COMPLETION_FILTER_A1_NOT_PASSED,
+    } and rows:
         allowed_app_ids = {app.id for app in apps}
         app_id_idx = headers.index("application_id") if "application_id" in headers else -1
         if app_id_idx >= 0:

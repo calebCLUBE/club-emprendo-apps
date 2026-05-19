@@ -18,6 +18,16 @@
         {% endfor %}
       </select>
     </div>
+    {% if is_first_application_type %}
+      <div>
+        <label for="a1_pass_filter"><strong>Filter A1 result</strong></label><br>
+        <select id="a1_pass_filter" name="a1_pass" class="vTextField">
+          <option value="" {% if not a1_pass_filter %}selected{% endif %}>All</option>
+          <option value="passed" {% if a1_pass_filter == "passed" %}selected{% endif %}>Passed</option>
+          <option value="not_passed" {% if a1_pass_filter == "not_passed" %}selected{% endif %}>Did not pass</option>
+        </select>
+      </div>
+    {% endif %}
     <div>
       <button type="submit" class="button default">Apply</button>
       <a class="button" href="{% url 'admin_database_type_detail' app_type %}" style="margin-left:6px;">Clear</a>
@@ -34,7 +44,12 @@
     </a>
   </p>
 
-  <h2 style="margin-top:18px;">Submissions ({{ apps|length }})</h2>
+  <h2 style="margin-top:18px;">Submissions ({{ submission_count }})</h2>
+  {% if is_first_application_type and a1_pass_filter %}
+    <p style="margin:6px 0 12px; color:#555;">
+      Showing <strong>{{ submission_count }}</strong> of <strong>{{ submission_total_count }}</strong> submissions.
+    </p>
+  {% endif %}
   {% if apps %}
     <form method="post"
           action="{% url 'admin_bulk_delete_submissions' %}"

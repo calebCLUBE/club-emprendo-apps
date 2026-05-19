@@ -14,6 +14,16 @@ urlpatterns = [
     path("database/encuestas/sheet/", admin_views.database_encuestas_sheet, name="admin_database_encuestas_sheet"),
     path("database/encuestas.csv", admin_views.database_encuestas_csv, name="admin_database_encuestas_csv"),
     path(
+        "database/encuestas-final/sheet/",
+        admin_views.database_encuestas_final_sheet,
+        name="admin_database_encuestas_final_sheet",
+    ),
+    path(
+        "database/encuestas-final.csv",
+        admin_views.database_encuestas_final_csv,
+        name="admin_database_encuestas_final_csv",
+    ),
+    path(
         "database/encuestas-mentoras/sheet/",
         admin_views.database_encuestas_mentoras_sheet,
         name="admin_database_encuestas_mentoras_sheet",
@@ -22,6 +32,16 @@ urlpatterns = [
         "database/encuestas-mentoras.csv",
         admin_views.database_encuestas_mentoras_csv,
         name="admin_database_encuestas_mentoras_csv",
+    ),
+    path(
+        "database/encuestas-mentoras-final/sheet/",
+        admin_views.database_encuestas_mentoras_final_sheet,
+        name="admin_database_encuestas_mentoras_final_sheet",
+    ),
+    path(
+        "database/encuestas-mentoras-final.csv",
+        admin_views.database_encuestas_mentoras_final_csv,
+        name="admin_database_encuestas_mentoras_final_csv",
     ),
     path(
         "database/create-assigned-group/",

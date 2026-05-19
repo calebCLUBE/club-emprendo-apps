@@ -1050,6 +1050,34 @@
       return isCheckboxColumn(ci) || isCheckboxLikeFilterValues(values);
     }
 
+    function resolveFilterColumnIndex(ci, candidateIndexes) {
+      const direct = Number(ci);
+      if (Number.isFinite(direct) && direct >= 0) {
+        return direct;
+      }
+
+      if (Array.isArray(candidateIndexes)) {
+        for (let i = 0; i < candidateIndexes.length; i += 1) {
+          const candidate = Number(candidateIndexes[i]);
+          if (Number.isFinite(candidate) && candidate >= 0) {
+            return candidate;
+          }
+        }
+      }
+
+      const selectorCi = Number(
+        activeSheetData &&
+        activeSheetData.selector
+          ? activeSheetData.selector.ci
+          : NaN
+      );
+      if (Number.isFinite(selectorCi) && selectorCi >= 0) {
+        return selectorCi;
+      }
+
+      return 0;
+    }
+
     function setCellTextSafe(ri, ci, value) {
       try {
         if (typeof activeSheetData.setCellText === 'function') {
@@ -3169,7 +3197,7 @@
       }
       const originalSet = sortFilter.set.bind(sortFilter);
       sortFilter.set = function patchedSortFilterSet(ci, items, filter, sort) {
-        const colIdx = Number.isFinite(ci) ? Number(ci) : Number(ci || 0);
+        const colIdx = resolveFilterColumnIndex(ci, [sortFilter.ci]);
         let nextItems = items;
         let nextFilter = filter;
         const treatAsCheckbox = filterTargetsCheckboxColumn(
@@ -3269,9 +3297,10 @@
 
       const originalOk = sortFilter.ok.bind(sortFilter);
       sortFilter.ok = function patchedSortFilterOk(ci, order, operator, values) {
-        const parsedCi = Number(ci);
-        const colIdx = Number.isFinite(parsedCi) ? parsedCi : 0;
-        const popupCi = Number.isFinite(Number(sortFilter.ci)) ? Number(sortFilter.ci) : null;
+        const popupCi = Number.isFinite(Number(sortFilter.ci)) && Number(sortFilter.ci) >= 0
+          ? Number(sortFilter.ci)
+          : null;
+        const colIdx = resolveFilterColumnIndex(ci, [popupCi]);
         const ascSelected = !!(
           sortFilter.sortAscEl &&
           typeof sortFilter.sortAscEl.hasClass === 'function' &&
@@ -3350,7 +3379,7 @@
       }
 
       const selector = data.selector || {};
-      const ci = Number.isFinite(selector.ci) ? Number(selector.ci) : 0;
+      const ci = resolveFilterColumnIndex(selector.ci);
 
       let operator = 'all';
       let values = [];

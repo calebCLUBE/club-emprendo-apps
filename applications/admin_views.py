@@ -117,8 +117,16 @@ RECRUITMENT_POOL_SOURCES = {
 }
 DATABASE_ENCUESTAS_LABEL_DEFAULT = "Encuesta inicial - Emprendedoras"
 DATABASE_ENCUESTAS_MENTORAS_LABEL_DEFAULT = "Encuesta inicial - Mentoras"
+DATABASE_ENCUESTAS_FINAL_LABEL_DEFAULT = "Encuesta final - Emprendedoras"
+DATABASE_ENCUESTAS_MENTORAS_FINAL_LABEL_DEFAULT = "Encuesta final - Mentoras"
 DATABASE_ENCUESTAS_MENTORAS_DRIVE_FILE_DEFAULT = (
     "https://docs.google.com/spreadsheets/d/1oPndaqPrrD6vgstAd9KNfVc96fci_8h_x7oRRaUGEls/edit?gid=2016744608#gid=2016744608"
+)
+DATABASE_ENCUESTAS_FINAL_DRIVE_FILE_DEFAULT = (
+    "https://docs.google.com/spreadsheets/d/179TvOCaIiWUivSSsADhbkRR5Eb_ErXiaW_JWxzaZ5aA/edit?gid=998065993#gid=998065993"
+)
+DATABASE_ENCUESTAS_MENTORAS_FINAL_DRIVE_FILE_DEFAULT = (
+    "https://docs.google.com/spreadsheets/d/1OdQ0exguYQkOz8zGmKex8txi-8KsJxVLfBnuUTJtSMg/edit?resourcekey=&gid=1172577522#gid=1172577522"
 )
 
 
@@ -137,16 +145,36 @@ def _setting_or_env(name: str, default: str = "") -> str:
 
 def _database_encuestas_label(kind: str) -> str:
     key = (kind or "").strip().lower()
+    if key == "mentoras_final":
+        return _setting_or_env(
+            "DATABASE_ENCUESTAS_MENTORAS_FINAL_LABEL",
+            DATABASE_ENCUESTAS_MENTORAS_FINAL_LABEL_DEFAULT,
+        )
     if key == "mentoras":
         return _setting_or_env(
             "DATABASE_ENCUESTAS_MENTORAS_LABEL",
             DATABASE_ENCUESTAS_MENTORAS_LABEL_DEFAULT,
+        )
+    if key == "emprendedoras_final":
+        return _setting_or_env(
+            "DATABASE_ENCUESTAS_FINAL_LABEL",
+            DATABASE_ENCUESTAS_FINAL_LABEL_DEFAULT,
         )
     return _setting_or_env("DATABASE_ENCUESTAS_LABEL", DATABASE_ENCUESTAS_LABEL_DEFAULT)
 
 
 def _database_encuestas_drive_file_ref(kind: str) -> str:
     key = (kind or "").strip().lower()
+    if key == "mentoras_final":
+        for env_key in (
+            "DATABASE_ENCUESTAS_MENTORAS_FINAL_DRIVE_FILE",
+            "MENTORAS_ENCUESTAS_FINAL_DRIVE_FILE",
+        ):
+            value = _setting_or_env(env_key, "")
+            if value:
+                return value
+        return DATABASE_ENCUESTAS_MENTORAS_FINAL_DRIVE_FILE_DEFAULT
+
     if key == "mentoras":
         for env_key in (
             "DATABASE_ENCUESTAS_MENTORAS_DRIVE_FILE",
@@ -156,6 +184,16 @@ def _database_encuestas_drive_file_ref(kind: str) -> str:
             if value:
                 return value
         return DATABASE_ENCUESTAS_MENTORAS_DRIVE_FILE_DEFAULT
+
+    if key == "emprendedoras_final":
+        for env_key in (
+            "DATABASE_ENCUESTAS_FINAL_DRIVE_FILE",
+            "ENCUESTAS_FINAL_DRIVE_FILE",
+        ):
+            value = _setting_or_env(env_key, "")
+            if value:
+                return value
+        return DATABASE_ENCUESTAS_FINAL_DRIVE_FILE_DEFAULT
 
     for env_key in (
         "DATABASE_ENCUESTAS_DRIVE_FILE",
@@ -3970,6 +4008,10 @@ def database_home(request):
     encuestas_drive_file_ref = _database_encuestas_drive_file_ref("emprendedoras")
     encuestas_mentoras_label = _database_encuestas_label("mentoras")
     encuestas_mentoras_drive_file_ref = _database_encuestas_drive_file_ref("mentoras")
+    encuestas_final_label = _database_encuestas_label("emprendedoras_final")
+    encuestas_final_drive_file_ref = _database_encuestas_drive_file_ref("emprendedoras_final")
+    encuestas_mentoras_final_label = _database_encuestas_label("mentoras_final")
+    encuestas_mentoras_final_drive_file_ref = _database_encuestas_drive_file_ref("mentoras_final")
 
     return render(
         request,
@@ -3994,6 +4036,10 @@ def database_home(request):
             "encuestas_drive_file_ref": encuestas_drive_file_ref,
             "encuestas_mentoras_label": encuestas_mentoras_label,
             "encuestas_mentoras_drive_file_ref": encuestas_mentoras_drive_file_ref,
+            "encuestas_final_label": encuestas_final_label,
+            "encuestas_final_drive_file_ref": encuestas_final_drive_file_ref,
+            "encuestas_mentoras_final_label": encuestas_mentoras_final_label,
+            "encuestas_mentoras_final_drive_file_ref": encuestas_mentoras_final_drive_file_ref,
             "database_next": request.get_full_path(),
         },
     )
@@ -4888,10 +4934,14 @@ def _load_database_encuestas_grid(kind: str) -> tuple[str, list[str], list[list[
     if not file_ref:
         if key == "mentoras":
             hint = "DATABASE_ENCUESTAS_MENTORAS_DRIVE_FILE"
+        elif key == "mentoras_final":
+            hint = "DATABASE_ENCUESTAS_MENTORAS_FINAL_DRIVE_FILE"
+        elif key == "emprendedoras_final":
+            hint = "DATABASE_ENCUESTAS_FINAL_DRIVE_FILE"
         else:
             hint = "DATABASE_ENCUESTAS_DRIVE_FILE"
         raise RuntimeError(
-            f"Encuesta inicial Drive file is not configured. Set {hint} "
+            f"{label} Drive file is not configured. Set {hint} "
             "(file ID or full Google Drive/Sheets URL)."
         )
 
@@ -4899,7 +4949,7 @@ def _load_database_encuestas_grid(kind: str) -> tuple[str, list[str], list[list[
     headers, rows = _csv_text_to_grid(csv_text)
     if not headers:
         raise RuntimeError(
-            "The configured Encuesta inicial file returned no header row. "
+            f"The configured {label} file returned no header row. "
             "Confirm the file is a non-empty Google Sheet or CSV."
         )
     return label, headers, rows, file_name, file_id
@@ -4949,6 +4999,53 @@ def database_encuestas_csv(request):
 
 
 @staff_member_required
+def database_encuestas_final_sheet(request):
+    try:
+        label, headers, rows, file_name, file_id = _load_database_encuestas_grid("emprendedoras_final")
+    except Exception as exc:
+        messages.error(request, f"Could not load Encuesta final from Drive: {exc}")
+        return redirect("admin_database")
+
+    refresh_requested = str(request.GET.get("refresh") or "").strip().lower() in {"1", "true", "yes"}
+    if refresh_requested:
+        messages.success(
+            request,
+            f"{label} refreshed from Drive: {len(rows)} row(s), {len(headers)} column(s).",
+        )
+
+    return render(
+        request,
+        "admin_dash/database_encuestas_sheet.html",
+        {
+            "encuestas_label": label,
+            "encuestas_source_name": file_name,
+            "encuestas_source_file_id": file_id,
+            "encuestas_refresh_url_name": "admin_database_encuestas_final_sheet",
+            "sheet_headers": headers,
+            "sheet_rows": rows,
+        },
+    )
+
+
+@staff_member_required
+def database_encuestas_final_csv(request):
+    try:
+        label, headers, rows, _file_name, _file_id = _load_database_encuestas_grid("emprendedoras_final")
+    except Exception as exc:
+        messages.error(request, f"Could not load Encuesta final from Drive: {exc}")
+        return redirect("admin_database")
+
+    safe_label = re.sub(
+        r"[^A-Za-z0-9_-]+",
+        "_",
+        label or DATABASE_ENCUESTAS_FINAL_LABEL_DEFAULT,
+    ).strip("_")
+    if not safe_label:
+        safe_label = "encuestas_final"
+    return _csv_http_response(f"{safe_label}.csv", headers, rows)
+
+
+@staff_member_required
 def database_encuestas_mentoras_sheet(request):
     try:
         label, headers, rows, file_name, file_id = _load_database_encuestas_grid("mentoras")
@@ -4992,6 +5089,53 @@ def database_encuestas_mentoras_csv(request):
     ).strip("_")
     if not safe_label:
         safe_label = "encuestas_mentoras"
+    return _csv_http_response(f"{safe_label}.csv", headers, rows)
+
+
+@staff_member_required
+def database_encuestas_mentoras_final_sheet(request):
+    try:
+        label, headers, rows, file_name, file_id = _load_database_encuestas_grid("mentoras_final")
+    except Exception as exc:
+        messages.error(request, f"Could not load Encuesta final from Drive: {exc}")
+        return redirect("admin_database")
+
+    refresh_requested = str(request.GET.get("refresh") or "").strip().lower() in {"1", "true", "yes"}
+    if refresh_requested:
+        messages.success(
+            request,
+            f"{label} refreshed from Drive: {len(rows)} row(s), {len(headers)} column(s).",
+        )
+
+    return render(
+        request,
+        "admin_dash/database_encuestas_sheet.html",
+        {
+            "encuestas_label": label,
+            "encuestas_source_name": file_name,
+            "encuestas_source_file_id": file_id,
+            "encuestas_refresh_url_name": "admin_database_encuestas_mentoras_final_sheet",
+            "sheet_headers": headers,
+            "sheet_rows": rows,
+        },
+    )
+
+
+@staff_member_required
+def database_encuestas_mentoras_final_csv(request):
+    try:
+        label, headers, rows, _file_name, _file_id = _load_database_encuestas_grid("mentoras_final")
+    except Exception as exc:
+        messages.error(request, f"Could not load Encuesta final from Drive: {exc}")
+        return redirect("admin_database")
+
+    safe_label = re.sub(
+        r"[^A-Za-z0-9_-]+",
+        "_",
+        label or DATABASE_ENCUESTAS_MENTORAS_FINAL_LABEL_DEFAULT,
+    ).strip("_")
+    if not safe_label:
+        safe_label = "encuestas_mentoras_final"
     return _csv_http_response(f"{safe_label}.csv", headers, rows)
 
 

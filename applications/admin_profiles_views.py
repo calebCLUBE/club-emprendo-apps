@@ -86,6 +86,12 @@ ENCUESTAS_EMAIL_HEADER_KEYS = ("correo", "email", "correoelectronico", "correoel
 MENTORAS_ENCUESTAS_DRIVE_FILE_DEFAULT = (
     "https://docs.google.com/spreadsheets/d/1oPndaqPrrD6vgstAd9KNfVc96fci_8h_x7oRRaUGEls/edit?gid=2016744608#gid=2016744608"
 )
+EMPRENDEDORAS_ENCUESTAS_FINAL_DRIVE_FILE_DEFAULT = (
+    "https://docs.google.com/spreadsheets/d/179TvOCaIiWUivSSsADhbkRR5Eb_ErXiaW_JWxzaZ5aA/edit?gid=998065993#gid=998065993"
+)
+MENTORAS_ENCUESTAS_FINAL_DRIVE_FILE_DEFAULT = (
+    "https://docs.google.com/spreadsheets/d/1OdQ0exguYQkOz8zGmKex8txi-8KsJxVLfBnuUTJtSMg/edit?resourcekey=&gid=1172577522#gid=1172577522"
+)
 
 PROFILE_OVERVIEW_FIELDS = [
     ("full_name", "Full name"),
@@ -115,6 +121,7 @@ MENTORAS_HEADERS = [
     "Website ",
     "Capacitacion ",
     "Encuesta inicial",
+    "Encuesta final",
     "Plazo extra ",
     "Lanzamiento",
     "W/M",
@@ -135,13 +142,14 @@ EMPRENDEDORAS_HEADERS = [
     "Website ",
     "Capacitacion ",
     "Encuesta inicial",
+    "Encuesta final",
     "Plazo extra Cap",
     "Lanzamiento",
     "W/E",
 ]
 
-MENTORAS_COL_WIDTHS = [6.88, 14.38, 5.63, 31.5, 13.63, 28.13, 14.25, 12.5, 10.5, 7, 9, 12, 11, 12, 12, 8, 8]
-EMPRENDEDORAS_COL_WIDTHS = [7.25, 14.38, 5.75, 18.38, 17.75, 32.13, 15.25, 12.5, 10.5, 7, 9, 12, 11, 14, 12, 8]
+MENTORAS_COL_WIDTHS = [6.88, 14.38, 5.63, 31.5, 13.63, 28.13, 14.25, 12.5, 10.5, 7, 9, 12, 11, 11, 12, 12, 8, 8]
+EMPRENDEDORAS_COL_WIDTHS = [7.25, 14.38, 5.75, 18.38, 17.75, 32.13, 15.25, 12.5, 10.5, 7, 9, 12, 11, 11, 14, 12, 8]
 MENTORAS_EMAIL_COL = 5
 EMPRENDEDORAS_EMAIL_COL = 5
 MENTORAS_ID_COL = 4
@@ -150,12 +158,16 @@ MENTORAS_ACTA_COL = 9
 EMPRENDEDORAS_ACTA_COL = 9
 MENTORAS_CAPACITACION_COL = 11
 EMPRENDEDORAS_CAPACITACION_COL = 11
-MENTORAS_ENCUESTAS_COL = 12
-EMPRENDEDORAS_ENCUESTAS_COL = 12
+MENTORAS_ENCUESTAS_INICIAL_COL = 12
+EMPRENDEDORAS_ENCUESTAS_INICIAL_COL = 12
+MENTORAS_ENCUESTAS_FINAL_COL = 13
+EMPRENDEDORAS_ENCUESTAS_FINAL_COL = 13
+MENTORAS_ENCUESTAS_COL = MENTORAS_ENCUESTAS_INICIAL_COL
+EMPRENDEDORAS_ENCUESTAS_COL = EMPRENDEDORAS_ENCUESTAS_INICIAL_COL
 MENTORAS_PROGRESS_DEFAULT_FALSE_COLS = [10, 11]  # Website, Capacitacion
 EMPRENDEDORAS_PROGRESS_DEFAULT_FALSE_COLS = [10, 11]  # Website, Capacitacion
-MENTORAS_BOOLEAN_COLS = [9, 10, 11, 12, 13, 14, 15, 16]
-EMPRENDEDORAS_BOOLEAN_COLS = [9, 10, 11, 12, 13, 14, 15]
+MENTORAS_BOOLEAN_COLS = [9, 10, 11, 12, 13, 14, 15, 16, 17]
+EMPRENDEDORAS_BOOLEAN_COLS = [9, 10, 11, 12, 13, 14, 15, 16]
 MENTORAS_STATUS_OPTIONS = ["NFA", "NCC", "INCP", "INCPP", "CP", "DC", "D", "P", "E/T", "G", "SG"]
 EMPRENDEDORAS_STATUS_OPTIONS = ["NFA", "NCC", "INCP", "INCPP", "CP", "DC", "P", "E/T", "G", "SG"]
 MENTORAS_COLUMN_TYPES = [
@@ -172,6 +184,7 @@ MENTORAS_COLUMN_TYPES = [
     "checkbox",      # Website
     "checkbox",      # Capacitacion
     "checkbox",      # Encuesta inicial
+    "checkbox",      # Encuesta final
     "checkbox",      # Plazo extra
     "checkbox",      # Lanzamiento
     "checkbox",      # W/M
@@ -191,6 +204,7 @@ EMPRENDEDORAS_COLUMN_TYPES = [
     "checkbox",      # Website
     "checkbox",      # Capacitacion
     "checkbox",      # Encuesta inicial
+    "checkbox",      # Encuesta final
     "checkbox",      # Plazo extra Cap
     "checkbox",      # Lanzamiento
     "checkbox",      # W/E
@@ -1403,26 +1417,37 @@ def _fetch_wix_capacitacion_completed_emails(
     )
 
 
-def _encuestas_drive_file_ref(track_slug: str) -> str:
+def _encuestas_drive_file_ref(track_slug: str, survey_stage: str = "inicial") -> str:
     key = (track_slug or "").strip().lower()
+    stage = (survey_stage or "").strip().lower()
+    is_final = stage == "final"
     if key == "mentoras":
-        for env_key in (
-            "DATABASE_ENCUESTAS_MENTORAS_DRIVE_FILE",
-            "MENTORAS_ENCUESTAS_DRIVE_FILE",
-        ):
+        env_keys = (
+            ("DATABASE_ENCUESTAS_MENTORAS_FINAL_DRIVE_FILE", "MENTORAS_ENCUESTAS_FINAL_DRIVE_FILE")
+            if is_final
+            else ("DATABASE_ENCUESTAS_MENTORAS_DRIVE_FILE", "MENTORAS_ENCUESTAS_DRIVE_FILE")
+        )
+        for env_key in env_keys:
             value = _setting_or_env(env_key, "")
             if value:
                 return value
-        return MENTORAS_ENCUESTAS_DRIVE_FILE_DEFAULT
+        return (
+            MENTORAS_ENCUESTAS_FINAL_DRIVE_FILE_DEFAULT
+            if is_final
+            else MENTORAS_ENCUESTAS_DRIVE_FILE_DEFAULT
+        )
 
-    for env_key in (
-        "DATABASE_ENCUESTAS_DRIVE_FILE",
-        "DATABASE_ENCUESTAS_FILE_ID",
-        "ENCUESTAS_DRIVE_FILE",
-    ):
+    env_keys = (
+        ("DATABASE_ENCUESTAS_FINAL_DRIVE_FILE", "ENCUESTAS_FINAL_DRIVE_FILE")
+        if is_final
+        else ("DATABASE_ENCUESTAS_DRIVE_FILE", "DATABASE_ENCUESTAS_FILE_ID", "ENCUESTAS_DRIVE_FILE")
+    )
+    for env_key in env_keys:
         value = _setting_or_env(env_key, "")
         if value:
             return value
+    if is_final:
+        return EMPRENDEDORAS_ENCUESTAS_FINAL_DRIVE_FILE_DEFAULT
     return ""
 
 
@@ -1453,13 +1478,17 @@ def _fetch_encuestas_emails_for_group(
     track_slug: str,
     group_num: int,
     participant_pool: set[str],
+    survey_stage: str = "inicial",
 ) -> tuple[bool, set[str], str]:
-    file_ref = _encuestas_drive_file_ref(track_slug)
+    stage = (survey_stage or "").strip().lower()
+    is_final = stage == "final"
+    survey_label = "Encuesta final" if is_final else "Encuesta inicial"
+    file_ref = _encuestas_drive_file_ref(track_slug, survey_stage=stage)
     if not file_ref:
         return (
             False,
             set(),
-            "Encuesta inicial file is not configured for this track.",
+            f"{survey_label} file is not configured for this track.",
         )
 
     try:
@@ -1469,7 +1498,7 @@ def _fetch_encuestas_emails_for_group(
 
     parsed = list(csv.reader(io.StringIO(csv_text or "")))
     if not parsed:
-        return False, set(), "Encuesta inicial file is empty."
+        return False, set(), f"{survey_label} file is empty."
 
     headers = [str(v or "") for v in parsed[0]]
     rows = parsed[1:]
@@ -1506,7 +1535,7 @@ def _fetch_encuestas_emails_for_group(
         True,
         matched_emails,
         (
-            f"Encuesta inicial source '{file_name}' scanned. "
+            f"{survey_label} source '{file_name}' scanned. "
             f"Group rows: {scoped_rows}; participant emails matched: {len(matched_emails)}."
         ),
     )
@@ -1632,7 +1661,11 @@ def _run_encuestas_check_for_track(
     text_field: str,
     rows_field: str,
     build_rows,
+    survey_stage: str = "inicial",
 ) -> tuple[bool, str]:
+    stage = (survey_stage or "").strip().lower()
+    is_final = stage == "final"
+    survey_label = "Encuesta final" if is_final else "Encuesta inicial"
     participant_list = GroupParticipantList.objects.filter(group=group).first()
     if not participant_list:
         return False, f"Group {group.number} has no participant list."
@@ -1654,6 +1687,7 @@ def _run_encuestas_check_for_track(
         track_slug=track_slug,
         group_num=group.number,
         participant_pool=participant_pool,
+        survey_stage=stage,
     )
     if not ok:
         return False, fetch_note
@@ -1674,7 +1708,7 @@ def _run_encuestas_check_for_track(
         True,
         (
             f"{fetch_note} "
-            f"Encuesta inicial rows matched: {matched_count}; changed: {changed_count}."
+            f"{survey_label} rows matched: {matched_count}; changed: {changed_count}."
         ),
     )
 
@@ -1810,6 +1844,7 @@ def _build_mentoras_rows(group_num: int, emails: list[str]) -> list[list]:
             False,
             False,
             False,
+            False,
         ]
         rows.append(row)
     return rows
@@ -1831,6 +1866,7 @@ def _build_emprendedoras_rows(group_num: int, emails: list[str]) -> list[list]:
             found.get("whatsapp", ""),
             found.get("country", ""),
             found.get("age", ""),
+            False,
             False,
             False,
             False,
@@ -3008,7 +3044,8 @@ def profiles_participants_track_sheet(request, group_num: int, track: str):
         email_col = MENTORAS_EMAIL_COL
         acta_col = MENTORAS_ACTA_COL
         capacitacion_col = MENTORAS_CAPACITACION_COL
-        encuestas_col = MENTORAS_ENCUESTAS_COL
+        encuestas_initial_col = MENTORAS_ENCUESTAS_INICIAL_COL
+        encuestas_final_col = MENTORAS_ENCUESTAS_FINAL_COL
         progress_default_false_cols = MENTORAS_PROGRESS_DEFAULT_FALSE_COLS
         text_field = "mentoras_emails_text"
         rows_field = "mentoras_sheet_rows"
@@ -3023,7 +3060,8 @@ def profiles_participants_track_sheet(request, group_num: int, track: str):
         email_col = EMPRENDEDORAS_EMAIL_COL
         acta_col = EMPRENDEDORAS_ACTA_COL
         capacitacion_col = EMPRENDEDORAS_CAPACITACION_COL
-        encuestas_col = EMPRENDEDORAS_ENCUESTAS_COL
+        encuestas_initial_col = EMPRENDEDORAS_ENCUESTAS_INICIAL_COL
+        encuestas_final_col = EMPRENDEDORAS_ENCUESTAS_FINAL_COL
         progress_default_false_cols = EMPRENDEDORAS_PROGRESS_DEFAULT_FALSE_COLS
         text_field = "emprendedoras_emails_text"
         rows_field = "emprendedoras_sheet_rows"
@@ -3096,7 +3134,7 @@ def profiles_participants_track_sheet(request, group_num: int, track: str):
                 )
             )
         if action == "check_encuestas":
-            if encuestas_col is None:
+            if encuestas_initial_col is None:
                 messages.error(
                     request,
                     f"Encuesta inicial check is not available for {track_label}.",
@@ -3114,10 +3152,11 @@ def profiles_participants_track_sheet(request, group_num: int, track: str):
                     headers=headers,
                     bool_cols=bool_cols,
                     email_col=email_col,
-                    encuestas_col=encuestas_col,
+                    encuestas_col=encuestas_initial_col,
                     text_field=text_field,
                     rows_field=rows_field,
                     build_rows=build_rows,
+                    survey_stage="inicial",
                 )
             except Exception as exc:
                 ok, summary = False, f"Unexpected error running encuestas check: {exc}"
@@ -3130,6 +3169,49 @@ def profiles_participants_track_sheet(request, group_num: int, track: str):
                 messages.error(
                     request,
                     f"Encuesta inicial check failed for Group {group.number} {track_label}: {summary}",
+                )
+            return redirect(
+                reverse(
+                    "admin_profiles_participants_track_sheet",
+                    args=[group.number, track_slug],
+                )
+            )
+        if action == "check_encuestas_final":
+            if encuestas_final_col is None:
+                messages.error(
+                    request,
+                    f"Encuesta final check is not available for {track_label}.",
+                )
+                return redirect(
+                    reverse(
+                        "admin_profiles_participants_track_sheet",
+                        args=[group.number, track_slug],
+                    )
+                )
+            try:
+                ok, summary = _run_encuestas_check_for_track(
+                    group=group,
+                    track_slug=track_slug,
+                    headers=headers,
+                    bool_cols=bool_cols,
+                    email_col=email_col,
+                    encuestas_col=encuestas_final_col,
+                    text_field=text_field,
+                    rows_field=rows_field,
+                    build_rows=build_rows,
+                    survey_stage="final",
+                )
+            except Exception as exc:
+                ok, summary = False, f"Unexpected error running final encuestas check: {exc}"
+            if ok:
+                messages.success(
+                    request,
+                    f"Encuesta final check completed for Group {group.number} {track_label}. {summary}",
+                )
+            else:
+                messages.error(
+                    request,
+                    f"Encuesta final check failed for Group {group.number} {track_label}: {summary}",
                 )
             return redirect(
                 reverse(

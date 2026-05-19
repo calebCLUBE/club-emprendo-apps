@@ -151,6 +151,25 @@
     </li>
 
     <li style="margin:6px 0;">
+      {% if encuestas_final_drive_file_ref %}
+        <a href="{% url 'admin_database_encuestas_final_sheet' %}">
+          {{ encuestas_final_label|default:"Encuesta final - Emprendedoras" }} — Google Drive file
+        </a>
+        &nbsp; — &nbsp;
+        <a href="{% url 'admin_database_encuestas_final_sheet' %}">Sheet</a>
+        &nbsp; — &nbsp;
+        <a href="{% url 'admin_database_encuestas_final_csv' %}">CSV</a>
+        &nbsp; — &nbsp;
+        <a href="{% url 'admin_database_encuestas_final_sheet' %}?refresh=1">Refresh</a>
+      {% else %}
+        <em>
+          {{ encuestas_final_label|default:"Encuesta final - Emprendedoras" }} file is not configured yet.
+          Set <code>DATABASE_ENCUESTAS_FINAL_DRIVE_FILE</code> (Google Drive file ID or URL).
+        </em>
+      {% endif %}
+    </li>
+
+    <li style="margin:6px 0;">
       {% if encuestas_mentoras_drive_file_ref %}
         <a href="{% url 'admin_database_encuestas_mentoras_sheet' %}">
           {{ encuestas_mentoras_label|default:"Encuesta inicial - Mentoras" }} — Google Drive file
@@ -165,6 +184,25 @@
         <em>
           {{ encuestas_mentoras_label|default:"Encuesta inicial - Mentoras" }} file is not configured yet.
           Set <code>DATABASE_ENCUESTAS_MENTORAS_DRIVE_FILE</code> (Google Drive file ID or URL).
+        </em>
+      {% endif %}
+    </li>
+
+    <li style="margin:6px 0;">
+      {% if encuestas_mentoras_final_drive_file_ref %}
+        <a href="{% url 'admin_database_encuestas_mentoras_final_sheet' %}">
+          {{ encuestas_mentoras_final_label|default:"Encuesta final - Mentoras" }} — Google Drive file
+        </a>
+        &nbsp; — &nbsp;
+        <a href="{% url 'admin_database_encuestas_mentoras_final_sheet' %}">Sheet</a>
+        &nbsp; — &nbsp;
+        <a href="{% url 'admin_database_encuestas_mentoras_final_csv' %}">CSV</a>
+        &nbsp; — &nbsp;
+        <a href="{% url 'admin_database_encuestas_mentoras_final_sheet' %}?refresh=1">Refresh</a>
+      {% else %}
+        <em>
+          {{ encuestas_mentoras_final_label|default:"Encuesta final - Mentoras" }} file is not configured yet.
+          Set <code>DATABASE_ENCUESTAS_MENTORAS_FINAL_DRIVE_FILE</code> (Google Drive file ID or URL).
         </em>
       {% endif %}
     </li>

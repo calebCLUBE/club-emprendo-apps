@@ -97,6 +97,11 @@
       <input type="hidden" name="action" value="check_encuestas">
       <button class="ce-sheet-btn" type="submit">Check Encuesta inicial</button>
     </form>
+    <form method="post">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="check_encuestas_final">
+      <button class="ce-sheet-btn" type="submit">Check Encuesta final</button>
+    </form>
   </div>
 
   <form method="post" id="ce-sheet-save-form" style="display:none;">

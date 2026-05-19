@@ -997,6 +997,7 @@ class ParticipantsCapacitacionCheckTests(TestCase):
         )
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Check Capacitacion")
+        self.assertContains(response, "Check Encuesta final")
 
     @patch("applications.admin_profiles_views._fetch_wix_capacitacion_completed_emails")
     def test_check_capacitacion_marks_only_matching_rows(self, mock_fetch):
@@ -1018,6 +1019,29 @@ class ParticipantsCapacitacionCheckTests(TestCase):
         self.participant_list.refresh_from_db()
         self.assertTrue(bool(self.participant_list.mentoras_sheet_rows[0][11]))
         self.assertFalse(bool(self.participant_list.mentoras_sheet_rows[1][11]))
+
+    @patch("applications.admin_profiles_views._fetch_encuestas_emails_for_group")
+    def test_check_encuesta_final_marks_only_matching_rows(self, mock_fetch):
+        mock_fetch.return_value = (
+            True,
+            {"m1@example.com"},
+            "Encuesta final source scanned.",
+        )
+
+        response = self.client.post(
+            reverse(
+                "admin_profiles_participants_track_sheet",
+                args=[self.group.number, "mentoras"],
+            ),
+            data={"action": "check_encuestas_final"},
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(mock_fetch.called)
+        self.assertEqual(mock_fetch.call_args.kwargs.get("survey_stage"), "final")
+
+        self.participant_list.refresh_from_db()
+        self.assertTrue(bool(self.participant_list.mentoras_sheet_rows[0][13]))
+        self.assertFalse(bool(self.participant_list.mentoras_sheet_rows[1][13]))
 
 
 class DropboxSignWebhookActaAutomationTests(TestCase):

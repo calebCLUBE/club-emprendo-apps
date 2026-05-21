@@ -2,8 +2,20 @@
 
 {% block content %}
 <div class="ce-admin-wrap">
-  <div class="ce-admin-card ce-impact-wrap">
+  <div class="ce-admin-card ce-admin-card--wide ce-impact-wrap">
     <style>
+      .ce-admin-wrap {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 14px;
+      }
+      .ce-admin-card.ce-admin-card--wide {
+        box-sizing: border-box;
+        width: 100%;
+        max-width: none;
+        margin-left: auto;
+        margin-right: auto;
+      }
       .ce-impact-shell {
         --ce-bg-soft: #f5f8fc;
         --ce-surface: #ffffff;

@@ -4,12 +4,12 @@
 <div class="ce-admin-wrap">
   <div class="ce-admin-card ce-impact-wrap">
     <style>
-      .ce-impact-wrap {
-        --impact-bg: #f8fafc;
-        --impact-surface: #ffffff;
-        --impact-border: #dbe4f2;
-        --impact-text: #0f172a;
-        --impact-muted: #475569;
+      .ce-impact-shell {
+        --ce-bg-soft: #f5f8fc;
+        --ce-surface: #ffffff;
+        --ce-border: #e3e9f2;
+        --ce-text: #1f2937;
+        --ce-muted: #667085;
       }
       .ce-impact-header {
         display: flex;
@@ -17,388 +17,757 @@
         align-items: flex-start;
         gap: 12px;
         flex-wrap: wrap;
+        margin-bottom: 14px;
       }
       .ce-impact-title {
         margin: 0;
-        font-size: 30px;
-        color: var(--impact-text);
+        font-size: 28px;
+        line-height: 1.15;
+        color: var(--ce-text);
       }
       .ce-impact-subtitle {
-        margin-top: 6px;
-        color: var(--impact-muted);
+        margin-top: 5px;
+        color: var(--ce-muted);
+        font-size: 14px;
       }
-      .ce-impact-actions {
+      .ce-actions {
         display: flex;
         gap: 8px;
         flex-wrap: wrap;
+        margin: 0;
       }
-      .ce-impact-panel {
-        margin-top: 14px;
-        border: 1px solid var(--impact-border);
+      .ce-btn {
+        display: inline-block;
+        padding: 8px 12px;
+        border-radius: 8px;
+        border: 1px solid #2c3f66;
+        background: #2c3f66;
+        color: #fff !important;
+        text-decoration: none;
+        font-weight: 600;
+      }
+      .ce-btn--ghost {
+        background: #fff;
+        color: #2c3f66 !important;
+      }
+      .ce-panel {
+        background: var(--ce-surface);
+        border: 1px solid var(--ce-border);
         border-radius: 14px;
-        background: var(--impact-surface);
         padding: 14px;
+        margin-top: 14px;
       }
-      .ce-impact-panel h2 {
+      .ce-panel-title {
         margin: 0;
         font-size: 18px;
-        color: var(--impact-text);
+        color: var(--ce-text);
       }
-      .ce-impact-kpi-grid {
-        margin-top: 12px;
+      .ce-panel-subtitle {
+        margin-top: 4px;
+        color: var(--ce-muted);
+        font-size: 13px;
+      }
+      .ce-kpi-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
         gap: 10px;
+        margin-top: 12px;
       }
-      .ce-impact-kpi {
-        border: 1px solid #dbeafe;
+      .ce-kpi {
+        border: 1px solid #dde6f1;
         border-radius: 12px;
         padding: 12px;
-        background: #f8fbff;
+        background: #fff;
+        box-shadow: 0 1px 0 rgba(16, 24, 40, 0.03);
       }
-      .ce-impact-kpi-k {
+      .ce-kpi--blue { border-top: 4px solid #3b82f6; }
+      .ce-kpi--teal { border-top: 4px solid #14b8a6; }
+      .ce-kpi--purple { border-top: 4px solid #8b5cf6; }
+      .ce-kpi--orange { border-top: 4px solid #f59e0b; }
+      .ce-kpi--green { border-top: 4px solid #22c55e; }
+      .ce-kpi--indigo { border-top: 4px solid #6366f1; }
+      .ce-kpi-k {
         font-size: 12px;
         color: #64748b;
       }
-      .ce-impact-kpi-v {
+      .ce-kpi-v {
         margin-top: 6px;
-        font-size: 24px;
-        color: #0b1324;
-        line-height: 1;
+        font-size: 26px;
+        line-height: 1.05;
+        color: #111827;
         font-weight: 800;
       }
-      .ce-impact-kpi-note {
+      .ce-kpi-note {
+        font-size: 12px;
+        color: #6b7280;
         margin-top: 4px;
+      }
+      .ce-visual-grid {
+        display: grid;
+        grid-template-columns: 2fr 1fr;
+        gap: 12px;
+      }
+      .ce-line-holder {
+        margin-top: 12px;
+        border: 1px solid #e1e8f4;
+        border-radius: 12px;
+        background: #fff;
+        padding: 8px;
+      }
+      .ce-line-canvas {
+        width: 100%;
+        min-height: 280px;
+      }
+      .ce-pie-stack {
+        display: grid;
+        gap: 12px;
+      }
+      .ce-pie-card {
+        border: 1px solid #e1e8f4;
+        border-radius: 12px;
+        background: #fff;
+        padding: 12px;
+      }
+      .ce-pie-title {
+        margin: 0;
+        font-size: 14px;
+        color: #1f2937;
+      }
+      .ce-donut-wrap {
+        margin-top: 10px;
+        display: grid;
+        justify-content: center;
+      }
+      .ce-donut {
+        width: 168px;
+        height: 168px;
+        border-radius: 50%;
+        background: #e5e7eb;
+        position: relative;
+        display: grid;
+        place-items: center;
+      }
+      .ce-donut-hole {
+        width: 92px;
+        height: 92px;
+        border-radius: 50%;
+        background: #fff;
+        box-shadow: inset 0 0 0 1px #e5e7eb;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+      }
+      .ce-donut-total {
+        font-size: 22px;
+        color: #0f172a;
+        line-height: 1;
+      }
+      .ce-donut-sub {
+        font-size: 11px;
+        color: #64748b;
+        margin-top: 3px;
+      }
+      .ce-legend {
+        list-style: none;
+        margin: 10px 0 0;
+        padding: 0;
+        display: grid;
+        gap: 7px;
+      }
+      .ce-legend li {
+        display: grid;
+        grid-template-columns: 14px 1fr auto;
+        gap: 8px;
+        align-items: center;
+        font-size: 12px;
+        color: #334155;
+      }
+      .ce-legend-dot {
+        width: 11px;
+        height: 11px;
+        border-radius: 999px;
+      }
+      .ce-bars {
+        margin-top: 12px;
+      }
+      .ce-bar-row {
+        display: grid;
+        grid-template-columns: minmax(130px, 200px) 1fr 56px;
+        align-items: center;
+        gap: 10px;
+        margin: 9px 0;
+      }
+      .ce-bar-label {
+        font-size: 12px;
+        color: #334155;
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+      }
+      .ce-bar-track {
+        height: 12px;
+        border-radius: 999px;
+        background: #e8edf4;
+        overflow: hidden;
+      }
+      .ce-bar-fill {
+        height: 100%;
+        border-radius: 999px;
+      }
+      .ce-bar-val {
+        text-align: right;
         font-size: 12px;
         color: #475569;
       }
-      .ce-impact-table {
+      .ce-table {
         width: 100%;
         border-collapse: collapse;
         margin-top: 10px;
       }
-      .ce-impact-table th,
-      .ce-impact-table td {
-        border-bottom: 1px solid #e8edf6;
-        padding: 8px;
+      .ce-table th,
+      .ce-table td {
+        border-bottom: 1px solid #edf2f7;
+        padding: 9px 8px;
         text-align: left;
         vertical-align: top;
       }
-      .ce-impact-table th {
+      .ce-table th {
+        color: #334155;
         font-size: 12px;
         text-transform: uppercase;
         letter-spacing: 0.04em;
-        color: #334155;
       }
-      .ce-impact-dataset-grid {
+      .ce-dataset-grid {
         margin-top: 12px;
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
         gap: 10px;
       }
-      .ce-impact-dataset {
+      .ce-dataset {
         border: 1px solid #e2e8f0;
         border-radius: 12px;
         background: #ffffff;
         padding: 12px;
       }
-      .ce-impact-dataset h3 {
+      .ce-dataset h3 {
         margin: 0;
         font-size: 16px;
       }
-      .ce-impact-dataset-sub {
+      .ce-dataset-sub {
         margin-top: 6px;
         color: #475569;
         font-size: 13px;
       }
-      .ce-impact-error {
+      .ce-error {
         margin-top: 8px;
         color: #b91c1c;
         font-size: 13px;
       }
-      .ce-impact-completion-grid {
+      .ce-completion-grid {
         margin-top: 12px;
         display: grid;
         grid-template-columns: 1fr 1fr;
         gap: 10px;
       }
-      .ce-impact-completion-card {
+      .ce-completion-card {
         border: 1px solid #e2e8f0;
         border-radius: 12px;
         background: #fff;
         padding: 12px;
       }
-      .ce-impact-completion-card h3 {
+      .ce-completion-card h3 {
         margin: 0;
       }
-      .ce-impact-link {
+      .ce-link {
         margin-top: 8px;
         display: inline-block;
       }
+      .ce-empty {
+        color: #6b7280;
+        font-style: italic;
+      }
       @media (max-width: 980px) {
-        .ce-impact-completion-grid {
+        .ce-visual-grid {
+          grid-template-columns: 1fr;
+        }
+        .ce-completion-grid {
           grid-template-columns: 1fr;
         }
       }
     </style>
 
-    <div class="ce-impact-header">
-      <div>
-        <h1 class="ce-impact-title">Impact Dashboard</h1>
-        <div class="ce-impact-subtitle">
-          Built from encuesta inicial and final data for emprendedoras and mentoras.
+    <div class="ce-impact-shell">
+      <div class="ce-impact-header">
+        <div>
+          <h1 class="ce-impact-title">Impact Dashboard</h1>
+          <div class="ce-impact-subtitle">Encuesta inicial and final results for emprendedoras and mentoras, with visual summaries.</div>
+        </div>
+        <div class="ce-actions">
+          <a class="ce-btn ce-btn--ghost" href="{% url 'admin_dashboards_home' %}">Dashboards</a>
+          <a class="ce-btn ce-btn--ghost" href="{% url 'admin_applications_dashboard' %}">Application Dashboard</a>
+          <a class="ce-btn ce-btn--ghost" href="{% url 'admin_database' %}">Database</a>
         </div>
       </div>
-      <div class="ce-impact-actions">
-        <a class="button" href="{% url 'admin_dashboards_home' %}">Dashboards</a>
-        <a class="button" href="{% url 'admin_applications_dashboard' %}">Application Dashboard</a>
-        <a class="button" href="{% url 'admin_database' %}">Database</a>
-      </div>
-    </div>
 
-    <section class="ce-impact-panel">
-      <h2>Overall Impact Snapshot</h2>
-      <div class="ce-impact-kpi-grid">
-        <div class="ce-impact-kpi">
-          <div class="ce-impact-kpi-k">Initial Responses</div>
-          <div class="ce-impact-kpi-v">{{ overall.initial_responses }}</div>
+      <section class="ce-panel">
+        <h2 class="ce-panel-title">Overall Impact Snapshot</h2>
+        <p class="ce-panel-subtitle">Top-line impact movement across initial and final surveys.</p>
+        <div class="ce-kpi-grid">
+          <div class="ce-kpi ce-kpi--blue">
+            <div class="ce-kpi-k">Initial Responses</div>
+            <div class="ce-kpi-v">{{ overall.initial_responses }}</div>
+          </div>
+          <div class="ce-kpi ce-kpi--teal">
+            <div class="ce-kpi-k">Final Responses</div>
+            <div class="ce-kpi-v">{{ overall.final_responses }}</div>
+            <div class="ce-kpi-note">{{ overall.final_vs_initial_pct }}% of initial volume</div>
+          </div>
+          <div class="ce-kpi ce-kpi--purple">
+            <div class="ce-kpi-k">Response Growth</div>
+            <div class="ce-kpi-v">{{ overall.response_growth }}</div>
+          </div>
+          <div class="ce-kpi ce-kpi--orange">
+            <div class="ce-kpi-k">Initial Unique Emails</div>
+            <div class="ce-kpi-v">{{ overall.initial_unique }}</div>
+          </div>
+          <div class="ce-kpi ce-kpi--green">
+            <div class="ce-kpi-k">Final Unique Emails</div>
+            <div class="ce-kpi-v">{{ overall.final_unique }}</div>
+          </div>
+          <div class="ce-kpi ce-kpi--indigo">
+            <div class="ce-kpi-k">Unique Retention</div>
+            <div class="ce-kpi-v">{{ overall.retention_pct }}%</div>
+            <div class="ce-kpi-note">{{ overall.matched_unique }} people completed both</div>
+          </div>
         </div>
-        <div class="ce-impact-kpi">
-          <div class="ce-impact-kpi-k">Final Responses</div>
-          <div class="ce-impact-kpi-v">{{ overall.final_responses }}</div>
-          <div class="ce-impact-kpi-note">{{ overall.final_vs_initial_pct }}% of initial volume</div>
-        </div>
-        <div class="ce-impact-kpi">
-          <div class="ce-impact-kpi-k">Response Growth</div>
-          <div class="ce-impact-kpi-v">{{ overall.response_growth }}</div>
-        </div>
-        <div class="ce-impact-kpi">
-          <div class="ce-impact-kpi-k">Initial Unique Emails</div>
-          <div class="ce-impact-kpi-v">{{ overall.initial_unique }}</div>
-        </div>
-        <div class="ce-impact-kpi">
-          <div class="ce-impact-kpi-k">Final Unique Emails</div>
-          <div class="ce-impact-kpi-v">{{ overall.final_unique }}</div>
-        </div>
-        <div class="ce-impact-kpi">
-          <div class="ce-impact-kpi-k">Unique Retention</div>
-          <div class="ce-impact-kpi-v">{{ overall.retention_pct }}%</div>
-          <div class="ce-impact-kpi-note">{{ overall.matched_unique }} participants in both stages</div>
-        </div>
-      </div>
-    </section>
+      </section>
 
-    <section class="ce-impact-panel">
-      <h2>Track Comparison</h2>
-      <table class="ce-impact-table">
-        <thead>
-          <tr>
-            <th>Track</th>
-            <th>Initial responses</th>
-            <th>Final responses</th>
-            <th>Final vs initial</th>
-            <th>Initial unique</th>
-            <th>Final unique</th>
-            <th>Retained unique</th>
-            <th>Retention</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for row in track_summaries %}
-            <tr>
-              <td>{{ row.label }}</td>
-              <td>{{ row.initial_responses }}</td>
-              <td>{{ row.final_responses }}</td>
-              <td>{{ row.final_vs_initial_pct }}%</td>
-              <td>{{ row.initial_unique }}</td>
-              <td>{{ row.final_unique }}</td>
-              <td>{{ row.matched_unique }}</td>
-              <td>{{ row.retention_pct }}%</td>
-            </tr>
+      <section class="ce-panel">
+        <h2 class="ce-panel-title">Visual Insights</h2>
+        <p class="ce-panel-subtitle">Flow and composition charts for quick scan.</p>
+        <div class="ce-visual-grid">
+          <div>
+            <div class="ce-line-holder">
+              <div id="ce-impact-line-chart" class="ce-line-canvas"></div>
+            </div>
+          </div>
+
+          <div class="ce-pie-stack">
+            <div class="ce-pie-card">
+              <h3 class="ce-pie-title">Response Mix By Dataset</h3>
+              <div class="ce-donut-wrap">
+                <div class="ce-donut" id="ce-impact-dataset-donut">
+                  <div class="ce-donut-hole">
+                    <strong class="ce-donut-total" id="ce-impact-dataset-total">0</strong>
+                    <span class="ce-donut-sub">Total</span>
+                  </div>
+                </div>
+              </div>
+              <ul class="ce-legend" id="ce-impact-dataset-legend"></ul>
+            </div>
+
+            <div class="ce-pie-card">
+              <h3 class="ce-pie-title">Unique Retention Mix</h3>
+              <div class="ce-donut-wrap">
+                <div class="ce-donut" id="ce-impact-retention-donut">
+                  <div class="ce-donut-hole">
+                    <strong class="ce-donut-total" id="ce-impact-retention-total">0</strong>
+                    <span class="ce-donut-sub">Unique</span>
+                  </div>
+                </div>
+              </div>
+              <ul class="ce-legend" id="ce-impact-retention-legend"></ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="ce-panel">
+        <h2 class="ce-panel-title">Response Volume By Dataset</h2>
+        <p class="ce-panel-subtitle">Initial and final response totals across both tracks.</p>
+        <div class="ce-bars">
+          {% for d in dataset_mix %}
+            <div class="ce-bar-row">
+              <div class="ce-bar-label">{{ d.label }}</div>
+              <div class="ce-bar-track">
+                <div class="ce-bar-fill" style="width: {% widthratio d.value max_dataset_value 100 %}%; background: {{ d.color }};"></div>
+              </div>
+              <div class="ce-bar-val">{{ d.value }}</div>
+            </div>
+          {% empty %}
+            <p class="ce-empty">No dataset volume available.</p>
           {% endfor %}
-        </tbody>
-      </table>
-    </section>
+        </div>
+      </section>
 
-    <section class="ce-impact-panel">
-      <h2>Source Datasets</h2>
-      <div class="ce-impact-dataset-grid">
-        {% with d=datasets.emprendedoras %}
-          <div class="ce-impact-dataset">
-            <h3>{{ d.title }}</h3>
-            {% if d.error %}
-              <div class="ce-impact-error">{{ d.error }}</div>
-            {% else %}
-              <div class="ce-impact-dataset-sub">{{ d.responses_count }} responses • {{ d.unique_emails_count }} unique emails • {{ d.question_count }} question columns</div>
-              <a class="ce-impact-link" href="{% url d.sheet_url_name %}">Open sheet</a>
-            {% endif %}
-          </div>
-        {% endwith %}
-        {% with d=datasets.emprendedoras_final %}
-          <div class="ce-impact-dataset">
-            <h3>{{ d.title }}</h3>
-            {% if d.error %}
-              <div class="ce-impact-error">{{ d.error }}</div>
-            {% else %}
-              <div class="ce-impact-dataset-sub">{{ d.responses_count }} responses • {{ d.unique_emails_count }} unique emails • {{ d.question_count }} question columns</div>
-              <a class="ce-impact-link" href="{% url d.sheet_url_name %}">Open sheet</a>
-            {% endif %}
-          </div>
-        {% endwith %}
-        {% with d=datasets.mentoras %}
-          <div class="ce-impact-dataset">
-            <h3>{{ d.title }}</h3>
-            {% if d.error %}
-              <div class="ce-impact-error">{{ d.error }}</div>
-            {% else %}
-              <div class="ce-impact-dataset-sub">{{ d.responses_count }} responses • {{ d.unique_emails_count }} unique emails • {{ d.question_count }} question columns</div>
-              <a class="ce-impact-link" href="{% url d.sheet_url_name %}">Open sheet</a>
-            {% endif %}
-          </div>
-        {% endwith %}
-        {% with d=datasets.mentoras_final %}
-          <div class="ce-impact-dataset">
-            <h3>{{ d.title }}</h3>
-            {% if d.error %}
-              <div class="ce-impact-error">{{ d.error }}</div>
-            {% else %}
-              <div class="ce-impact-dataset-sub">{{ d.responses_count }} responses • {{ d.unique_emails_count }} unique emails • {{ d.question_count }} question columns</div>
-              <a class="ce-impact-link" href="{% url d.sheet_url_name %}">Open sheet</a>
-            {% endif %}
-          </div>
-        {% endwith %}
-      </div>
-    </section>
+      <section class="ce-panel">
+        <h2 class="ce-panel-title">Track Comparison</h2>
+        <table class="ce-table">
+          <thead>
+            <tr>
+              <th>Track</th>
+              <th>Initial responses</th>
+              <th>Final responses</th>
+              <th>Final vs initial</th>
+              <th>Initial unique</th>
+              <th>Final unique</th>
+              <th>Retained unique</th>
+              <th>Retention</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in track_summaries %}
+              <tr>
+                <td>{{ row.label }}</td>
+                <td>{{ row.initial_responses }}</td>
+                <td>{{ row.final_responses }}</td>
+                <td>{{ row.final_vs_initial_pct }}%</td>
+                <td>{{ row.initial_unique }}</td>
+                <td>{{ row.final_unique }}</td>
+                <td>{{ row.matched_unique }}</td>
+                <td>{{ row.retention_pct }}%</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </section>
 
-    <section class="ce-impact-panel">
-      <h2>Question Completion: Emprendedoras</h2>
-      <div class="ce-impact-completion-grid">
-        {% with d=datasets.emprendedoras %}
-          <div class="ce-impact-completion-card">
-            <h3>Encuesta inicial</h3>
-            {% if d.error %}
-              <div class="ce-impact-error">{{ d.error }}</div>
-            {% elif d.completion_rows %}
-              <table class="ce-impact-table">
-                <thead>
-                  <tr>
-                    <th>Question column</th>
-                    <th>Answered</th>
-                    <th>Completion</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {% for row in d.completion_rows %}
+      <section class="ce-panel">
+        <h2 class="ce-panel-title">Source Datasets</h2>
+        <div class="ce-dataset-grid">
+          {% with d=datasets.emprendedoras %}
+            <div class="ce-dataset">
+              <h3>{{ d.title }}</h3>
+              {% if d.error %}
+                <div class="ce-error">{{ d.error }}</div>
+              {% else %}
+                <div class="ce-dataset-sub">{{ d.responses_count }} responses • {{ d.unique_emails_count }} unique emails • {{ d.question_count }} question columns</div>
+                <a class="ce-link" href="{% url d.sheet_url_name %}">Open sheet</a>
+              {% endif %}
+            </div>
+          {% endwith %}
+
+          {% with d=datasets.emprendedoras_final %}
+            <div class="ce-dataset">
+              <h3>{{ d.title }}</h3>
+              {% if d.error %}
+                <div class="ce-error">{{ d.error }}</div>
+              {% else %}
+                <div class="ce-dataset-sub">{{ d.responses_count }} responses • {{ d.unique_emails_count }} unique emails • {{ d.question_count }} question columns</div>
+                <a class="ce-link" href="{% url d.sheet_url_name %}">Open sheet</a>
+              {% endif %}
+            </div>
+          {% endwith %}
+
+          {% with d=datasets.mentoras %}
+            <div class="ce-dataset">
+              <h3>{{ d.title }}</h3>
+              {% if d.error %}
+                <div class="ce-error">{{ d.error }}</div>
+              {% else %}
+                <div class="ce-dataset-sub">{{ d.responses_count }} responses • {{ d.unique_emails_count }} unique emails • {{ d.question_count }} question columns</div>
+                <a class="ce-link" href="{% url d.sheet_url_name %}">Open sheet</a>
+              {% endif %}
+            </div>
+          {% endwith %}
+
+          {% with d=datasets.mentoras_final %}
+            <div class="ce-dataset">
+              <h3>{{ d.title }}</h3>
+              {% if d.error %}
+                <div class="ce-error">{{ d.error }}</div>
+              {% else %}
+                <div class="ce-dataset-sub">{{ d.responses_count }} responses • {{ d.unique_emails_count }} unique emails • {{ d.question_count }} question columns</div>
+                <a class="ce-link" href="{% url d.sheet_url_name %}">Open sheet</a>
+              {% endif %}
+            </div>
+          {% endwith %}
+        </div>
+      </section>
+
+      <section class="ce-panel">
+        <h2 class="ce-panel-title">Question Completion: Emprendedoras</h2>
+        <div class="ce-completion-grid">
+          {% with d=datasets.emprendedoras %}
+            <div class="ce-completion-card">
+              <h3>Encuesta inicial</h3>
+              {% if d.error %}
+                <div class="ce-error">{{ d.error }}</div>
+              {% elif d.completion_rows %}
+                <table class="ce-table">
+                  <thead>
                     <tr>
-                      <td>{{ row.label }}</td>
-                      <td>{{ row.answered }}</td>
-                      <td>{{ row.pct }}%</td>
+                      <th>Question column</th>
+                      <th>Answered</th>
+                      <th>Completion</th>
                     </tr>
-                  {% endfor %}
-                </tbody>
-              </table>
-            {% else %}
-              <div class="ce-impact-dataset-sub">No completion metrics available.</div>
-            {% endif %}
-          </div>
-        {% endwith %}
+                  </thead>
+                  <tbody>
+                    {% for row in d.completion_rows %}
+                      <tr>
+                        <td>{{ row.label }}</td>
+                        <td>{{ row.answered }}</td>
+                        <td>{{ row.pct }}%</td>
+                      </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              {% else %}
+                <div class="ce-empty">No completion metrics available.</div>
+              {% endif %}
+            </div>
+          {% endwith %}
 
-        {% with d=datasets.emprendedoras_final %}
-          <div class="ce-impact-completion-card">
-            <h3>Encuesta final</h3>
-            {% if d.error %}
-              <div class="ce-impact-error">{{ d.error }}</div>
-            {% elif d.completion_rows %}
-              <table class="ce-impact-table">
-                <thead>
-                  <tr>
-                    <th>Question column</th>
-                    <th>Answered</th>
-                    <th>Completion</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {% for row in d.completion_rows %}
+          {% with d=datasets.emprendedoras_final %}
+            <div class="ce-completion-card">
+              <h3>Encuesta final</h3>
+              {% if d.error %}
+                <div class="ce-error">{{ d.error }}</div>
+              {% elif d.completion_rows %}
+                <table class="ce-table">
+                  <thead>
                     <tr>
-                      <td>{{ row.label }}</td>
-                      <td>{{ row.answered }}</td>
-                      <td>{{ row.pct }}%</td>
+                      <th>Question column</th>
+                      <th>Answered</th>
+                      <th>Completion</th>
                     </tr>
-                  {% endfor %}
-                </tbody>
-              </table>
-            {% else %}
-              <div class="ce-impact-dataset-sub">No completion metrics available.</div>
-            {% endif %}
-          </div>
-        {% endwith %}
-      </div>
-    </section>
+                  </thead>
+                  <tbody>
+                    {% for row in d.completion_rows %}
+                      <tr>
+                        <td>{{ row.label }}</td>
+                        <td>{{ row.answered }}</td>
+                        <td>{{ row.pct }}%</td>
+                      </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              {% else %}
+                <div class="ce-empty">No completion metrics available.</div>
+              {% endif %}
+            </div>
+          {% endwith %}
+        </div>
+      </section>
 
-    <section class="ce-impact-panel">
-      <h2>Question Completion: Mentoras</h2>
-      <div class="ce-impact-completion-grid">
-        {% with d=datasets.mentoras %}
-          <div class="ce-impact-completion-card">
-            <h3>Encuesta inicial</h3>
-            {% if d.error %}
-              <div class="ce-impact-error">{{ d.error }}</div>
-            {% elif d.completion_rows %}
-              <table class="ce-impact-table">
-                <thead>
-                  <tr>
-                    <th>Question column</th>
-                    <th>Answered</th>
-                    <th>Completion</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {% for row in d.completion_rows %}
+      <section class="ce-panel">
+        <h2 class="ce-panel-title">Question Completion: Mentoras</h2>
+        <div class="ce-completion-grid">
+          {% with d=datasets.mentoras %}
+            <div class="ce-completion-card">
+              <h3>Encuesta inicial</h3>
+              {% if d.error %}
+                <div class="ce-error">{{ d.error }}</div>
+              {% elif d.completion_rows %}
+                <table class="ce-table">
+                  <thead>
                     <tr>
-                      <td>{{ row.label }}</td>
-                      <td>{{ row.answered }}</td>
-                      <td>{{ row.pct }}%</td>
+                      <th>Question column</th>
+                      <th>Answered</th>
+                      <th>Completion</th>
                     </tr>
-                  {% endfor %}
-                </tbody>
-              </table>
-            {% else %}
-              <div class="ce-impact-dataset-sub">No completion metrics available.</div>
-            {% endif %}
-          </div>
-        {% endwith %}
+                  </thead>
+                  <tbody>
+                    {% for row in d.completion_rows %}
+                      <tr>
+                        <td>{{ row.label }}</td>
+                        <td>{{ row.answered }}</td>
+                        <td>{{ row.pct }}%</td>
+                      </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              {% else %}
+                <div class="ce-empty">No completion metrics available.</div>
+              {% endif %}
+            </div>
+          {% endwith %}
 
-        {% with d=datasets.mentoras_final %}
-          <div class="ce-impact-completion-card">
-            <h3>Encuesta final</h3>
-            {% if d.error %}
-              <div class="ce-impact-error">{{ d.error }}</div>
-            {% elif d.completion_rows %}
-              <table class="ce-impact-table">
-                <thead>
-                  <tr>
-                    <th>Question column</th>
-                    <th>Answered</th>
-                    <th>Completion</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {% for row in d.completion_rows %}
+          {% with d=datasets.mentoras_final %}
+            <div class="ce-completion-card">
+              <h3>Encuesta final</h3>
+              {% if d.error %}
+                <div class="ce-error">{{ d.error }}</div>
+              {% elif d.completion_rows %}
+                <table class="ce-table">
+                  <thead>
                     <tr>
-                      <td>{{ row.label }}</td>
-                      <td>{{ row.answered }}</td>
-                      <td>{{ row.pct }}%</td>
+                      <th>Question column</th>
+                      <th>Answered</th>
+                      <th>Completion</th>
                     </tr>
-                  {% endfor %}
-                </tbody>
-              </table>
-            {% else %}
-              <div class="ce-impact-dataset-sub">No completion metrics available.</div>
-            {% endif %}
-          </div>
-        {% endwith %}
-      </div>
-    </section>
+                  </thead>
+                  <tbody>
+                    {% for row in d.completion_rows %}
+                      <tr>
+                        <td>{{ row.label }}</td>
+                        <td>{{ row.answered }}</td>
+                        <td>{{ row.pct }}%</td>
+                      </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              {% else %}
+                <div class="ce-empty">No completion metrics available.</div>
+              {% endif %}
+            </div>
+          {% endwith %}
+        </div>
+      </section>
+    </div>
   </div>
 </div>
+
+{{ flow_points|json_script:"ceImpactFlowData" }}
+{{ dataset_mix|json_script:"ceImpactDatasetMixData" }}
+{{ retention_mix|json_script:"ceImpactRetentionMixData" }}
+
+<script>
+  (function () {
+    function byId(id) {
+      return document.getElementById(id);
+    }
+
+    function parseJsonScript(id) {
+      const node = byId(id);
+      if (!node) return [];
+      try {
+        return JSON.parse(node.textContent || "[]");
+      } catch (e) {
+        return [];
+      }
+    }
+
+    function escapeHtml(value) {
+      return String(value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/\"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+
+    function renderLineChart(containerId, points) {
+      const container = byId(containerId);
+      if (!container) return;
+
+      if (!Array.isArray(points) || !points.length) {
+        container.innerHTML = '<p class="ce-empty">No flow data available.</p>';
+        return;
+      }
+
+      const width = 920;
+      const height = 300;
+      const pad = { top: 20, right: 20, bottom: 42, left: 36 };
+      const chartW = width - pad.left - pad.right;
+      const chartH = height - pad.top - pad.bottom;
+      const values = points.map(function (p) { return Number(p.count || 0); });
+      const maxVal = Math.max.apply(null, values.concat([1]));
+      const count = points.length;
+      const stepX = count > 1 ? chartW / (count - 1) : 0;
+
+      const coords = points.map(function (p, i) {
+        const x = pad.left + (count > 1 ? i * stepX : chartW / 2);
+        const y = pad.top + chartH - ((Number(p.count || 0) / maxVal) * chartH);
+        return { x: x, y: y };
+      });
+
+      const linePoints = coords.map(function (c) { return c.x + "," + c.y; }).join(" ");
+      const areaPoints = pad.left + "," + (pad.top + chartH) + " " + linePoints + " " + (pad.left + chartW) + "," + (pad.top + chartH);
+
+      let grid = "";
+      for (let i = 0; i <= 4; i += 1) {
+        const y = pad.top + (chartH / 4) * i;
+        const axisVal = Math.round(maxVal - (maxVal / 4) * i);
+        grid += '<line x1="' + pad.left + '" y1="' + y + '" x2="' + (pad.left + chartW) + '" y2="' + y + '" stroke="#e5ecf5" stroke-width="1" />';
+        grid += '<text x="' + (pad.left - 8) + '" y="' + (y + 4) + '" text-anchor="end" fill="#667085" font-size="11">' + axisVal + "</text>";
+      }
+
+      let labels = "";
+      for (let i = 0; i < coords.length; i += 1) {
+        labels += '<text x="' + coords[i].x + '" y="' + (height - 12) + '" text-anchor="middle" fill="#667085" font-size="11">' + escapeHtml(points[i].label) + "</text>";
+      }
+
+      const dots = coords.map(function (c) {
+        return '<circle cx="' + c.x + '" cy="' + c.y + '" r="3.6" fill="#3b82f6" />';
+      }).join("");
+
+      container.innerHTML =
+        '<svg viewBox="0 0 ' + width + ' ' + height + '" width="100%" height="300" role="img" aria-label="Survey flow line chart">' +
+          '<defs>' +
+            '<linearGradient id="ceImpactFlowFill" x1="0" y1="0" x2="0" y2="1">' +
+              '<stop offset="0%" stop-color="#3b82f6" stop-opacity="0.34" />' +
+              '<stop offset="100%" stop-color="#3b82f6" stop-opacity="0.04" />' +
+            '</linearGradient>' +
+          '</defs>' +
+          grid +
+          '<polygon points="' + areaPoints + '" fill="url(#ceImpactFlowFill)" />' +
+          '<polyline fill="none" stroke="#2563eb" stroke-width="3" points="' + linePoints + '" />' +
+          dots +
+          labels +
+        '</svg>';
+    }
+
+    function renderDonut(donutId, legendId, totalId, rawData) {
+      const donut = byId(donutId);
+      const legend = byId(legendId);
+      const totalNode = byId(totalId);
+      if (!donut || !legend || !totalNode) return;
+
+      const data = (Array.isArray(rawData) ? rawData : [])
+        .map(function (item) {
+          return {
+            label: item.label,
+            value: Number(item.value || 0),
+            color: item.color || "#94a3b8",
+          };
+        })
+        .filter(function (item) { return item.value > 0; });
+
+      const total = data.reduce(function (sum, item) { return sum + item.value; }, 0);
+      totalNode.textContent = String(total);
+
+      if (total <= 0) {
+        donut.style.background = "#e5e7eb";
+        legend.innerHTML = '<li><span class="ce-empty">No data available.</span></li>';
+        return;
+      }
+
+      let current = 0;
+      const parts = data.map(function (item) {
+        const start = (current / total) * 360;
+        current += item.value;
+        const end = (current / total) * 360;
+        return item.color + " " + start + "deg " + end + "deg";
+      });
+      donut.style.background = "conic-gradient(" + parts.join(", ") + ")";
+
+      legend.innerHTML = data.map(function (item) {
+        const pct = ((item.value / total) * 100).toFixed(1);
+        return (
+          '<li>' +
+            '<span class="ce-legend-dot" style="background:' + item.color + ';"></span>' +
+            '<span>' + escapeHtml(item.label) + '</span>' +
+            '<strong>' + item.value + ' (' + pct + '%)</strong>' +
+          '</li>'
+        );
+      }).join("");
+    }
+
+    renderLineChart("ce-impact-line-chart", parseJsonScript("ceImpactFlowData"));
+    renderDonut(
+      "ce-impact-dataset-donut",
+      "ce-impact-dataset-legend",
+      "ce-impact-dataset-total",
+      parseJsonScript("ceImpactDatasetMixData")
+    );
+    renderDonut(
+      "ce-impact-retention-donut",
+      "ce-impact-retention-legend",
+      "ce-impact-retention-total",
+      parseJsonScript("ceImpactRetentionMixData")
+    );
+  })();
+</script>
 {% endblock %}

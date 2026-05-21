@@ -298,10 +298,41 @@ def impact_dashboard(request):
     overall_summary["final_vs_initial_pct"] = _pct(overall_summary["final_responses"], overall_summary["initial_responses"])
     overall_summary["retention_pct"] = _pct(overall_summary["matched_unique"], overall_summary["initial_unique"])
 
+    flow_points = [
+        {"label": "E inicial", "count": datasets["emprendedoras"]["responses_count"]},
+        {"label": "E final", "count": datasets["emprendedoras_final"]["responses_count"]},
+        {"label": "M inicial", "count": datasets["mentoras"]["responses_count"]},
+        {"label": "M final", "count": datasets["mentoras_final"]["responses_count"]},
+    ]
+    dataset_mix = [
+        {"label": "E inicial", "value": datasets["emprendedoras"]["responses_count"], "color": "#3B82F6"},
+        {"label": "E final", "value": datasets["emprendedoras_final"]["responses_count"], "color": "#14B8A6"},
+        {"label": "M inicial", "value": datasets["mentoras"]["responses_count"], "color": "#8B5CF6"},
+        {"label": "M final", "value": datasets["mentoras_final"]["responses_count"], "color": "#F59E0B"},
+    ]
+    max_dataset_value = max(max([item["value"] for item in dataset_mix], default=0), 1)
+    retention_mix = [
+        {"label": "Retained unique", "value": overall_summary["matched_unique"], "color": "#22C55E"},
+        {
+            "label": "Only initial",
+            "value": max(overall_summary["initial_unique"] - overall_summary["matched_unique"], 0),
+            "color": "#F97316",
+        },
+        {
+            "label": "Only final",
+            "value": max(overall_summary["final_unique"] - overall_summary["matched_unique"], 0),
+            "color": "#64748B",
+        },
+    ]
+
     context = {
         "overall": overall_summary,
         "track_summaries": [emprendedoras_summary, mentoras_summary],
         "datasets": datasets,
+        "flow_points": flow_points,
+        "dataset_mix": dataset_mix,
+        "max_dataset_value": max_dataset_value,
+        "retention_mix": retention_mix,
     }
     return render(request, "admin_dash/impact_dashboard.html", context)
 

@@ -1,15 +1,53 @@
 import re
 from datetime import date, timedelta
 
+from django.contrib import messages
 from django.contrib.admin.views.decorators import staff_member_required
 from django.db.models import Avg, Count, Q
 from django.db.models.functions import TruncDay, TruncMonth, TruncWeek
 from django.shortcuts import render
 from django.utils import timezone
 
+from .admin_views import _load_database_encuestas_grid
 from .models import Application, FormGroup
 
 GROUP_SLUG_RE = re.compile(r"^G(?P<num>\d+)_")
+IMPACT_EMAIL_HEADERS = {"email", "correo", "correoelectronico", "mail"}
+IMPACT_EMAIL_TOKENS = ("email", "correo")
+IMPACT_TIMESTAMP_HEADERS = {
+    "timestamp",
+    "marcatemporal",
+    "fecha",
+    "fechadeenvio",
+    "submittedat",
+    "submissiondate",
+    "createdat",
+    "date",
+}
+IMPACT_METADATA_HEADERS = {
+    "timestamp",
+    "marcatemporal",
+    "fecha",
+    "fechadeenvio",
+    "submittedat",
+    "submissiondate",
+    "createdat",
+    "date",
+    "email",
+    "correo",
+    "correoelectronico",
+    "mail",
+    "name",
+    "nombre",
+    "full_name",
+    "fullname",
+    "id",
+    "applicationid",
+    "applicacionid",
+    "telefono",
+    "phone",
+    "whatsapp",
+}
 
 
 def _parse_iso_date(raw: str | None) -> date | None:
@@ -57,6 +95,215 @@ def _pct(part: int, total: int) -> float:
     if total <= 0:
         return 0.0
     return round((part / total) * 100, 1)
+
+
+def _normalized_header_key(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", str(value or "").strip().lower())
+
+
+def _non_empty_rows(rows: list[list[str]]) -> list[list[str]]:
+    out: list[list[str]] = []
+    for row in rows:
+        if any(str(cell or "").strip() for cell in row):
+            out.append(row)
+    return out
+
+
+def _safe_row_value(row: list[str], index: int | None) -> str:
+    if index is None:
+        return ""
+    if index < 0 or index >= len(row):
+        return ""
+    return str(row[index] or "").strip()
+
+
+def _find_header_index(
+    headers: list[str],
+    exact_keys: set[str],
+    contains_tokens: tuple[str, ...] = (),
+) -> int | None:
+    for idx, header in enumerate(headers):
+        normalized = _normalized_header_key(header)
+        if normalized in exact_keys:
+            return idx
+        if contains_tokens and any(token in normalized for token in contains_tokens):
+            return idx
+    return None
+
+
+def _extract_unique_emails(rows: list[list[str]], email_index: int | None) -> set[str]:
+    emails: set[str] = set()
+    if email_index is None:
+        return emails
+    for row in rows:
+        raw = _safe_row_value(row, email_index).lower().strip("<>[](){}\"'").rstrip(".,;:")
+        if "@" not in raw:
+            continue
+        emails.add(raw)
+    return emails
+
+
+def _build_question_completion(
+    headers: list[str],
+    rows: list[list[str]],
+    metadata_indices: set[int],
+) -> list[dict]:
+    total_rows = len(rows)
+    if total_rows <= 0:
+        return []
+
+    completion_rows: list[dict] = []
+    for idx, header in enumerate(headers):
+        if idx in metadata_indices:
+            continue
+        label = str(header or "").strip()
+        if not label:
+            continue
+        answered = 0
+        for row in rows:
+            if _safe_row_value(row, idx):
+                answered += 1
+        completion_rows.append(
+            {
+                "label": label,
+                "answered": answered,
+                "pct": _pct(answered, total_rows),
+            }
+        )
+    completion_rows.sort(key=lambda item: (-item["pct"], -item["answered"], item["label"]))
+    return completion_rows
+
+
+def _build_impact_dataset(kind: str, title: str, sheet_url_name: str) -> tuple[dict, set[str]]:
+    label, headers, raw_rows, file_name, file_id = _load_database_encuestas_grid(kind)
+    rows = _non_empty_rows(raw_rows)
+    response_count = len(rows)
+
+    email_index = _find_header_index(headers, IMPACT_EMAIL_HEADERS, IMPACT_EMAIL_TOKENS)
+    unique_emails = _extract_unique_emails(rows, email_index)
+    timestamp_index = _find_header_index(headers, IMPACT_TIMESTAMP_HEADERS)
+
+    metadata_indices: set[int] = set()
+    for idx, header in enumerate(headers):
+        normalized = _normalized_header_key(header)
+        if normalized in IMPACT_METADATA_HEADERS:
+            metadata_indices.add(idx)
+    if email_index is not None:
+        metadata_indices.add(email_index)
+    if timestamp_index is not None:
+        metadata_indices.add(timestamp_index)
+
+    completion_rows = _build_question_completion(headers, rows, metadata_indices)
+
+    dataset = {
+        "kind": kind,
+        "title": title,
+        "label": label,
+        "sheet_url_name": sheet_url_name,
+        "source_name": file_name,
+        "source_file_id": file_id,
+        "responses_count": response_count,
+        "headers_count": len(headers),
+        "question_count": len(completion_rows),
+        "unique_emails_count": len(unique_emails),
+        "email_column_label": headers[email_index] if email_index is not None else "",
+        "completion_rows": completion_rows[:10],
+    }
+    return dataset, unique_emails
+
+
+def _track_impact_summary(track_label: str, initial_dataset: dict, final_dataset: dict, initial_emails: set[str], final_emails: set[str]) -> dict:
+    initial_responses = int(initial_dataset.get("responses_count") or 0)
+    final_responses = int(final_dataset.get("responses_count") or 0)
+    initial_unique = int(initial_dataset.get("unique_emails_count") or 0)
+    final_unique = int(final_dataset.get("unique_emails_count") or 0)
+
+    matched = len(initial_emails & final_emails)
+    missing = max(len(initial_emails) - matched, 0)
+
+    return {
+        "label": track_label,
+        "initial_responses": initial_responses,
+        "final_responses": final_responses,
+        "response_growth": final_responses - initial_responses,
+        "final_vs_initial_pct": _pct(final_responses, initial_responses),
+        "initial_unique": initial_unique,
+        "final_unique": final_unique,
+        "matched_unique": matched,
+        "missing_from_final_unique": missing,
+        "retention_pct": _pct(matched, len(initial_emails)),
+    }
+
+
+@staff_member_required
+def dashboards_home(request):
+    return render(request, "admin_dash/dashboards_home.html")
+
+
+@staff_member_required
+def impact_dashboard(request):
+    datasets: dict[str, dict] = {}
+    email_sets: dict[str, set[str]] = {}
+    sections = [
+        ("emprendedoras", "Encuesta inicial - Emprendedoras", "admin_database_encuestas_sheet"),
+        ("emprendedoras_final", "Encuesta final - Emprendedoras", "admin_database_encuestas_final_sheet"),
+        ("mentoras", "Encuesta inicial - Mentoras", "admin_database_encuestas_mentoras_sheet"),
+        ("mentoras_final", "Encuesta final - Mentoras", "admin_database_encuestas_mentoras_final_sheet"),
+    ]
+
+    for kind, title, sheet_url_name in sections:
+        try:
+            dataset, email_set = _build_impact_dataset(kind, title, sheet_url_name)
+        except Exception as exc:
+            dataset = {
+                "kind": kind,
+                "title": title,
+                "sheet_url_name": sheet_url_name,
+                "error": str(exc),
+                "responses_count": 0,
+                "unique_emails_count": 0,
+                "question_count": 0,
+                "completion_rows": [],
+            }
+            email_set = set()
+            messages.error(request, f"Could not load {title}: {exc}")
+        datasets[kind] = dataset
+        email_sets[kind] = email_set
+
+    emprendedoras_summary = _track_impact_summary(
+        "Emprendedoras",
+        datasets["emprendedoras"],
+        datasets["emprendedoras_final"],
+        email_sets["emprendedoras"],
+        email_sets["emprendedoras_final"],
+    )
+    mentoras_summary = _track_impact_summary(
+        "Mentoras",
+        datasets["mentoras"],
+        datasets["mentoras_final"],
+        email_sets["mentoras"],
+        email_sets["mentoras_final"],
+    )
+
+    initial_union = email_sets["emprendedoras"] | email_sets["mentoras"]
+    final_union = email_sets["emprendedoras_final"] | email_sets["mentoras_final"]
+    overall_summary = {
+        "initial_responses": datasets["emprendedoras"]["responses_count"] + datasets["mentoras"]["responses_count"],
+        "final_responses": datasets["emprendedoras_final"]["responses_count"] + datasets["mentoras_final"]["responses_count"],
+        "initial_unique": len(initial_union),
+        "final_unique": len(final_union),
+        "matched_unique": len(initial_union & final_union),
+    }
+    overall_summary["response_growth"] = overall_summary["final_responses"] - overall_summary["initial_responses"]
+    overall_summary["final_vs_initial_pct"] = _pct(overall_summary["final_responses"], overall_summary["initial_responses"])
+    overall_summary["retention_pct"] = _pct(overall_summary["matched_unique"], overall_summary["initial_unique"])
+
+    context = {
+        "overall": overall_summary,
+        "track_summaries": [emprendedoras_summary, mentoras_summary],
+        "datasets": datasets,
+    }
+    return render(request, "admin_dash/impact_dashboard.html", context)
 
 
 @staff_member_required

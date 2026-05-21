@@ -1,0 +1,72 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+<div class="ce-admin-wrap">
+  <div class="ce-admin-card">
+    <style>
+      .ce-dash-home-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+      .ce-dash-home-title {
+        margin: 0;
+        font-size: 30px;
+        color: #0f172a;
+      }
+      .ce-dash-home-sub {
+        margin-top: 6px;
+        color: #475569;
+      }
+      .ce-dash-home-grid {
+        margin-top: 18px;
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        gap: 12px;
+      }
+      .ce-dash-home-tile {
+        display: block;
+        border: 1px solid #d9e4f6;
+        border-radius: 14px;
+        padding: 18px;
+        text-decoration: none;
+        background: linear-gradient(165deg, #ffffff 0%, #f8fbff 100%);
+        color: #0f172a;
+      }
+      .ce-dash-home-tile:hover {
+        border-color: #93c5fd;
+      }
+      .ce-dash-home-tile h2 {
+        margin: 0;
+        font-size: 20px;
+      }
+      .ce-dash-home-tile p {
+        margin: 8px 0 0;
+        color: #475569;
+      }
+    </style>
+
+    <div class="ce-dash-home-head">
+      <div>
+        <h1 class="ce-dash-home-title">Dashboards</h1>
+        <div class="ce-dash-home-sub">Choose which dashboard you want to open.</div>
+      </div>
+      <a class="button" href="/admin/">Admin home</a>
+    </div>
+
+    <div class="ce-dash-home-grid">
+      <a class="ce-dash-home-tile" href="{% url 'admin_impact_dashboard' %}">
+        <h2>Impact Dashboard</h2>
+        <p>Encuesta inicial and final insights, separated by emprendedoras and mentoras.</p>
+      </a>
+      <a class="ce-dash-home-tile" href="{% url 'admin_applications_dashboard' %}">
+        <h2>Application Dashboard</h2>
+        <p>Application volume, group trends, and operational metrics.</p>
+      </a>
+    </div>
+
+  </div>
+</div>
+{% endblock %}

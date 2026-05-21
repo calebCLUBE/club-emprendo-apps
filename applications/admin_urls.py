@@ -5,6 +5,8 @@ from . import admin_views, admin_dashboard_views, admin_profiles_views
 urlpatterns = [
     path("apps/", admin_views.apps_list, name="admin_apps_list"),
     path("apps/dashboard/", admin_dashboard_views.applications_dashboard, name="admin_applications_dashboard"),
+    path("dashboards/", admin_dashboard_views.dashboards_home, name="admin_dashboards_home"),
+    path("dashboards/impact/", admin_dashboard_views.impact_dashboard, name="admin_impact_dashboard"),
     path("apps/create-group/", admin_views.create_group, name="admin_create_group"),
     path("apps/rename-group/<int:group_num>/", admin_views.rename_group, name="admin_rename_group"),
     path("apps/update-group/<int:group_num>/", admin_views.update_group_dates, name="admin_update_group"),

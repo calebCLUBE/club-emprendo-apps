@@ -751,6 +751,7 @@
     let lastViewportCi = null;
     let lastSelectorRi = null;
     let lastSelectorCi = null;
+    let lastSortFilterCi = null;
 
     function colIndexFromLabel(label) {
       let out = 0;
@@ -1050,19 +1051,76 @@
       return isCheckboxColumn(ci) || isCheckboxLikeFilterValues(values);
     }
 
+    function parseColumnIndexCandidate(value) {
+      if (value == null) {
+        return null;
+      }
+
+      if (typeof value === 'number') {
+        if (Number.isFinite(value) && value >= 0) {
+          return Math.floor(value);
+        }
+        return null;
+      }
+
+      if (typeof value === 'string') {
+        const raw = value.trim();
+        if (!raw) {
+          return null;
+        }
+        if (/^\d+$/.test(raw)) {
+          const out = Number(raw);
+          return Number.isFinite(out) && out >= 0 ? out : null;
+        }
+        if (/^\$?[A-Za-z]+\$?\d+$/.test(raw)) {
+          const m = /^\$?([A-Za-z]+)\$?\d+$/.exec(raw);
+          if (m && m[1]) {
+            return colIndexFromLabel(m[1].toUpperCase());
+          }
+        }
+        if (/^\$?[A-Za-z]+$/.test(raw)) {
+          return colIndexFromLabel(raw.replace(/\$/g, '').toUpperCase());
+        }
+        return null;
+      }
+
+      if (typeof value === 'object') {
+        const keys = ['ci', 'col', 'column', 'index', 'c', 'value'];
+        for (let i = 0; i < keys.length; i += 1) {
+          const key = keys[i];
+          if (!Object.prototype.hasOwnProperty.call(value, key)) {
+            continue;
+          }
+          const parsed = parseColumnIndexCandidate(value[key]);
+          if (Number.isFinite(parsed) && parsed >= 0) {
+            return parsed;
+          }
+        }
+      }
+
+      return null;
+    }
+
     function resolveFilterColumnIndex(ci, candidateIndexes) {
-      const direct = Number(ci);
+      const direct = parseColumnIndexCandidate(ci);
       if (Number.isFinite(direct) && direct >= 0) {
         return direct;
       }
 
       if (Array.isArray(candidateIndexes)) {
         for (let i = 0; i < candidateIndexes.length; i += 1) {
-          const candidate = Number(candidateIndexes[i]);
+          const candidate = parseColumnIndexCandidate(candidateIndexes[i]);
           if (Number.isFinite(candidate) && candidate >= 0) {
             return candidate;
           }
         }
+      }
+
+      if (Number.isFinite(lastSortFilterCi) && lastSortFilterCi >= 0) {
+        return lastSortFilterCi;
+      }
+      if (Number.isFinite(lastSelectorCi) && lastSelectorCi >= 0) {
+        return lastSelectorCi;
       }
 
       const selectorCi = Number(
@@ -3197,7 +3255,15 @@
       }
       const originalSet = sortFilter.set.bind(sortFilter);
       sortFilter.set = function patchedSortFilterSet(ci, items, filter, sort) {
-        const colIdx = resolveFilterColumnIndex(ci, [sortFilter.ci]);
+        const colIdx = resolveFilterColumnIndex(ci, [
+          sortFilter.ci,
+          sortFilter.col,
+          sortFilter.column,
+          sortFilter.index,
+        ]);
+        if (Number.isFinite(colIdx) && colIdx >= 0) {
+          lastSortFilterCi = colIdx;
+        }
         let nextItems = items;
         let nextFilter = filter;
         const treatAsCheckbox = filterTargetsCheckboxColumn(
@@ -3297,10 +3363,16 @@
 
       const originalOk = sortFilter.ok.bind(sortFilter);
       sortFilter.ok = function patchedSortFilterOk(ci, order, operator, values) {
-        const popupCi = Number.isFinite(Number(sortFilter.ci)) && Number(sortFilter.ci) >= 0
-          ? Number(sortFilter.ci)
-          : null;
-        const colIdx = resolveFilterColumnIndex(ci, [popupCi]);
+        const popupCi = parseColumnIndexCandidate(sortFilter.ci);
+        const colIdx = resolveFilterColumnIndex(ci, [
+          popupCi,
+          sortFilter.col,
+          sortFilter.column,
+          sortFilter.index,
+        ]);
+        if (Number.isFinite(colIdx) && colIdx >= 0) {
+          lastSortFilterCi = colIdx;
+        }
         const ascSelected = !!(
           sortFilter.sortAscEl &&
           typeof sortFilter.sortAscEl.hasClass === 'function' &&
@@ -3322,7 +3394,7 @@
         let normalizedValues = values;
         let normalizedOperator = operator;
         const treatAsCheckbox = filterTargetsCheckboxColumn(colIdx, values)
-          || (popupCi != null && filterTargetsCheckboxColumn(popupCi, values));
+          || (Number.isFinite(popupCi) && popupCi >= 0 && filterTargetsCheckboxColumn(popupCi, values));
         const ensured = ensureFullRangeFilter({
           reload: false,
           clearExisting: treatAsCheckbox,
@@ -3342,9 +3414,9 @@
           const data = sheetCore && sheetCore.data ? sheetCore.data : activeSheetData;
           if (data && typeof data.setAutoFilter === 'function') {
             let targetCi = colIdx;
-            if (popupCi != null && isCheckboxColumn(popupCi)) {
+            if (Number.isFinite(popupCi) && popupCi >= 0 && isCheckboxColumn(popupCi)) {
               targetCi = popupCi;
-            } else if (!isCheckboxColumn(targetCi) && popupCi != null) {
+            } else if (!isCheckboxColumn(targetCi) && Number.isFinite(popupCi) && popupCi >= 0) {
               targetCi = popupCi;
             }
             // Apply checkbox filters directly to avoid vendor popup OK path

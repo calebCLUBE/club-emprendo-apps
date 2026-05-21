@@ -18,6 +18,16 @@ urlpatterns = [
         admin_dashboard_views.applications_dashboard,
         name="admin_applications_dashboard",
     ),
+    path(
+        "admin/dashboards/",
+        admin_dashboard_views.dashboards_home,
+        name="admin_dashboards_home",
+    ),
+    path(
+        "admin/dashboards/impact/",
+        admin_dashboard_views.impact_dashboard,
+        name="admin_impact_dashboard",
+    ),
     path("admin/apps/create-group/", admin_views.create_group, name="admin_create_group"),
     path("admin/apps/rename-group/<int:group_num>/", admin_views.rename_group, name="admin_rename_group"),
     path("admin/apps/update-group/<int:group_num>/", admin_views.update_group_dates, name="admin_update_group"),

@@ -207,7 +207,7 @@ def _build_impact_dataset(kind: str, title: str, sheet_url_name: str) -> tuple[d
         "question_count": len(completion_rows),
         "unique_emails_count": len(unique_emails),
         "email_column_label": headers[email_index] if email_index is not None else "",
-        "completion_rows": completion_rows[:10],
+        "completion_rows": completion_rows,
     }
     return dataset, unique_emails
 
@@ -242,18 +242,73 @@ def dashboards_home(request):
 
 @staff_member_required
 def impact_dashboard(request):
-    datasets: dict[str, dict] = {}
-    email_sets: dict[str, set[str]] = {}
+    track_filter = (request.GET.get("track") or "all").strip().lower()
+    if track_filter not in {"all", "e", "m"}:
+        track_filter = "all"
+
+    stage_filter = (request.GET.get("stage") or "all").strip().lower()
+    if stage_filter not in {"all", "initial", "final"}:
+        stage_filter = "all"
+
+    top_n = _safe_int(request.GET.get("top_n"), default=10, minimum=3, maximum=40)
+
+    customize_mode = _is_truthy(request.GET.get("customize"))
+    show_cards = _is_truthy(request.GET.get("show_cards")) if customize_mode else True
+    show_visuals = _is_truthy(request.GET.get("show_visuals")) if customize_mode else True
+    show_volume_chart = _is_truthy(request.GET.get("show_volume_chart")) if customize_mode else True
+    show_track_table = _is_truthy(request.GET.get("show_track_table")) if customize_mode else True
+    show_dataset_cards = _is_truthy(request.GET.get("show_dataset_cards")) if customize_mode else True
+    show_completion_e = _is_truthy(request.GET.get("show_completion_e")) if customize_mode else True
+    show_completion_m = _is_truthy(request.GET.get("show_completion_m")) if customize_mode else True
+
     sections = [
-        ("emprendedoras", "Encuesta inicial - Emprendedoras", "admin_database_encuestas_sheet"),
-        ("emprendedoras_final", "Encuesta final - Emprendedoras", "admin_database_encuestas_final_sheet"),
-        ("mentoras", "Encuesta inicial - Mentoras", "admin_database_encuestas_mentoras_sheet"),
-        ("mentoras_final", "Encuesta final - Mentoras", "admin_database_encuestas_mentoras_final_sheet"),
+        {
+            "kind": "emprendedoras",
+            "title": "Encuesta inicial - Emprendedoras",
+            "sheet_url_name": "admin_database_encuestas_sheet",
+            "track": "e",
+            "stage": "initial",
+            "short_label": "E inicial",
+            "color": "#3B82F6",
+        },
+        {
+            "kind": "emprendedoras_final",
+            "title": "Encuesta final - Emprendedoras",
+            "sheet_url_name": "admin_database_encuestas_final_sheet",
+            "track": "e",
+            "stage": "final",
+            "short_label": "E final",
+            "color": "#14B8A6",
+        },
+        {
+            "kind": "mentoras",
+            "title": "Encuesta inicial - Mentoras",
+            "sheet_url_name": "admin_database_encuestas_mentoras_sheet",
+            "track": "m",
+            "stage": "initial",
+            "short_label": "M inicial",
+            "color": "#8B5CF6",
+        },
+        {
+            "kind": "mentoras_final",
+            "title": "Encuesta final - Mentoras",
+            "sheet_url_name": "admin_database_encuestas_mentoras_final_sheet",
+            "track": "m",
+            "stage": "final",
+            "short_label": "M final",
+            "color": "#F59E0B",
+        },
     ]
 
-    for kind, title, sheet_url_name in sections:
+    datasets: dict[str, dict] = {}
+    email_sets: dict[str, set[str]] = {}
+    for section in sections:
+        kind = section["kind"]
+        title = section["title"]
+        sheet_url_name = section["sheet_url_name"]
         try:
             dataset, email_set = _build_impact_dataset(kind, title, sheet_url_name)
+            dataset["completion_rows"] = list(dataset.get("completion_rows") or [])[:top_n]
         except Exception as exc:
             dataset = {
                 "kind": kind,
@@ -270,26 +325,30 @@ def impact_dashboard(request):
         datasets[kind] = dataset
         email_sets[kind] = email_set
 
-    emprendedoras_summary = _track_impact_summary(
-        "Emprendedoras",
-        datasets["emprendedoras"],
-        datasets["emprendedoras_final"],
-        email_sets["emprendedoras"],
-        email_sets["emprendedoras_final"],
-    )
-    mentoras_summary = _track_impact_summary(
-        "Mentoras",
-        datasets["mentoras"],
-        datasets["mentoras_final"],
-        email_sets["mentoras"],
-        email_sets["mentoras_final"],
-    )
+    def _in_scope(section: dict) -> bool:
+        if track_filter != "all" and section["track"] != track_filter:
+            return False
+        if stage_filter != "all" and section["stage"] != stage_filter:
+            return False
+        return True
 
-    initial_union = email_sets["emprendedoras"] | email_sets["mentoras"]
-    final_union = email_sets["emprendedoras_final"] | email_sets["mentoras_final"]
+    scoped_sections = [section for section in sections if _in_scope(section)]
+    visible_kinds = {section["kind"] for section in scoped_sections}
+
+    initial_sections = [section for section in scoped_sections if section["stage"] == "initial"]
+    final_sections = [section for section in scoped_sections if section["stage"] == "final"]
+
+    initial_union: set[str] = set()
+    for section in initial_sections:
+        initial_union |= email_sets.get(section["kind"], set())
+
+    final_union: set[str] = set()
+    for section in final_sections:
+        final_union |= email_sets.get(section["kind"], set())
+
     overall_summary = {
-        "initial_responses": datasets["emprendedoras"]["responses_count"] + datasets["mentoras"]["responses_count"],
-        "final_responses": datasets["emprendedoras_final"]["responses_count"] + datasets["mentoras_final"]["responses_count"],
+        "initial_responses": sum(datasets[section["kind"]]["responses_count"] for section in initial_sections),
+        "final_responses": sum(datasets[section["kind"]]["responses_count"] for section in final_sections),
         "initial_unique": len(initial_union),
         "final_unique": len(final_union),
         "matched_unique": len(initial_union & final_union),
@@ -298,19 +357,62 @@ def impact_dashboard(request):
     overall_summary["final_vs_initial_pct"] = _pct(overall_summary["final_responses"], overall_summary["initial_responses"])
     overall_summary["retention_pct"] = _pct(overall_summary["matched_unique"], overall_summary["initial_unique"])
 
+    track_summaries = []
+    for track_key, track_label in (("e", "Emprendedoras"), ("m", "Mentoras")):
+        if track_filter != "all" and track_filter != track_key:
+            continue
+        track_initial_sections = [
+            section for section in scoped_sections
+            if section["track"] == track_key and section["stage"] == "initial"
+        ]
+        track_final_sections = [
+            section for section in scoped_sections
+            if section["track"] == track_key and section["stage"] == "final"
+        ]
+
+        track_initial_emails: set[str] = set()
+        for section in track_initial_sections:
+            track_initial_emails |= email_sets.get(section["kind"], set())
+
+        track_final_emails: set[str] = set()
+        for section in track_final_sections:
+            track_final_emails |= email_sets.get(section["kind"], set())
+
+        track_initial_responses = sum(datasets[section["kind"]]["responses_count"] for section in track_initial_sections)
+        track_final_responses = sum(datasets[section["kind"]]["responses_count"] for section in track_final_sections)
+        track_matched = len(track_initial_emails & track_final_emails)
+        track_summaries.append(
+            {
+                "label": track_label,
+                "initial_responses": track_initial_responses,
+                "final_responses": track_final_responses,
+                "response_growth": track_final_responses - track_initial_responses,
+                "final_vs_initial_pct": _pct(track_final_responses, track_initial_responses),
+                "initial_unique": len(track_initial_emails),
+                "final_unique": len(track_final_emails),
+                "matched_unique": track_matched,
+                "retention_pct": _pct(track_matched, len(track_initial_emails)),
+            }
+        )
+
     flow_points = [
-        {"label": "E inicial", "count": datasets["emprendedoras"]["responses_count"]},
-        {"label": "E final", "count": datasets["emprendedoras_final"]["responses_count"]},
-        {"label": "M inicial", "count": datasets["mentoras"]["responses_count"]},
-        {"label": "M final", "count": datasets["mentoras_final"]["responses_count"]},
+        {
+            "label": section["short_label"],
+            "count": datasets[section["kind"]]["responses_count"],
+        }
+        for section in scoped_sections
     ]
+
     dataset_mix = [
-        {"label": "E inicial", "value": datasets["emprendedoras"]["responses_count"], "color": "#3B82F6"},
-        {"label": "E final", "value": datasets["emprendedoras_final"]["responses_count"], "color": "#14B8A6"},
-        {"label": "M inicial", "value": datasets["mentoras"]["responses_count"], "color": "#8B5CF6"},
-        {"label": "M final", "value": datasets["mentoras_final"]["responses_count"], "color": "#F59E0B"},
+        {
+            "label": section["short_label"],
+            "value": datasets[section["kind"]]["responses_count"],
+            "color": section["color"],
+        }
+        for section in scoped_sections
     ]
     max_dataset_value = max(max([item["value"] for item in dataset_mix], default=0), 1)
+
     retention_mix = [
         {"label": "Retained unique", "value": overall_summary["matched_unique"], "color": "#22C55E"},
         {
@@ -325,10 +427,30 @@ def impact_dashboard(request):
         },
     ]
 
+    source_datasets = [datasets[section["kind"]] for section in scoped_sections]
+
     context = {
+        "track_filter": track_filter,
+        "stage_filter": stage_filter,
+        "top_n": top_n,
+        "show_cards": show_cards,
+        "show_visuals": show_visuals,
+        "show_volume_chart": show_volume_chart,
+        "show_track_table": show_track_table,
+        "show_dataset_cards": show_dataset_cards,
+        "show_completion_e": show_completion_e,
+        "show_completion_m": show_completion_m,
+        "show_e_initial": "emprendedoras" in visible_kinds,
+        "show_e_final": "emprendedoras_final" in visible_kinds,
+        "show_m_initial": "mentoras" in visible_kinds,
+        "show_m_final": "mentoras_final" in visible_kinds,
+        "has_e_completion_cards": ("emprendedoras" in visible_kinds) or ("emprendedoras_final" in visible_kinds),
+        "has_m_completion_cards": ("mentoras" in visible_kinds) or ("mentoras_final" in visible_kinds),
+        "has_scoped_data": bool(scoped_sections),
         "overall": overall_summary,
-        "track_summaries": [emprendedoras_summary, mentoras_summary],
+        "track_summaries": track_summaries,
         "datasets": datasets,
+        "source_datasets": source_datasets,
         "flow_points": flow_points,
         "dataset_mix": dataset_mix,
         "max_dataset_value": max_dataset_value,

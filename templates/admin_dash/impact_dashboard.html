@@ -79,6 +79,55 @@
         color: var(--ce-muted);
         font-size: 13px;
       }
+      .ce-filter-wrap summary {
+        cursor: pointer;
+        font-weight: 700;
+        color: #223413;
+      }
+      .ce-filter-grid {
+        display: grid;
+        gap: 10px;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        margin: 12px 0 14px;
+      }
+      .ce-filter-grid label {
+        display: block;
+        font-size: 12px;
+        font-weight: 700;
+        color: #344054;
+        margin-bottom: 5px;
+      }
+      .ce-filter-grid input,
+      .ce-filter-grid select {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 9px;
+        border: 1px solid #d4dce8;
+        border-radius: 8px;
+        background: #fff;
+      }
+      .ce-filter-sections {
+        display: grid;
+        gap: 8px;
+        grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+        border: 1px solid #e2e8f0;
+        border-radius: 10px;
+        background: var(--ce-bg-soft);
+        padding: 10px;
+      }
+      .ce-filter-sections label {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        color: #334155;
+        font-size: 13px;
+      }
+      .ce-filter-actions {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-top: 12px;
+      }
       .ce-kpi-grid {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
@@ -322,6 +371,57 @@
         </div>
       </div>
 
+      <details class="ce-panel ce-filter-wrap" open>
+        <summary>Filters and Layout Controls</summary>
+        <form method="get">
+          <input type="hidden" name="customize" value="1">
+          <div class="ce-filter-grid">
+            <div>
+              <label for="track">Track</label>
+              <select id="track" name="track">
+                <option value="all" {% if track_filter == "all" %}selected{% endif %}>All tracks</option>
+                <option value="e" {% if track_filter == "e" %}selected{% endif %}>Emprendedoras only</option>
+                <option value="m" {% if track_filter == "m" %}selected{% endif %}>Mentoras only</option>
+              </select>
+            </div>
+            <div>
+              <label for="stage">Survey stage</label>
+              <select id="stage" name="stage">
+                <option value="all" {% if stage_filter == "all" %}selected{% endif %}>Initial + Final</option>
+                <option value="initial" {% if stage_filter == "initial" %}selected{% endif %}>Initial only</option>
+                <option value="final" {% if stage_filter == "final" %}selected{% endif %}>Final only</option>
+              </select>
+            </div>
+            <div>
+              <label for="top_n">Question rows shown per table</label>
+              <input id="top_n" type="number" min="3" max="40" name="top_n" value="{{ top_n }}">
+            </div>
+          </div>
+
+          <div class="ce-filter-sections">
+            <label><input type="checkbox" name="show_cards" value="1" {% if show_cards %}checked{% endif %}> Overall KPI cards</label>
+            <label><input type="checkbox" name="show_visuals" value="1" {% if show_visuals %}checked{% endif %}> Visual charts (line + donuts)</label>
+            <label><input type="checkbox" name="show_volume_chart" value="1" {% if show_volume_chart %}checked{% endif %}> Response volume bars</label>
+            <label><input type="checkbox" name="show_track_table" value="1" {% if show_track_table %}checked{% endif %}> Track comparison table</label>
+            <label><input type="checkbox" name="show_dataset_cards" value="1" {% if show_dataset_cards %}checked{% endif %}> Source dataset cards</label>
+            <label><input type="checkbox" name="show_completion_e" value="1" {% if show_completion_e %}checked{% endif %}> Emprendedoras completion tables</label>
+            <label><input type="checkbox" name="show_completion_m" value="1" {% if show_completion_m %}checked{% endif %}> Mentoras completion tables</label>
+          </div>
+
+          <div class="ce-filter-actions">
+            <button class="ce-btn" type="submit">Apply dashboard settings</button>
+            <a class="ce-btn ce-btn--ghost" href="{% url 'admin_impact_dashboard' %}">Reset</a>
+          </div>
+        </form>
+      </details>
+
+      {% if not has_scoped_data %}
+        <section class="ce-panel">
+          <p class="ce-empty">No datasets match the current filters.</p>
+        </section>
+      {% endif %}
+
+      {% if show_cards %}
       <section class="ce-panel">
         <h2 class="ce-panel-title">Overall Impact Snapshot</h2>
         <p class="ce-panel-subtitle">Top-line impact movement across initial and final surveys.</p>
@@ -354,7 +454,9 @@
           </div>
         </div>
       </section>
+      {% endif %}
 
+      {% if show_visuals %}
       <section class="ce-panel">
         <h2 class="ce-panel-title">Visual Insights</h2>
         <p class="ce-panel-subtitle">Flow and composition charts for quick scan.</p>
@@ -394,7 +496,9 @@
           </div>
         </div>
       </section>
+      {% endif %}
 
+      {% if show_volume_chart %}
       <section class="ce-panel">
         <h2 class="ce-panel-title">Response Volume By Dataset</h2>
         <p class="ce-panel-subtitle">Initial and final response totals across both tracks.</p>
@@ -412,7 +516,9 @@
           {% endfor %}
         </div>
       </section>
+      {% endif %}
 
+      {% if show_track_table %}
       <section class="ce-panel">
         <h2 class="ce-panel-title">Track Comparison</h2>
         <table class="ce-table">
@@ -444,11 +550,13 @@
           </tbody>
         </table>
       </section>
+      {% endif %}
 
+      {% if show_dataset_cards %}
       <section class="ce-panel">
         <h2 class="ce-panel-title">Source Datasets</h2>
         <div class="ce-dataset-grid">
-          {% with d=datasets.emprendedoras %}
+          {% for d in source_datasets %}
             <div class="ce-dataset">
               <h3>{{ d.title }}</h3>
               {% if d.error %}
@@ -458,49 +566,18 @@
                 <a class="ce-link" href="{% url d.sheet_url_name %}">Open sheet</a>
               {% endif %}
             </div>
-          {% endwith %}
-
-          {% with d=datasets.emprendedoras_final %}
-            <div class="ce-dataset">
-              <h3>{{ d.title }}</h3>
-              {% if d.error %}
-                <div class="ce-error">{{ d.error }}</div>
-              {% else %}
-                <div class="ce-dataset-sub">{{ d.responses_count }} responses • {{ d.unique_emails_count }} unique emails • {{ d.question_count }} question columns</div>
-                <a class="ce-link" href="{% url d.sheet_url_name %}">Open sheet</a>
-              {% endif %}
-            </div>
-          {% endwith %}
-
-          {% with d=datasets.mentoras %}
-            <div class="ce-dataset">
-              <h3>{{ d.title }}</h3>
-              {% if d.error %}
-                <div class="ce-error">{{ d.error }}</div>
-              {% else %}
-                <div class="ce-dataset-sub">{{ d.responses_count }} responses • {{ d.unique_emails_count }} unique emails • {{ d.question_count }} question columns</div>
-                <a class="ce-link" href="{% url d.sheet_url_name %}">Open sheet</a>
-              {% endif %}
-            </div>
-          {% endwith %}
-
-          {% with d=datasets.mentoras_final %}
-            <div class="ce-dataset">
-              <h3>{{ d.title }}</h3>
-              {% if d.error %}
-                <div class="ce-error">{{ d.error }}</div>
-              {% else %}
-                <div class="ce-dataset-sub">{{ d.responses_count }} responses • {{ d.unique_emails_count }} unique emails • {{ d.question_count }} question columns</div>
-                <a class="ce-link" href="{% url d.sheet_url_name %}">Open sheet</a>
-              {% endif %}
-            </div>
-          {% endwith %}
+          {% empty %}
+            <p class="ce-empty">No source datasets match the selected filters.</p>
+          {% endfor %}
         </div>
       </section>
+      {% endif %}
 
+      {% if show_completion_e and has_e_completion_cards %}
       <section class="ce-panel">
-        <h2 class="ce-panel-title">Question Completion: Emprendedoras</h2>
+        <h2 class="ce-panel-title">Question Completion: Emprendedoras (Top {{ top_n }})</h2>
         <div class="ce-completion-grid">
+          {% if show_e_initial %}
           {% with d=datasets.emprendedoras %}
             <div class="ce-completion-card">
               <h3>Encuesta inicial</h3>
@@ -530,7 +607,9 @@
               {% endif %}
             </div>
           {% endwith %}
+          {% endif %}
 
+          {% if show_e_final %}
           {% with d=datasets.emprendedoras_final %}
             <div class="ce-completion-card">
               <h3>Encuesta final</h3>
@@ -560,12 +639,16 @@
               {% endif %}
             </div>
           {% endwith %}
+          {% endif %}
         </div>
       </section>
+      {% endif %}
 
+      {% if show_completion_m and has_m_completion_cards %}
       <section class="ce-panel">
-        <h2 class="ce-panel-title">Question Completion: Mentoras</h2>
+        <h2 class="ce-panel-title">Question Completion: Mentoras (Top {{ top_n }})</h2>
         <div class="ce-completion-grid">
+          {% if show_m_initial %}
           {% with d=datasets.mentoras %}
             <div class="ce-completion-card">
               <h3>Encuesta inicial</h3>
@@ -595,7 +678,9 @@
               {% endif %}
             </div>
           {% endwith %}
+          {% endif %}
 
+          {% if show_m_final %}
           {% with d=datasets.mentoras_final %}
             <div class="ce-completion-card">
               <h3>Encuesta final</h3>
@@ -625,8 +710,10 @@
               {% endif %}
             </div>
           {% endwith %}
+          {% endif %}
         </div>
       </section>
+      {% endif %}
     </div>
   </div>
 </div>

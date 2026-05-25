@@ -752,6 +752,7 @@
     let lastSelectorRi = null;
     let lastSelectorCi = null;
     let lastSortFilterCi = null;
+    let activeSortFilterCi = null;
 
     function colIndexFromLabel(label) {
       let out = 0;
@@ -1101,7 +1102,39 @@
       return null;
     }
 
-    function resolveFilterColumnIndex(ci, candidateIndexes) {
+    function currentSortFilterInstance() {
+      const sheetCore = activeSpreadsheet && activeSpreadsheet.sheet ? activeSpreadsheet.sheet : null;
+      return sheetCore && sheetCore.sortFilter ? sheetCore.sortFilter : null;
+    }
+
+    function rememberSortFilterColumn(value) {
+      const parsed = parseColumnIndexCandidate(value);
+      if (!Number.isFinite(parsed) || parsed < 0) {
+        return null;
+      }
+      lastSortFilterCi = parsed;
+      activeSortFilterCi = parsed;
+      const sortFilter = currentSortFilterInstance();
+      if (sortFilter) {
+        try {
+          sortFilter.ci = parsed;
+        } catch (err) {
+          // Keep the remembered value even if the vendor object is sealed.
+        }
+      }
+      return parsed;
+    }
+
+    function resolveFilterColumnIndex(ci, candidateIndexes, options) {
+      const opts = options && typeof options === 'object' ? options : {};
+      if (
+        opts.preferRemembered === true &&
+        Number.isFinite(activeSortFilterCi) &&
+        activeSortFilterCi >= 0
+      ) {
+        return activeSortFilterCi;
+      }
+
       const direct = parseColumnIndexCandidate(ci);
       if (Number.isFinite(direct) && direct >= 0) {
         return direct;
@@ -1116,6 +1149,9 @@
         }
       }
 
+      if (Number.isFinite(activeSortFilterCi) && activeSortFilterCi >= 0) {
+        return activeSortFilterCi;
+      }
       if (Number.isFinite(lastSortFilterCi) && lastSortFilterCi >= 0) {
         return lastSortFilterCi;
       }
@@ -2936,6 +2972,11 @@
         return { ok: false, message: 'No filter state to clear.' };
       }
       data.autoFilter.clear();
+      data.exceptRowSet = new Set();
+      data.sortedRowMap = new Map();
+      data.unsortedRowMap = new Map();
+      activeSortFilterCi = null;
+      lastSortFilterCi = null;
       if (sheetCore && typeof sheetCore.reload === 'function') {
         sheetCore.reload();
       } else if (activeSpreadsheet && typeof activeSpreadsheet.reRender === 'function') {
@@ -3024,6 +3065,114 @@
       return (rowA - rowB) * dir;
     }
 
+    function applyManualAutoFilter(data) {
+      if (!data || !data.rows || !data.autoFilter) {
+        return { ok: false, included: 0, excluded: 0 };
+      }
+
+      let range = null;
+      try {
+        range = typeof data.autoFilter.range === 'function'
+          ? data.autoFilter.range()
+          : null;
+      } catch (err) {
+        range = null;
+      }
+
+      const rowLen = Number.isFinite(data.rows && data.rows.len)
+        ? Number(data.rows.len)
+        : 0;
+      const startRow = range && Number.isFinite(range.sri)
+        ? Math.max(1, Number(range.sri) + 1)
+        : 1;
+      const endRow = range && Number.isFinite(range.eri)
+        ? Math.max(startRow - 1, Math.min(Number(range.eri), rowLen - 1))
+        : Math.max(0, rowLen - 1);
+      const filters = Array.isArray(data.autoFilter.filters)
+        ? data.autoFilter.filters.filter(Boolean)
+        : [];
+      const includedRows = [];
+      const excludedRows = new Set();
+      const rows = data.rows;
+
+      for (let ri = startRow; ri <= endRow; ri += 1) {
+        let include = true;
+        for (let i = 0; i < filters.length; i += 1) {
+          const filter = filters[i];
+          const colIdx = Number(filter && filter.ci);
+          if (!Number.isFinite(colIdx) || colIdx < 0) {
+            continue;
+          }
+
+          const operator = String(filter.operator || '').trim().toLowerCase();
+          if (operator === 'all') {
+            continue;
+          }
+
+          const isCheckbox = filterTargetsCheckboxColumn(colIdx, filter.value);
+          let cellText = cellTextFromRows(rows, ri, colIdx);
+          let allowedValues = Array.isArray(filter.value) ? filter.value.slice() : [];
+          if (isCheckbox) {
+            cellText = normalizeCheckboxText(cellText);
+            allowedValues = normalizeCheckboxFilterValues(allowedValues);
+          } else {
+            cellText = String(cellText == null ? '' : cellText);
+            allowedValues = allowedValues.map(function (v) {
+              return String(v == null ? '' : v);
+            });
+          }
+
+          if (operator === 'in') {
+            if (!allowedValues.includes(cellText)) {
+              include = false;
+              break;
+            }
+            continue;
+          }
+
+          if (typeof filter.includes === 'function' && !filter.includes(cellText)) {
+            include = false;
+            break;
+          }
+        }
+
+        if (include) {
+          includedRows.push(ri);
+        } else {
+          excludedRows.add(ri);
+        }
+      }
+
+      const sortedRows = includedRows.slice();
+      const sortInfo = data.autoFilter.sort || null;
+      const sortCi = Number(sortInfo && sortInfo.ci);
+      const sortOrder = sortInfo && (sortInfo.order === 'asc' || sortInfo.order === 'desc')
+        ? sortInfo.order
+        : null;
+      if (sortOrder && Number.isFinite(sortCi) && sortCi >= 0) {
+        sortedRows.sort(function (a, b) {
+          return compareRowsByColumn(rows, sortCi, a, b, sortOrder);
+        });
+      }
+
+      data.exceptRowSet = excludedRows;
+      data.sortedRowMap = new Map();
+      data.unsortedRowMap = new Map();
+      sortedRows.forEach(function (sourceRi, visibleOffset) {
+        const visibleRi = startRow + visibleOffset;
+        data.sortedRowMap.set(visibleRi, sourceRi);
+        data.unsortedRowMap.set(sourceRi, visibleRi);
+      });
+      data.exceptRowSet.delete(0);
+      data.sortedRowMap.delete(0);
+      data.unsortedRowMap.delete(0);
+      return {
+        ok: true,
+        included: includedRows.length,
+        excluded: excludedRows.size,
+      };
+    }
+
     function patchAutoFilterRuntime(spreadsheet) {
       const sheetCore = spreadsheet && spreadsheet.sheet ? spreadsheet.sheet : null;
       const data = sheetCore && sheetCore.data ? sheetCore.data : null;
@@ -3070,6 +3219,17 @@
             filter.value = normalized;
           }
         });
+
+        const hasActiveFilterOrSort = filters.some(function (filter) {
+          const operator = String(filter && filter.operator ? filter.operator : '').trim().toLowerCase();
+          return operator && operator !== 'all';
+        }) || !!(auto.sort && (auto.sort.order === 'asc' || auto.sort.order === 'desc'));
+        if (hasActiveFilterOrSort) {
+          const manualResult = applyManualAutoFilter(this);
+          if (manualResult && manualResult.ok) {
+            return;
+          }
+        }
 
         if (hasCheckboxFilter) {
           let range = null;
@@ -3260,18 +3420,38 @@
           sortFilter.col,
           sortFilter.column,
           sortFilter.index,
-        ]);
+        ], { preferRemembered: true });
         if (Number.isFinite(colIdx) && colIdx >= 0) {
-          lastSortFilterCi = colIdx;
+          rememberSortFilterColumn(colIdx);
         }
         let nextItems = items;
         let nextFilter = filter;
+        ensureFullRangeFilter({ reload: false });
+        const data = sheetCore && sheetCore.data ? sheetCore.data : activeSheetData;
+        if (
+          data &&
+          data.autoFilter &&
+          typeof data.autoFilter.items === 'function' &&
+          data.rows &&
+          typeof data.rows.getCell === 'function'
+        ) {
+          try {
+            const generatedItems = data.autoFilter.items(colIdx, function (ri, itemCi) {
+              return data.rows.getCell(ri, itemCi);
+            });
+            if (generatedItems && typeof generatedItems === 'object') {
+              nextItems = generatedItems;
+            }
+          } catch (err) {
+            // Fall back to vendor-provided items.
+          }
+        }
         const treatAsCheckbox = filterTargetsCheckboxColumn(
           colIdx,
-          (nextFilter && nextFilter.value) || Object.keys(items || {})
+          (nextFilter && nextFilter.value) || Object.keys(nextItems || {})
         );
         if (treatAsCheckbox) {
-          nextItems = normalizeCheckboxCountItems(items || {});
+          nextItems = normalizeCheckboxCountItems(nextItems || {});
           const existingValues = nextFilter && Array.isArray(nextFilter.value)
             ? normalizeCheckboxFilterValues(nextFilter.value)
             : [];
@@ -3369,9 +3549,9 @@
           sortFilter.col,
           sortFilter.column,
           sortFilter.index,
-        ]);
+        ], { preferRemembered: true });
         if (Number.isFinite(colIdx) && colIdx >= 0) {
-          lastSortFilterCi = colIdx;
+          rememberSortFilterColumn(colIdx);
         }
         const ascSelected = !!(
           sortFilter.sortAscEl &&
@@ -3411,14 +3591,53 @@
           } else {
             normalizedOperator = 'in';
           }
+        } else if (Array.isArray(normalizedValues)) {
+          normalizedValues = normalizedValues.map(function (v) {
+            return String(v == null ? '' : v);
+          });
+          if (String(normalizedOperator || '').trim().toLowerCase() !== 'in') {
+            normalizedOperator = normalizedValues.length ? 'in' : 'all';
+          }
+          if (!normalizedValues.length) {
+            normalizedOperator = 'all';
+          }
+        } else {
+          normalizedValues = extractFilterValues(normalizedValues).map(function (v) {
+            return String(v == null ? '' : v);
+          });
+          normalizedOperator = normalizedValues.length ? 'in' : 'all';
+        }
+        if (!normalizedOperator) {
+          normalizedOperator = 'all';
+        }
+        if (!Array.isArray(normalizedValues)) {
+          normalizedValues = [];
+        }
+
+        const data = sheetCore && sheetCore.data ? sheetCore.data : activeSheetData;
+        if (data && typeof data.setAutoFilter === 'function') {
+          const targetCi = colIdx;
+          data.setAutoFilter(targetCi, normalizedOrder, normalizedOperator, normalizedValues);
+          const manual = applyManualAutoFilter(data);
+          if (sheetCore && typeof sheetCore.reload === 'function') {
+            sheetCore.reload();
+          } else if (activeSpreadsheet && typeof activeSpreadsheet.reRender === 'function') {
+            activeSpreadsheet.reRender();
+          }
+          if (manual && manual.ok) {
+            const label = treatAsCheckbox ? 'Checkbox filter' : 'Filter/sort';
+            setMenuStatus(
+              `${label} on ${colLabelFromIndex(targetCi)} -> shown:${manual.included} hidden:${manual.excluded}`,
+              'ok'
+            );
+          }
+          return;
+        }
+
+        if (treatAsCheckbox) {
           const data = sheetCore && sheetCore.data ? sheetCore.data : activeSheetData;
           if (data && typeof data.setAutoFilter === 'function') {
-            let targetCi = colIdx;
-            if (Number.isFinite(popupCi) && popupCi >= 0 && isCheckboxColumn(popupCi)) {
-              targetCi = popupCi;
-            } else if (!isCheckboxColumn(targetCi) && Number.isFinite(popupCi) && popupCi >= 0) {
-              targetCi = popupCi;
-            }
+            const targetCi = colIdx;
             // Apply checkbox filters directly to avoid vendor popup OK path
             // introducing row remap/header corruption.
             data.setAutoFilter(targetCi, normalizedOrder, normalizedOperator, normalizedValues);
@@ -3482,13 +3701,14 @@
       }
 
       data.setAutoFilter(ci, normalizedOrder, operator, values);
+      const manual = applyManualAutoFilter(data);
       if (sheetCore && typeof sheetCore.reload === 'function') {
         sheetCore.reload();
       } else if (activeSpreadsheet && typeof activeSpreadsheet.reRender === 'function') {
         activeSpreadsheet.reRender();
       }
       return {
-        ok: true,
+        ok: !manual || manual.ok !== false,
         message: `Sorted column ${colLabelFromIndex(ci)} ${normalizedOrder === 'asc' ? 'A-Z' : 'Z-A'}.`,
       };
     }
@@ -3577,6 +3797,21 @@
         overlayer.style.cursor = '';
       }
 
+      function rememberHeaderFilterTarget(ev) {
+        const point = eventPoint(ev);
+        const hit = hitAtPoint(point);
+        if (!isHeaderHit(hit)) {
+          return;
+        }
+        if (isFilterHotspot(hit, point) || ev.type === 'contextmenu') {
+          rememberSortFilterColumn(Number(hit.ci));
+        }
+      }
+
+      overlayer.addEventListener('mousedown', rememberHeaderFilterTarget, true);
+      overlayer.addEventListener('click', rememberHeaderFilterTarget, true);
+      overlayer.addEventListener('contextmenu', rememberHeaderFilterTarget, true);
+
       overlayer.addEventListener('mousedown', function (ev) {
         if (!allowStructureEdit) {
           return;
@@ -3587,6 +3822,7 @@
           return;
         }
         if (isFilterHotspot(hit, point)) {
+          rememberSortFilterColumn(Number(hit.ci));
           return;
         }
 
@@ -4415,6 +4651,8 @@
       lastViewportCi = null;
       lastSelectorRi = null;
       lastSelectorCi = null;
+      activeSortFilterCi = null;
+      lastSortFilterCi = null;
       mountGoogleSheetsMenu(spreadsheet);
       mountFormulaBar(spreadsheet);
       mountValidationToolbarButton(spreadsheet);

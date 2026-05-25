@@ -204,6 +204,65 @@
   .ce-hidden {
     display: none !important;
   }
+  /* Sorting is handled by header icon buttons; keep the popup for value filters only. */
+  .x-spreadsheet-sort-filter > .x-spreadsheet-item.state:nth-child(1),
+  .x-spreadsheet-sort-filter > .x-spreadsheet-item.state:nth-child(2),
+  .x-spreadsheet-sort-filter > .x-spreadsheet-item.divider:nth-child(3) {
+    display: none !important;
+  }
+  .ce-header-sort-layer {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 4550;
+  }
+  .ce-header-sort-btn {
+    position: absolute;
+    width: 18px;
+    height: 18px;
+    border: 1px solid transparent;
+    border-radius: 5px;
+    background: rgba(255, 255, 255, 0.9);
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.14);
+    cursor: pointer;
+    pointer-events: auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1px;
+    opacity: 0.78;
+    padding: 0;
+  }
+  .ce-header-sort-btn:hover,
+  .ce-header-sort-btn.is-active {
+    border-color: #93c5fd;
+    background: #eff6ff;
+    opacity: 1;
+  }
+  .ce-header-sort-arrow {
+    width: 0;
+    height: 0;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    opacity: 0.55;
+  }
+  .ce-header-sort-arrow-up {
+    border-bottom: 5px solid #64748b;
+  }
+  .ce-header-sort-arrow-down {
+    border-top: 5px solid #64748b;
+  }
+  .ce-header-sort-btn.is-asc .ce-header-sort-arrow-up,
+  .ce-header-sort-btn.is-desc .ce-header-sort-arrow-down {
+    opacity: 1;
+  }
+  .ce-header-sort-btn.is-asc .ce-header-sort-arrow-up {
+    border-bottom-color: #2563eb;
+  }
+  .ce-header-sort-btn.is-desc .ce-header-sort-arrow-down {
+    border-top-color: #2563eb;
+  }
 
   .ce-formula-bar {
     height: 34px;
@@ -740,10 +799,13 @@
     let validationCellCheckboxWrap = null;
     let validationCellCheckboxInput = null;
     let validationBubbleLayer = null;
+    let headerSortLayer = null;
     let validationRefreshFrame = null;
     let validationRefreshQueued = false;
     let validationBubbleRefreshFrame = null;
     let validationBubbleRefreshQueued = false;
+    let headerSortRefreshFrame = null;
+    let headerSortRefreshQueued = false;
     let activeSpreadsheet = null;
     let activeSheetData = null;
     let viewportPollTimer = null;
@@ -1305,6 +1367,32 @@
       validationBubbleLayer.innerHTML = '';
     }
 
+    function ensureHeaderSortLayer() {
+      const overlayer = root.querySelector('.x-spreadsheet-overlayer');
+      if (!overlayer) {
+        return null;
+      }
+      if (headerSortLayer && headerSortLayer.parentElement !== overlayer) {
+        headerSortLayer.remove();
+        headerSortLayer = null;
+      }
+      if (headerSortLayer) {
+        return headerSortLayer;
+      }
+      const layer = document.createElement('div');
+      layer.className = 'ce-header-sort-layer';
+      overlayer.appendChild(layer);
+      headerSortLayer = layer;
+      return layer;
+    }
+
+    function clearHeaderSortIcons() {
+      if (!headerSortLayer) {
+        return;
+      }
+      headerSortLayer.innerHTML = '';
+    }
+
     function syncValidationBubbleLayerViewport(layer) {
       if (!layer) {
         return null;
@@ -1532,6 +1620,221 @@
       }
     }
 
+    function scheduleHeaderSortIconsRefresh() {
+      if (headerSortRefreshQueued) {
+        return;
+      }
+      headerSortRefreshQueued = true;
+      const run = function () {
+        headerSortRefreshQueued = false;
+        refreshHeaderSortIcons();
+      };
+      if (typeof window.requestAnimationFrame === 'function') {
+        headerSortRefreshFrame = window.requestAnimationFrame(run);
+      } else {
+        run();
+      }
+    }
+
+    function currentAutoSort() {
+      const data = activeSheetData;
+      const sort = data && data.autoFilter ? data.autoFilter.sort : null;
+      const ci = Number(sort && sort.ci);
+      const order = sort && (sort.order === 'asc' || sort.order === 'desc')
+        ? sort.order
+        : null;
+      if (!Number.isFinite(ci) || ci < 0 || !order) {
+        return null;
+      }
+      return { ci, order };
+    }
+
+    function headerRectByColumn(ci) {
+      const data = activeSheetData;
+      if (!data || !data.cols || !data.rows) {
+        return null;
+      }
+      const colIdx = Number(ci);
+      if (!Number.isFinite(colIdx) || colIdx < 0) {
+        return null;
+      }
+      const overlayer = root.querySelector('.x-spreadsheet-overlayer');
+      if (!overlayer) {
+        return null;
+      }
+      const overlayerRect = overlayer.getBoundingClientRect();
+      const headerHeight = Number.isFinite(data.rows.height)
+        ? Number(data.rows.height)
+        : 25;
+      const indexWidth = Number.isFinite(data.cols.indexWidth)
+        ? Number(data.cols.indexWidth)
+        : 50;
+      let left = null;
+      let width = null;
+
+      try {
+        if (typeof data.getRect === 'function') {
+          const rect = data.getRect({ sri: 0, sci: colIdx, eri: 0, eci: colIdx });
+          if (
+            rect &&
+            Number.isFinite(rect.left) &&
+            Number.isFinite(rect.width) &&
+            rect.width > 0
+          ) {
+            left = indexWidth + Number(rect.left);
+            width = Number(rect.width);
+          }
+        }
+      } catch (err) {
+        left = null;
+        width = null;
+      }
+
+      if (!Number.isFinite(left) || !Number.isFinite(width) || width <= 0) {
+        try {
+          const scroll = data.scroll || {};
+          const x = Number.isFinite(scroll.x) ? Number(scroll.x) : 0;
+          const sumWidth = typeof data.cols.sumWidth === 'function'
+            ? Number(data.cols.sumWidth(0, colIdx))
+            : 0;
+          const freezeWidth = typeof data.freezeTotalWidth === 'function'
+            ? Number(data.freezeTotalWidth())
+            : 0;
+          width = typeof data.cols.getWidth === 'function'
+            ? Number(data.cols.getWidth(colIdx))
+            : 0;
+          left = indexWidth + sumWidth - x;
+          if (freezeWidth > 0 && freezeWidth > sumWidth) {
+            left = indexWidth + sumWidth;
+          }
+        } catch (err) {
+          return null;
+        }
+      }
+
+      if (!Number.isFinite(left) || !Number.isFinite(width) || width <= 34) {
+        return null;
+      }
+      const clippedLeft = Math.max(indexWidth, Math.round(left));
+      const clippedRight = Math.min(
+        Math.round(Number.isFinite(overlayerRect.width) ? overlayerRect.width : root.clientWidth || 0),
+        Math.round(left + width)
+      );
+      if (clippedRight - clippedLeft <= 34) {
+        return null;
+      }
+      return {
+        left: clippedLeft,
+        top: 0,
+        width: clippedRight - clippedLeft,
+        height: Math.max(20, Math.round(headerHeight)),
+      };
+    }
+
+    function visibleColumnRangeForHeaders() {
+      const data = activeSheetData;
+      const colLen = Number.isFinite(data && data.cols && data.cols.len)
+        ? Number(data.cols.len)
+        : 0;
+      if (!data || colLen <= 0) {
+        return null;
+      }
+      let start = Number.isFinite(data.scroll && data.scroll.ci)
+        ? Math.max(0, Number(data.scroll.ci) - 1)
+        : 0;
+      let end = Math.min(colLen - 1, start + 30);
+      try {
+        if (typeof data.viewRange === 'function') {
+          const range = data.viewRange();
+          if (range && Number.isFinite(range.sci) && Number.isFinite(range.eci)) {
+            start = Math.max(0, Number(range.sci) - 1);
+            end = Math.min(colLen - 1, Number(range.eci) + 1);
+          }
+        }
+      } catch (err) {
+        // Keep the scroll-based fallback.
+      }
+      return { start, end };
+    }
+
+    function sortLabelForColumn(ci, order) {
+      if (isCheckboxColumn(ci)) {
+        return order === 'asc' ? 'unchecked first' : 'checked first';
+      }
+      return order === 'asc' ? 'A-Z' : 'Z-A';
+    }
+
+    function refreshHeaderSortIcons() {
+      const layer = ensureHeaderSortLayer();
+      if (!layer || !activeSheetData) {
+        clearHeaderSortIcons();
+        return;
+      }
+      layer.innerHTML = '';
+      const overlayer = root.querySelector('.x-spreadsheet-overlayer');
+      if (!overlayer) {
+        return;
+      }
+      const overlayerRect = overlayer.getBoundingClientRect();
+      layer.style.width = `${Math.max(1, Math.round(overlayerRect.width || root.clientWidth || 1))}px`;
+      layer.style.height = `${Math.max(1, Math.round(overlayerRect.height || root.clientHeight || 1))}px`;
+
+      const visible = visibleColumnRangeForHeaders();
+      if (!visible) {
+        return;
+      }
+      const sort = currentAutoSort();
+      for (let ci = visible.start; ci <= visible.end; ci += 1) {
+        const rect = headerRectByColumn(ci);
+        if (!rect) {
+          continue;
+        }
+        const activeOrder = sort && sort.ci === ci ? sort.order : null;
+        const nextOrder = activeOrder === 'asc' ? 'desc' : 'asc';
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = `ce-header-sort-btn${activeOrder ? ` is-active is-${activeOrder}` : ''}`;
+        btn.dataset.ci = String(ci);
+        btn.title = `Sort column ${colLabelFromIndex(ci)} ${sortLabelForColumn(ci, nextOrder)}`;
+        btn.setAttribute('aria-label', btn.title);
+
+        const top = rect.top + Math.max(3, Math.round((rect.height - 18) / 2));
+        const maxLeft = rect.left + rect.width - 26;
+        const preferredLeft = rect.left + rect.width - 42;
+        const left = Math.max(rect.left + 4, Math.min(preferredLeft, maxLeft));
+        btn.style.left = `${Math.round(left)}px`;
+        btn.style.top = `${Math.round(top)}px`;
+
+        const up = document.createElement('span');
+        up.className = 'ce-header-sort-arrow ce-header-sort-arrow-up';
+        const down = document.createElement('span');
+        down.className = 'ce-header-sort-arrow ce-header-sort-arrow-down';
+        btn.appendChild(up);
+        btn.appendChild(down);
+
+        const stop = function (ev) {
+          ev.preventDefault();
+          ev.stopPropagation();
+          if (typeof ev.stopImmediatePropagation === 'function') {
+            ev.stopImmediatePropagation();
+          }
+        };
+        btn.addEventListener('mousedown', stop);
+        btn.addEventListener('mouseup', stop);
+        btn.addEventListener('dblclick', stop);
+        btn.addEventListener('click', function (ev) {
+          stop(ev);
+          const targetCi = rememberSortFilterColumn(Number(btn.dataset.ci));
+          const current = currentAutoSort();
+          const order = current && current.ci === targetCi && current.order === 'asc' ? 'desc' : 'asc';
+          const sorted = sortByActiveColumn(order, targetCi);
+          setMenuStatus(sorted.message, sorted.ok ? 'ok' : 'error');
+          scheduleHeaderSortIconsRefresh();
+        });
+        layer.appendChild(btn);
+      }
+    }
+
     function stopViewportPolling() {
       if (viewportPollTimer) {
         window.clearInterval(viewportPollTimer);
@@ -1564,6 +1867,7 @@
         lastSelectorCi = sci;
         scheduleValidationCellDropdownRefresh();
         scheduleValidationBubblesRefresh();
+        scheduleHeaderSortIconsRefresh();
       }, 120);
     }
 
@@ -2878,6 +3182,7 @@
         } else if (activeSpreadsheet && typeof activeSpreadsheet.reRender === 'function') {
           activeSpreadsheet.reRender();
         }
+        scheduleHeaderSortIconsRefresh();
       } catch (err) {
         setMenuStatus('Action failed.', 'error');
       }
@@ -2982,6 +3287,7 @@
       } else if (activeSpreadsheet && typeof activeSpreadsheet.reRender === 'function') {
         activeSpreadsheet.reRender();
       }
+      scheduleHeaderSortIconsRefresh();
       return { ok: true, message: 'Filters cleared.' };
     }
 
@@ -3037,8 +3343,16 @@
 
     function compareRowsByColumn(rows, ci, rowA, rowB, order) {
       const dir = String(order || '').toLowerCase() === 'desc' ? -1 : 1;
-      const aText = cellTextFromRows(rows, rowA, ci);
-      const bText = cellTextFromRows(rows, rowB, ci);
+      const aText = cellTextFromRows(rows, rowA, ci).trim();
+      const bText = cellTextFromRows(rows, rowB, ci).trim();
+      const aBlank = aText === '';
+      const bBlank = bText === '';
+      if (aBlank || bBlank) {
+        if (aBlank && bBlank) {
+          return rowA - rowB;
+        }
+        return aBlank ? 1 : -1;
+      }
 
       if (isCheckboxColumn(ci)) {
         const aVal = isCheckboxCheckedValue(aText) ? 1 : 0;
@@ -3047,9 +3361,15 @@
           return (aVal - bVal) * dir;
         }
       } else {
-        const aNum = Number(String(aText).replace(/,/g, ''));
-        const bNum = Number(String(bText).replace(/,/g, ''));
-        const bothNumeric = aText !== '' && bText !== '' && Number.isFinite(aNum) && Number.isFinite(bNum);
+        const aNumText = String(aText).replace(/[$,%\s,]/g, '');
+        const bNumText = String(bText).replace(/[$,%\s,]/g, '');
+        const aNum = Number(aNumText);
+        const bNum = Number(bNumText);
+        const bothNumeric =
+          aNumText !== '' &&
+          bNumText !== '' &&
+          Number.isFinite(aNum) &&
+          Number.isFinite(bNum);
         if (bothNumeric && aNum !== bNum) {
           return (aNum - bNum) * dir;
         }
@@ -3624,6 +3944,7 @@
           } else if (activeSpreadsheet && typeof activeSpreadsheet.reRender === 'function') {
             activeSpreadsheet.reRender();
           }
+          scheduleHeaderSortIconsRefresh();
           if (manual && manual.ok) {
             const label = treatAsCheckbox ? 'Checkbox filter' : 'Filter/sort';
             setMenuStatus(
@@ -3647,6 +3968,7 @@
             } else if (activeSpreadsheet && typeof activeSpreadsheet.reRender === 'function') {
               activeSpreadsheet.reRender();
             }
+            scheduleHeaderSortIconsRefresh();
             if (manual && manual.ok) {
               setMenuStatus(
                 `Checkbox filter on ${colLabelFromIndex(targetCi)} -> shown:${manual.included} hidden:${manual.excluded}`,
@@ -3661,7 +3983,7 @@
       sortFilter.__ceConfirmPatched = true;
     }
 
-    function sortByActiveColumn(order) {
+    function sortByActiveColumn(order, requestedCi) {
       const normalizedOrder = String(order || '').toLowerCase() === 'desc' ? 'desc' : 'asc';
       const sheetCore = activeSpreadsheet && activeSpreadsheet.sheet ? activeSpreadsheet.sheet : null;
       const data = sheetCore && sheetCore.data ? sheetCore.data : activeSheetData;
@@ -3670,7 +3992,18 @@
       }
 
       const selector = data.selector || {};
-      const ci = resolveFilterColumnIndex(selector.ci);
+      const explicitCi = parseColumnIndexCandidate(requestedCi);
+      const ci = Number.isFinite(explicitCi) && explicitCi >= 0
+        ? explicitCi
+        : resolveFilterColumnIndex(selector.ci, [
+          activeSortFilterCi,
+          lastSortFilterCi,
+          selector.ci,
+        ]);
+      if (!Number.isFinite(ci) || ci < 0) {
+        return { ok: false, message: 'Select a column before sorting.' };
+      }
+      rememberSortFilterColumn(ci);
 
       let operator = 'all';
       let values = [];
@@ -3707,9 +4040,10 @@
       } else if (activeSpreadsheet && typeof activeSpreadsheet.reRender === 'function') {
         activeSpreadsheet.reRender();
       }
+      scheduleHeaderSortIconsRefresh();
       return {
         ok: !manual || manual.ok !== false,
-        message: `Sorted column ${colLabelFromIndex(ci)} ${normalizedOrder === 'asc' ? 'A-Z' : 'Z-A'}.`,
+        message: `Sorted column ${colLabelFromIndex(ci)} ${sortLabelForColumn(ci, normalizedOrder)}.`,
       };
     }
 
@@ -3723,6 +4057,7 @@
         if (action === 'autofilter') {
           const ensured = ensureFullRangeFilter({ reload: true });
           setMenuStatus(ensured.message, ensured.ok ? 'ok' : 'error');
+          scheduleHeaderSortIconsRefresh();
           return;
         }
         return originalChange(action, value);
@@ -3936,6 +4271,7 @@
           clearHeaderCursor();
           scheduleValidationCellDropdownRefresh();
           scheduleValidationBubblesRefresh();
+          scheduleHeaderSortIconsRefresh();
           blocked = true;
         }
 
@@ -3950,6 +4286,7 @@
                 `Moved column ${colLabelFromIndex(drag.fromCi)} to ${colLabelFromIndex(drag.targetCi)}.`,
                 'ok'
               );
+              scheduleHeaderSortIconsRefresh();
             }
             blocked = true;
           }
@@ -4719,16 +5056,19 @@
       }
       scheduleValidationCellDropdownRefresh();
       scheduleValidationBubblesRefresh();
+      scheduleHeaderSortIconsRefresh();
       startViewportPolling();
       root.addEventListener('mouseup', scheduleValidationCellDropdownRefresh);
       root.addEventListener('wheel', scheduleValidationCellDropdownRefresh, { passive: true });
       root.addEventListener('wheel', scheduleValidationBubblesRefresh, { passive: true });
+      root.addEventListener('wheel', scheduleHeaderSortIconsRefresh, { passive: true });
       document.addEventListener('keydown', function (ev) {
         const key = String(ev && ev.key ? ev.key : '');
         if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'PageUp', 'PageDown', 'Home', 'End'].includes(key)) {
           return;
         }
         scheduleValidationCellDropdownRefresh();
+        scheduleHeaderSortIconsRefresh();
       });
     }
 
@@ -4984,6 +5324,7 @@
             fitToViewport();
             scheduleValidationCellDropdownRefresh();
             scheduleValidationBubblesRefresh();
+            scheduleHeaderSortIconsRefresh();
           }, { passive: true });
         } catch (err) {
           renderFallback(matrix);

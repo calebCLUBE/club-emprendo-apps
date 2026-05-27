@@ -3565,7 +3565,6 @@
       }
 
       const sortedRows = includedRows.slice();
-      const visibleRows = includedRows.slice();
       const sortInfo = data.autoFilter.sort || null;
       const sortCi = Number(sortInfo && sortInfo.ci);
       const sortOrder = sortInfo && (sortInfo.order === 'asc' || sortInfo.order === 'desc')
@@ -3580,19 +3579,22 @@
       data.exceptRowSet = excludedRows;
       data.sortedRowMap = new Map();
       data.unsortedRowMap = new Map();
-      sortedRows.forEach(function (sourceRi, visibleOffset) {
-        const visibleRi = visibleRows[visibleOffset];
-        if (
-          !Number.isFinite(sourceRi) ||
-          !Number.isFinite(visibleRi) ||
-          sourceRi <= 0 ||
-          visibleRi <= 0
-        ) {
-          return;
-        }
-        data.sortedRowMap.set(visibleRi, sourceRi);
-        data.unsortedRowMap.set(sourceRi, visibleRi);
-      });
+      if (sortOrder) {
+        const visibleRows = includedRows.slice();
+        sortedRows.forEach(function (sourceRi, visibleOffset) {
+          const visibleRi = visibleRows[visibleOffset];
+          if (
+            !Number.isFinite(sourceRi) ||
+            !Number.isFinite(visibleRi) ||
+            sourceRi <= 0 ||
+            visibleRi <= 0
+          ) {
+            return;
+          }
+          data.sortedRowMap.set(visibleRi, sourceRi);
+          data.unsortedRowMap.set(sourceRi, visibleRi);
+        });
+      }
       data.exceptRowSet.delete(0);
       data.sortedRowMap.delete(0);
       data.unsortedRowMap.delete(0);

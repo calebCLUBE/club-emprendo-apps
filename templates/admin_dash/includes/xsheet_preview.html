@@ -1983,9 +1983,7 @@
       }
 
       const validations = activeSheetData.validations;
-      if (!validations || typeof validations.get !== 'function') {
-        return;
-      }
+      const canReadValidations = !!(validations && typeof validations.get === 'function');
 
       const rowLen = Number.isFinite(activeSheetData.rows && activeSheetData.rows.len)
         ? Number(activeSheetData.rows.len)
@@ -2008,11 +2006,14 @@
       for (let ri = startRi; ri <= endRi; ri += 1) {
         for (let ci = startCi; ci <= endCi; ci += 1) {
           const source = toSourceCoords(ri, ci);
+          const checkboxByColumn = isCheckboxColumn(source.ci);
           let validation = null;
-          try {
-            validation = validations.get(source.ri, source.ci);
-          } catch (err) {
-            validation = null;
+          if (canReadValidations) {
+            try {
+              validation = validations.get(source.ri, source.ci);
+            } catch (err) {
+              validation = null;
+            }
           }
           const validator = validation && validation.validator ? validation.validator : null;
           const metaRule = findValidationRuleMetaForCell(source.ri, source.ci);
@@ -2022,10 +2023,10 @@
               .map(function (v) { return String(v == null ? '' : v).trim(); })
               .filter(function (v) { return v.length > 0; });
           }
-          if (!options.length) {
+          const isCheckbox = checkboxByColumn || isCheckboxValidation(validator, metaRule, options);
+          if (!isCheckbox && !options.length) {
             continue;
           }
-          const isCheckbox = isCheckboxValidation(validator, metaRule, options);
 
           const rect = getCellRectByIndexes(ri, ci);
           if (!rect || rect.width <= 2 || rect.height <= 2) {
@@ -2289,6 +2290,7 @@
       const validator = resolveSelectedValidator();
       const coords = selectedCellCoords();
       const sourceCoords = toSourceCoords(coords.ri, coords.ci);
+      const checkboxByColumn = isCheckboxColumn(sourceCoords.ci);
       const metaRule = findValidationRuleMetaForCell(sourceCoords.ri, sourceCoords.ci);
       let options = parseListValidatorOptions(validator);
       if (!options.length && metaRule && Array.isArray(metaRule.options)) {
@@ -2296,11 +2298,11 @@
           .map(function (v) { return String(v == null ? '' : v).trim(); })
           .filter(function (v) { return v.length > 0; });
       }
-      if (!options.length) {
+      const isCheckbox = checkboxByColumn || isCheckboxValidation(validator, metaRule, options);
+      if (!isCheckbox && !options.length) {
         hideValidationCellDropdown();
         return;
       }
-      const isCheckbox = isCheckboxValidation(validator, metaRule, options);
       if (isCheckbox && sourceCoords.ri === 0) {
         hideValidationCellDropdown();
         return;

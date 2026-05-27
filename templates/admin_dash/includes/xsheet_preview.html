@@ -1178,6 +1178,64 @@
       return null;
     }
 
+    function resolveSourceRowIndex(ri) {
+      const rowIdx = Number(ri);
+      if (!Number.isFinite(rowIdx) || rowIdx < 0) {
+        return rowIdx;
+      }
+      if (
+        activeSheetData &&
+        activeSheetData.unsortedRowMap &&
+        typeof activeSheetData.unsortedRowMap.has === 'function' &&
+        activeSheetData.unsortedRowMap.has(rowIdx)
+      ) {
+        const mapped = Number(activeSheetData.unsortedRowMap.get(rowIdx));
+        if (Number.isFinite(mapped) && mapped >= 0) {
+          return mapped;
+        }
+      }
+      return rowIdx;
+    }
+
+    function toSourceCoords(ri, ci) {
+      const sourceRi = resolveSourceRowIndex(ri);
+      const sourceCi = Number.isFinite(Number(ci)) ? Number(ci) : 0;
+      return {
+        ri: sourceRi,
+        ci: sourceCi,
+      };
+    }
+
+    function setCellTextAtVisibleCoords(ri, ci, value) {
+      if (!activeSheetData) {
+        return false;
+      }
+      const text = String(value == null ? '' : value);
+      try {
+        if (
+          typeof activeSheetData.setSelectedCellText === 'function' &&
+          activeSheetData.selector &&
+          Number(activeSheetData.selector.ri) === Number(ri) &&
+          Number(activeSheetData.selector.ci) === Number(ci)
+        ) {
+          activeSheetData.setSelectedCellText(text, 'finished');
+          return true;
+        }
+        const source = toSourceCoords(ri, ci);
+        if (typeof activeSheetData.setCellText === 'function') {
+          activeSheetData.setCellText(source.ri, source.ci, text, 'finished');
+          return true;
+        }
+        if (activeSpreadsheet && typeof activeSpreadsheet.cellText === 'function') {
+          activeSpreadsheet.cellText(source.ri, source.ci, text, 0);
+          return true;
+        }
+      } catch (err) {
+        return false;
+      }
+      return false;
+    }
+
     function currentSortFilterInstance() {
       const sheetCore = activeSpreadsheet && activeSpreadsheet.sheet ? activeSpreadsheet.sheet : null;
       return sheetCore && sheetCore.sortFilter ? sheetCore.sortFilter : null;
@@ -1925,14 +1983,15 @@
 
       for (let ri = startRi; ri <= endRi; ri += 1) {
         for (let ci = startCi; ci <= endCi; ci += 1) {
+          const source = toSourceCoords(ri, ci);
           let validation = null;
           try {
-            validation = validations.get(ri, ci);
+            validation = validations.get(source.ri, source.ci);
           } catch (err) {
             validation = null;
           }
           const validator = validation && validation.validator ? validation.validator : null;
-          const metaRule = findValidationRuleMetaForCell(ri, ci);
+          const metaRule = findValidationRuleMetaForCell(source.ri, source.ci);
           let options = parseListValidatorOptions(validator);
           if (!options.length && metaRule && Array.isArray(metaRule.options)) {
             options = metaRule.options
@@ -1951,7 +2010,7 @@
 
           const currentValue = cellTextAt(ri, ci);
           if (isCheckbox) {
-            if (ri === 0) {
+            if (source.ri === 0) {
               continue;
             }
             if (rect.width < 18 || rect.height < 18) {
@@ -1984,7 +2043,7 @@
             continue;
           }
           const chipColor =
-            findColorForCellValue(ri, ci, currentValue) ||
+            findColorForCellValue(source.ri, source.ci, currentValue) ||
             findColorFromValidator(validator, currentValue) ||
             (
               metaRule &&
@@ -2048,10 +2107,11 @@
         return null;
       }
       const coords = selectedCellCoords();
+      const source = toSourceCoords(coords.ri, coords.ci);
       try {
         const validations = activeSheetData.validations;
         if (validations && typeof validations.get === 'function') {
-          const match = validations.get(coords.ri, coords.ci);
+          const match = validations.get(source.ri, source.ci);
           if (match && match.validator) {
             return match.validator;
           }
@@ -2117,11 +2177,7 @@
         const coords = selectedCellCoords();
         const value = String(select.value == null ? '' : select.value);
         try {
-          if (typeof activeSpreadsheet.cellText === 'function') {
-            activeSpreadsheet.cellText(coords.ri, coords.ci, value, 0);
-          } else if (typeof activeSheetData.setCellText === 'function') {
-            activeSheetData.setCellText(coords.ri, coords.ci, value, 'finished');
-          }
+          setCellTextAtVisibleCoords(coords.ri, coords.ci, value);
           if (typeof activeSpreadsheet.reRender === 'function') {
             activeSpreadsheet.reRender();
           }
@@ -2162,11 +2218,7 @@
         const coords = selectedCellCoords();
         const value = input.checked ? 'TRUE' : 'FALSE';
         try {
-          if (typeof activeSpreadsheet.cellText === 'function') {
-            activeSpreadsheet.cellText(coords.ri, coords.ci, value, 0);
-          } else if (typeof activeSheetData.setCellText === 'function') {
-            activeSheetData.setCellText(coords.ri, coords.ci, value, 'finished');
-          }
+          setCellTextAtVisibleCoords(coords.ri, coords.ci, value);
           if (typeof activeSpreadsheet.reRender === 'function') {
             activeSpreadsheet.reRender();
           }
@@ -2212,7 +2264,8 @@
 
       const validator = resolveSelectedValidator();
       const coords = selectedCellCoords();
-      const metaRule = findValidationRuleMetaForCell(coords.ri, coords.ci);
+      const sourceCoords = toSourceCoords(coords.ri, coords.ci);
+      const metaRule = findValidationRuleMetaForCell(sourceCoords.ri, sourceCoords.ci);
       let options = parseListValidatorOptions(validator);
       if (!options.length && metaRule && Array.isArray(metaRule.options)) {
         options = metaRule.options
@@ -2224,7 +2277,7 @@
         return;
       }
       const isCheckbox = isCheckboxValidation(validator, metaRule, options);
-      if (isCheckbox && coords.ri === 0) {
+      if (isCheckbox && sourceCoords.ri === 0) {
         hideValidationCellDropdown();
         return;
       }
@@ -2289,7 +2342,7 @@
         validationCellCheckboxWrap.style.display = 'none';
       }
       const chipColor =
-        findColorForCellValue(coords.ri, coords.ci, currentValue) ||
+        findColorForCellValue(sourceCoords.ri, sourceCoords.ci, currentValue) ||
         findColorFromValidator(validator, currentValue) ||
         (
           metaRule &&
@@ -2311,7 +2364,7 @@
         o.value = opt;
         o.textContent = opt;
         const optionColor =
-          findColorForCellValue(coords.ri, coords.ci, opt) ||
+          findColorForCellValue(sourceCoords.ri, sourceCoords.ci, opt) ||
           findColorFromValidator(validator, opt) ||
           (
             metaRule &&
@@ -4809,8 +4862,9 @@
       if (!activeSheetData || typeof activeSheetData.getCell !== 'function') {
         return '';
       }
-      const cell = activeSheetData.getCell(ri, ci);
-      return cell && cell.text != null ? String(cell.text) : '';
+      const source = toSourceCoords(ri, ci);
+      const cell = activeSheetData.getCell(source.ri, source.ci);
+      return parseCellText(cell);
     }
 
     function syncFormulaBarFromSelection() {
@@ -4829,11 +4883,7 @@
       const coords = selectedCellCoords();
       const nextText = String(formulaInput.value == null ? '' : formulaInput.value);
       try {
-        if (typeof activeSpreadsheet.cellText === 'function') {
-          activeSpreadsheet.cellText(coords.ri, coords.ci, nextText, 0);
-        } else if (typeof activeSheetData.setCellText === 'function') {
-          activeSheetData.setCellText(coords.ri, coords.ci, nextText, 'finished');
-        }
+        setCellTextAtVisibleCoords(coords.ri, coords.ci, nextText);
         if (typeof activeSpreadsheet.reRender === 'function') {
           activeSpreadsheet.reRender();
         }

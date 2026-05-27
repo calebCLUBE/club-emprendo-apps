@@ -922,6 +922,9 @@
         return '';
       }
       if (typeof cell === 'object') {
+        if (typeof cell.checked === 'boolean') {
+          return cell.checked ? 'TRUE' : 'FALSE';
+        }
         if (cell.text != null) {
           return String(cell.text);
         }
@@ -1015,6 +1018,17 @@
       return [
         'TRUE', '1', 'CHECKED', 'ON', 'X', '✓',
       ].includes(normalized);
+    }
+
+    function checkboxSortBucket(value) {
+      const normalized = String(value == null ? '' : value).trim().toUpperCase();
+      if (!normalized || normalized === 'FALSE' || normalized === '0' || normalized === 'UNCHECKED' || normalized === 'OFF') {
+        return 0;
+      }
+      if (isCheckboxCheckedValue(normalized)) {
+        return 1;
+      }
+      return null;
     }
 
     function normalizeCheckboxText(value) {
@@ -3345,6 +3359,16 @@
       const dir = String(order || '').toLowerCase() === 'desc' ? -1 : 1;
       const aText = cellTextFromRows(rows, rowA, ci).trim();
       const bText = cellTextFromRows(rows, rowB, ci).trim();
+      const aCheckbox = checkboxSortBucket(aText);
+      const bCheckbox = checkboxSortBucket(bText);
+      const treatAsCheckbox = isCheckboxColumn(ci) || (aCheckbox !== null && bCheckbox !== null);
+      if (treatAsCheckbox) {
+        const aVal = aCheckbox !== null ? aCheckbox : (isCheckboxCheckedValue(aText) ? 1 : 0);
+        const bVal = bCheckbox !== null ? bCheckbox : (isCheckboxCheckedValue(bText) ? 1 : 0);
+        if (aVal !== bVal) {
+          return (aVal - bVal) * dir;
+        }
+      }
       const aBlank = aText === '';
       const bBlank = bText === '';
       if (aBlank || bBlank) {
@@ -3354,13 +3378,7 @@
         return aBlank ? 1 : -1;
       }
 
-      if (isCheckboxColumn(ci)) {
-        const aVal = isCheckboxCheckedValue(aText) ? 1 : 0;
-        const bVal = isCheckboxCheckedValue(bText) ? 1 : 0;
-        if (aVal !== bVal) {
-          return (aVal - bVal) * dir;
-        }
-      } else {
+      if (!treatAsCheckbox) {
         const aNumText = String(aText).replace(/[$,%\s,]/g, '');
         const bNumText = String(bText).replace(/[$,%\s,]/g, '');
         const aNum = Number(aNumText);

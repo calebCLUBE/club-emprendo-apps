@@ -1183,15 +1183,36 @@
       if (!Number.isFinite(rowIdx) || rowIdx < 0) {
         return rowIdx;
       }
+      const hasSortedMap = !!(
+        activeSheetData &&
+        activeSheetData.sortedRowMap &&
+        typeof activeSheetData.sortedRowMap.has === 'function' &&
+        typeof activeSheetData.sortedRowMap.size === 'number' &&
+        activeSheetData.sortedRowMap.size > 0
+      );
+      if (
+        activeSheetData &&
+        activeSheetData.sortedRowMap &&
+        typeof activeSheetData.sortedRowMap.has === 'function' &&
+        activeSheetData.sortedRowMap.has(rowIdx)
+      ) {
+        const mappedFromSorted = Number(activeSheetData.sortedRowMap.get(rowIdx));
+        if (Number.isFinite(mappedFromSorted) && mappedFromSorted >= 0) {
+          return mappedFromSorted;
+        }
+      }
+      if (hasSortedMap) {
+        return rowIdx;
+      }
       if (
         activeSheetData &&
         activeSheetData.unsortedRowMap &&
         typeof activeSheetData.unsortedRowMap.has === 'function' &&
         activeSheetData.unsortedRowMap.has(rowIdx)
       ) {
-        const mapped = Number(activeSheetData.unsortedRowMap.get(rowIdx));
-        if (Number.isFinite(mapped) && mapped >= 0) {
-          return mapped;
+        const mappedFromUnsorted = Number(activeSheetData.unsortedRowMap.get(rowIdx));
+        if (Number.isFinite(mappedFromUnsorted) && mappedFromUnsorted >= 0) {
+          return mappedFromUnsorted;
         }
       }
       return rowIdx;
@@ -1211,17 +1232,11 @@
         return false;
       }
       const text = String(value == null ? '' : value);
+      const source = toSourceCoords(ri, ci);
+      if (!Number.isFinite(source.ri) || source.ri < 0 || !Number.isFinite(source.ci) || source.ci < 0) {
+        return false;
+      }
       try {
-        if (
-          typeof activeSheetData.setSelectedCellText === 'function' &&
-          activeSheetData.selector &&
-          Number(activeSheetData.selector.ri) === Number(ri) &&
-          Number(activeSheetData.selector.ci) === Number(ci)
-        ) {
-          activeSheetData.setSelectedCellText(text, 'finished');
-          return true;
-        }
-        const source = toSourceCoords(ri, ci);
         if (typeof activeSheetData.setCellText === 'function') {
           activeSheetData.setCellText(source.ri, source.ci, text, 'finished');
           return true;
@@ -3540,6 +3555,7 @@
       }
 
       const sortedRows = includedRows.slice();
+      const visibleRows = includedRows.slice();
       const sortInfo = data.autoFilter.sort || null;
       const sortCi = Number(sortInfo && sortInfo.ci);
       const sortOrder = sortInfo && (sortInfo.order === 'asc' || sortInfo.order === 'desc')
@@ -3555,7 +3571,7 @@
       data.sortedRowMap = new Map();
       data.unsortedRowMap = new Map();
       sortedRows.forEach(function (sourceRi, visibleOffset) {
-        const visibleRi = startRow + visibleOffset;
+        const visibleRi = visibleRows[visibleOffset];
         data.sortedRowMap.set(visibleRi, sourceRi);
         data.unsortedRowMap.set(sourceRi, visibleRi);
       });
@@ -3709,6 +3725,7 @@
               return Number.isFinite(ci) && ci >= 0 && filterTargetsCheckboxColumn(ci, filter.value);
             });
             const sortedRows = includedRows.slice();
+            const visibleRows = includedRows.slice();
             if (sortInfo && (sortInfo.order === 'asc' || sortInfo.order === 'desc')) {
               let sortCi = Number(sortInfo.ci);
               if (
@@ -3735,7 +3752,7 @@
             // sortedRowMap: visibleRowIndex -> sourceRowIndex
             // unsortedRowMap: sourceRowIndex -> visibleRowIndex
             sortedRows.forEach((sourceRi, visibleOffset) => {
-              const visibleRi = startRow + visibleOffset;
+              const visibleRi = visibleRows[visibleOffset];
               this.sortedRowMap.set(visibleRi, sourceRi);
               this.unsortedRowMap.set(sourceRi, visibleRi);
             });
@@ -3910,6 +3927,7 @@
         }
 
         const sortedRows = includedRows.slice();
+        const visibleRows = includedRows.slice();
         if (order === 'asc' || order === 'desc') {
           sortedRows.sort(function (a, b) {
             return compareRowsByColumn(data.rows, colIdx, a, b, order);
@@ -3923,7 +3941,7 @@
         // sortedRowMap: visible row index -> source row index
         // unsortedRowMap: source row index -> visible row index
         sortedRows.forEach((sourceRi, visibleOffset) => {
-          const visibleRi = 1 + visibleOffset;
+          const visibleRi = visibleRows[visibleOffset];
           data.sortedRowMap.set(visibleRi, sourceRi);
           data.unsortedRowMap.set(sourceRi, visibleRi);
         });

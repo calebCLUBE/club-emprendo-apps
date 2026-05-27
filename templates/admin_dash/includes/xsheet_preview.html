@@ -782,7 +782,7 @@
       ? JSON.parse(sheetStatusOptionsEl.textContent || '[]')
       : [];
     const allowStructureEdit = {{ sheet_allow_structure_edit|default:True|yesno:"true,false" }};
-    const FILTER_PATCH_VERSION = 'v2026.05.27.5';
+    const FILTER_PATCH_VERSION = 'v2026.05.27.6';
 
     const defaultPalette = [
       '#f4b183', '#f7d774', '#f5c2b8', '#9ec5e5', '#c6dcb0',
@@ -3391,6 +3391,7 @@
         return { ok: false, message: 'No filter state to clear.' };
       }
       data.autoFilter.clear();
+      clearManualFilterHiddenRows(data);
       data.exceptRowSet = new Set();
       data.sortedRowMap = new Map();
       data.unsortedRowMap = new Map();
@@ -3509,6 +3510,75 @@
       return (rowA - rowB) * dir;
     }
 
+    function clearManualFilterHiddenRows(data) {
+      if (!data || !data.rows || typeof data.rows.setHide !== 'function') {
+        return;
+      }
+      const hidden = data.__ceManualFilterHiddenRows;
+      if (hidden && typeof hidden.forEach === 'function') {
+        hidden.forEach(function (ri) {
+          const rowIdx = Number(ri);
+          if (Number.isFinite(rowIdx) && rowIdx > 0) {
+            try {
+              data.rows.setHide(rowIdx, false);
+            } catch (err) {
+              // no-op
+            }
+          }
+        });
+      }
+      data.__ceManualFilterHiddenRows = new Set();
+    }
+
+    function setManualAutoFilterState(data, ci, order, operator, values) {
+      if (!data || !data.autoFilter) {
+        return false;
+      }
+      const auto = data.autoFilter;
+      const targetRef = fullSheetFilterRef(data);
+      if (targetRef) {
+        auto.ref = targetRef;
+      }
+
+      const targetCi = Number(ci);
+      if (!Number.isFinite(targetCi) || targetCi < 0) {
+        return false;
+      }
+
+      const normalizedOperator = String(operator || '').trim().toLowerCase() || 'all';
+      const normalizedValues = Array.isArray(values) ? values.slice() : [];
+      const nextFilters = Array.isArray(auto.filters)
+        ? auto.filters.filter(function (filter) {
+          return Number(filter && filter.ci) !== targetCi;
+        })
+        : [];
+
+      if (normalizedOperator !== 'all') {
+        if (typeof auto.addFilter === 'function') {
+          auto.filters = nextFilters;
+          auto.addFilter(targetCi, normalizedOperator, normalizedValues);
+        } else {
+          nextFilters.push({
+            ci: targetCi,
+            operator: normalizedOperator,
+            value: normalizedValues,
+          });
+          auto.filters = nextFilters;
+        }
+      } else {
+        auto.filters = nextFilters;
+      }
+
+      if (typeof auto.setSort === 'function') {
+        auto.setSort(targetCi, order === 'asc' || order === 'desc' ? order : null);
+      } else {
+        auto.sort = order === 'asc' || order === 'desc'
+          ? { ci: targetCi, order: order }
+          : null;
+      }
+      return true;
+    }
+
     function applyManualAutoFilter(data) {
       if (!data || !data.rows || !data.autoFilter) {
         return { ok: false, included: 0, excluded: 0 };
@@ -3538,6 +3608,7 @@
       const includedRows = [];
       const excludedRows = new Set();
       const rows = data.rows;
+      clearManualFilterHiddenRows(data);
 
       for (let ri = startRow; ri <= endRow; ri += 1) {
         let include = true;
@@ -3599,7 +3670,18 @@
         });
       }
 
-      data.exceptRowSet = excludedRows;
+      if (typeof rows.setHide === 'function') {
+        excludedRows.forEach(function (ri) {
+          try {
+            rows.setHide(ri, true);
+          } catch (err) {
+            // no-op
+          }
+        });
+        data.__ceManualFilterHiddenRows = new Set(excludedRows);
+      }
+
+      data.exceptRowSet = new Set();
       data.sortedRowMap = new Map();
       data.unsortedRowMap = new Map();
       if (sortOrder) {
@@ -3618,7 +3700,6 @@
           data.unsortedRowMap.set(sourceRi, visibleRi);
         });
       }
-      data.exceptRowSet.delete(0);
       data.sortedRowMap.delete(0);
       data.unsortedRowMap.delete(0);
       return {
@@ -3753,9 +3834,11 @@
         return;
       }
       if (!data.__ceSetAutoFilterPatched && typeof data.setAutoFilter === 'function') {
-        const originalSetAutoFilter = data.setAutoFilter.bind(data);
         data.setAutoFilter = function patchedSetAutoFilter(ci, order, operator, values) {
-          const result = originalSetAutoFilter(ci, order, operator, values);
+          const updated = setManualAutoFilterState(this, ci, order, operator, values);
+          const result = updated
+            ? applyManualAutoFilter(this)
+            : { ok: false, included: 0, excluded: 0 };
           enforceHeaderRowVisibility(this);
           enforceHeaderRowValues(this);
           return result;
@@ -3805,10 +3888,12 @@
           return manualResult;
         }
 
-        const fallbackResult = originalReset();
+        data.exceptRowSet = new Set();
+        data.sortedRowMap = new Map();
+        data.unsortedRowMap = new Map();
         enforceHeaderRowVisibility(this);
         enforceHeaderRowValues(this);
-        return fallbackResult;
+        return { ok: false, included: 0, excluded: 0 };
       };
       data.__ceAutoFilterRuntimePatched = true;
     }

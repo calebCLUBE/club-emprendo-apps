@@ -809,6 +809,7 @@
     let headerSortRefreshQueued = false;
     let activeSpreadsheet = null;
     let activeSheetData = null;
+    let allowHeaderWrites = false;
     let viewportPollTimer = null;
     let lastViewportRi = null;
     let lastViewportCi = null;
@@ -3645,9 +3646,32 @@
         }
         const current = parseCellText(data.rows.getCell(0, ci));
         if (current !== expected) {
-          data.rows.setCellText(0, ci, expected);
+          allowHeaderWrites = true;
+          try {
+            data.rows.setCellText(0, ci, expected);
+          } finally {
+            allowHeaderWrites = false;
+          }
         }
       }
+    }
+
+    function patchHeaderMutationGuard(spreadsheet) {
+      const sheetCore = spreadsheet && spreadsheet.sheet ? spreadsheet.sheet : null;
+      const data = sheetCore && sheetCore.data ? sheetCore.data : null;
+      const rowsObj = data && data.rows ? data.rows : null;
+      if (!rowsObj || rowsObj.__ceHeaderWriteGuardPatched || typeof rowsObj.setCellText !== 'function') {
+        return;
+      }
+      const originalRowsSetCellText = rowsObj.setCellText.bind(rowsObj);
+      rowsObj.setCellText = function guardedRowsSetCellText(ri, ci, text) {
+        const rowIdx = Number(ri);
+        if (rowIdx === 0 && !allowHeaderWrites) {
+          return;
+        }
+        return originalRowsSetCellText(ri, ci, text);
+      };
+      rowsObj.__ceHeaderWriteGuardPatched = true;
     }
 
     function scrubHeaderRowFromFilterMaps(data) {
@@ -5247,6 +5271,7 @@
           // semantics so TRUE/FALSE filtering behaves like spreadsheet users expect.
           shieldPopupEvents();
           patchSortFilterOutsideClick(spreadsheet);
+          patchHeaderMutationGuard(spreadsheet);
           // Use a single resetAutoFilter path so checkbox filter/sort behavior
           // stays consistent and headers remain anchored.
           patchAutoFilterRuntime(spreadsheet);

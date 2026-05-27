@@ -782,7 +782,7 @@
       ? JSON.parse(sheetStatusOptionsEl.textContent || '[]')
       : [];
     const allowStructureEdit = {{ sheet_allow_structure_edit|default:True|yesno:"true,false" }};
-    const FILTER_PATCH_VERSION = 'v2026.05.27.3';
+    const FILTER_PATCH_VERSION = 'v2026.05.27.5';
 
     const defaultPalette = [
       '#f4b183', '#f7d774', '#f5c2b8', '#9ec5e5', '#c6dcb0',
@@ -801,6 +801,7 @@
     let validationCellCheckboxInput = null;
     let validationBubbleLayer = null;
     let headerSortLayer = null;
+    let menuStatusClearTimer = null;
     let validationRefreshFrame = null;
     let validationRefreshQueued = false;
     let validationBubbleRefreshFrame = null;
@@ -901,6 +902,10 @@
       if (!googleMenuStatus) {
         return;
       }
+      if (menuStatusClearTimer) {
+        window.clearTimeout(menuStatusClearTimer);
+        menuStatusClearTimer = null;
+      }
       googleMenuStatus.textContent = text || '';
       googleMenuStatus.className = 'ce-gs-menubar-status';
       if (level === 'ok') {
@@ -909,13 +914,14 @@
         googleMenuStatus.classList.add('is-error');
       }
       if (text) {
-        window.setTimeout(function () {
+        menuStatusClearTimer = window.setTimeout(function () {
           if (!googleMenuStatus) {
             return;
           }
           googleMenuStatus.textContent = '';
           googleMenuStatus.className = 'ce-gs-menubar-status';
-        }, 2500);
+          menuStatusClearTimer = null;
+        }, 8000);
       }
     }
 
@@ -3388,6 +3394,8 @@
       data.exceptRowSet = new Set();
       data.sortedRowMap = new Map();
       data.unsortedRowMap = new Map();
+      enforceHeaderRowVisibility(data);
+      enforceHeaderRowValues(data);
       activeSortFilterCi = null;
       lastSortFilterCi = null;
       if (sheetCore && typeof sheetCore.reload === 'function') {
@@ -3707,18 +3715,59 @@
       }
     }
 
+    function enforceHeaderRowVisibility(data) {
+      if (!data) {
+        return;
+      }
+      scrubHeaderRowFromFilterMaps(data);
+      const rowsObj = data.rows;
+      if (!rowsObj) {
+        return;
+      }
+      if (typeof rowsObj.setHide === 'function') {
+        try {
+          rowsObj.setHide(0, false);
+        } catch (err) {
+          // no-op
+        }
+      } else if (typeof rowsObj.unhide === 'function') {
+        try {
+          rowsObj.unhide(1);
+        } catch (err) {
+          // no-op
+        }
+      }
+      if (typeof rowsObj.getHeight === 'function' && typeof rowsObj.setHeight === 'function') {
+        const rowHeight = Number(rowsObj.getHeight(0));
+        if (!Number.isFinite(rowHeight) || rowHeight <= 0) {
+          const defaultHeight = Number(rowsObj.height);
+          rowsObj.setHeight(0, Number.isFinite(defaultHeight) && defaultHeight > 0 ? defaultHeight : 25);
+        }
+      }
+    }
+
     function patchAutoFilterRuntime(spreadsheet) {
       const sheetCore = spreadsheet && spreadsheet.sheet ? spreadsheet.sheet : null;
       const data = sheetCore && sheetCore.data ? sheetCore.data : null;
       if (!data || data.__ceAutoFilterRuntimePatched || typeof data.resetAutoFilter !== 'function') {
         return;
       }
+      if (!data.__ceSetAutoFilterPatched && typeof data.setAutoFilter === 'function') {
+        const originalSetAutoFilter = data.setAutoFilter.bind(data);
+        data.setAutoFilter = function patchedSetAutoFilter(ci, order, operator, values) {
+          const result = originalSetAutoFilter(ci, order, operator, values);
+          enforceHeaderRowVisibility(this);
+          enforceHeaderRowValues(this);
+          return result;
+        };
+        data.__ceSetAutoFilterPatched = true;
+      }
       const originalReset = data.resetAutoFilter.bind(data);
       data.resetAutoFilter = function patchedResetAutoFilter() {
         const auto = this.autoFilter;
         if (!auto || typeof auto.active !== 'function' || !auto.active()) {
           const baseResult = originalReset();
-          scrubHeaderRowFromFilterMaps(this);
+          enforceHeaderRowVisibility(this);
           enforceHeaderRowValues(this);
           return baseResult;
         }
@@ -3751,13 +3800,13 @@
 
         const manualResult = applyManualAutoFilter(this);
         if (manualResult && manualResult.ok) {
-          scrubHeaderRowFromFilterMaps(this);
+          enforceHeaderRowVisibility(this);
           enforceHeaderRowValues(this);
           return manualResult;
         }
 
         const fallbackResult = originalReset();
-        scrubHeaderRowFromFilterMaps(this);
+        enforceHeaderRowVisibility(this);
         enforceHeaderRowValues(this);
         return fallbackResult;
       };
@@ -3933,9 +3982,7 @@
             data.sortedRowMap = new Map();
             data.unsortedRowMap = new Map();
           }
-          if (data.exceptRowSet && typeof data.exceptRowSet.delete === 'function') {
-            data.exceptRowSet.delete(0);
-          }
+          enforceHeaderRowVisibility(data);
           enforceHeaderRowValues(data);
           if (sheetCore && typeof sheetCore.reload === 'function') {
             sheetCore.reload();
@@ -4007,9 +4054,7 @@
       }
 
       data.setAutoFilter(ci, normalizedOrder, operator, values);
-      if (data.exceptRowSet && typeof data.exceptRowSet.delete === 'function') {
-        data.exceptRowSet.delete(0);
-      }
+      enforceHeaderRowVisibility(data);
       enforceHeaderRowValues(data);
       if (sheetCore && typeof sheetCore.reload === 'function') {
         sheetCore.reload();

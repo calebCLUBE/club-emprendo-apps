@@ -3355,6 +3355,8 @@
         activeSpreadsheet.reRender();
       }
       scheduleHeaderSortIconsRefresh();
+      scheduleValidationCellDropdownRefresh();
+      scheduleValidationBubblesRefresh();
       return { ok: true, message: 'Filters cleared.' };
     }
 
@@ -3421,6 +3423,9 @@
         if (aVal !== bVal) {
           return (aVal - bVal) * dir;
         }
+        // For identical checkbox state, keep existing row order stable.
+        // Do not fall through to text/numeric compare, which can scramble rows.
+        return rowA - rowB;
       }
       const aBlank = aText === '';
       const bBlank = bText === '';
@@ -4016,6 +4021,8 @@
             activeSpreadsheet.reRender();
           }
           scheduleHeaderSortIconsRefresh();
+          scheduleValidationCellDropdownRefresh();
+          scheduleValidationBubblesRefresh();
           if (manual && manual.ok) {
             const label = treatAsCheckbox ? 'Checkbox filter' : 'Filter/sort';
             setMenuStatus(
@@ -4040,6 +4047,8 @@
               activeSpreadsheet.reRender();
             }
             scheduleHeaderSortIconsRefresh();
+            scheduleValidationCellDropdownRefresh();
+            scheduleValidationBubblesRefresh();
             if (manual && manual.ok) {
               setMenuStatus(
                 `Checkbox filter on ${colLabelFromIndex(targetCi)} -> shown:${manual.included} hidden:${manual.excluded}`,
@@ -4112,6 +4121,8 @@
         activeSpreadsheet.reRender();
       }
       scheduleHeaderSortIconsRefresh();
+      scheduleValidationCellDropdownRefresh();
+      scheduleValidationBubblesRefresh();
       return {
         ok: !manual || manual.ok !== false,
         message: `Sorted column ${colLabelFromIndex(ci)} ${sortLabelForColumn(ci, normalizedOrder)}.`,

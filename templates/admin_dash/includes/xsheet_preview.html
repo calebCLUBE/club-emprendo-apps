@@ -1707,6 +1707,15 @@
       }
     }
 
+    function scheduleValidationRefreshCascade() {
+      scheduleValidationCellDropdownRefresh();
+      scheduleValidationBubblesRefresh();
+      window.setTimeout(function () {
+        scheduleValidationCellDropdownRefresh();
+        scheduleValidationBubblesRefresh();
+      }, 40);
+    }
+
     function scheduleHeaderSortIconsRefresh() {
       if (headerSortRefreshQueued) {
         return;
@@ -3370,8 +3379,7 @@
         activeSpreadsheet.reRender();
       }
       scheduleHeaderSortIconsRefresh();
-      scheduleValidationCellDropdownRefresh();
-      scheduleValidationBubblesRefresh();
+      scheduleValidationRefreshCascade();
       return { ok: true, message: 'Filters cleared.' };
     }
 
@@ -4063,8 +4071,7 @@
             activeSpreadsheet.reRender();
           }
           scheduleHeaderSortIconsRefresh();
-          scheduleValidationCellDropdownRefresh();
-          scheduleValidationBubblesRefresh();
+          scheduleValidationRefreshCascade();
           if (manual && manual.ok) {
             const label = treatAsCheckbox ? 'Checkbox filter' : 'Filter/sort';
             setMenuStatus(
@@ -4089,8 +4096,7 @@
               activeSpreadsheet.reRender();
             }
             scheduleHeaderSortIconsRefresh();
-            scheduleValidationCellDropdownRefresh();
-            scheduleValidationBubblesRefresh();
+            scheduleValidationRefreshCascade();
             if (manual && manual.ok) {
               setMenuStatus(
                 `Checkbox filter on ${colLabelFromIndex(targetCi)} -> shown:${manual.included} hidden:${manual.excluded}`,
@@ -4163,8 +4169,7 @@
         activeSpreadsheet.reRender();
       }
       scheduleHeaderSortIconsRefresh();
-      scheduleValidationCellDropdownRefresh();
-      scheduleValidationBubblesRefresh();
+      scheduleValidationRefreshCascade();
       return {
         ok: !manual || manual.ok !== false,
         message: `Sorted column ${colLabelFromIndex(ci)} ${sortLabelForColumn(ci, normalizedOrder)}.`,

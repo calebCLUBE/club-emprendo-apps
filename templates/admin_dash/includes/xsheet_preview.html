@@ -3572,6 +3572,14 @@
       data.unsortedRowMap = new Map();
       sortedRows.forEach(function (sourceRi, visibleOffset) {
         const visibleRi = visibleRows[visibleOffset];
+        if (
+          !Number.isFinite(sourceRi) ||
+          !Number.isFinite(visibleRi) ||
+          sourceRi <= 0 ||
+          visibleRi <= 0
+        ) {
+          return;
+        }
         data.sortedRowMap.set(visibleRi, sourceRi);
         data.unsortedRowMap.set(sourceRi, visibleRi);
       });
@@ -3753,6 +3761,14 @@
             // unsortedRowMap: sourceRowIndex -> visibleRowIndex
             sortedRows.forEach((sourceRi, visibleOffset) => {
               const visibleRi = visibleRows[visibleOffset];
+              if (
+                !Number.isFinite(sourceRi) ||
+                !Number.isFinite(visibleRi) ||
+                sourceRi <= 0 ||
+                visibleRi <= 0
+              ) {
+                return;
+              }
               this.sortedRowMap.set(visibleRi, sourceRi);
               this.unsortedRowMap.set(sourceRi, visibleRi);
             });
@@ -3942,6 +3958,14 @@
         // unsortedRowMap: source row index -> visible row index
         sortedRows.forEach((sourceRi, visibleOffset) => {
           const visibleRi = visibleRows[visibleOffset];
+          if (
+            !Number.isFinite(sourceRi) ||
+            !Number.isFinite(visibleRi) ||
+            sourceRi <= 0 ||
+            visibleRi <= 0
+          ) {
+            return;
+          }
           data.sortedRowMap.set(visibleRi, sourceRi);
           data.unsortedRowMap.set(sourceRi, visibleRi);
         });

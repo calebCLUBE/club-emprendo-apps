@@ -782,6 +782,7 @@
       ? JSON.parse(sheetStatusOptionsEl.textContent || '[]')
       : [];
     const allowStructureEdit = {{ sheet_allow_structure_edit|default:True|yesno:"true,false" }};
+    const FILTER_PATCH_VERSION = 'v2026.05.27.3';
 
     const defaultPalette = [
       '#f4b183', '#f7d774', '#f5c2b8', '#9ec5e5', '#c6dcb0',
@@ -1032,7 +1033,20 @@
     }
 
     function normalizeCheckboxText(value) {
-      return isCheckboxCheckedValue(value) ? 'TRUE' : 'FALSE';
+      const raw = String(value == null ? '' : value).trim();
+      if (!raw) {
+        return 'FALSE';
+      }
+      const normalized = raw.toUpperCase();
+      if (isCheckboxCheckedValue(normalized)) {
+        return 'TRUE';
+      }
+      if (['FALSE', '0', 'UNCHECKED', 'OFF'].includes(normalized)) {
+        return 'FALSE';
+      }
+      // Preserve non-boolean labels so header text cannot be rewritten
+      // to FALSE when a checkbox range is too broad.
+      return raw;
     }
 
     function extractFilterValues(values) {
@@ -3605,6 +3619,37 @@
       };
     }
 
+    function canonicalHeaderText(ci) {
+      const idx = Number(ci);
+      if (!Number.isFinite(idx) || idx < 0) {
+        return '';
+      }
+      if (Array.isArray(headers) && idx < headers.length) {
+        return String(headers[idx] == null ? '' : headers[idx]);
+      }
+      return '';
+    }
+
+    function enforceHeaderRowValues(data) {
+      if (!data || !data.rows || typeof data.rows.getCell !== 'function' || typeof data.rows.setCellText !== 'function') {
+        return;
+      }
+      const colLen = Number.isFinite(data.cols && data.cols.len) ? Number(data.cols.len) : 0;
+      if (colLen <= 0) {
+        return;
+      }
+      for (let ci = 0; ci < colLen; ci += 1) {
+        const expected = canonicalHeaderText(ci);
+        if (!expected) {
+          continue;
+        }
+        const current = parseCellText(data.rows.getCell(0, ci));
+        if (current !== expected) {
+          data.rows.setCellText(0, ci, expected);
+        }
+      }
+    }
+
     function scrubHeaderRowFromFilterMaps(data) {
       if (!data) {
         return;
@@ -3650,6 +3695,7 @@
         if (!auto || typeof auto.active !== 'function' || !auto.active()) {
           const baseResult = originalReset();
           scrubHeaderRowFromFilterMaps(this);
+          enforceHeaderRowValues(this);
           return baseResult;
         }
 
@@ -3682,11 +3728,13 @@
         const manualResult = applyManualAutoFilter(this);
         if (manualResult && manualResult.ok) {
           scrubHeaderRowFromFilterMaps(this);
+          enforceHeaderRowValues(this);
           return manualResult;
         }
 
         const fallbackResult = originalReset();
         scrubHeaderRowFromFilterMaps(this);
+        enforceHeaderRowValues(this);
         return fallbackResult;
       };
       data.__ceAutoFilterRuntimePatched = true;
@@ -3857,6 +3905,14 @@
           const targetCi = colIdx;
           const wantsSort = normalizedOrder === 'asc' || normalizedOrder === 'desc';
           data.setAutoFilter(targetCi, wantsSort ? normalizedOrder : null, normalizedOperator, normalizedValues);
+          if (!wantsSort) {
+            data.sortedRowMap = new Map();
+            data.unsortedRowMap = new Map();
+          }
+          if (data.exceptRowSet && typeof data.exceptRowSet.delete === 'function') {
+            data.exceptRowSet.delete(0);
+          }
+          enforceHeaderRowValues(data);
           if (sheetCore && typeof sheetCore.reload === 'function') {
             sheetCore.reload();
           } else if (activeSpreadsheet && typeof activeSpreadsheet.reRender === 'function') {
@@ -3867,7 +3923,7 @@
           const label = treatAsCheckbox
             ? (wantsSort ? 'Checkbox filter/sort' : 'Checkbox filter')
             : (wantsSort ? 'Filter/sort' : 'Filter');
-          setMenuStatus(`${label} on ${colLabelFromIndex(targetCi)} applied.`, 'ok');
+          setMenuStatus(`${label} on ${colLabelFromIndex(targetCi)} applied (${FILTER_PATCH_VERSION}).`, 'ok');
           return;
         }
 
@@ -3927,6 +3983,10 @@
       }
 
       data.setAutoFilter(ci, normalizedOrder, operator, values);
+      if (data.exceptRowSet && typeof data.exceptRowSet.delete === 'function') {
+        data.exceptRowSet.delete(0);
+      }
+      enforceHeaderRowValues(data);
       if (sheetCore && typeof sheetCore.reload === 'function') {
         sheetCore.reload();
       } else if (activeSpreadsheet && typeof activeSpreadsheet.reRender === 'function') {

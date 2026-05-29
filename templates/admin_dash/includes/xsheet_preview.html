@@ -782,7 +782,7 @@
       ? JSON.parse(sheetStatusOptionsEl.textContent || '[]')
       : [];
     const allowStructureEdit = {{ sheet_allow_structure_edit|default:True|yesno:"true,false" }};
-    const FILTER_PATCH_VERSION = 'v2026.05.29.1';
+    const FILTER_PATCH_VERSION = 'v2026.05.29.2';
 
     const defaultPalette = [
       '#f4b183', '#f7d774', '#f5c2b8', '#9ec5e5', '#c6dcb0',
@@ -4355,28 +4355,86 @@
         return;
       }
 
-      const dampen = 0.22;
-      const renderAfterScroll = function () {
-        try {
-          if (sheetCore.table && typeof sheetCore.table.render === 'function') {
-            sheetCore.table.render();
-          } else if (activeSpreadsheet && typeof activeSpreadsheet.reRender === 'function') {
-            activeSpreadsheet.reRender();
-          }
-          if (sheetCore.selector && typeof sheetCore.selector.resetBRLAreaOffset === 'function') {
-            sheetCore.selector.resetBRLAreaOffset();
-          }
-          if (sheetCore.selector && typeof sheetCore.selector.resetBRTAreaOffset === 'function') {
-            sheetCore.selector.resetBRTAreaOffset();
-          }
-        } catch (err) {
-          // Keep native scrolling available if the vendor internals change.
+      const syntheticEvents = typeof WeakSet === 'function' ? new WeakSet() : null;
+      const minIntervalMs = 72;
+      let pendingDeltaX = 0;
+      let pendingDeltaY = 0;
+      let flushTimer = null;
+      let lastFlushAt = 0;
+      let lastNativeWheelAt = 0;
+
+      const dispatchScaledWheel = function () {
+        flushTimer = null;
+        const deltaX = pendingDeltaX;
+        const deltaY = pendingDeltaY;
+        pendingDeltaX = 0;
+        pendingDeltaY = 0;
+        if (!deltaX && !deltaY) {
+          return;
         }
+
+        const useHorizontal = Math.abs(deltaX) > Math.abs(deltaY);
+        const nextDeltaX = useHorizontal ? Math.sign(deltaX) * 24 : 0;
+        const nextDeltaY = useHorizontal ? 0 : Math.sign(deltaY || deltaX) * 24;
+        const eventType = /Firefox/i.test(window.navigator.userAgent || '')
+          ? 'DOMMouseScroll'
+          : 'mousewheel';
+        let forwarded;
+        try {
+          forwarded = new WheelEvent(eventType, {
+            bubbles: true,
+            cancelable: true,
+            deltaX: nextDeltaX,
+            deltaY: nextDeltaY,
+            deltaMode: 0,
+          });
+        } catch (err) {
+          forwarded = document.createEvent('Event');
+          forwarded.initEvent(eventType, true, true);
+          forwarded.deltaX = nextDeltaX;
+          forwarded.deltaY = nextDeltaY;
+        }
+        if (syntheticEvents) {
+          syntheticEvents.add(forwarded);
+        } else {
+          forwarded.__ceWheelDampingSynthetic = true;
+        }
+        overlayer.dispatchEvent(forwarded);
         scheduleValidationRefreshCascade();
         scheduleHeaderSortIconsRefresh();
       };
 
+      const queueScaledWheel = function () {
+        const now = Date.now();
+        const elapsed = now - lastFlushAt;
+        if (elapsed >= minIntervalMs) {
+          lastFlushAt = now;
+          dispatchScaledWheel();
+          return;
+        }
+        if (!flushTimer) {
+          flushTimer = window.setTimeout(function () {
+            lastFlushAt = Date.now();
+            dispatchScaledWheel();
+          }, minIntervalMs - elapsed);
+        }
+      };
+
       const onWheel = function (ev) {
+        if ((syntheticEvents && syntheticEvents.has(ev)) || ev.__ceWheelDampingSynthetic) {
+          return;
+        }
+        const now = Date.now();
+        if (ev.type === 'wheel') {
+          lastNativeWheelAt = now;
+        } else if (lastNativeWheelAt && now - lastNativeWheelAt < 120) {
+          ev.preventDefault();
+          ev.stopPropagation();
+          if (typeof ev.stopImmediatePropagation === 'function') {
+            ev.stopImmediatePropagation();
+          }
+          return;
+        }
         if (!activeSheetData || ev.ctrlKey || ev.metaKey) {
           return;
         }
@@ -4396,33 +4454,9 @@
           ev.stopImmediatePropagation();
         }
 
-        const scroll = activeSheetData.scroll || {};
-        const currentY = Number.isFinite(scroll.y) ? Number(scroll.y) : 0;
-        const currentX = Number.isFinite(scroll.x) ? Number(scroll.x) : 0;
-        const nextY = Math.max(0, currentY + (rawDeltaY * dampen));
-        const nextX = Math.max(0, currentX + (rawDeltaX * dampen));
-        let changed = false;
-
-        if (Math.abs(rawDeltaY) >= Math.abs(rawDeltaX) && typeof activeSheetData.scrolly === 'function') {
-          activeSheetData.scrolly(nextY, function () {
-            changed = true;
-          });
-          if (sheetCore.verticalScrollbar && typeof sheetCore.verticalScrollbar.move === 'function') {
-            sheetCore.verticalScrollbar.move({ top: activeSheetData.scroll.y || 0 });
-          }
-        }
-        if (Math.abs(rawDeltaX) > 0 && typeof activeSheetData.scrollx === 'function') {
-          activeSheetData.scrollx(nextX, function () {
-            changed = true;
-          });
-          if (sheetCore.horizontalScrollbar && typeof sheetCore.horizontalScrollbar.move === 'function') {
-            sheetCore.horizontalScrollbar.move({ left: activeSheetData.scroll.x || 0 });
-          }
-        }
-
-        if (changed) {
-          renderAfterScroll();
-        }
+        pendingDeltaX += rawDeltaX;
+        pendingDeltaY += rawDeltaY;
+        queueScaledWheel();
       };
 
       overlayer.addEventListener('wheel', onWheel, { capture: true, passive: false });

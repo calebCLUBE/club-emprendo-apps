@@ -37,6 +37,7 @@ from .models import (
     FormGroup,
     GradedFile,
     GroupParticipantList,
+    ParticipantSheetVersion,
     ParticipantEmailStatus,
 )
 
@@ -1755,6 +1756,83 @@ def _number_sheet_rows(rows: list[list], number_col: int = 2) -> list[list]:
     return out
 
 
+PARTICIPANT_SHEET_VERSION_LIMIT = 80
+
+
+def _participant_sheet_versions(group, track_slug: str, limit: int = 25):
+    return list(
+        ParticipantSheetVersion.objects.filter(group=group, track=track_slug)
+        .select_related("saved_by")
+        .order_by("-created_at", "-id")[:limit]
+    )
+
+
+def _create_participant_sheet_version(
+    *,
+    group,
+    track_slug: str,
+    rows: list[list],
+    request,
+    action: str = "autosave",
+) -> ParticipantSheetVersion | None:
+    normalized_rows = [list(row) for row in rows]
+    latest = (
+        ParticipantSheetVersion.objects.filter(group=group, track=track_slug)
+        .order_by("-created_at", "-id")
+        .first()
+    )
+    if latest and latest.rows == normalized_rows:
+        return None
+
+    user = getattr(request, "user", None)
+    if not user or not getattr(user, "is_authenticated", False):
+        user = None
+    version = ParticipantSheetVersion.objects.create(
+        group=group,
+        track=track_slug,
+        rows=normalized_rows,
+        row_count=len(normalized_rows),
+        action=action,
+        saved_by=user,
+    )
+
+    old_ids = list(
+        ParticipantSheetVersion.objects.filter(group=group, track=track_slug)
+        .order_by("-created_at", "-id")
+        .values_list("id", flat=True)[PARTICIPANT_SHEET_VERSION_LIMIT:]
+    )
+    if old_ids:
+        ParticipantSheetVersion.objects.filter(id__in=old_ids).delete()
+    return version
+
+
+def _create_participant_sheet_version_from_store(
+    *,
+    group,
+    track_slug: str,
+    rows_field: str,
+    headers: list[str],
+    bool_cols: list[int],
+    request,
+    action: str,
+) -> ParticipantSheetVersion | None:
+    participant_obj = GroupParticipantList.objects.filter(group=group).first()
+    if not participant_obj:
+        return None
+    rows = _normalize_sheet_rows(getattr(participant_obj, rows_field, []), headers)
+    rows = _coerce_bool_columns(rows, bool_cols)
+    rows = _number_sheet_rows(rows, number_col=2)
+    if not rows:
+        return None
+    return _create_participant_sheet_version(
+        group=group,
+        track_slug=track_slug,
+        rows=rows,
+        request=request,
+        action=action,
+    )
+
+
 def _app_group_number(app: Application) -> int | None:
     gnum = getattr(getattr(app, "form", None), "group_id", None)
     if gnum:
@@ -3075,6 +3153,63 @@ def profiles_participants_track_sheet(request, group_num: int, track: str):
     if request.method == "POST":
         is_async_save = request.headers.get("x-requested-with") == "XMLHttpRequest"
         action = (request.POST.get("action") or "save_sheet").strip()
+        if action == "restore_version":
+            version_raw = (request.POST.get("version_id") or "").strip()
+            if not version_raw.isdigit():
+                messages.error(request, "Select a saved version to restore.")
+                return redirect(
+                    reverse(
+                        "admin_profiles_participants_track_sheet",
+                        args=[group.number, track_slug],
+                    )
+                )
+
+            version = (
+                ParticipantSheetVersion.objects.filter(
+                    id=int(version_raw),
+                    group=group,
+                    track=track_slug,
+                )
+                .order_by("-created_at", "-id")
+                .first()
+            )
+            if not version:
+                messages.error(request, "That saved version is no longer available.")
+                return redirect(
+                    reverse(
+                        "admin_profiles_participants_track_sheet",
+                        args=[group.number, track_slug],
+                    )
+                )
+
+            restored_rows = _normalize_sheet_rows(version.rows, headers)
+            restored_rows = _coerce_bool_columns(restored_rows, bool_cols)
+            restored_rows = _number_sheet_rows(restored_rows, number_col=2)
+            restored_emails = _emails_from_sheet_rows(restored_rows, email_col)
+            participant_obj, _ = GroupParticipantList.objects.get_or_create(group=group)
+            setattr(participant_obj, text_field, "\n".join(restored_emails))
+            setattr(participant_obj, rows_field, restored_rows)
+            participant_obj.save(update_fields=[text_field, rows_field, "updated_at"])
+            _create_participant_sheet_version(
+                group=group,
+                track_slug=track_slug,
+                rows=restored_rows,
+                request=request,
+                action="restore",
+            )
+            messages.success(
+                request,
+                (
+                    f"Restored {track_label} participants for Group {group.number} "
+                    f"from {timezone.localtime(version.created_at).strftime('%Y-%m-%d %H:%M')}."
+                ),
+            )
+            return redirect(
+                reverse(
+                    "admin_profiles_participants_track_sheet",
+                    args=[group.number, track_slug],
+                )
+            )
         if action == "check_dropbox":
             target_track = "M" if track_slug == "mentoras" else "E"
             try:
@@ -3118,6 +3253,15 @@ def profiles_participants_track_sheet(request, group_num: int, track: str):
             except Exception as exc:
                 ok, summary = False, f"Unexpected error running Wix capacitacion check: {exc}"
             if ok:
+                _create_participant_sheet_version_from_store(
+                    group=group,
+                    track_slug=track_slug,
+                    rows_field=rows_field,
+                    headers=headers,
+                    bool_cols=bool_cols,
+                    request=request,
+                    action="check_capacitacion",
+                )
                 messages.success(
                     request,
                     f"Wix capacitacion check completed for Group {group.number} {track_label}. {summary}",
@@ -3161,6 +3305,15 @@ def profiles_participants_track_sheet(request, group_num: int, track: str):
             except Exception as exc:
                 ok, summary = False, f"Unexpected error running encuestas check: {exc}"
             if ok:
+                _create_participant_sheet_version_from_store(
+                    group=group,
+                    track_slug=track_slug,
+                    rows_field=rows_field,
+                    headers=headers,
+                    bool_cols=bool_cols,
+                    request=request,
+                    action="check_encuesta_inicial",
+                )
                 messages.success(
                     request,
                     f"Encuesta inicial check completed for Group {group.number} {track_label}. {summary}",
@@ -3204,6 +3357,15 @@ def profiles_participants_track_sheet(request, group_num: int, track: str):
             except Exception as exc:
                 ok, summary = False, f"Unexpected error running final encuestas check: {exc}"
             if ok:
+                _create_participant_sheet_version_from_store(
+                    group=group,
+                    track_slug=track_slug,
+                    rows_field=rows_field,
+                    headers=headers,
+                    bool_cols=bool_cols,
+                    request=request,
+                    action="check_encuesta_final",
+                )
                 messages.success(
                     request,
                     f"Encuesta final check completed for Group {group.number} {track_label}. {summary}",
@@ -3273,6 +3435,14 @@ def profiles_participants_track_sheet(request, group_num: int, track: str):
             updates.append(rows_field)
         if updates:
             participant_obj.save(update_fields=updates + ["updated_at"])
+            if rows_field in updates:
+                _create_participant_sheet_version(
+                    group=group,
+                    track_slug=track_slug,
+                    rows=track_rows,
+                    request=request,
+                    action="autosave" if is_async_save else "manual",
+                )
 
         participant_emails = valid_emails or _emails_from_sheet_rows(track_rows, email_col)
         created_count, updated_count, unchanged_count = _mark_participated_yes(
@@ -3343,6 +3513,14 @@ def profiles_participants_track_sheet(request, group_num: int, track: str):
         acta_col=acta_col,
     )
     emails_text = "\n".join(_emails_from_sheet_rows(rows, email_col))
+    if rows and not ParticipantSheetVersion.objects.filter(group=group, track=track_slug).exists():
+        _create_participant_sheet_version(
+            group=group,
+            track_slug=track_slug,
+            rows=rows,
+            request=request,
+            action="baseline",
+        )
 
     context = {
         "group": group,
@@ -3353,6 +3531,7 @@ def profiles_participants_track_sheet(request, group_num: int, track: str):
         "sheet_status_options": status_options,
         "sheet_rows": rows,
         "sheet_rows_json": json.dumps(rows),
+        "sheet_versions": _participant_sheet_versions(group, track_slug),
         "emails_text": emails_text,
         "rows_count": len(rows),
     }

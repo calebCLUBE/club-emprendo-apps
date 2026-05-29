@@ -51,6 +51,32 @@
     width: auto !important;
     height: auto !important;
   }
+  .ce-version-form {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: 0 1 auto;
+    margin-right: auto !important;
+  }
+  .ce-version-select {
+    max-width: 260px;
+    height: 34px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    background: #fff;
+    color: #1f2937;
+    font-size: 13px;
+    padding: 0 8px;
+  }
+  .ce-autosave-status {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    color: #475569;
+    font-size: 12px;
+    min-width: 132px;
+    text-align: right;
+  }
   .ce-sheet-btn {
     display: inline-block;
     padding: 8px 12px;
@@ -76,7 +102,8 @@
     flex-direction: column;
   }
   .ce-sheet-debug {
-    margin-right: auto;
+    flex: 0 0 auto;
+    margin-right: 0;
     font-size: 12px;
     color: #374151;
     background: #f3f4f6;
@@ -88,7 +115,21 @@
 
 <div class="ce-sheet-page">
   <div class="ce-sheet-actions">
-    <span class="ce-sheet-debug">Participants sheet patch v2026.05.27.6</span>
+    <span class="ce-sheet-debug">Participants sheet patch v2026.05.29.1</span>
+    <form class="ce-version-form" method="post">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="restore_version">
+      <select class="ce-version-select" name="version_id" aria-label="Saved versions">
+        <option value="">Saved versions</option>
+        {% for version in sheet_versions %}
+          <option value="{{ version.id }}">
+            {{ version.created_at|date:"Y-m-d H:i" }} · {{ version.action }} · {{ version.row_count }} rows
+          </option>
+        {% endfor %}
+      </select>
+      <button class="ce-sheet-btn ce-sheet-btn--ghost" type="submit">Restore</button>
+    </form>
+    <span id="ce-sheet-autosave-status" class="ce-autosave-status">Autosave ready</span>
     <a class="ce-sheet-btn ce-sheet-btn--ghost" href="{% url 'admin_profiles_participants' %}?group={{ group.number }}">
       Back
     </a>
@@ -130,6 +171,7 @@
     const REGISTRY_ID = 'participants-track-sheet-xsheet';
     const form = document.getElementById('ce-sheet-save-form');
     const sheetDataInput = document.getElementById('ce-sheet-data');
+    const autosaveStatus = document.getElementById('ce-sheet-autosave-status');
     if (!form || !sheetDataInput) {
       return;
     }
@@ -179,6 +221,19 @@
       return JSON.stringify(rows);
     }
 
+    function setAutosaveStatus(text) {
+      if (autosaveStatus) {
+        autosaveStatus.textContent = text;
+      }
+    }
+
+    function autosaveTimeLabel() {
+      return new Date().toLocaleTimeString([], {
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    }
+
     async function saveIfChanged(force) {
       if (saveInFlight) {
         return;
@@ -192,6 +247,7 @@
       }
 
       saveInFlight = true;
+      setAutosaveStatus('Saving...');
       sheetDataInput.value = payload;
       const body = new FormData(form);
       try {
@@ -205,9 +261,12 @@
         });
         if (response.ok) {
           lastSavedPayload = payload;
+          setAutosaveStatus(`Autosaved ${autosaveTimeLabel()}`);
+        } else {
+          setAutosaveStatus('Autosave failed');
         }
       } catch (err) {
-        // ignore; next autosave tick will retry
+        setAutosaveStatus('Autosave failed');
       } finally {
         saveInFlight = false;
       }
@@ -220,6 +279,7 @@
         return;
       }
       lastSavedPayload = payload;
+      setAutosaveStatus('Autosave ready');
     }
 
     document.addEventListener('keydown', function (ev) {

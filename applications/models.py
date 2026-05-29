@@ -710,6 +710,42 @@ class GroupParticipantList(models.Model):
         return f"Group {self.group.number} participants"
 
 
+class ParticipantSheetVersion(models.Model):
+    TRACK_CHOICES = [
+        ("mentoras", "Mentoras"),
+        ("emprendedoras", "Emprendedoras"),
+    ]
+
+    group = models.ForeignKey(
+        "applications.FormGroup",
+        on_delete=models.CASCADE,
+        related_name="participant_sheet_versions",
+    )
+    track = models.CharField(max_length=24, choices=TRACK_CHOICES, db_index=True)
+    rows = models.JSONField(default=list, blank=True)
+    row_count = models.PositiveIntegerField(default=0)
+    action = models.CharField(max_length=40, blank=True, default="autosave")
+    saved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="participant_sheet_versions",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        indexes = [
+            models.Index(fields=["group", "track", "-created_at"]),
+        ]
+        verbose_name = "Participant Sheet Version"
+        verbose_name_plural = "Participant Sheet Versions"
+
+    def __str__(self) -> str:
+        return f"Group {self.group.number} {self.track} version {self.created_at:%Y-%m-%d %H:%M}"
+
+
 DEFAULT_TASK_TYPES = [
     {
         "slug": "general",

@@ -782,7 +782,7 @@
       ? JSON.parse(sheetStatusOptionsEl.textContent || '[]')
       : [];
     const allowStructureEdit = {{ sheet_allow_structure_edit|default:True|yesno:"true,false" }};
-    const FILTER_PATCH_VERSION = 'v2026.05.27.6';
+    const FILTER_PATCH_VERSION = 'v2026.05.29.1';
 
     const defaultPalette = [
       '#f4b183', '#f7d774', '#f5c2b8', '#9ec5e5', '#c6dcb0',
@@ -2730,6 +2730,93 @@
       }
     }
 
+    function validationOptionsFromValue(value) {
+      if (Array.isArray(value)) {
+        return value
+          .map(function (item) { return String(item == null ? '' : item).trim(); })
+          .filter(function (item) { return item.length > 0; });
+      }
+      return String(value == null ? '' : value)
+        .split(',')
+        .map(function (item) { return item.trim(); })
+        .filter(function (item) { return item.length > 0; });
+    }
+
+    function colorMapForValidation(criteria, options, source) {
+      const out = {};
+      const sourceMap = source && (source.colorByLabel || source.color_map);
+      if (sourceMap && typeof sourceMap === 'object') {
+        Object.keys(sourceMap).forEach(function (key) {
+          if (key) {
+            out[key] = sourceMap[key];
+          }
+        });
+        if (Object.keys(out).length) {
+          return out;
+        }
+      }
+      if (criteria === 'checkbox') {
+        out.TRUE = '#2f855a';
+        out.FALSE = '#ef4444';
+        return out;
+      }
+      options.forEach(function (label, idx) {
+        out[label] = defaultPalette[idx % defaultPalette.length];
+      });
+      return out;
+    }
+
+    function syncValidationMetadataFromSheetData() {
+      if (!activeSheetData || !activeSheetData.validations || typeof activeSheetData.validations.getData !== 'function') {
+        return;
+      }
+      let validationData = [];
+      try {
+        validationData = activeSheetData.validations.getData() || [];
+      } catch (err) {
+        validationData = [];
+      }
+
+      colorRules = [];
+      validationRuleMeta = [];
+      validationData.forEach(function (item) {
+        if (!item) {
+          return;
+        }
+        const refs = Array.isArray(item.refs) ? item.refs : [];
+        const type = String(item.type || 'list').trim().toLowerCase();
+        const options = validationOptionsFromValue(item.value);
+        const criteria = type === 'list' && isCheckboxLikeFilterValues(options)
+          ? 'checkbox'
+          : type;
+        const colorByLabel = colorMapForValidation(criteria, options, item);
+        refs.forEach(function (refRaw) {
+          const ref = normalizeRangeRef(refRaw);
+          const range = parseA1Range(ref);
+          if (!ref || !range) {
+            return;
+          }
+          const mode = item.mode || 'cell';
+          if (Object.keys(colorByLabel).length) {
+            upsertColorRule({
+              mode,
+              ref,
+              range,
+              colorByLabel: Object.assign({}, colorByLabel),
+            });
+          }
+          upsertValidationRuleMeta({
+            mode,
+            ref,
+            range,
+            criteria,
+            options: options.slice(),
+            colorByLabel: Object.assign({}, colorByLabel),
+          });
+        });
+      });
+    }
+
     function applyValidationRuleAndClose() {
       if (!activeSheetData) {
         setDrawerStatus('Sheet is not ready yet.', 'warn');
@@ -3279,6 +3366,7 @@
       }
       activeSpreadsheet.loadData(buildSheetPayload(matrix));
       activeSheetData = getActiveSheetData(activeSpreadsheet);
+      patchUndoRedoSync(activeSpreadsheet);
       if (activeSheetData) {
         delete activeSheetData.__ceDefaultCheckboxColsApplied;
         delete activeSheetData.__ceDefaultSelectColsApplied;
@@ -3356,10 +3444,14 @@
       const sheetCore = activeSpreadsheet && activeSpreadsheet.sheet ? activeSpreadsheet.sheet : null;
       if (sheetCore && typeof sheetCore.undo === 'function') {
         sheetCore.undo();
+        syncValidationMetadataFromSheetData();
+        scheduleValidationRefreshCascade();
         return true;
       }
       if (activeSheetData && typeof activeSheetData.undo === 'function') {
         activeSheetData.undo();
+        syncValidationMetadataFromSheetData();
+        scheduleValidationRefreshCascade();
         return true;
       }
       return false;
@@ -3369,13 +3461,47 @@
       const sheetCore = activeSpreadsheet && activeSpreadsheet.sheet ? activeSpreadsheet.sheet : null;
       if (sheetCore && typeof sheetCore.redo === 'function') {
         sheetCore.redo();
+        syncValidationMetadataFromSheetData();
+        scheduleValidationRefreshCascade();
         return true;
       }
       if (activeSheetData && typeof activeSheetData.redo === 'function') {
         activeSheetData.redo();
+        syncValidationMetadataFromSheetData();
+        scheduleValidationRefreshCascade();
         return true;
       }
       return false;
+    }
+
+    function afterUndoRedoSync() {
+      syncValidationMetadataFromSheetData();
+      scheduleValidationRefreshCascade();
+      syncFormulaBarFromSelection();
+      scheduleHeaderSortIconsRefresh();
+    }
+
+    function wrapUndoRedoTarget(target) {
+      if (!target || target.__ceUndoRedoSyncPatched) {
+        return;
+      }
+      ['undo', 'redo'].forEach(function (method) {
+        const original = target[method];
+        if (typeof original !== 'function') {
+          return;
+        }
+        target[method] = function () {
+          const result = original.apply(target, arguments);
+          afterUndoRedoSync();
+          return result;
+        };
+      });
+      target.__ceUndoRedoSyncPatched = true;
+    }
+
+    function patchUndoRedoSync(spreadsheet) {
+      wrapUndoRedoTarget(spreadsheet && spreadsheet.sheet);
+      wrapUndoRedoTarget(activeSheetData);
     }
 
     function fullSheetFilterRef(data) {
@@ -4220,6 +4346,88 @@
         return originalChange(action, value);
       };
       toolbar.__ceAutofilterPatched = true;
+    }
+
+    function mountWheelDamping(spreadsheet) {
+      const sheetCore = spreadsheet && spreadsheet.sheet ? spreadsheet.sheet : null;
+      const overlayer = root.querySelector('.x-spreadsheet-overlayer');
+      if (!sheetCore || !overlayer || overlayer.__ceWheelDampingMounted) {
+        return;
+      }
+
+      const dampen = 0.22;
+      const renderAfterScroll = function () {
+        try {
+          if (sheetCore.table && typeof sheetCore.table.render === 'function') {
+            sheetCore.table.render();
+          } else if (activeSpreadsheet && typeof activeSpreadsheet.reRender === 'function') {
+            activeSpreadsheet.reRender();
+          }
+          if (sheetCore.selector && typeof sheetCore.selector.resetBRLAreaOffset === 'function') {
+            sheetCore.selector.resetBRLAreaOffset();
+          }
+          if (sheetCore.selector && typeof sheetCore.selector.resetBRTAreaOffset === 'function') {
+            sheetCore.selector.resetBRTAreaOffset();
+          }
+        } catch (err) {
+          // Keep native scrolling available if the vendor internals change.
+        }
+        scheduleValidationRefreshCascade();
+        scheduleHeaderSortIconsRefresh();
+      };
+
+      const onWheel = function (ev) {
+        if (!activeSheetData || ev.ctrlKey || ev.metaKey) {
+          return;
+        }
+        const rawDeltaY = Number.isFinite(ev.deltaY)
+          ? Number(ev.deltaY)
+          : (Number.isFinite(ev.wheelDelta) ? -Number(ev.wheelDelta) : 0);
+        const rawDeltaX = Number.isFinite(ev.deltaX)
+          ? Number(ev.deltaX)
+          : (Number.isFinite(ev.wheelDeltaX) ? -Number(ev.wheelDeltaX) : 0);
+        if (!rawDeltaY && !rawDeltaX) {
+          return;
+        }
+
+        ev.preventDefault();
+        ev.stopPropagation();
+        if (typeof ev.stopImmediatePropagation === 'function') {
+          ev.stopImmediatePropagation();
+        }
+
+        const scroll = activeSheetData.scroll || {};
+        const currentY = Number.isFinite(scroll.y) ? Number(scroll.y) : 0;
+        const currentX = Number.isFinite(scroll.x) ? Number(scroll.x) : 0;
+        const nextY = Math.max(0, currentY + (rawDeltaY * dampen));
+        const nextX = Math.max(0, currentX + (rawDeltaX * dampen));
+        let changed = false;
+
+        if (Math.abs(rawDeltaY) >= Math.abs(rawDeltaX) && typeof activeSheetData.scrolly === 'function') {
+          activeSheetData.scrolly(nextY, function () {
+            changed = true;
+          });
+          if (sheetCore.verticalScrollbar && typeof sheetCore.verticalScrollbar.move === 'function') {
+            sheetCore.verticalScrollbar.move({ top: activeSheetData.scroll.y || 0 });
+          }
+        }
+        if (Math.abs(rawDeltaX) > 0 && typeof activeSheetData.scrollx === 'function') {
+          activeSheetData.scrollx(nextX, function () {
+            changed = true;
+          });
+          if (sheetCore.horizontalScrollbar && typeof sheetCore.horizontalScrollbar.move === 'function') {
+            sheetCore.horizontalScrollbar.move({ left: activeSheetData.scroll.x || 0 });
+          }
+        }
+
+        if (changed) {
+          renderAfterScroll();
+        }
+      };
+
+      overlayer.addEventListener('wheel', onWheel, { capture: true, passive: false });
+      overlayer.addEventListener('mousewheel', onWheel, { capture: true, passive: false });
+      overlayer.__ceWheelDampingMounted = true;
     }
 
     function mountColumnHeaderInteractions(spreadsheet) {
@@ -5142,6 +5350,7 @@
     function initValidationDrawer(spreadsheet) {
       activeSpreadsheet = spreadsheet;
       activeSheetData = getActiveSheetData(spreadsheet);
+      patchUndoRedoSync(spreadsheet);
       lastViewportRi = null;
       lastViewportCi = null;
       lastSelectorRi = null;
@@ -5462,6 +5671,7 @@
           patchSortFilterSet(spreadsheet);
           patchSortFilterConfirm(spreadsheet);
           patchToolbarAutofilter(spreadsheet);
+          mountWheelDamping(spreadsheet);
           mountColumnHeaderInteractions(spreadsheet);
           setSheetRegistryEntry({
             isFallback: false,

@@ -14,6 +14,7 @@ from .models import (
     DropboxSignWebhookEvent,
     FormDefinition,
     GroupParticipantList,
+    ParticipantSheetVersion,
     ParticipantEmailStatus,
     Question,
     Section,
@@ -661,3 +662,12 @@ class GroupParticipantListAdmin(admin.ModelAdmin):
     list_display = ("group", "updated_at", "created_at")
     search_fields = ("group__number",)
     ordering = ("-group__number",)
+
+
+@admin.register(ParticipantSheetVersion)
+class ParticipantSheetVersionAdmin(admin.ModelAdmin):
+    list_display = ("group", "track", "row_count", "action", "saved_by", "created_at")
+    list_filter = ("track", "action", "created_at")
+    search_fields = ("group__number", "saved_by__email")
+    ordering = ("-created_at", "-id")
+    readonly_fields = ("created_at",)

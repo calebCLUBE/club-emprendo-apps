@@ -20,6 +20,7 @@ from applications.models import (
     FormDefinition,
     FormGroup,
     GroupParticipantList,
+    ParticipantSheetVersion,
     ParticipantEmailStatus,
     Question,
     Section,
@@ -998,6 +999,46 @@ class ParticipantsCapacitacionCheckTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Check Capacitacion")
         self.assertContains(response, "Check Encuesta final")
+        self.assertContains(response, "Saved versions")
+
+    def test_track_sheet_autosave_creates_version_and_restore_reloads_it(self):
+        url = reverse(
+            "admin_profiles_participants_track_sheet",
+            args=[self.group.number, "mentoras"],
+        )
+        first_rows = [
+            ["", "CP", 1, "Mentora Version 1", "M1", "m1@example.com", "", "", "", False, False, False, False, False, False, False],
+        ]
+        response = self.client.post(
+            url,
+            data={"action": "save_sheet", "sheet_data": json.dumps(first_rows)},
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        self.assertEqual(response.status_code, 200)
+        version = ParticipantSheetVersion.objects.get(group=self.group, track="mentoras")
+        self.assertEqual(version.action, "autosave")
+
+        second_rows = [
+            ["", "CP", 1, "Mentora Version 2", "M1", "m1@example.com", "", "", "", False, False, False, False, False, False, False],
+        ]
+        response = self.client.post(
+            url,
+            data={"action": "save_sheet", "sheet_data": json.dumps(second_rows)},
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            ParticipantSheetVersion.objects.filter(group=self.group, track="mentoras").count(),
+            2,
+        )
+
+        response = self.client.post(
+            url,
+            data={"action": "restore_version", "version_id": str(version.id)},
+        )
+        self.assertEqual(response.status_code, 302)
+        self.participant_list.refresh_from_db()
+        self.assertEqual(self.participant_list.mentoras_sheet_rows[0][3], "Mentora Version 1")
 
     @patch("applications.admin_profiles_views._fetch_wix_capacitacion_completed_emails")
     def test_check_capacitacion_marks_only_matching_rows(self, mock_fetch):
@@ -1019,6 +1060,13 @@ class ParticipantsCapacitacionCheckTests(TestCase):
         self.participant_list.refresh_from_db()
         self.assertTrue(bool(self.participant_list.mentoras_sheet_rows[0][11]))
         self.assertFalse(bool(self.participant_list.mentoras_sheet_rows[1][11]))
+        self.assertTrue(
+            ParticipantSheetVersion.objects.filter(
+                group=self.group,
+                track="mentoras",
+                action="check_capacitacion",
+            ).exists()
+        )
 
     @patch("applications.admin_profiles_views._fetch_encuestas_emails_for_group")
     def test_check_encuesta_final_marks_only_matching_rows(self, mock_fetch):
@@ -1042,6 +1090,13 @@ class ParticipantsCapacitacionCheckTests(TestCase):
         self.participant_list.refresh_from_db()
         self.assertTrue(bool(self.participant_list.mentoras_sheet_rows[0][13]))
         self.assertFalse(bool(self.participant_list.mentoras_sheet_rows[1][13]))
+        self.assertTrue(
+            ParticipantSheetVersion.objects.filter(
+                group=self.group,
+                track="mentoras",
+                action="check_encuesta_final",
+            ).exists()
+        )
 
 
 class DropboxSignWebhookActaAutomationTests(TestCase):

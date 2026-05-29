@@ -218,12 +218,13 @@
   }
   .ce-header-sort-btn {
     position: absolute;
-    width: 18px;
-    height: 18px;
+    box-sizing: border-box;
+    width: 34px;
+    height: 26px;
     border: 1px solid transparent;
-    border-radius: 5px;
+    border-radius: 9px;
     background: rgba(255, 255, 255, 0.9);
-    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.14);
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.18);
     cursor: pointer;
     pointer-events: auto;
     display: flex;
@@ -233,6 +234,7 @@
     gap: 1px;
     opacity: 0.78;
     padding: 0;
+    touch-action: manipulation;
   }
   .ce-header-sort-btn:hover,
   .ce-header-sort-btn.is-active {
@@ -782,7 +784,7 @@
       ? JSON.parse(sheetStatusOptionsEl.textContent || '[]')
       : [];
     const allowStructureEdit = {{ sheet_allow_structure_edit|default:True|yesno:"true,false" }};
-    const FILTER_PATCH_VERSION = 'v2026.05.29.2';
+    const FILTER_PATCH_VERSION = 'v2026.05.29.3';
 
     const defaultPalette = [
       '#f4b183', '#f7d774', '#f5c2b8', '#9ec5e5', '#c6dcb0',
@@ -1881,6 +1883,9 @@
       return order === 'asc' ? 'A-Z' : 'Z-A';
     }
 
+    const HEADER_SORT_BTN_W = 34;
+    const HEADER_SORT_BTN_H = 26;
+
     function selectedFreezeColumnCount() {
       const selectorCi = Number(
         activeSheetData && activeSheetData.selector
@@ -1965,9 +1970,9 @@
         btn.title = `Sort column ${colLabelFromIndex(ci)} ${sortLabelForColumn(ci, nextOrder)}`;
         btn.setAttribute('aria-label', btn.title);
 
-        const top = rect.top + Math.max(3, Math.round((rect.height - 18) / 2));
-        const maxLeft = rect.left + rect.width - 26;
-        const preferredLeft = rect.left + rect.width - 42;
+        const top = rect.top + Math.max(1, Math.round((rect.height - HEADER_SORT_BTN_H) / 2));
+        const maxLeft = rect.left + rect.width - HEADER_SORT_BTN_W - 4;
+        const preferredLeft = rect.left + rect.width - HEADER_SORT_BTN_W - 8;
         const left = Math.max(rect.left + 4, Math.min(preferredLeft, maxLeft));
         btn.style.left = `${Math.round(left)}px`;
         btn.style.top = `${Math.round(top)}px`;

@@ -1881,6 +1881,56 @@
       return order === 'asc' ? 'A-Z' : 'Z-A';
     }
 
+    function selectedFreezeColumnCount() {
+      const selectorCi = Number(
+        activeSheetData && activeSheetData.selector
+          ? activeSheetData.selector.ci
+          : NaN
+      );
+      const candidates = [
+        selectorCi,
+        lastSelectorCi,
+        activeSortFilterCi,
+        lastSortFilterCi,
+      ];
+      const colLen = Number.isFinite(activeSheetData && activeSheetData.cols && activeSheetData.cols.len)
+        ? Number(activeSheetData.cols.len)
+        : null;
+      for (let i = 0; i < candidates.length; i += 1) {
+        const ci = Number(candidates[i]);
+        if (!Number.isFinite(ci) || ci < 0) {
+          continue;
+        }
+        const boundedCi = colLen ? Math.min(ci, colLen - 1) : ci;
+        return boundedCi + 1;
+      }
+      return 1;
+    }
+
+    function selectedFreezeRowCount() {
+      const selectorRi = Number(
+        activeSheetData && activeSheetData.selector
+          ? activeSheetData.selector.ri
+          : NaN
+      );
+      const candidates = [
+        selectorRi,
+        lastSelectorRi,
+      ];
+      const rowLen = Number.isFinite(activeSheetData && activeSheetData.rows && activeSheetData.rows.len)
+        ? Number(activeSheetData.rows.len)
+        : null;
+      for (let i = 0; i < candidates.length; i += 1) {
+        const ri = Number(candidates[i]);
+        if (!Number.isFinite(ri) || ri < 0) {
+          continue;
+        }
+        const boundedRi = rowLen ? Math.min(ri, rowLen - 1) : ri;
+        return boundedRi + 1;
+      }
+      return 1;
+    }
+
     function refreshHeaderSortIcons() {
       const layer = ensureHeaderSortLayer();
       if (!layer || !activeSheetData) {
@@ -4245,8 +4295,12 @@
         if (!isHeaderHit(hit)) {
           return;
         }
+        const hitCi = Number(hit.ci);
+        if (Number.isFinite(hitCi) && hitCi >= 0) {
+          lastSelectorCi = hitCi;
+        }
         if (isFilterHotspot(hit, point) || ev.type === 'contextmenu') {
-          rememberSortFilterColumn(Number(hit.ci));
+          rememberSortFilterColumn(hitCi);
         }
       }
 
@@ -4603,14 +4657,14 @@
         case 'freeze_row': {
           withSheetAction(function () {
             const current = Array.isArray(activeSheetData.freeze) ? activeSheetData.freeze : [0, 0];
-            activeSheetData.setFreeze(1, current[1] || 0);
+            activeSheetData.setFreeze(selectedFreezeRowCount(), current[1] || 0);
           });
           break;
         }
         case 'freeze_column': {
           withSheetAction(function () {
             const current = Array.isArray(activeSheetData.freeze) ? activeSheetData.freeze : [0, 0];
-            activeSheetData.setFreeze(current[0] || 0, 1);
+            activeSheetData.setFreeze(current[0] || 0, selectedFreezeColumnCount());
           });
           break;
         }
@@ -4766,8 +4820,8 @@
         {
           label: 'View',
           items: [
-            { label: 'Freeze 1 row', action: 'freeze_row' },
-            { label: 'Freeze 1 column', action: 'freeze_column' },
+            { label: 'Freeze through selected row', action: 'freeze_row' },
+            { label: 'Freeze through selected column', action: 'freeze_column' },
             { label: 'No freeze', action: 'unfreeze' },
             { separator: true },
             { label: 'Toggle filter', action: 'toggle_filter' },

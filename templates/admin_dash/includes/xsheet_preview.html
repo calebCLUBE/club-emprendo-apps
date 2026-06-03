@@ -204,12 +204,6 @@
   .ce-hidden {
     display: none !important;
   }
-  /* Sorting is handled by header icon buttons; keep the popup for value filters only. */
-  .x-spreadsheet-sort-filter > .x-spreadsheet-item.state:nth-child(1),
-  .x-spreadsheet-sort-filter > .x-spreadsheet-item.state:nth-child(2),
-  .x-spreadsheet-sort-filter > .x-spreadsheet-item.divider:nth-child(3) {
-    display: none !important;
-  }
   .ce-header-sort-layer {
     position: absolute;
     inset: 0;
@@ -784,7 +778,7 @@
       ? JSON.parse(sheetStatusOptionsEl.textContent || '[]')
       : [];
     const allowStructureEdit = {{ sheet_allow_structure_edit|default:True|yesno:"true,false" }};
-    const FILTER_PATCH_VERSION = 'v2026.06.03.3';
+    const FILTER_PATCH_VERSION = 'v2026.06.03.4';
 
     const defaultPalette = [
       '#f4b183', '#f7d774', '#f5c2b8', '#9ec5e5', '#c6dcb0',
@@ -1502,7 +1496,7 @@
         return selectorCi;
       }
 
-      return 0;
+      return opts.allowDefault === false ? null : 0;
     }
 
     function setCellTextSafe(ri, ci, value) {
@@ -4656,7 +4650,11 @@
           sortFilter.col,
           sortFilter.column,
           sortFilter.index,
-        ]);
+        ], { allowDefault: false });
+        if (!Number.isFinite(colIdx) || colIdx < 0) {
+          setMenuStatus('Open a column filter before sorting.', 'error');
+          return;
+        }
         if (Number.isFinite(colIdx) && colIdx >= 0) {
           rememberSortFilterColumn(colIdx);
         }
@@ -4843,10 +4841,10 @@
       }
 
       const syntheticEvents = typeof WeakSet === 'function' ? new WeakSet() : null;
-      const minIntervalMs = 110;
-      const idleResetMs = 180;
-      const verticalStepThresholdPx = 86;
-      const horizontalStepThresholdPx = 110;
+      const minIntervalMs = 72;
+      const idleResetMs = 220;
+      const verticalStepThresholdPx = 48;
+      const horizontalStepThresholdPx = 64;
       let pendingDeltaX = 0;
       let pendingDeltaY = 0;
       let flushTimer = null;

@@ -784,7 +784,7 @@
       ? JSON.parse(sheetStatusOptionsEl.textContent || '[]')
       : [];
     const allowStructureEdit = {{ sheet_allow_structure_edit|default:True|yesno:"true,false" }};
-    const FILTER_PATCH_VERSION = 'v2026.06.03.2';
+    const FILTER_PATCH_VERSION = 'v2026.06.03.3';
 
     const defaultPalette = [
       '#f4b183', '#f7d774', '#f5c2b8', '#9ec5e5', '#c6dcb0',
@@ -2935,6 +2935,51 @@
       });
     }
 
+    function colorMapFromRuleSources(validator, metaRule, criteria, options) {
+      const out = {};
+      const merge = function (source) {
+        if (!source || typeof source !== 'object') {
+          return;
+        }
+        Object.keys(source).forEach(function (key) {
+          if (key) {
+            out[key] = source[key];
+          }
+        });
+      };
+      merge(metaRule && metaRule.colorByLabel);
+      merge(validator && validator.colorByLabel);
+      merge(validator && validator.color_map);
+      if (!Object.keys(out).length && criteria === 'checkbox') {
+        out.TRUE = '#2f855a';
+        out.FALSE = '#ef4444';
+      }
+      if (!Object.keys(out).length && Array.isArray(options)) {
+        options.forEach(function (label, idx) {
+          out[label] = defaultPalette[idx % defaultPalette.length];
+        });
+      }
+      return out;
+    }
+
+    function replaceDrawerOptionRows(options, colorByLabel) {
+      if (!drawerOptions) {
+        return;
+      }
+      drawerOptions.innerHTML = '';
+      const values = normalizeValidationOptionList(options);
+      if (!values.length) {
+        drawerOptions.appendChild(createOptionRow('', defaultPalette[0]));
+        return;
+      }
+      values.forEach(function (label, idx) {
+        const color = colorByLabel && colorByLabel[label]
+          ? colorByLabel[label]
+          : defaultPalette[idx % defaultPalette.length];
+        drawerOptions.appendChild(createOptionRow(label, color));
+      });
+    }
+
     function readOptionRows() {
       if (!drawerOptions) {
         return [];
@@ -3051,12 +3096,100 @@
       drawerRangeInput.value = currentSelectedRef(activeSheetData);
     }
 
+    function selectedValidationRuleForDrawer() {
+      if (!activeSheetData) {
+        return null;
+      }
+      const coords = selectedCellCoords();
+      const sourceCoords = toSourceCoords(coords.ri, coords.ci);
+      const metaRule = findValidationRuleMetaForCell(sourceCoords.ri, sourceCoords.ci);
+      const validator = resolveSelectedValidator();
+      if (!metaRule && !validator) {
+        return null;
+      }
+      let criteria = metaRule && metaRule.criteria
+        ? metaRule.criteria
+        : (validator && validator.type ? String(validator.type).trim().toLowerCase() : 'list');
+      const options = validationOptionsForRule(validator, metaRule);
+      if (criteria === 'list' && isCheckboxValidation(validator, metaRule, options)) {
+        criteria = 'checkbox';
+      }
+      return {
+        mode: (metaRule && metaRule.mode) || 'cell',
+        ref: (metaRule && metaRule.ref) || currentSelectedRef(activeSheetData),
+        criteria,
+        validator,
+        metaRule,
+        options,
+      };
+    }
+
+    function hydrateValidationDrawerFromSelection() {
+      const rule = selectedValidationRuleForDrawer();
+      if (!rule) {
+        syncDrawerRangeFromSelection();
+        if (drawerCriteriaInput && !drawerCriteriaInput.value) {
+          drawerCriteriaInput.value = 'list';
+        }
+        if (drawerOptions && !drawerOptions.children.length) {
+          seedDefaultOptionRows(drawerCriteriaInput && drawerCriteriaInput.value);
+        }
+        updateCriteriaUI();
+        return;
+      }
+
+      if (drawerRangeInput) {
+        drawerRangeInput.value = rule.ref;
+      }
+      if (drawerApplyModeInput) {
+        drawerApplyModeInput.value = ['cell', 'column', 'row'].includes(rule.mode) ? rule.mode : 'cell';
+      }
+      if (drawerCriteriaInput) {
+        drawerCriteriaInput.value = ['list', 'checkbox', 'number', 'date', 'email', 'phone'].includes(rule.criteria)
+          ? rule.criteria
+          : 'list';
+      }
+      const criteria = drawerCriteriaInput && drawerCriteriaInput.value ? drawerCriteriaInput.value : 'list';
+      const validator = rule.validator || {};
+      const colorByLabel = colorMapFromRuleSources(validator, rule.metaRule, criteria, rule.options);
+
+      if (criteria === 'list' || criteria === 'checkbox') {
+        replaceDrawerOptionRows(rule.options, colorByLabel);
+      } else if (drawerOptions) {
+        drawerOptions.innerHTML = '';
+      }
+
+      if (drawerOperatorInput) {
+        drawerOperatorInput.value = validator.operator || 'be';
+      }
+      if (drawerValue1Input) {
+        drawerValue1Input.value = '';
+      }
+      if (drawerValue2Input) {
+        drawerValue2Input.value = '';
+      }
+      if ((criteria === 'number' || criteria === 'date') && validator.value != null) {
+        const value = validator.value;
+        if (Array.isArray(value)) {
+          if (drawerValue1Input) {
+            drawerValue1Input.value = value[0] == null ? '' : String(value[0]);
+          }
+          if (drawerValue2Input) {
+            drawerValue2Input.value = value[1] == null ? '' : String(value[1]);
+          }
+        } else if (drawerValue1Input) {
+          drawerValue1Input.value = String(value);
+        }
+      }
+
+      updateCriteriaUI();
+    }
+
     function openValidationDrawer() {
       if (!drawer || !drawerBackdrop) {
         return;
       }
-      syncDrawerRangeFromSelection();
-      updateCriteriaUI();
+      hydrateValidationDrawerFromSelection();
       setDrawerStatus('', null);
       drawer.classList.add('is-open');
       drawerBackdrop.classList.add('is-open');

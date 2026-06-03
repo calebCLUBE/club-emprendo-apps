@@ -778,7 +778,7 @@
       ? JSON.parse(sheetStatusOptionsEl.textContent || '[]')
       : [];
     const allowStructureEdit = {{ sheet_allow_structure_edit|default:True|yesno:"true,false" }};
-    const FILTER_PATCH_VERSION = 'v2026.06.03.4';
+    const FILTER_PATCH_VERSION = 'v2026.06.03.5';
 
     const defaultPalette = [
       '#f4b183', '#f7d774', '#f5c2b8', '#9ec5e5', '#c6dcb0',
@@ -814,6 +814,8 @@
     let lastSelectorCi = null;
     let lastSortFilterCi = null;
     let activeSortFilterCi = null;
+    let lastHeaderSortPressAt = 0;
+    let lastHeaderSortPressCi = null;
 
     function colIndexFromLabel(label) {
       let out = 0;
@@ -2330,17 +2332,46 @@
             ev.stopImmediatePropagation();
           }
         };
-        btn.addEventListener('mousedown', stop);
-        btn.addEventListener('mouseup', stop);
-        btn.addEventListener('dblclick', stop);
-        btn.addEventListener('click', function (ev) {
+        const activateSort = function (ev, fromPress) {
           stop(ev);
+          if (fromPress && typeof ev.button === 'number' && ev.button !== 0) {
+            return;
+          }
           const targetCi = rememberSortFilterColumn(Number(btn.dataset.ci));
+          if (!Number.isFinite(targetCi) || targetCi < 0) {
+            setMenuStatus('Select a column before sorting.', 'error');
+            return;
+          }
+          if (!fromPress) {
+            const elapsed = Date.now() - lastHeaderSortPressAt;
+            if (lastHeaderSortPressCi === targetCi && elapsed >= 0 && elapsed < 350) {
+              return;
+            }
+          }
           const current = currentAutoSort();
           const order = current && current.ci === targetCi && current.order === 'asc' ? 'desc' : 'asc';
           const sorted = sortByActiveColumn(order, targetCi);
           setMenuStatus(sorted.message, sorted.ok ? 'ok' : 'error');
+          if (fromPress) {
+            lastHeaderSortPressAt = Date.now();
+            lastHeaderSortPressCi = targetCi;
+          }
           scheduleHeaderSortIconsRefresh();
+        };
+        if (window.PointerEvent) {
+          btn.addEventListener('pointerdown', function (ev) {
+            activateSort(ev, true);
+          });
+          btn.addEventListener('mousedown', stop);
+        } else {
+          btn.addEventListener('mousedown', function (ev) {
+            activateSort(ev, true);
+          });
+        }
+        btn.addEventListener('mouseup', stop);
+        btn.addEventListener('dblclick', stop);
+        btn.addEventListener('click', function (ev) {
+          activateSort(ev, false);
         });
         layer.appendChild(btn);
       }

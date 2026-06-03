@@ -784,7 +784,7 @@
       ? JSON.parse(sheetStatusOptionsEl.textContent || '[]')
       : [];
     const allowStructureEdit = {{ sheet_allow_structure_edit|default:True|yesno:"true,false" }};
-    const FILTER_PATCH_VERSION = 'v2026.05.29.3';
+    const FILTER_PATCH_VERSION = 'v2026.06.03.1';
 
     const defaultPalette = [
       '#f4b183', '#f7d774', '#f5c2b8', '#9ec5e5', '#c6dcb0',
@@ -1021,6 +1021,167 @@
         .split(',')
         .map(function (v) { return v.trim(); })
         .filter(function (v) { return v.length > 0; });
+    }
+
+    function normalizeValidationOptionList(values) {
+      if (!Array.isArray(values)) {
+        return [];
+      }
+      return values
+        .map(function (v) { return String(v == null ? '' : v).trim(); })
+        .filter(function (v) { return v.length > 0; });
+    }
+
+    function validationOptionsForRule(validator, metaRule) {
+      const metaOptions = metaRule && Array.isArray(metaRule.options)
+        ? normalizeValidationOptionList(metaRule.options)
+        : [];
+      if (metaOptions.length) {
+        return metaOptions;
+      }
+      return parseListValidatorOptions(validator);
+    }
+
+    function rangesIntersect(a, b) {
+      if (!a || !b) {
+        return false;
+      }
+      return !(
+        a.eri < b.sri ||
+        a.sri > b.eri ||
+        a.eci < b.sci ||
+        a.sci > b.eci
+      );
+    }
+
+    function rangeRefFromIndexes(range) {
+      if (!range) {
+        return '';
+      }
+      const start = `${colLabelFromIndex(range.sci)}${range.sri + 1}`;
+      const end = `${colLabelFromIndex(range.eci)}${range.eri + 1}`;
+      return start === end ? start : `${start}:${end}`;
+    }
+
+    function subtractRange(base, cut) {
+      if (!rangesIntersect(base, cut)) {
+        return [base];
+      }
+      const overlap = {
+        sri: Math.max(base.sri, cut.sri),
+        sci: Math.max(base.sci, cut.sci),
+        eri: Math.min(base.eri, cut.eri),
+        eci: Math.min(base.eci, cut.eci),
+      };
+      const out = [];
+      const add = function (sri, sci, eri, eci) {
+        if (sri <= eri && sci <= eci) {
+          out.push({ sri, sci, eri, eci });
+        }
+      };
+      add(base.sri, base.sci, overlap.sri - 1, base.eci);
+      add(overlap.eri + 1, base.sci, base.eri, base.eci);
+      add(overlap.sri, base.sci, overlap.eri, overlap.sci - 1);
+      add(overlap.sri, overlap.eci + 1, overlap.eri, base.eci);
+      return out;
+    }
+
+    function pruneValidationRefsForRange(validations, targetRange) {
+      if (!validations || !targetRange) {
+        return false;
+      }
+      const rewriteRefs = function (refs) {
+        const next = [];
+        const seen = new Set();
+        (Array.isArray(refs) ? refs : []).forEach(function (refRaw) {
+          const parsed = parseA1Range(refRaw);
+          if (!parsed) {
+            const fallback = normalizeRangeRef(refRaw);
+            if (fallback && !seen.has(fallback)) {
+              seen.add(fallback);
+              next.push(fallback);
+            }
+            return;
+          }
+          subtractRange(parsed, targetRange).forEach(function (part) {
+            const ref = rangeRefFromIndexes(part);
+            if (ref && !seen.has(ref)) {
+              seen.add(ref);
+              next.push(ref);
+            }
+          });
+        });
+        return next;
+      };
+
+      if (Array.isArray(validations._)) {
+        validations._.forEach(function (rule) {
+          if (!rule || !Array.isArray(rule.refs)) {
+            return;
+          }
+          rule.refs = rewriteRefs(rule.refs);
+        });
+        validations._ = validations._.filter(function (rule) {
+          return rule && Array.isArray(rule.refs) && rule.refs.length > 0;
+        });
+        if (validations.errors && typeof validations.errors.clear === 'function') {
+          validations.errors.clear();
+        }
+        return true;
+      }
+
+      if (typeof validations.getData === 'function' && typeof validations.setData === 'function') {
+        let data = [];
+        try {
+          data = validations.getData() || [];
+        } catch (err) {
+          data = [];
+        }
+        const nextData = data
+          .map(function (item) {
+            return Object.assign({}, item, {
+              refs: rewriteRefs(item && item.refs),
+            });
+          })
+          .filter(function (item) {
+            return item.refs && item.refs.length > 0;
+          });
+        validations.setData(nextData);
+        if (validations.errors && typeof validations.errors.clear === 'function') {
+          validations.errors.clear();
+        }
+        return true;
+      }
+
+      return false;
+    }
+
+    function replaceValidationRule(mode, ref, validator, range) {
+      if (!activeSheetData || !activeSheetData.validations || !validator) {
+        return false;
+      }
+      const targetRange = range || parseA1Range(ref);
+      const validations = activeSheetData.validations;
+      if (!targetRange || typeof validations.add !== 'function') {
+        if (typeof activeSheetData.addValidation === 'function') {
+          activeSheetData.addValidation(mode, ref, validator);
+          return true;
+        }
+        return false;
+      }
+      const apply = function () {
+        pruneValidationRefsForRange(validations, targetRange);
+        validations.add(mode, ref, validator);
+      };
+      if (typeof activeSheetData.changeData === 'function') {
+        activeSheetData.changeData(apply);
+      } else {
+        apply();
+        if (typeof activeSheetData.change === 'function' && typeof activeSheetData.getData === 'function') {
+          activeSheetData.change(activeSheetData.getData());
+        }
+      }
+      return true;
     }
 
     function isCheckboxCheckedValue(value) {
@@ -1627,17 +1788,98 @@
       };
     }
 
-    function clipRectToGridViewport(rect, insetPx) {
+    function freezePaneState() {
+      const data = activeSheetData;
+      const freeze = data && Array.isArray(data.freeze) ? data.freeze : [0, 0];
+      const frozenRows = Math.max(0, Number.isFinite(Number(freeze[0])) ? Number(freeze[0]) : 0);
+      const frozenCols = Math.max(0, Number.isFinite(Number(freeze[1])) ? Number(freeze[1]) : 0);
+      let frozenWidth = 0;
+      let frozenHeight = 0;
+      try {
+        frozenWidth = data && typeof data.freezeTotalWidth === 'function'
+          ? Number(data.freezeTotalWidth())
+          : 0;
+      } catch (err) {
+        frozenWidth = 0;
+      }
+      try {
+        frozenHeight = data && typeof data.freezeTotalHeight === 'function'
+          ? Number(data.freezeTotalHeight())
+          : 0;
+      } catch (err) {
+        frozenHeight = 0;
+      }
+      return {
+        rows: frozenRows,
+        cols: frozenCols,
+        width: Number.isFinite(frozenWidth) ? Math.max(0, frozenWidth) : 0,
+        height: Number.isFinite(frozenHeight) ? Math.max(0, frozenHeight) : 0,
+      };
+    }
+
+    function clippedHorizontalBoundsForColumn(bounds, ci, insetPx) {
+      const inset = Number.isFinite(insetPx) ? Math.max(0, Number(insetPx)) : 0;
+      const pane = freezePaneState();
+      let minLeft = bounds.left + inset;
+      let maxRight = bounds.right - inset;
+      const colIdx = Number(ci);
+      if (
+        pane.width > 0 &&
+        pane.cols > 0 &&
+        Number.isFinite(colIdx) &&
+        bounds.left + pane.width < bounds.right
+      ) {
+        if (colIdx < pane.cols) {
+          maxRight = Math.min(maxRight, bounds.left + pane.width - inset);
+        } else {
+          minLeft = Math.max(minLeft, bounds.left + pane.width + inset);
+        }
+      }
+      return { minLeft, maxRight };
+    }
+
+    function clippedVerticalBoundsForRow(bounds, ri, insetPx) {
+      const inset = Number.isFinite(insetPx) ? Math.max(0, Number(insetPx)) : 0;
+      const pane = freezePaneState();
+      let minTop = bounds.top + inset;
+      let maxBottom = bounds.bottom - inset;
+      const rowIdx = Number(ri);
+      if (
+        pane.height > 0 &&
+        pane.rows > 0 &&
+        Number.isFinite(rowIdx) &&
+        bounds.top + pane.height < bounds.bottom
+      ) {
+        if (rowIdx < pane.rows) {
+          maxBottom = Math.min(maxBottom, bounds.top + pane.height - inset);
+        } else {
+          minTop = Math.max(minTop, bounds.top + pane.height + inset);
+        }
+      }
+      return { minTop, maxBottom };
+    }
+
+    function clipRectToGridViewport(rect, insetPx, cellCoords) {
       if (!rect) {
         return null;
       }
       const bounds = getGridViewportBounds();
       const inset = Number.isFinite(insetPx) ? Math.max(0, Number(insetPx)) : 0;
 
-      const minLeft = bounds.left + inset;
-      const minTop = bounds.top + inset;
-      const maxRight = bounds.right - inset;
-      const maxBottom = bounds.bottom - inset;
+      let minLeft = bounds.left + inset;
+      let minTop = bounds.top + inset;
+      let maxRight = bounds.right - inset;
+      let maxBottom = bounds.bottom - inset;
+      if (cellCoords && Number.isFinite(Number(cellCoords.ci))) {
+        const horizontal = clippedHorizontalBoundsForColumn(bounds, Number(cellCoords.ci), inset);
+        minLeft = horizontal.minLeft;
+        maxRight = horizontal.maxRight;
+      }
+      if (cellCoords && Number.isFinite(Number(cellCoords.ri))) {
+        const vertical = clippedVerticalBoundsForRow(bounds, Number(cellCoords.ri), inset);
+        minTop = vertical.minTop;
+        maxBottom = vertical.maxBottom;
+      }
 
       const left = Math.max(rect.left, minLeft);
       const top = Math.max(rect.top, minTop);
@@ -1686,7 +1928,110 @@
 
     function getCellRectByIndexes(ri, ci) {
       const raw = getCellRectByIndexesRaw(ri, ci);
-      return clipRectToGridViewport(raw, 0);
+      return clipRectToGridViewport(raw, 0, { ri, ci });
+    }
+
+    function rowIsHiddenForOverlay(ri) {
+      if (!activeSheetData || !Number.isFinite(Number(ri))) {
+        return false;
+      }
+      const rowIndex = Number(ri);
+      try {
+        if (
+          activeSheetData.__ceManualFilterHiddenRows &&
+          typeof activeSheetData.__ceManualFilterHiddenRows.has === 'function' &&
+          activeSheetData.__ceManualFilterHiddenRows.has(rowIndex)
+        ) {
+          return true;
+        }
+        if (
+          activeSheetData.rows &&
+          typeof activeSheetData.rows.isHide === 'function' &&
+          activeSheetData.rows.isHide(rowIndex)
+        ) {
+          return true;
+        }
+      } catch (err) {
+        return false;
+      }
+      return false;
+    }
+
+    function visibleRowIndexesForValidationBubbles(rowLen, startRi, probeCi, viewportBounds) {
+      const out = [];
+      const firstRow = Math.max(0, Number.isFinite(Number(startRi)) ? Number(startRi) : 0);
+      const colIndex = Math.max(0, Number.isFinite(Number(probeCi)) ? Number(probeCi) : 0);
+      const minTop = Number(viewportBounds && viewportBounds.top) - 8;
+      const maxBottom = Number(viewportBounds && viewportBounds.bottom) + 8;
+      if (!Number.isFinite(rowLen) || rowLen <= 0 || !Number.isFinite(minTop) || !Number.isFinite(maxBottom)) {
+        return out;
+      }
+
+      for (let ri = firstRow; ri < rowLen; ri += 1) {
+        if (rowIsHiddenForOverlay(ri)) {
+          continue;
+        }
+        const rect = getCellRectByIndexesRaw(ri, colIndex);
+        if (!rect || !Number.isFinite(rect.top) || !Number.isFinite(rect.height) || rect.height <= 0) {
+          continue;
+        }
+        const bottom = rect.top + rect.height;
+        if (bottom >= minTop && rect.top <= maxBottom) {
+          out.push(ri);
+        }
+        if (rect.top > maxBottom && out.length) {
+          break;
+        }
+        if (out.length >= 160) {
+          break;
+        }
+      }
+      return out;
+    }
+
+    function columnIsVisibleForOverlay(ci, viewportBounds) {
+      const raw = getCellRectByIndexesRaw(0, ci);
+      if (!raw || !Number.isFinite(raw.left) || !Number.isFinite(raw.width) || raw.width <= 0) {
+        return false;
+      }
+      const bounds = viewportBounds || getGridViewportBounds();
+      const horizontal = clippedHorizontalBoundsForColumn(bounds, ci, 0);
+      const left = Math.max(raw.left, horizontal.minLeft);
+      const right = Math.min(raw.left + raw.width, horizontal.maxRight);
+      return Number.isFinite(left) && Number.isFinite(right) && right - left > 2;
+    }
+
+    function visibleColumnIndexesForValidationBubbles(colLen, startCi, viewportBounds) {
+      const out = [];
+      const seen = new Set();
+      const add = function (ci) {
+        const idx = Number(ci);
+        if (!Number.isFinite(idx) || idx < 0 || idx >= colLen || seen.has(idx)) {
+          return;
+        }
+        if (!columnIsVisibleForOverlay(idx, viewportBounds)) {
+          return;
+        }
+        seen.add(idx);
+        out.push(idx);
+      };
+
+      const pane = freezePaneState();
+      const frozenCols = Math.min(colLen, pane.cols);
+      for (let ci = 0; ci < frozenCols; ci += 1) {
+        add(ci);
+      }
+
+      const firstCol = Math.max(0, Number.isFinite(Number(startCi)) ? Number(startCi) : 0);
+      const maxScan = Math.min(colLen, firstCol + 180);
+      for (let ci = firstCol; ci < maxScan; ci += 1) {
+        add(ci);
+        if (out.length >= 160 && ci >= frozenCols) {
+          break;
+        }
+      }
+
+      return out.sort(function (a, b) { return a - b; });
     }
 
     function hideValidationCellDropdown() {
@@ -2074,13 +2419,27 @@
       const scroll = activeSheetData.scroll || {};
       const startRi = Math.max(0, Number.isFinite(scroll.ri) ? Number(scroll.ri) - 1 : 0);
       const startCi = Math.max(0, Number.isFinite(scroll.ci) ? Number(scroll.ci) - 1 : 0);
-      const approxVisibleRows = Math.max(8, Math.ceil((root.clientHeight || 700) / 32) + 2);
-      const approxVisibleCols = Math.max(5, Math.ceil((root.clientWidth || 1200) / 160) + 2);
-      const endRi = Math.min(rowLen - 1, startRi + approxVisibleRows);
-      const endCi = Math.min(colLen - 1, startCi + approxVisibleCols);
+      let visibleRows = visibleRowIndexesForValidationBubbles(rowLen, startRi, startCi, viewportBounds);
+      if (!visibleRows.length && startRi > 0) {
+        visibleRows = visibleRowIndexesForValidationBubbles(rowLen, 0, startCi, viewportBounds);
+      }
+      const pane = freezePaneState();
+      const frozenRows = Math.min(rowLen, pane.rows);
+      if (frozenRows > 0) {
+        const seenRows = new Set(visibleRows);
+        for (let ri = 0; ri < frozenRows; ri += 1) {
+          if (!rowIsHiddenForOverlay(ri) && !seenRows.has(ri)) {
+            visibleRows.push(ri);
+            seenRows.add(ri);
+          }
+        }
+        visibleRows.sort(function (a, b) { return a - b; });
+      }
+      const visibleCols = visibleColumnIndexesForValidationBubbles(colLen, startCi, viewportBounds);
 
-      for (let ri = startRi; ri <= endRi; ri += 1) {
-        for (let ci = startCi; ci <= endCi; ci += 1) {
+      visibleRows.forEach(function (ri) {
+        for (let colOffset = 0; colOffset < visibleCols.length; colOffset += 1) {
+          const ci = visibleCols[colOffset];
           const source = toSourceCoords(ri, ci);
           const checkboxByColumn = isCheckboxColumn(source.ci);
           let validation = null;
@@ -2093,12 +2452,7 @@
           }
           const validator = validation && validation.validator ? validation.validator : null;
           const metaRule = findValidationRuleMetaForCell(source.ri, source.ci);
-          let options = parseListValidatorOptions(validator);
-          if (!options.length && metaRule && Array.isArray(metaRule.options)) {
-            options = metaRule.options
-              .map(function (v) { return String(v == null ? '' : v).trim(); })
-              .filter(function (v) { return v.length > 0; });
-          }
+          const options = validationOptionsForRule(validator, metaRule);
           const isCheckbox = checkboxByColumn || isCheckboxValidation(validator, metaRule, options);
           if (!isCheckbox && !options.length) {
             continue;
@@ -2114,16 +2468,16 @@
             if (source.ri === 0) {
               continue;
             }
-            if (rect.width < 18 || rect.height < 18) {
+            if (rect.width < 10 || rect.height < 10) {
               continue;
             }
             const checkbox = document.createElement('div');
             checkbox.className = 'ce-validation-cell-checkbox';
             const top = Math.max(0, Math.round((rect.top - viewportBounds.top) + 2));
             const left = Math.max(0, Math.round((rect.left - viewportBounds.left) + 2));
-            const width = Math.max(14, Math.round(rect.width - 4));
-            const height = Math.max(14, Math.round(rect.height - 4));
-            if (width < 14 || height < 14) {
+            const width = Math.max(10, Math.round(rect.width - 4));
+            const height = Math.max(10, Math.round(rect.height - 4));
+            if (width < 10 || height < 10) {
               continue;
             }
             checkbox.style.left = `${left}px`;
@@ -2200,7 +2554,7 @@
           bubble.appendChild(arrowNode);
           layer.appendChild(bubble);
         }
-      }
+      });
     }
 
     function resolveSelectedValidator() {
@@ -2368,12 +2722,7 @@
       const sourceCoords = toSourceCoords(coords.ri, coords.ci);
       const checkboxByColumn = isCheckboxColumn(sourceCoords.ci);
       const metaRule = findValidationRuleMetaForCell(sourceCoords.ri, sourceCoords.ci);
-      let options = parseListValidatorOptions(validator);
-      if (!options.length && metaRule && Array.isArray(metaRule.options)) {
-        options = metaRule.options
-          .map(function (v) { return String(v == null ? '' : v).trim(); })
-          .filter(function (v) { return v.length > 0; });
-      }
+      const options = validationOptionsForRule(validator, metaRule);
       const isCheckbox = checkboxByColumn || isCheckboxValidation(validator, metaRule, options);
       if (!isCheckbox && !options.length) {
         hideValidationCellDropdown();
@@ -2401,7 +2750,7 @@
       if (!areaRect) {
         areaRect = getCellRectByIndexes(coords.ri, coords.ci);
       }
-      areaRect = clipRectToGridViewport(areaRect, 0);
+      areaRect = clipRectToGridViewport(areaRect, 0, { ri: coords.ri, ci: coords.ci });
       if (!areaRect) {
         hideValidationCellDropdown();
         return;
@@ -2893,7 +3242,7 @@
           return;
         }
 
-        activeSheetData.addValidation(mode, ref, validator);
+        replaceValidationRule(mode, ref, validator, range);
         clearColorRulesFor(mode, ref);
         if (Object.keys(colorByLabel).length) {
           validator.colorByLabel = Object.assign({}, colorByLabel);
@@ -4768,7 +5117,7 @@
             TRUE: '#2f855a',
             FALSE: '#ef4444',
           };
-          activeSheetData.addValidation(mode, ref, validator);
+          replaceValidationRule(mode, ref, validator, range);
           clearColorRulesFor(mode, ref);
           validator.colorByLabel = Object.assign({}, colorByLabel);
           validator.color_map = Object.assign({}, colorByLabel);
@@ -5519,7 +5868,7 @@
         };
 
         try {
-          activeSheetData.addValidation('cell', ref, validator);
+          replaceValidationRule('cell', ref, validator, range);
         } catch (err) {
           // keep going; other columns should still initialize
         }
@@ -5630,7 +5979,7 @@
         };
 
         try {
-          activeSheetData.addValidation('cell', ref, validator);
+          replaceValidationRule('cell', ref, validator, range);
         } catch (err) {
           // keep going; other columns should still initialize
         }

@@ -784,7 +784,7 @@
       ? JSON.parse(sheetStatusOptionsEl.textContent || '[]')
       : [];
     const allowStructureEdit = {{ sheet_allow_structure_edit|default:True|yesno:"true,false" }};
-    const FILTER_PATCH_VERSION = 'v2026.06.03.1';
+    const FILTER_PATCH_VERSION = 'v2026.06.03.2';
 
     const defaultPalette = [
       '#f4b183', '#f7d774', '#f5c2b8', '#9ec5e5', '#c6dcb0',
@@ -4710,26 +4710,90 @@
       }
 
       const syntheticEvents = typeof WeakSet === 'function' ? new WeakSet() : null;
-      const minIntervalMs = 72;
+      const minIntervalMs = 110;
+      const idleResetMs = 180;
+      const verticalStepThresholdPx = 86;
+      const horizontalStepThresholdPx = 110;
       let pendingDeltaX = 0;
       let pendingDeltaY = 0;
       let flushTimer = null;
+      let idleTimer = null;
       let lastFlushAt = 0;
       let lastNativeWheelAt = 0;
 
-      const dispatchScaledWheel = function () {
-        flushTimer = null;
-        const deltaX = pendingDeltaX;
-        const deltaY = pendingDeltaY;
-        pendingDeltaX = 0;
-        pendingDeltaY = 0;
-        if (!deltaX && !deltaY) {
+      const normalizeWheelDelta = function (value, deltaMode, pageSize) {
+        const raw = Number(value);
+        if (!Number.isFinite(raw) || raw === 0) {
+          return 0;
+        }
+        if (deltaMode === 1) {
+          return raw * 32;
+        }
+        if (deltaMode === 2) {
+          return raw * Math.max(260, Number(pageSize) || 0);
+        }
+        return raw;
+      };
+
+      const resetIdleTimer = function () {
+        if (idleTimer) {
+          window.clearTimeout(idleTimer);
+        }
+        idleTimer = window.setTimeout(function () {
+          pendingDeltaX = 0;
+          pendingDeltaY = 0;
+          idleTimer = null;
+        }, idleResetMs);
+      };
+
+      const addPendingDelta = function (axis, delta) {
+        if (!delta) {
           return;
         }
+        if (axis === 'x') {
+          if (pendingDeltaX && Math.sign(pendingDeltaX) !== Math.sign(delta)) {
+            pendingDeltaX = 0;
+          }
+          pendingDeltaX += delta;
+          return;
+        }
+        if (pendingDeltaY && Math.sign(pendingDeltaY) !== Math.sign(delta)) {
+          pendingDeltaY = 0;
+        }
+        pendingDeltaY += delta;
+      };
 
-        const useHorizontal = Math.abs(deltaX) > Math.abs(deltaY);
-        const nextDeltaX = useHorizontal ? Math.sign(deltaX) * 24 : 0;
-        const nextDeltaY = useHorizontal ? 0 : Math.sign(deltaY || deltaX) * 24;
+      const nextWheelStep = function () {
+        const xScore = Math.abs(pendingDeltaX) / horizontalStepThresholdPx;
+        const yScore = Math.abs(pendingDeltaY) / verticalStepThresholdPx;
+        if (xScore < 1 && yScore < 1) {
+          return null;
+        }
+        if (xScore > yScore) {
+          return {
+            axis: 'x',
+            direction: Math.sign(pendingDeltaX),
+            threshold: horizontalStepThresholdPx,
+          };
+        }
+        return {
+          axis: 'y',
+          direction: Math.sign(pendingDeltaY),
+          threshold: verticalStepThresholdPx,
+        };
+      };
+
+      const dispatchScaledWheel = function (step) {
+        if (!step || !step.direction) {
+          return;
+        }
+        if (step.axis === 'x') {
+          pendingDeltaX -= step.direction * step.threshold;
+        } else {
+          pendingDeltaY -= step.direction * step.threshold;
+        }
+        const nextDeltaX = step.axis === 'x' ? step.direction * 24 : 0;
+        const nextDeltaY = step.axis === 'y' ? step.direction * 24 : 0;
         const eventType = /Firefox/i.test(window.navigator.userAgent || '')
           ? 'DOMMouseScroll'
           : 'mousewheel';
@@ -4759,17 +4823,27 @@
       };
 
       const queueScaledWheel = function () {
+        if (!nextWheelStep()) {
+          return;
+        }
         const now = Date.now();
         const elapsed = now - lastFlushAt;
         if (elapsed >= minIntervalMs) {
           lastFlushAt = now;
-          dispatchScaledWheel();
+          dispatchScaledWheel(nextWheelStep());
+          if (nextWheelStep()) {
+            queueScaledWheel();
+          }
           return;
         }
         if (!flushTimer) {
           flushTimer = window.setTimeout(function () {
+            flushTimer = null;
             lastFlushAt = Date.now();
-            dispatchScaledWheel();
+            dispatchScaledWheel(nextWheelStep());
+            if (nextWheelStep()) {
+              queueScaledWheel();
+            }
           }, minIntervalMs - elapsed);
         }
       };
@@ -4792,11 +4866,12 @@
         if (!activeSheetData || ev.ctrlKey || ev.metaKey) {
           return;
         }
+        const deltaMode = Number.isFinite(ev.deltaMode) ? Number(ev.deltaMode) : 0;
         const rawDeltaY = Number.isFinite(ev.deltaY)
-          ? Number(ev.deltaY)
+          ? normalizeWheelDelta(ev.deltaY, deltaMode, root.clientHeight || 0)
           : (Number.isFinite(ev.wheelDelta) ? -Number(ev.wheelDelta) : 0);
         const rawDeltaX = Number.isFinite(ev.deltaX)
-          ? Number(ev.deltaX)
+          ? normalizeWheelDelta(ev.deltaX, deltaMode, root.clientWidth || 0)
           : (Number.isFinite(ev.wheelDeltaX) ? -Number(ev.wheelDeltaX) : 0);
         if (!rawDeltaY && !rawDeltaX) {
           return;
@@ -4808,8 +4883,9 @@
           ev.stopImmediatePropagation();
         }
 
-        pendingDeltaX += rawDeltaX;
-        pendingDeltaY += rawDeltaY;
+        addPendingDelta('x', rawDeltaX);
+        addPendingDelta('y', rawDeltaY);
+        resetIdleTimer();
         queueScaledWheel();
       };
 

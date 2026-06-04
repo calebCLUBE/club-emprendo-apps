@@ -244,13 +244,10 @@
 
         <div class="ce-panel" style="margin-top:12px;">
           <div style="font-weight:700; margin-bottom:8px;">Participant sheets</div>
-          <div class="ce-muted">Open one sheet at a time.</div>
+          <div class="ce-muted">Open Mentoras and Emprendedoras in one workbook with separate tabs.</div>
           <div class="ce-actions" style="margin-top:10px;">
-            <a class="ce-btn" href="{% url 'admin_profiles_participants_track_sheet' selected_group.number 'mentoras' %}">
-              Open Mentoras sheet
-            </a>
-            <a class="ce-btn" href="{% url 'admin_profiles_participants_track_sheet' selected_group.number 'emprendedoras' %}">
-              Open Emprendedoras sheet
+            <a class="ce-btn" href="{% url 'admin_profiles_participants_track_sheet' selected_group.number 'all' %}">
+              Open participant workbook
             </a>
             {% if has_list %}
               <a class="ce-btn ce-btn--ghost" href="{% url 'admin_profiles_participants_download' selected_group.number %}">

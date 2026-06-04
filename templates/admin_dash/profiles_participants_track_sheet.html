@@ -115,15 +115,15 @@
 
 <div class="ce-sheet-page">
   <div class="ce-sheet-actions">
-    <span class="ce-sheet-debug">Participants sheet patch v2026.06.03.5</span>
+    <span class="ce-sheet-debug">Participants sheet patch v2026.06.03.6</span>
     <form class="ce-version-form" method="post">
       {% csrf_token %}
       <input type="hidden" name="action" value="restore_version">
       <select class="ce-version-select" name="version_id" aria-label="Saved versions">
         <option value="">Saved versions</option>
         {% for version in sheet_versions %}
-          <option value="{{ version.id }}">
-            {{ version.created_at|date:"Y-m-d H:i" }} · {{ version.action }} · {{ version.row_count }} rows
+          <option value="{% if combined_sheet %}{{ version.track }}:{% endif %}{{ version.id }}">
+            {% if combined_sheet %}{{ version.track|title }} · {% endif %}{{ version.created_at|date:"Y-m-d H:i" }} · {{ version.action }} · {{ version.row_count }} rows
           </option>
         {% endfor %}
       </select>
@@ -158,21 +158,29 @@
   <form method="post" id="ce-sheet-save-form" style="display:none;">
     {% csrf_token %}
     <input type="hidden" name="action" value="save_sheet">
-    <input type="hidden" id="ce-sheet-data" name="sheet_data" value="">
+    {% if combined_sheet %}
+      <input type="hidden" id="ce-mentoras-sheet-data" name="mentoras_sheet_data" value="">
+      <input type="hidden" id="ce-emprendedoras-sheet-data" name="emprendedoras_sheet_data" value="">
+    {% else %}
+      <input type="hidden" id="ce-sheet-data" name="sheet_data" value="">
+    {% endif %}
   </form>
 
   <div class="ce-sheet-shell">
-    {% include "admin_dash/includes/xsheet_preview.html" with sheet_id="participants-track-sheet-xsheet" sheet_headers=sheet_headers sheet_rows=sheet_rows sheet_column_types=sheet_column_types sheet_status_options=sheet_status_options sheet_height=860 sheet_deferred=True %}
+    {% include "admin_dash/includes/xsheet_preview.html" with sheet_id="participants-track-sheet-xsheet" sheet_headers=sheet_headers sheet_rows=sheet_rows sheet_tabs=sheet_tabs sheet_column_types=sheet_column_types sheet_status_options=sheet_status_options sheet_height=860 sheet_deferred=True %}
   </div>
 </div>
 
 <script>
   (function () {
     const REGISTRY_ID = 'participants-track-sheet-xsheet';
+    const IS_COMBINED = {{ combined_sheet|default:False|yesno:"true,false" }};
     const form = document.getElementById('ce-sheet-save-form');
     const sheetDataInput = document.getElementById('ce-sheet-data');
+    const mentorasSheetDataInput = document.getElementById('ce-mentoras-sheet-data');
+    const emprendedorasSheetDataInput = document.getElementById('ce-emprendedoras-sheet-data');
     const autosaveStatus = document.getElementById('ce-sheet-autosave-status');
-    if (!form || !sheetDataInput) {
+    if (!form || (!sheetDataInput && (!mentorasSheetDataInput || !emprendedorasSheetDataInput))) {
       return;
     }
 
@@ -213,7 +221,34 @@
     function currentRowsPayload() {
       const registry = window.__ceSheetRegistry || {};
       const entry = registry[REGISTRY_ID];
-      if (!entry || typeof entry.getMatrix !== 'function') {
+      if (!entry) {
+        return null;
+      }
+      if (IS_COMBINED) {
+        if (typeof entry.getTabMatrices !== 'function') {
+          return null;
+        }
+        const matrices = entry.getTabMatrices();
+        if (!Array.isArray(matrices) || matrices.length < 2) {
+          return null;
+        }
+        const tabs = typeof entry.getTabs === 'function'
+          ? entry.getTabs()
+          : [{ key: 'mentoras' }, { key: 'emprendedoras' }];
+        const out = {};
+        matrices.forEach(function (matrix, idx) {
+          const tab = Array.isArray(tabs) ? tabs[idx] : null;
+          const key = String(tab && tab.key ? tab.key : idx === 0 ? 'mentoras' : 'emprendedoras');
+          if (key === 'mentoras' || key === 'emprendedoras') {
+            out[key] = JSON.stringify(matrixToRows(matrix));
+          }
+        });
+        if (!out.mentoras || !out.emprendedoras) {
+          return null;
+        }
+        return out;
+      }
+      if (typeof entry.getMatrix !== 'function') {
         return null;
       }
       const matrix = entry.getMatrix();
@@ -242,13 +277,19 @@
       if (payload == null) {
         return;
       }
-      if (!force && payload === lastSavedPayload) {
+      const payloadSignature = IS_COMBINED ? JSON.stringify(payload) : payload;
+      if (!force && payloadSignature === lastSavedPayload) {
         return;
       }
 
       saveInFlight = true;
       setAutosaveStatus('Saving...');
-      sheetDataInput.value = payload;
+      if (IS_COMBINED) {
+        mentorasSheetDataInput.value = payload.mentoras;
+        emprendedorasSheetDataInput.value = payload.emprendedoras;
+      } else {
+        sheetDataInput.value = payload;
+      }
       const body = new FormData(form);
       try {
         const response = await fetch(window.location.href, {
@@ -260,7 +301,7 @@
           body: body,
         });
         if (response.ok) {
-          lastSavedPayload = payload;
+          lastSavedPayload = payloadSignature;
           setAutosaveStatus(`Autosaved ${autosaveTimeLabel()}`);
         } else {
           setAutosaveStatus('Autosave failed');
@@ -278,7 +319,7 @@
         window.setTimeout(bootstrapSavedPayloadWhenReady, 350);
         return;
       }
-      lastSavedPayload = payload;
+      lastSavedPayload = IS_COMBINED ? JSON.stringify(payload) : payload;
       setAutosaveStatus('Autosave ready');
     }
 

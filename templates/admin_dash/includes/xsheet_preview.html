@@ -1,5 +1,5 @@
 {% load static %}
-{% with root_id=sheet_id|add:"-root" headers_id=sheet_id|add:"-headers" rows_id=sheet_id|add:"-rows" column_types_id=sheet_id|add:"-column-types" status_options_id=sheet_id|add:"-status-options" drawer_id=sheet_id|add:"-validation-drawer" drawer_backdrop_id=sheet_id|add:"-validation-backdrop" drawer_range_id=sheet_id|add:"-validation-range" drawer_apply_mode_id=sheet_id|add:"-validation-apply-mode" drawer_criteria_id=sheet_id|add:"-validation-criteria" drawer_operator_id=sheet_id|add:"-validation-operator" drawer_value1_id=sheet_id|add:"-validation-value-1" drawer_value2_id=sheet_id|add:"-validation-value-2" drawer_condition_wrap_id=sheet_id|add:"-validation-condition-wrap" drawer_options_wrap_id=sheet_id|add:"-validation-options-wrap" drawer_options_id=sheet_id|add:"-validation-options" drawer_add_option_id=sheet_id|add:"-validation-add-option" drawer_done_id=sheet_id|add:"-validation-done" drawer_clear_id=sheet_id|add:"-validation-clear" drawer_close_id=sheet_id|add:"-validation-close" drawer_status_id=sheet_id|add:"-validation-status" %}
+{% with root_id=sheet_id|add:"-root" headers_id=sheet_id|add:"-headers" rows_id=sheet_id|add:"-rows" tabs_id=sheet_id|add:"-tabs" column_types_id=sheet_id|add:"-column-types" status_options_id=sheet_id|add:"-status-options" drawer_id=sheet_id|add:"-validation-drawer" drawer_backdrop_id=sheet_id|add:"-validation-backdrop" drawer_range_id=sheet_id|add:"-validation-range" drawer_apply_mode_id=sheet_id|add:"-validation-apply-mode" drawer_criteria_id=sheet_id|add:"-validation-criteria" drawer_operator_id=sheet_id|add:"-validation-operator" drawer_value1_id=sheet_id|add:"-validation-value-1" drawer_value2_id=sheet_id|add:"-validation-value-2" drawer_condition_wrap_id=sheet_id|add:"-validation-condition-wrap" drawer_options_wrap_id=sheet_id|add:"-validation-options-wrap" drawer_options_id=sheet_id|add:"-validation-options" drawer_add_option_id=sheet_id|add:"-validation-add-option" drawer_done_id=sheet_id|add:"-validation-done" drawer_clear_id=sheet_id|add:"-validation-clear" drawer_close_id=sheet_id|add:"-validation-close" drawer_status_id=sheet_id|add:"-validation-status" %}
 <link rel="stylesheet" href="{% static 'vendor/x-data-spreadsheet/xspreadsheet.css' %}">
 <style>
   /* Keep toolbar text/icons readable across Django admin theme overrides */
@@ -735,6 +735,9 @@
 
 {{ sheet_headers|json_script:headers_id }}
 {{ sheet_rows|json_script:rows_id }}
+{% if sheet_tabs %}
+{{ sheet_tabs|json_script:tabs_id }}
+{% endif %}
 {% if sheet_column_types %}
 {{ sheet_column_types|json_script:column_types_id }}
 {% endif %}
@@ -769,8 +772,9 @@
 
     const headers = JSON.parse(document.getElementById('{{ headers_id }}').textContent || '[]');
     const rows = JSON.parse(document.getElementById('{{ rows_id }}').textContent || '[]');
+    const sheetTabsEl = document.getElementById('{{ tabs_id }}');
     const sheetColumnTypesEl = document.getElementById('{{ column_types_id }}');
-    const sheetColumnTypes = sheetColumnTypesEl
+    let sheetColumnTypes = sheetColumnTypesEl
       ? JSON.parse(sheetColumnTypesEl.textContent || '[]')
       : [];
     const sheetStatusOptionsEl = document.getElementById('{{ status_options_id }}');
@@ -778,7 +782,42 @@
       ? JSON.parse(sheetStatusOptionsEl.textContent || '[]')
       : [];
     const allowStructureEdit = {{ sheet_allow_structure_edit|default:True|yesno:"true,false" }};
-    const FILTER_PATCH_VERSION = 'v2026.06.03.5';
+    const FILTER_PATCH_VERSION = 'v2026.06.03.6';
+
+    function normalizeSheetTab(raw, idx) {
+      const source = raw && typeof raw === 'object' ? raw : {};
+      const name = String(source.name || source.label || source.key || `Sheet ${idx + 1}`).trim() || `Sheet ${idx + 1}`;
+      return {
+        key: String(source.key || name).trim() || name,
+        name,
+        headers: Array.isArray(source.headers) ? source.headers.slice() : headers.slice(),
+        rows: Array.isArray(source.rows) ? source.rows.slice() : rows.slice(),
+        column_types: Array.isArray(source.column_types) ? source.column_types.slice() : sheetColumnTypes.slice(),
+        status_options: Array.isArray(source.status_options) ? source.status_options.slice() : sheetStatusOptions.slice(),
+      };
+    }
+
+    let sheetTabs = [];
+    if (sheetTabsEl) {
+      try {
+        const parsedTabs = JSON.parse(sheetTabsEl.textContent || '[]');
+        if (Array.isArray(parsedTabs)) {
+          sheetTabs = parsedTabs.map(normalizeSheetTab);
+        }
+      } catch (err) {
+        sheetTabs = [];
+      }
+    }
+    if (!sheetTabs.length) {
+      sheetTabs = [normalizeSheetTab({
+        key: 'sheet1',
+        name: 'Sheet1',
+        headers,
+        rows,
+        column_types: sheetColumnTypes,
+        status_options: sheetStatusOptions,
+      }, 0)];
+    }
 
     const defaultPalette = [
       '#f4b183', '#f7d774', '#f5c2b8', '#9ec5e5', '#c6dcb0',
@@ -823,6 +862,80 @@
         out = out * 26 + (label.charCodeAt(i) - 64);
       }
       return out - 1;
+    }
+
+    function sheetMetaForIndex(idx) {
+      const index = Number(idx);
+      if (Number.isFinite(index) && index >= 0 && index < sheetTabs.length) {
+        return sheetTabs[index];
+      }
+      return sheetTabs[0] || normalizeSheetTab({}, 0);
+    }
+
+    function sheetIndexForData(data) {
+      if (!data) {
+        return 0;
+      }
+      const taggedIndex = Number(data.__ceSheetTabIndex);
+      if (Number.isFinite(taggedIndex) && taggedIndex >= 0) {
+        return taggedIndex;
+      }
+      const dataName = String(data.name || '').trim();
+      if (dataName) {
+        const nameIndex = sheetTabs.findIndex(function (tab) {
+          return String(tab.name || '').trim() === dataName || String(tab.key || '').trim() === dataName;
+        });
+        if (nameIndex >= 0) {
+          return nameIndex;
+        }
+      }
+      if (activeSpreadsheet && Array.isArray(activeSpreadsheet.datas)) {
+        const dataIndex = activeSpreadsheet.datas.indexOf(data);
+        if (dataIndex >= 0) {
+          return dataIndex;
+        }
+      }
+      return 0;
+    }
+
+    function currentSheetIndex() {
+      return sheetIndexForData(activeSheetData);
+    }
+
+    function currentSheetMeta() {
+      return sheetMetaForIndex(currentSheetIndex());
+    }
+
+    function sheetMetaForData(data) {
+      return sheetMetaForIndex(sheetIndexForData(data));
+    }
+
+    function activeHeadersForData(data) {
+      const meta = sheetMetaForData(data || activeSheetData);
+      return Array.isArray(meta.headers) ? meta.headers : headers;
+    }
+
+    function activeColumnTypes() {
+      const meta = currentSheetMeta();
+      return Array.isArray(meta.column_types) ? meta.column_types : sheetColumnTypes;
+    }
+
+    function activeStatusOptions() {
+      const meta = currentSheetMeta();
+      return Array.isArray(meta.status_options) ? meta.status_options : sheetStatusOptions;
+    }
+
+    function annotateWorkbookData(spreadsheet) {
+      if (!spreadsheet || !Array.isArray(spreadsheet.datas)) {
+        return;
+      }
+      spreadsheet.datas.forEach(function (data, idx) {
+        if (!data) {
+          return;
+        }
+        data.__ceSheetTabIndex = idx;
+        data.__ceSheetMeta = sheetMetaForIndex(idx);
+      });
     }
 
     function parseA1Range(refText) {
@@ -1560,8 +1673,9 @@
         return;
       }
 
-      if (Array.isArray(sheetColumnTypes) && sheetColumnTypes.length) {
-        sheetColumnTypes.forEach(function (type, ci) {
+      const columnTypes = activeColumnTypes();
+      if (Array.isArray(columnTypes) && columnTypes.length) {
+        columnTypes.forEach(function (type, ci) {
           if (String(type || '').trim().toLowerCase() !== 'checkbox') {
             return;
           }
@@ -2390,6 +2504,7 @@
         if (!activeSheetData) {
           return;
         }
+        refreshActiveSheetData();
         const scroll = activeSheetData.scroll || {};
         const selector = activeSheetData.selector || {};
         const ri = Number.isFinite(scroll.ri) ? Number(scroll.ri) : 0;
@@ -3108,10 +3223,41 @@
     }
 
     function getActiveSheetData(spreadsheet) {
+      const sheetData = spreadsheet && spreadsheet.sheet ? spreadsheet.sheet.data : null;
+      if (sheetData) {
+        return sheetData;
+      }
       if (!spreadsheet || !Array.isArray(spreadsheet.datas) || !spreadsheet.datas.length) {
         return null;
       }
       return spreadsheet.datas[0];
+    }
+
+    function refreshActiveSheetData() {
+      const nextData = getActiveSheetData(activeSpreadsheet);
+      if (!nextData || nextData === activeSheetData) {
+        return false;
+      }
+      activeSheetData = nextData;
+      lastViewportRi = null;
+      lastViewportCi = null;
+      lastSelectorRi = null;
+      lastSelectorCi = null;
+      activeSortFilterCi = null;
+      lastSortFilterCi = null;
+      colorRules = [];
+      validationRuleMeta = [];
+      patchUndoRedoSync(activeSpreadsheet);
+      patchHeaderMutationGuard(activeSpreadsheet);
+      patchAutoFilterRuntime(activeSpreadsheet);
+      applyDefaultCheckboxColumnValidations();
+      applyDefaultSelectColumnValidations();
+      syncValidationMetadataFromSheetData();
+      syncDrawerRangeFromSelection();
+      syncFormulaBarFromSelection();
+      scheduleValidationRefreshCascade();
+      scheduleHeaderSortIconsRefresh();
+      return true;
     }
 
     function syncDrawerRangeFromSelection() {
@@ -3655,17 +3801,20 @@
       sheet.__ceAutofillFallbackMounted = true;
     }
 
-    function seedMatrixFromCsv() {
-      const width = Math.max(1, Array.isArray(headers) ? headers.length : 0);
+    function seedMatrixFromCsv(meta) {
+      const tab = meta || sheetMetaForIndex(0);
+      const tabHeaders = Array.isArray(tab.headers) ? tab.headers : headers;
+      const tabRows = Array.isArray(tab.rows) ? tab.rows : rows;
+      const width = Math.max(1, tabHeaders.length);
       const headerRow = [];
       for (let i = 0; i < width; i += 1) {
-        headerRow.push(String(headers[i] == null ? '' : headers[i]));
+        headerRow.push(String(tabHeaders[i] == null ? '' : tabHeaders[i]));
       }
       const matrix = [headerRow];
-      if (!Array.isArray(rows)) {
+      if (!Array.isArray(tabRows)) {
         return matrix;
       }
-      rows
+      tabRows
         .filter((r) => Array.isArray(r))
         .forEach((r) => {
           const out = [];
@@ -3690,7 +3839,7 @@
       return out || 'A';
     }
 
-    function buildSheetPayload(matrix) {
+    function buildSheetDataPayload(matrix, sheetName) {
       const rowCount = Math.max(1, Array.isArray(matrix) ? matrix.length : 1);
       const colCount = Math.max(1, Array.isArray(matrix[0]) ? matrix[0].length : 1);
       const rowsObj = { len: rowCount };
@@ -3711,8 +3860,8 @@
         }
       }
 
-      const payload = [{
-        name: 'Sheet1',
+      const payload = {
+        name: String(sheetName || 'Sheet1').trim() || 'Sheet1',
         freeze: 'A1',
         styles: [],
         merges: [],
@@ -3720,11 +3869,11 @@
         cols: colsObj,
         validations: [],
         autofilter: {},
-      }];
+      };
 
       if (rowCount > 1 && colCount > 0) {
         const lastColLabel = colLabelFromIndex(colCount - 1);
-        payload[0].autofilter = {
+        payload.autofilter = {
           ref: `A1:${lastColLabel}${rowCount}`,
           filters: [],
           sort: null,
@@ -3733,9 +3882,20 @@
       return payload;
     }
 
-    function payloadToMatrix(payload) {
+    function buildSheetPayload(matrix, sheetName) {
+      return [buildSheetDataPayload(matrix, sheetName || sheetMetaForIndex(0).name || 'Sheet1')];
+    }
+
+    function buildWorkbookPayload() {
+      return sheetTabs.map(function (tab, idx) {
+        return buildSheetDataPayload(seedMatrixFromCsv(tab), tab.name || `Sheet ${idx + 1}`);
+      });
+    }
+
+    function payloadToMatrix(payload, sheetIndex) {
+      const idx = Number.isFinite(Number(sheetIndex)) ? Math.max(0, Number(sheetIndex)) : currentSheetIndex();
       const sheet = Array.isArray(payload)
-        ? (payload.length ? payload[0] : {})
+        ? (payload[idx] || payload[0] || {})
         : (payload || {});
       const rowsObj = sheet && typeof sheet.rows === 'object' ? sheet.rows : {};
       const colsObj = sheet && typeof sheet.cols === 'object' ? sheet.cols : {};
@@ -3792,15 +3952,22 @@
       return matrix;
     }
 
+    function payloadToTabMatrices(payload) {
+      const data = Array.isArray(payload) ? payload : (payload ? [payload] : []);
+      return sheetTabs.map(function (_tab, idx) {
+        return payloadToMatrix(data, idx);
+      });
+    }
+
     function getCurrentMatrix() {
       try {
         if (activeSpreadsheet && typeof activeSpreadsheet.getData === 'function') {
-          return payloadToMatrix(activeSpreadsheet.getData());
+          return payloadToMatrix(activeSpreadsheet.getData(), currentSheetIndex());
         }
       } catch (err) {
         // no-op
       }
-      return seedMatrixFromCsv();
+      return seedMatrixFromCsv(currentSheetMeta());
     }
 
     function moveArrayItemInPlace(arr, fromIdx, toIdx) {
@@ -3825,10 +3992,11 @@
     }
 
     function moveColumnTypeMetaInPlace(fromCi, toCi) {
-      if (!Array.isArray(sheetColumnTypes) || !sheetColumnTypes.length) {
+      const columnTypes = activeColumnTypes();
+      if (!Array.isArray(columnTypes) || !columnTypes.length) {
         return;
       }
-      moveArrayItemInPlace(sheetColumnTypes, fromCi, toCi);
+      moveArrayItemInPlace(columnTypes, fromCi, toCi);
     }
 
     function moveColumnInCurrentSheet(fromCi, toCi) {
@@ -3876,7 +4044,14 @@
       if (!activeSpreadsheet || typeof activeSpreadsheet.loadData !== 'function') {
         return false;
       }
-      activeSpreadsheet.loadData(buildSheetPayload(matrix));
+      let nextPayload = buildSheetPayload(matrix, currentSheetMeta().name);
+      if (sheetTabs.length > 1 && typeof activeSpreadsheet.getData === 'function') {
+        const currentPayload = activeSpreadsheet.getData();
+        nextPayload = Array.isArray(currentPayload) ? currentPayload.slice() : buildWorkbookPayload();
+        nextPayload[currentSheetIndex()] = buildSheetDataPayload(matrix, currentSheetMeta().name);
+      }
+      activeSpreadsheet.loadData(nextPayload);
+      annotateWorkbookData(activeSpreadsheet);
       activeSheetData = getActiveSheetData(activeSpreadsheet);
       patchUndoRedoSync(activeSpreadsheet);
       if (activeSheetData) {
@@ -4102,10 +4277,11 @@
       if (!Number.isFinite(idx) || idx < 0) {
         return false;
       }
+      const columnTypes = activeColumnTypes();
       if (
-        Array.isArray(sheetColumnTypes) &&
-        idx < sheetColumnTypes.length &&
-        String(sheetColumnTypes[idx] || '').trim().toLowerCase() === 'checkbox'
+        Array.isArray(columnTypes) &&
+        idx < columnTypes.length &&
+        String(columnTypes[idx] || '').trim().toLowerCase() === 'checkbox'
       ) {
         return true;
       }
@@ -4397,13 +4573,14 @@
       };
     }
 
-    function canonicalHeaderText(ci) {
+    function canonicalHeaderText(ci, data) {
       const idx = Number(ci);
       if (!Number.isFinite(idx) || idx < 0) {
         return '';
       }
-      if (Array.isArray(headers) && idx < headers.length) {
-        return String(headers[idx] == null ? '' : headers[idx]);
+      const headerList = activeHeadersForData(data);
+      if (Array.isArray(headerList) && idx < headerList.length) {
+        return String(headerList[idx] == null ? '' : headerList[idx]);
       }
       return '';
     }
@@ -4417,7 +4594,7 @@
         return;
       }
       for (let ci = 0; ci < colLen; ci += 1) {
-        const expected = canonicalHeaderText(ci);
+        const expected = canonicalHeaderText(ci, data);
         if (!expected) {
           continue;
         }
@@ -5394,7 +5571,7 @@
       if (action === 'download_json') {
         const payload = activeSpreadsheet && typeof activeSpreadsheet.getData === 'function'
           ? activeSpreadsheet.getData()
-          : buildSheetPayload(seedMatrixFromCsv());
+          : (sheetTabs.length > 1 ? buildWorkbookPayload() : buildSheetPayload(seedMatrixFromCsv()));
         triggerDownload('sheet-export.json', JSON.stringify(payload, null, 2), 'application/json;charset=utf-8');
         setMenuStatus('JSON downloaded.', 'ok');
         return;
@@ -5970,6 +6147,21 @@
         getPayload: function () {
           return buildSheetPayload(matrix);
         },
+        getTabMatrices: function () {
+          return sheetTabs.map(function (tab, idx) {
+            return idx === 0
+              ? matrix.map(function (row) { return Array.isArray(row) ? row.slice() : []; })
+              : seedMatrixFromCsv(tab);
+          });
+        },
+        getTabs: function () {
+          return sheetTabs.map(function (tab) {
+            return {
+              key: tab.key,
+              name: tab.name,
+            };
+          });
+        },
       });
     }
 
@@ -6028,16 +6220,19 @@
 
       if (typeof spreadsheet.on === 'function') {
         spreadsheet.on('cell-selected', function () {
+          refreshActiveSheetData();
           syncDrawerRangeFromSelection();
           syncFormulaBarFromSelection();
           scheduleValidationCellDropdownRefresh();
         });
         spreadsheet.on('cells-selected', function () {
+          refreshActiveSheetData();
           syncDrawerRangeFromSelection();
           syncFormulaBarFromSelection();
           scheduleValidationCellDropdownRefresh();
         });
         spreadsheet.on('cell-edited', function () {
+          refreshActiveSheetData();
           syncFormulaBarFromSelection();
           scheduleValidationCellDropdownRefresh();
           scheduleValidationBubblesRefresh();
@@ -6055,6 +6250,13 @@
       root.addEventListener('wheel', scheduleValidationCellDropdownRefresh, { passive: true });
       root.addEventListener('wheel', scheduleValidationBubblesRefresh, { passive: true });
       root.addEventListener('wheel', scheduleHeaderSortIconsRefresh, { passive: true });
+      root.addEventListener('click', function (ev) {
+        const target = ev.target;
+        if (!(target instanceof Element) || !target.closest('.x-spreadsheet-bottombar')) {
+          return;
+        }
+        window.setTimeout(refreshActiveSheetData, 0);
+      }, true);
       document.addEventListener('keydown', function (ev) {
         const key = String(ev && ev.key ? ev.key : '');
         if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'PageUp', 'PageDown', 'Home', 'End'].includes(key)) {
@@ -6066,7 +6268,8 @@
     }
 
     function applyDefaultCheckboxColumnValidations() {
-      if (!activeSheetData || !Array.isArray(sheetColumnTypes) || !sheetColumnTypes.length) {
+      const columnTypes = activeColumnTypes();
+      if (!activeSheetData || !Array.isArray(columnTypes) || !columnTypes.length) {
         return;
       }
       if (activeSheetData.__ceDefaultCheckboxColsApplied) {
@@ -6086,7 +6289,7 @@
         FALSE: '#ef4444',
       };
 
-      sheetColumnTypes.forEach(function (type, ci) {
+      columnTypes.forEach(function (type, ci) {
         if (String(type || '').trim().toLowerCase() !== 'checkbox') {
           return;
         }
@@ -6139,13 +6342,15 @@
     }
 
     function applyDefaultSelectColumnValidations() {
-      if (!activeSheetData || !Array.isArray(sheetColumnTypes) || !sheetColumnTypes.length) {
+      const columnTypes = activeColumnTypes();
+      if (!activeSheetData || !Array.isArray(columnTypes) || !columnTypes.length) {
         return;
       }
       if (activeSheetData.__ceDefaultSelectColsApplied) {
         return;
       }
-      if (!Array.isArray(sheetStatusOptions) || !sheetStatusOptions.length) {
+      const statusOptions = activeStatusOptions();
+      if (!Array.isArray(statusOptions) || !statusOptions.length) {
         activeSheetData.__ceDefaultSelectColsApplied = true;
         return;
       }
@@ -6160,7 +6365,7 @@
 
       const statusList = [];
       const seenStatus = new Set();
-      sheetStatusOptions.forEach(function (item) {
+      statusOptions.forEach(function (item) {
         const label = String(item == null ? '' : item).trim();
         if (!label) {
           return;
@@ -6197,7 +6402,7 @@
       });
       const encodedList = statusList.join(',');
 
-      sheetColumnTypes.forEach(function (type, ci) {
+      columnTypes.forEach(function (type, ci) {
         if (String(type || '').trim().toLowerCase() !== 'select') {
           return;
         }
@@ -6283,7 +6488,8 @@
             },
           });
           if (typeof spreadsheet.loadData === 'function') {
-            spreadsheet.loadData(buildSheetPayload(matrix));
+            spreadsheet.loadData(sheetTabs.length > 1 ? buildWorkbookPayload() : buildSheetPayload(matrix));
+            annotateWorkbookData(spreadsheet);
           }
           initValidationDrawer(spreadsheet);
           // Keep filter/sort scoped to full-sheet range and normalize checkbox
@@ -6308,13 +6514,29 @@
               if (typeof spreadsheet.getData === 'function') {
                 return spreadsheet.getData();
               }
-              return buildSheetPayload(seedMatrixFromCsv());
+              return sheetTabs.length > 1 ? buildWorkbookPayload() : buildSheetPayload(seedMatrixFromCsv());
             },
             getMatrix: function () {
               if (typeof spreadsheet.getData === 'function') {
-                return payloadToMatrix(spreadsheet.getData());
+                return payloadToMatrix(spreadsheet.getData(), currentSheetIndex());
               }
-              return seedMatrixFromCsv();
+              return seedMatrixFromCsv(currentSheetMeta());
+            },
+            getTabMatrices: function () {
+              if (typeof spreadsheet.getData === 'function') {
+                return payloadToTabMatrices(spreadsheet.getData());
+              }
+              return sheetTabs.map(function (tab) {
+                return seedMatrixFromCsv(tab);
+              });
+            },
+            getTabs: function () {
+              return sheetTabs.map(function (tab) {
+                return {
+                  key: tab.key,
+                  name: tab.name,
+                };
+              });
             },
           });
           window.addEventListener('resize', function () {
@@ -6329,7 +6551,7 @@
       });
     }
 
-    const seedMatrix = seedMatrixFromCsv();
+    const seedMatrix = seedMatrixFromCsv(sheetMetaForIndex(0));
     fitToViewport();
     initSpreadsheet(seedMatrix);
     window.addEventListener('beforeunload', stopViewportPolling, { passive: true });

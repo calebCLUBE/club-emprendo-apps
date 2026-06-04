@@ -987,6 +987,9 @@ class ParticipantsCapacitacionCheckTests(TestCase):
                 ["", "CP", 1, "Mentora 1", "M1", "m1@example.com", "", "", "", False, False, False, False, False, False, False],
                 ["", "CP", 2, "Mentora 2", "M2", "m2@example.com", "", "", "", False, False, False, False, False, False, False],
             ],
+            emprendedoras_sheet_rows=[
+                ["", "CP", 1, "Emprendedora 1", "E1", "e1@example.com", "", "", "", False, False, False, False, False, False, False],
+            ],
         )
 
     def test_track_sheet_renders_check_capacitacion_button(self):
@@ -1000,6 +1003,66 @@ class ParticipantsCapacitacionCheckTests(TestCase):
         self.assertContains(response, "Check Capacitacion")
         self.assertContains(response, "Check Encuesta final")
         self.assertContains(response, "Saved versions")
+
+    def test_participants_page_links_to_combined_workbook(self):
+        response = self.client.get(
+            f"{reverse('admin_profiles_participants')}?group={self.group.number}"
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Open participant workbook")
+        self.assertContains(response, f"/profiles/participants/{self.group.number}/all/")
+        self.assertNotContains(response, "Open Mentoras sheet")
+        self.assertNotContains(response, "Open Emprendedoras sheet")
+
+    def test_combined_track_sheet_renders_both_tabs(self):
+        response = self.client.get(
+            reverse(
+                "admin_profiles_participants_track_sheet",
+                args=[self.group.number, "all"],
+            )
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "participants-track-sheet-xsheet-tabs")
+        self.assertContains(response, "Mentoras")
+        self.assertContains(response, "Emprendedoras")
+        self.assertContains(response, "ce-mentoras-sheet-data")
+        self.assertContains(response, "ce-emprendedoras-sheet-data")
+
+    def test_combined_track_sheet_autosave_updates_both_tracks(self):
+        url = reverse(
+            "admin_profiles_participants_track_sheet",
+            args=[self.group.number, "all"],
+        )
+        mentoras_rows = [
+            ["", "CP", 1, "Mentora Combined", "M1", "m1@example.com", "", "", "", False, False, False, False, False, False, False],
+        ]
+        emprendedoras_rows = [
+            ["", "CP", 1, "Emprendedora Combined", "E1", "e1@example.com", "", "", "", False, False, False, False, False, False, False],
+            ["", "CP", 2, "Emprendedora 2", "E2", "e2@example.com", "", "", "", False, False, False, False, False, False, False],
+        ]
+        response = self.client.post(
+            url,
+            data={
+                "action": "save_sheet",
+                "mentoras_sheet_data": json.dumps(mentoras_rows),
+                "emprendedoras_sheet_data": json.dumps(emprendedoras_rows),
+            },
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.participant_list.refresh_from_db()
+        self.assertEqual(self.participant_list.mentoras_sheet_rows[0][3], "Mentora Combined")
+        self.assertEqual(
+            self.participant_list.emprendedoras_sheet_rows[0][3],
+            "Emprendedora Combined",
+        )
+        self.assertEqual(len(self.participant_list.emprendedoras_sheet_rows), 2)
+        self.assertTrue(
+            ParticipantSheetVersion.objects.filter(group=self.group, track="mentoras").exists()
+        )
+        self.assertTrue(
+            ParticipantSheetVersion.objects.filter(group=self.group, track="emprendedoras").exists()
+        )
 
     def test_track_sheet_autosave_creates_version_and_restore_reloads_it(self):
         url = reverse(

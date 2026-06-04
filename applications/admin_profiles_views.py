@@ -1957,6 +1957,97 @@ def _build_emprendedoras_rows(group_num: int, emails: list[str]) -> list[list]:
     return rows
 
 
+def _participant_track_sheet_configs() -> dict[str, dict]:
+    return {
+        "mentoras": {
+            "slug": "mentoras",
+            "label": "Mentoras",
+            "headers": MENTORAS_HEADERS,
+            "column_types": MENTORAS_COLUMN_TYPES,
+            "status_options": MENTORAS_STATUS_OPTIONS,
+            "bool_cols": MENTORAS_BOOLEAN_COLS,
+            "email_col": MENTORAS_EMAIL_COL,
+            "acta_col": MENTORAS_ACTA_COL,
+            "capacitacion_col": MENTORAS_CAPACITACION_COL,
+            "encuestas_initial_col": MENTORAS_ENCUESTAS_INICIAL_COL,
+            "encuestas_final_col": MENTORAS_ENCUESTAS_FINAL_COL,
+            "progress_default_false_cols": MENTORAS_PROGRESS_DEFAULT_FALSE_COLS,
+            "text_field": "mentoras_emails_text",
+            "rows_field": "mentoras_sheet_rows",
+            "build_rows": _build_mentoras_rows,
+            "dropbox_track": "M",
+        },
+        "emprendedoras": {
+            "slug": "emprendedoras",
+            "label": "Emprendedoras",
+            "headers": EMPRENDEDORAS_HEADERS,
+            "column_types": EMPRENDEDORAS_COLUMN_TYPES,
+            "status_options": EMPRENDEDORAS_STATUS_OPTIONS,
+            "bool_cols": EMPRENDEDORAS_BOOLEAN_COLS,
+            "email_col": EMPRENDEDORAS_EMAIL_COL,
+            "acta_col": EMPRENDEDORAS_ACTA_COL,
+            "capacitacion_col": EMPRENDEDORAS_CAPACITACION_COL,
+            "encuestas_initial_col": EMPRENDEDORAS_ENCUESTAS_INICIAL_COL,
+            "encuestas_final_col": EMPRENDEDORAS_ENCUESTAS_FINAL_COL,
+            "progress_default_false_cols": EMPRENDEDORAS_PROGRESS_DEFAULT_FALSE_COLS,
+            "text_field": "emprendedoras_emails_text",
+            "rows_field": "emprendedoras_sheet_rows",
+            "build_rows": _build_emprendedoras_rows,
+            "dropbox_track": "E",
+        },
+    }
+
+
+def _participant_track_rows_for_group(group, participant_list, cfg: dict) -> tuple[list[list], bool]:
+    rows: list[list] = []
+    if participant_list:
+        stored_rows = _normalize_sheet_rows(
+            getattr(participant_list, cfg["rows_field"], []),
+            cfg["headers"],
+        )
+        stored_rows = _coerce_bool_columns(stored_rows, cfg["bool_cols"])
+        if stored_rows:
+            rows = _number_sheet_rows(stored_rows, number_col=2)
+        else:
+            emails_seed = _norm_email_list(getattr(participant_list, cfg["text_field"], ""))
+            rows = _number_sheet_rows(
+                cfg["build_rows"](group.number, emails_seed),
+                number_col=2,
+            )
+
+    rows, repaired_on_load = _repair_progress_defaults_if_legacy(
+        rows,
+        cfg["progress_default_false_cols"],
+    )
+    rows = _apply_contract_signed_to_rows(
+        rows,
+        email_col=cfg["email_col"],
+        acta_col=cfg["acta_col"],
+    )
+    return rows, bool(repaired_on_load)
+
+
+def _participant_sheet_tabs(mentoras_rows: list[list], emprendedoras_rows: list[list]) -> list[dict]:
+    return [
+        {
+            "key": "mentoras",
+            "name": "Mentoras",
+            "headers": MENTORAS_HEADERS,
+            "rows": mentoras_rows,
+            "column_types": MENTORAS_COLUMN_TYPES,
+            "status_options": MENTORAS_STATUS_OPTIONS,
+        },
+        {
+            "key": "emprendedoras",
+            "name": "Emprendedoras",
+            "headers": EMPRENDEDORAS_HEADERS,
+            "rows": emprendedoras_rows,
+            "column_types": EMPRENDEDORAS_COLUMN_TYPES,
+            "status_options": EMPRENDEDORAS_STATUS_OPTIONS,
+        },
+    ]
+
+
 def _excel_col_name(col_idx: int) -> str:
     n = int(col_idx)
     out = []
@@ -3112,6 +3203,9 @@ def profiles_participants_track_sheet(request, group_num: int, track: str):
         return redirect(reverse("admin_profiles_participants"))
 
     track_key = (track or "").strip().lower()
+    if track_key in {"all", "both", "participants", "participant"}:
+        return _profiles_participants_combined_sheet(request, group)
+
     if track_key.startswith("m"):
         track_slug = "mentoras"
         track_label = "Mentoras"
@@ -3534,6 +3628,340 @@ def profiles_participants_track_sheet(request, group_num: int, track: str):
         "sheet_versions": _participant_sheet_versions(group, track_slug),
         "emails_text": emails_text,
         "rows_count": len(rows),
+    }
+    return render(request, "admin_dash/profiles_participants_track_sheet.html", context)
+
+
+def _profiles_participants_combined_sheet(request, group):
+    configs = _participant_track_sheet_configs()
+    ordered_configs = [configs["mentoras"], configs["emprendedoras"]]
+    participant_list = GroupParticipantList.objects.filter(group=group).first()
+    redirect_url = reverse("admin_profiles_participants_track_sheet", args=[group.number, "all"])
+
+    if request.method == "POST":
+        is_async_save = request.headers.get("x-requested-with") == "XMLHttpRequest"
+        action = (request.POST.get("action") or "save_sheet").strip()
+
+        if action == "restore_version":
+            version_token = (request.POST.get("version_id") or "").strip()
+            target_track = ""
+            version_id = ""
+            if ":" in version_token:
+                target_track, version_id = version_token.split(":", 1)
+            else:
+                version_id = version_token
+            if not version_id.isdigit():
+                messages.error(request, "Select a saved version to restore.")
+                return redirect(redirect_url)
+
+            version = (
+                ParticipantSheetVersion.objects.filter(
+                    id=int(version_id),
+                    group=group,
+                )
+                .order_by("-created_at", "-id")
+                .first()
+            )
+            if not version:
+                messages.error(request, "That saved version is no longer available.")
+                return redirect(redirect_url)
+            if target_track and version.track != target_track:
+                messages.error(request, "That saved version does not match the selected tab.")
+                return redirect(redirect_url)
+
+            cfg = configs.get(version.track)
+            if not cfg:
+                messages.error(request, "That saved version has an unknown participant tab.")
+                return redirect(redirect_url)
+
+            restored_rows = _normalize_sheet_rows(version.rows, cfg["headers"])
+            restored_rows = _coerce_bool_columns(restored_rows, cfg["bool_cols"])
+            restored_rows = _number_sheet_rows(restored_rows, number_col=2)
+            restored_emails = _emails_from_sheet_rows(restored_rows, cfg["email_col"])
+            participant_obj, _ = GroupParticipantList.objects.get_or_create(group=group)
+            setattr(participant_obj, cfg["text_field"], "\n".join(restored_emails))
+            setattr(participant_obj, cfg["rows_field"], restored_rows)
+            participant_obj.save(
+                update_fields=[cfg["text_field"], cfg["rows_field"], "updated_at"]
+            )
+            _create_participant_sheet_version(
+                group=group,
+                track_slug=cfg["slug"],
+                rows=restored_rows,
+                request=request,
+                action="restore",
+            )
+            messages.success(
+                request,
+                (
+                    f"Restored {cfg['label']} participants for Group {group.number} "
+                    f"from {timezone.localtime(version.created_at).strftime('%Y-%m-%d %H:%M')}."
+                ),
+            )
+            return redirect(redirect_url)
+
+        if action == "check_dropbox":
+            try:
+                ok, summary = _run_dropbox_reconcile_for_group(
+                    group_num=group.number,
+                    track="both",
+                    days_back=730,
+                    max_pages=60,
+                )
+            except Exception as exc:
+                ok, summary = False, f"Unexpected error starting Dropbox check: {exc}"
+            if ok:
+                messages.success(
+                    request,
+                    f"Dropbox check started for Group {group.number}. {summary}",
+                )
+            else:
+                messages.error(
+                    request,
+                    f"Dropbox check failed for Group {group.number}: {summary}",
+                )
+            return redirect(redirect_url)
+
+        if action == "check_capacitacion":
+            summaries: list[str] = []
+            errors: list[str] = []
+            for cfg in ordered_configs:
+                try:
+                    ok, summary = _run_wix_capacitacion_check_for_track(
+                        group=group,
+                        track_slug=cfg["slug"],
+                        headers=cfg["headers"],
+                        bool_cols=cfg["bool_cols"],
+                        email_col=cfg["email_col"],
+                        capacitacion_col=cfg["capacitacion_col"],
+                        text_field=cfg["text_field"],
+                        rows_field=cfg["rows_field"],
+                        build_rows=cfg["build_rows"],
+                    )
+                except Exception as exc:
+                    ok, summary = False, f"Unexpected error running Wix capacitacion check: {exc}"
+                if ok:
+                    _create_participant_sheet_version_from_store(
+                        group=group,
+                        track_slug=cfg["slug"],
+                        rows_field=cfg["rows_field"],
+                        headers=cfg["headers"],
+                        bool_cols=cfg["bool_cols"],
+                        request=request,
+                        action="check_capacitacion",
+                    )
+                    summaries.append(f"{cfg['label']}: {summary}")
+                else:
+                    errors.append(f"{cfg['label']}: {summary}")
+            if summaries:
+                messages.success(
+                    request,
+                    f"Wix capacitacion check completed for Group {group.number}. {' '.join(summaries)}",
+                )
+            if errors:
+                messages.error(
+                    request,
+                    f"Wix capacitacion check had errors for Group {group.number}. {' '.join(errors)}",
+                )
+            return redirect(redirect_url)
+
+        if action in {"check_encuestas", "check_encuestas_final"}:
+            survey_stage = "final" if action == "check_encuestas_final" else "inicial"
+            col_key = "encuestas_final_col" if survey_stage == "final" else "encuestas_initial_col"
+            version_action = f"check_encuesta_{survey_stage}"
+            summaries: list[str] = []
+            errors: list[str] = []
+            for cfg in ordered_configs:
+                encuestas_col = cfg[col_key]
+                if encuestas_col is None:
+                    continue
+                try:
+                    ok, summary = _run_encuestas_check_for_track(
+                        group=group,
+                        track_slug=cfg["slug"],
+                        headers=cfg["headers"],
+                        bool_cols=cfg["bool_cols"],
+                        email_col=cfg["email_col"],
+                        encuestas_col=encuestas_col,
+                        text_field=cfg["text_field"],
+                        rows_field=cfg["rows_field"],
+                        build_rows=cfg["build_rows"],
+                        survey_stage=survey_stage,
+                    )
+                except Exception as exc:
+                    ok, summary = False, f"Unexpected error running encuestas check: {exc}"
+                if ok:
+                    _create_participant_sheet_version_from_store(
+                        group=group,
+                        track_slug=cfg["slug"],
+                        rows_field=cfg["rows_field"],
+                        headers=cfg["headers"],
+                        bool_cols=cfg["bool_cols"],
+                        request=request,
+                        action=version_action,
+                    )
+                    summaries.append(f"{cfg['label']}: {summary}")
+                else:
+                    errors.append(f"{cfg['label']}: {summary}")
+            if summaries:
+                messages.success(
+                    request,
+                    (
+                        f"Encuesta {survey_stage} check completed for Group {group.number}. "
+                        f"{' '.join(summaries)}"
+                    ),
+                )
+            if errors:
+                messages.error(
+                    request,
+                    (
+                        f"Encuesta {survey_stage} check had errors for Group {group.number}. "
+                        f"{' '.join(errors)}"
+                    ),
+                )
+            return redirect(redirect_url)
+
+        decoded_payloads: dict[str, list] = {}
+        payload_provided: dict[str, bool] = {}
+        decode_error = False
+        for cfg in ordered_configs:
+            raw = (request.POST.get(f"{cfg['slug']}_sheet_data") or "").strip()
+            payload_provided[cfg["slug"]] = bool(raw)
+            if not raw:
+                decoded_payloads[cfg["slug"]] = []
+                continue
+            try:
+                decoded_payloads[cfg["slug"]] = json.loads(raw)
+            except json.JSONDecodeError:
+                decode_error = True
+                decoded_payloads[cfg["slug"]] = []
+        if decode_error:
+            if is_async_save:
+                return JsonResponse(
+                    {"ok": False, "error": "Could not read sheet edits."},
+                    status=400,
+                )
+            messages.error(request, "Could not read sheet edits. Please try again.")
+            return redirect(redirect_url)
+
+        current_rows: dict[str, list[list]] = {}
+        for cfg in ordered_configs:
+            payload = decoded_payloads.get(cfg["slug"]) or []
+            if payload_provided.get(cfg["slug"]):
+                rows = _normalize_sheet_rows(payload, cfg["headers"])
+                rows = _coerce_bool_columns(rows, cfg["bool_cols"])
+            else:
+                rows, _repaired = _participant_track_rows_for_group(group, participant_list, cfg)
+            rows, _repaired = _repair_progress_defaults_if_legacy(
+                rows,
+                cfg["progress_default_false_cols"],
+            )
+            rows = _apply_contract_signed_to_rows(
+                rows,
+                email_col=cfg["email_col"],
+                acta_col=cfg["acta_col"],
+            )
+            current_rows[cfg["slug"]] = _number_sheet_rows(rows, number_col=2)
+
+        participant_obj, _ = GroupParticipantList.objects.get_or_create(group=group)
+        updates: list[str] = []
+        participant_emails: list[str] = []
+        changed_rows: list[dict] = []
+        for cfg in ordered_configs:
+            rows = current_rows[cfg["slug"]]
+            valid_emails = _emails_from_sheet_rows(rows, cfg["email_col"])
+            participant_emails.extend(valid_emails)
+            next_emails_text = "\n".join(valid_emails)
+            if getattr(participant_obj, cfg["text_field"]) != next_emails_text:
+                setattr(participant_obj, cfg["text_field"], next_emails_text)
+                updates.append(cfg["text_field"])
+            if getattr(participant_obj, cfg["rows_field"]) != rows:
+                setattr(participant_obj, cfg["rows_field"], rows)
+                updates.append(cfg["rows_field"])
+                changed_rows.append(cfg)
+        if updates:
+            participant_obj.save(update_fields=updates + ["updated_at"])
+            for cfg in changed_rows:
+                _create_participant_sheet_version(
+                    group=group,
+                    track_slug=cfg["slug"],
+                    rows=current_rows[cfg["slug"]],
+                    request=request,
+                    action="autosave" if is_async_save else "manual",
+                )
+
+        created_count, updated_count, unchanged_count = _mark_participated_yes(
+            list(dict.fromkeys(participant_emails))
+        )
+        if is_async_save:
+            return JsonResponse(
+                {
+                    "ok": True,
+                    "group": group.number,
+                    "mentoras_rows": len(current_rows["mentoras"]),
+                    "emprendedoras_rows": len(current_rows["emprendedoras"]),
+                }
+            )
+        messages.success(
+            request,
+            (
+                f"Saved participants for Group {group.number}. "
+                f"Mentoras: {len(current_rows['mentoras'])} rows · "
+                f"Emprendedoras: {len(current_rows['emprendedoras'])} rows. "
+                f"Profile participation set to Yes: {created_count} new, "
+                f"{updated_count} changed, {unchanged_count} already yes."
+            ),
+        )
+        return redirect(redirect_url)
+
+    rows_by_track = {}
+    repaired_fields: list[str] = []
+    for cfg in ordered_configs:
+        track_rows, repaired = _participant_track_rows_for_group(group, participant_list, cfg)
+        rows_by_track[cfg["slug"]] = track_rows
+        if repaired:
+            repaired_fields.append(cfg["rows_field"])
+
+    if repaired_fields:
+        participant_obj, _ = GroupParticipantList.objects.get_or_create(group=group)
+        for cfg in ordered_configs:
+            if cfg["rows_field"] in repaired_fields:
+                setattr(participant_obj, cfg["rows_field"], rows_by_track[cfg["slug"]])
+        participant_obj.save(update_fields=repaired_fields + ["updated_at"])
+
+    for cfg in ordered_configs:
+        rows = rows_by_track[cfg["slug"]]
+        if rows and not ParticipantSheetVersion.objects.filter(group=group, track=cfg["slug"]).exists():
+            _create_participant_sheet_version(
+                group=group,
+                track_slug=cfg["slug"],
+                rows=rows,
+                request=request,
+                action="baseline",
+            )
+
+    sheet_versions = list(
+        ParticipantSheetVersion.objects.filter(group=group, track__in=["mentoras", "emprendedoras"])
+        .select_related("saved_by")
+        .order_by("-created_at", "-id")[:50]
+    )
+
+    context = {
+        "group": group,
+        "track_slug": "all",
+        "track_label": "Participants",
+        "combined_sheet": True,
+        "sheet_headers": MENTORAS_HEADERS,
+        "sheet_column_types": MENTORAS_COLUMN_TYPES,
+        "sheet_status_options": MENTORAS_STATUS_OPTIONS,
+        "sheet_rows": rows_by_track["mentoras"],
+        "sheet_tabs": _participant_sheet_tabs(
+            rows_by_track["mentoras"],
+            rows_by_track["emprendedoras"],
+        ),
+        "sheet_versions": sheet_versions,
+        "emails_text": "",
+        "rows_count": len(rows_by_track["mentoras"]) + len(rows_by_track["emprendedoras"]),
     }
     return render(request, "admin_dash/profiles_participants_track_sheet.html", context)
 

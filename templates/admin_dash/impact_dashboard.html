@@ -184,6 +184,104 @@
         color: #6b7280;
         margin-top: 4px;
       }
+      .ce-kpi-grid--primary {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+      .ce-definition-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+        gap: 10px;
+        margin-top: 14px;
+      }
+      .ce-definition {
+        border-left: 4px solid #d7e2ef;
+        background: #f8fbff;
+        padding: 10px 12px;
+        color: #475569;
+        font-size: 12px;
+        line-height: 1.45;
+      }
+      .ce-definition strong {
+        display: block;
+        color: #25324a;
+        margin-bottom: 3px;
+      }
+      .ce-chart-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 12px;
+        margin-top: 12px;
+      }
+      .ce-chart-panel {
+        border: 1px solid #e1e8f4;
+        border-radius: 8px;
+        background: #fff;
+        padding: 12px;
+        min-width: 0;
+      }
+      .ce-chart-title {
+        margin: 0;
+        color: #1f2937;
+        font-size: 14px;
+      }
+      .ce-chart-subtitle {
+        margin: 4px 0 0;
+        color: #64748b;
+        font-size: 12px;
+      }
+      .ce-bars--chart .ce-bar-row {
+        grid-template-columns: minmax(112px, 170px) 1fr 72px;
+      }
+      .ce-bars--chart .ce-bar-track {
+        height: 16px;
+      }
+      .ce-detail-panel summary {
+        cursor: pointer;
+        list-style: none;
+      }
+      .ce-detail-panel summary::-webkit-details-marker {
+        display: none;
+      }
+      .ce-detail-summary {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 12px;
+        color: var(--ce-text);
+      }
+      .ce-detail-summary strong {
+        display: block;
+        font-size: 16px;
+      }
+      .ce-detail-summary span {
+        display: block;
+        margin-top: 3px;
+        color: var(--ce-muted);
+        font-size: 12px;
+      }
+      .ce-detail-summary:after {
+        content: "Open";
+        border: 1px solid #d4dce8;
+        border-radius: 999px;
+        color: #344054;
+        padding: 4px 10px;
+        font-size: 11px;
+        font-weight: 700;
+      }
+      .ce-detail-panel[open] .ce-detail-summary:after {
+        content: "Close";
+      }
+      .ce-detail-content {
+        margin-top: 12px;
+      }
+      .ce-inline-details {
+        margin-top: 12px;
+      }
+      .ce-inline-details summary {
+        cursor: pointer;
+        color: var(--ce-accent);
+        font-weight: 700;
+      }
       .ce-metric-note-grid {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -463,6 +561,16 @@
         .ce-two-col {
           grid-template-columns: 1fr;
         }
+        .ce-kpi-grid--primary {
+          grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+        }
+        .ce-bars--chart .ce-bar-row {
+          grid-template-columns: 1fr;
+          gap: 5px;
+        }
+        .ce-bar-val {
+          text-align: left;
+        }
       }
     </style>
 
@@ -533,16 +641,16 @@
         <div class="ce-section-head">
           <div>
             <p class="ce-section-kicker">Program Snapshot</p>
-            <h2 class="ce-panel-title">Executive Summary</h2>
-            <p class="ce-panel-subtitle">The highest-signal operating metrics currently available from website data.</p>
+            <h2 class="ce-panel-title">At-a-Glance</h2>
+            <p class="ce-panel-subtitle">The fastest read on reach, participation, completion, and applicant volume.</p>
           </div>
         </div>
         {% with p=participant_summary.overall apps=application_summary.overall %}
-        <div class="ce-kpi-grid">
+        <div class="ce-kpi-grid ce-kpi-grid--primary">
           <div class="ce-kpi ce-kpi--blue">
-            <div class="ce-kpi-k">Participants Tracked</div>
+            <div class="ce-kpi-k">Participant Workbook Rows</div>
             <div class="ce-kpi-v">{{ p.rows }}</div>
-            <div class="ce-kpi-note">{{ p.unique }} unique emails</div>
+            <div class="ce-kpi-note">{{ p.unique }} unique emails listed</div>
           </div>
           <div class="ce-kpi ce-kpi--teal">
             <div class="ce-kpi-k">Started Program</div>
@@ -559,35 +667,78 @@
             <div class="ce-kpi-v">{{ apps.unique }}</div>
             <div class="ce-kpi-note">{{ apps.raw }} raw applications; {{ apps.duplicate_or_repeat }} repeats</div>
           </div>
-          <div class="ce-kpi ce-kpi--purple">
-            <div class="ce-kpi-k">Groups in Website</div>
-            <div class="ce-kpi-v">{{ p.groups_in_system }}</div>
-            <div class="ce-kpi-note">{{ p.groups_with_participants }} with participant rows</div>
-          </div>
-          <div class="ce-kpi ce-kpi--indigo">
-            <div class="ce-kpi-k">Repeat Mentors</div>
-            <div class="ce-kpi-v">{{ alumni_summary.repeated_mentor_count }}</div>
-            <div class="ce-kpi-note">{{ alumni_summary.returnee_count }} E alumni also appear as mentors</div>
-          </div>
         </div>
         {% endwith %}
-        <div class="ce-metric-note-grid">
-          <div class="ce-metric-note">
-            <strong>Participation source</strong>
-            Participant workbooks are the source for started, graduated, country, and survey response-rate metrics.
+        <div class="ce-definition-grid">
+          <div class="ce-definition">
+            <strong>Participant workbook rows</strong>
+            Everyone listed in the participant workbook. This is the broadest count and may include selected people who have not started.
           </div>
-          <div class="ce-metric-note">
-            <strong>Status logic</strong>
-            Started means the row has progress checks or an active/progress status. Graduated means Estatus = G.
+          <div class="ce-definition">
+            <strong>Started program</strong>
+            Workbook rows with progress checks or an active/progress/graduated status. This is a subset of workbook rows.
           </div>
-          <div class="ce-metric-note">
-            <strong>Applicant dedupe</strong>
-            Applicant totals are deduped by email; raw application totals preserve repeat applications.
+          <div class="ce-definition">
+            <strong>Graduated</strong>
+            Workbook rows where Estatus is G. Graduation rate uses graduated divided by started.
+          </div>
+          <div class="ce-definition">
+            <strong>Unique applicants</strong>
+            Application database emails deduped across repeated applications. Raw application totals still preserve repeats.
           </div>
         </div>
       </section>
 
       <section class="ce-panel">
+        <div class="ce-section-head">
+          <div>
+            <p class="ce-section-kicker">Interpretation Layer</p>
+            <h2 class="ce-panel-title">Program Flow</h2>
+            <p class="ce-panel-subtitle">Visual summaries for the core questions: who is listed, who starts, who graduates, and what data still needs another source.</p>
+          </div>
+        </div>
+        <div class="ce-chart-grid">
+          <div class="ce-chart-panel">
+            <h3 class="ce-chart-title">Participant Funnel</h3>
+            <p class="ce-chart-subtitle">Workbook rows to started to graduated.</p>
+            <div id="ce-participant-funnel-chart" class="ce-bars ce-bars--chart"></div>
+          </div>
+          <div class="ce-chart-panel">
+            <h3 class="ce-chart-title">Application Conversion</h3>
+            <p class="ce-chart-subtitle">Email-matched application to start and graduation rates.</p>
+            <div id="ce-conversion-rate-chart" class="ce-bars ce-bars--chart"></div>
+          </div>
+          <div class="ce-chart-panel">
+            <h3 class="ce-chart-title">Impact Survey Response</h3>
+            <p class="ce-chart-subtitle">Initial and final survey check rates from participant workbooks.</p>
+            <div id="ce-survey-response-rate-chart" class="ce-bars ce-bars--chart"></div>
+          </div>
+          <div class="ce-chart-panel">
+            <h3 class="ce-chart-title">Metric Coverage</h3>
+            <p class="ce-chart-subtitle">How many requested metrics are available, partial, estimated, or external.</p>
+            <div class="ce-donut-wrap">
+              <div class="ce-donut" id="ce-impact-coverage-donut">
+                <div class="ce-donut-hole">
+                  <strong class="ce-donut-total" id="ce-impact-coverage-total">0</strong>
+                  <span class="ce-donut-sub">Metrics</span>
+                </div>
+              </div>
+            </div>
+            <ul class="ce-legend" id="ce-impact-coverage-legend"></ul>
+          </div>
+        </div>
+      </section>
+
+      <details class="ce-panel ce-detail-panel">
+        <summary>
+          <span class="ce-detail-summary">
+            <span>
+              <strong>Participant and Applicant Detail</strong>
+              <span>Track, country, and conversion tables for audit and follow-up.</span>
+            </span>
+          </span>
+        </summary>
+        <div class="ce-detail-content">
         <div class="ce-section-head">
           <div>
             <p class="ce-section-kicker">Pipeline</p>
@@ -717,9 +868,19 @@
           </div>
         </div>
 
-      </section>
+        </div>
+      </details>
 
-      <section class="ce-panel">
+      <details class="ce-panel ce-detail-panel">
+        <summary>
+          <span class="ce-detail-summary">
+            <span>
+              <strong>Group Detail</strong>
+              <span>Group-by-group participant outcomes and applicant volume.</span>
+            </span>
+          </span>
+        </summary>
+        <div class="ce-detail-content">
         <div class="ce-section-head">
           <div>
             <p class="ce-section-kicker">Cohorts</p>
@@ -782,7 +943,8 @@
             </tbody>
           </table>
         </div>
-      </section>
+        </div>
+      </details>
 
       <section class="ce-panel">
         <div class="ce-section-head">
@@ -792,19 +954,35 @@
             <p class="ce-panel-subtitle">Email-based estimates from participant workbooks. Participation definition still needs final program policy.</p>
           </div>
         </div>
+        {% with p=participant_summary.overall %}
+        <div class="ce-kpi-grid">
+          <div class="ce-kpi ce-kpi--green">
+            <div class="ce-kpi-k">E Alumni Also Mentors</div>
+            <div class="ce-kpi-v">{{ alumni_summary.returnee_count }}</div>
+            <div class="ce-kpi-note">Email overlap across tracks</div>
+          </div>
+          <div class="ce-kpi ce-kpi--teal">
+            <div class="ce-kpi-k">Later Mentor Group</div>
+            <div class="ce-kpi-v">{{ alumni_summary.later_returnee_count }}</div>
+            <div class="ce-kpi-note">Mentor group appears after E group</div>
+          </div>
+          <div class="ce-kpi ce-kpi--indigo">
+            <div class="ce-kpi-k">Repeat Mentors</div>
+            <div class="ce-kpi-v">{{ alumni_summary.repeated_mentor_count }}</div>
+            <div class="ce-kpi-note">Mentor email in 2+ groups</div>
+          </div>
+          <div class="ce-kpi ce-kpi--purple">
+            <div class="ce-kpi-k">Groups in Website</div>
+            <div class="ce-kpi-v">{{ p.groups_in_system }}</div>
+            <div class="ce-kpi-note">{{ p.groups_with_participants }} with participant rows</div>
+          </div>
+        </div>
+        {% endwith %}
+        <details class="ce-inline-details">
+          <summary>Show email-level engagement detail</summary>
         <div class="ce-two-col">
           <div class="ce-subpanel">
             <h3>Emprendedoras Returning As Mentors</h3>
-            <div class="ce-kpi-grid">
-              <div class="ce-kpi ce-kpi--green">
-                <div class="ce-kpi-k">Email overlap</div>
-                <div class="ce-kpi-v">{{ alumni_summary.returnee_count }}</div>
-              </div>
-              <div class="ce-kpi ce-kpi--teal">
-                <div class="ce-kpi-k">Later mentor group</div>
-                <div class="ce-kpi-v">{{ alumni_summary.later_returnee_count }}</div>
-              </div>
-            </div>
             <div class="ce-table-wrap">
               <table class="ce-table">
                 <thead>
@@ -859,9 +1037,19 @@
             </div>
           </div>
         </div>
+        </details>
       </section>
 
-      <section class="ce-panel">
+      <details class="ce-panel ce-detail-panel">
+        <summary>
+          <span class="ce-detail-summary">
+            <span>
+              <strong>Survey-Derived Metrics</strong>
+              <span>NPS-like and wellbeing-like fields detected in connected survey sheets.</span>
+            </span>
+          </span>
+        </summary>
+        <div class="ce-detail-content">
         <div class="ce-section-head">
           <div>
             <p class="ce-section-kicker">Impact Signals</p>
@@ -932,9 +1120,19 @@
             </div>
           </div>
         </div>
-      </section>
+        </div>
+      </details>
 
-      <section class="ce-panel">
+      <details class="ce-panel ce-detail-panel">
+        <summary>
+          <span class="ce-detail-summary">
+            <span>
+              <strong>Metric Coverage Map</strong>
+              <span>Every requested metric with current handling, source, status, and owner.</span>
+            </span>
+          </span>
+        </summary>
+        <div class="ce-detail-content">
         <div class="ce-section-head">
           <div>
             <p class="ce-section-kicker">Data Coverage</p>
@@ -968,7 +1166,19 @@
             </tbody>
           </table>
         </div>
-      </section>
+        </div>
+      </details>
+
+      <details class="ce-panel ce-detail-panel">
+        <summary>
+          <span class="ce-detail-summary">
+            <span>
+              <strong>Survey Analytics and Source Detail</strong>
+              <span>Response snapshots, survey charts, source sheets, and question-completion tables.</span>
+            </span>
+          </span>
+        </summary>
+        <div class="ce-detail-content">
 
       {% if show_cards %}
       <section class="ce-panel">
@@ -1263,10 +1473,17 @@
         </div>
       </section>
       {% endif %}
+
+        </div>
+      </details>
     </div>
   </div>
 </div>
 
+{{ participant_funnel_data|json_script:"ceParticipantFunnelData" }}
+{{ conversion_chart_data|json_script:"ceConversionChartData" }}
+{{ survey_response_rate_data|json_script:"ceSurveyResponseRateData" }}
+{{ coverage_mix|json_script:"ceCoverageMixData" }}
 {{ flow_points|json_script:"ceImpactFlowData" }}
 {{ dataset_mix|json_script:"ceImpactDatasetMixData" }}
 {{ retention_mix|json_script:"ceImpactRetentionMixData" }}
@@ -1403,6 +1620,64 @@
       }).join("");
     }
 
+    function renderHorizontalBars(containerId, rawData, options) {
+      const container = byId(containerId);
+      if (!container) return;
+
+      const settings = Object.assign({ maxValue: null, suffix: "", emptyText: "No data available." }, options || {});
+      const data = (Array.isArray(rawData) ? rawData : [])
+        .map(function (item) {
+          return {
+            label: item.label || "",
+            value: Number(item.value || 0),
+            color: item.color || "#3B82F6",
+          };
+        })
+        .filter(function (item) { return item.label; });
+
+      if (!data.length) {
+        container.innerHTML = '<p class="ce-empty">' + escapeHtml(settings.emptyText) + '</p>';
+        return;
+      }
+
+      const maxFromData = Math.max.apply(null, data.map(function (item) { return item.value; }).concat([1]));
+      const maxValue = Number(settings.maxValue || maxFromData) || maxFromData;
+      container.innerHTML = data.map(function (item) {
+        const width = item.value <= 0 ? 0 : Math.max(1, Math.min(100, (item.value / maxValue) * 100));
+        const value = settings.suffix ? item.value + settings.suffix : item.value;
+        return (
+          '<div class="ce-bar-row">' +
+            '<div class="ce-bar-label" title="' + escapeHtml(item.label) + '">' + escapeHtml(item.label) + '</div>' +
+            '<div class="ce-bar-track">' +
+              '<div class="ce-bar-fill" style="width:' + width + '%; background:' + item.color + ';"></div>' +
+            '</div>' +
+            '<div class="ce-bar-val">' + escapeHtml(value) + '</div>' +
+          '</div>'
+        );
+      }).join("");
+    }
+
+    renderHorizontalBars(
+      "ce-participant-funnel-chart",
+      parseJsonScript("ceParticipantFunnelData"),
+      { emptyText: "No participant workbook data available." }
+    );
+    renderHorizontalBars(
+      "ce-conversion-rate-chart",
+      parseJsonScript("ceConversionChartData"),
+      { maxValue: 100, suffix: "%", emptyText: "No application conversion data available." }
+    );
+    renderHorizontalBars(
+      "ce-survey-response-rate-chart",
+      parseJsonScript("ceSurveyResponseRateData"),
+      { maxValue: 100, suffix: "%", emptyText: "No survey check data available." }
+    );
+    renderDonut(
+      "ce-impact-coverage-donut",
+      "ce-impact-coverage-legend",
+      "ce-impact-coverage-total",
+      parseJsonScript("ceCoverageMixData")
+    );
     renderLineChart("ce-impact-line-chart", parseJsonScript("ceImpactFlowData"));
     renderDonut(
       "ce-impact-dataset-donut",

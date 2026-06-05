@@ -984,6 +984,92 @@ def _metric_coverage_rows(
     return rows
 
 
+def _participant_funnel_data(participant_summary: dict) -> list[dict]:
+    overall = participant_summary.get("overall", {})
+    return [
+        {
+            "label": "Workbook rows",
+            "value": overall.get("rows", 0),
+            "color": "#3B82F6",
+        },
+        {
+            "label": "Started program",
+            "value": overall.get("started", 0),
+            "color": "#14B8A6",
+        },
+        {
+            "label": "Graduated",
+            "value": overall.get("graduated", 0),
+            "color": "#22C55E",
+        },
+    ]
+
+
+def _conversion_chart_data(conversion_rows: list[dict]) -> list[dict]:
+    rows = [row for row in conversion_rows if row.get("track") in {"Emprendedoras", "Mentoras"}]
+    data: list[dict] = []
+    for row in rows:
+        prefix = "E" if row["track"] == "Emprendedoras" else "M"
+        start_color = "#3B82F6" if prefix == "E" else "#14B8A6"
+        grad_color = "#22C55E" if prefix == "E" else "#F59E0B"
+        data.extend(
+            [
+                {
+                    "label": f"{prefix}: app to start",
+                    "value": row.get("app_to_start_rate", 0),
+                    "color": start_color,
+                },
+                {
+                    "label": f"{prefix}: app to grad",
+                    "value": row.get("app_to_grad_rate", 0),
+                    "color": grad_color,
+                },
+            ]
+        )
+    return data
+
+
+def _survey_response_rate_data(participant_summary: dict) -> list[dict]:
+    tracks = participant_summary.get("tracks", {})
+    rows: list[dict] = []
+    for key, prefix, initial_color, final_color in (
+        ("e", "E", "#3B82F6", "#22C55E"),
+        ("m", "M", "#14B8A6", "#F59E0B"),
+    ):
+        track = tracks.get(key, {})
+        rows.extend(
+            [
+                {
+                    "label": f"{prefix}: initial survey",
+                    "value": track.get("initial_survey_rate", 0),
+                    "color": initial_color,
+                },
+                {
+                    "label": f"{prefix}: final survey",
+                    "value": track.get("final_survey_rate", 0),
+                    "color": final_color,
+                },
+            ]
+        )
+    return rows
+
+
+def _coverage_mix_data(metric_coverage_rows: list[dict]) -> list[dict]:
+    status_meta = {
+        "available": {"label": "Available", "color": "#22C55E"},
+        "estimated": {"label": "Estimated", "color": "#F59E0B"},
+        "partial": {"label": "Partial", "color": "#3B82F6"},
+        "external": {"label": "External source needed", "color": "#64748B"},
+    }
+    counts: dict[str, int] = defaultdict(int)
+    for row in metric_coverage_rows:
+        counts[row.get("status_key") or "external"] += 1
+    return [
+        {"label": meta["label"], "value": counts[key], "color": meta["color"]}
+        for key, meta in status_meta.items()
+    ]
+
+
 @staff_member_required
 def dashboards_home(request):
     return render(request, "admin_dash/dashboards_home.html")
@@ -1091,6 +1177,10 @@ def impact_dashboard(request):
         nps_rows=nps_rows,
         wellbeing_rows=wellbeing_rows,
     )
+    participant_funnel_data = _participant_funnel_data(participant_summary)
+    conversion_chart_data = _conversion_chart_data(conversion_rows)
+    survey_response_rate_data = _survey_response_rate_data(participant_summary)
+    coverage_mix = _coverage_mix_data(metric_coverage_rows)
 
     def _in_scope(section: dict) -> bool:
         if track_filter != "all" and section["track"] != track_filter:
@@ -1222,6 +1312,10 @@ def impact_dashboard(request):
         "nps_rows": nps_rows[:12],
         "wellbeing_rows": wellbeing_rows[:12],
         "metric_coverage_rows": metric_coverage_rows,
+        "participant_funnel_data": participant_funnel_data,
+        "conversion_chart_data": conversion_chart_data,
+        "survey_response_rate_data": survey_response_rate_data,
+        "coverage_mix": coverage_mix,
         "track_summaries": track_summaries,
         "datasets": datasets,
         "source_datasets": source_datasets,

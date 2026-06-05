@@ -1040,8 +1040,9 @@ class ImpactDashboardMetricTests(TestCase):
         response = self.client.get(reverse("admin_impact_dashboard"))
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Executive Summary")
-        self.assertContains(response, "Participants and Applications")
+        self.assertContains(response, "At-a-Glance")
+        self.assertContains(response, "Participant Workbook Rows")
+        self.assertContains(response, "Program Flow")
         self.assertContains(response, "Metric Coverage Map")
 
 

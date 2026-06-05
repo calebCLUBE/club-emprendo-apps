@@ -40,6 +40,7 @@ from .models import (
     ParticipantSheetVersion,
     ParticipantEmailStatus,
 )
+from .participant_statuses import PARTICIPANT_STATUS_CODES
 
 GROUP_SLUG_RE = re.compile(r"^G(?P<num>\d+)_")
 
@@ -169,8 +170,8 @@ MENTORAS_PROGRESS_DEFAULT_FALSE_COLS = [10, 11]  # Website, Capacitacion
 EMPRENDEDORAS_PROGRESS_DEFAULT_FALSE_COLS = [10, 11]  # Website, Capacitacion
 MENTORAS_BOOLEAN_COLS = [9, 10, 11, 12, 13, 14, 15, 16, 17]
 EMPRENDEDORAS_BOOLEAN_COLS = [9, 10, 11, 12, 13, 14, 15, 16]
-MENTORAS_STATUS_OPTIONS = ["NFA", "NCC", "INCP", "INCPP", "CP", "DC", "D", "P", "E/T", "G", "SG"]
-EMPRENDEDORAS_STATUS_OPTIONS = ["NFA", "NCC", "INCP", "INCPP", "CP", "DC", "P", "E/T", "G", "SG"]
+MENTORAS_STATUS_OPTIONS = list(PARTICIPANT_STATUS_CODES)
+EMPRENDEDORAS_STATUS_OPTIONS = list(PARTICIPANT_STATUS_CODES)
 MENTORAS_COLUMN_TYPES = [
     "text",          # info
     "select",        # Estatus

@@ -1,5 +1,6 @@
 import io
 import re
+import textwrap
 from collections import defaultdict
 from datetime import date, timedelta
 
@@ -13,6 +14,12 @@ from django.utils import timezone
 
 from .admin_views import _load_database_encuestas_grid
 from .models import Application, FormGroup, GroupParticipantList
+from .participant_statuses import (
+    PARTICIPANT_STATUS_CHOICES,
+    PARTICIPANT_STATUS_GRADUATED,
+    PARTICIPANT_STATUS_LABELS,
+    PARTICIPANT_STATUS_STARTED,
+)
 
 GROUP_SLUG_RE = re.compile(r"^G(?P<num>\d+)_")
 IMPACT_EMAIL_HEADERS = {"email", "correo", "correoelectronico", "mail"}
@@ -66,8 +73,6 @@ IMPACT_WELLBEING_HEADER_TOKENS = (
     "finanz",
     "negocio",
 )
-PARTICIPANT_STATUS_STARTED = {"CP", "DC", "D", "P", "E/T", "G", "SG"}
-PARTICIPANT_STATUS_GRADUATED = {"G"}
 PARTICIPANT_TRACK_CONFIGS = {
     "e": {
         "label": "Emprendedoras",
@@ -237,8 +242,22 @@ def _status_label(raw_status: str | None) -> str:
 
 def _status_counts_to_rows(status_counts: dict[str, int]) -> list[dict]:
     return [
-        {"status": status, "count": count}
+        {
+            "status": status,
+            "label": PARTICIPANT_STATUS_LABELS.get(status, status),
+            "count": count,
+        }
         for status, count in sorted(status_counts.items(), key=lambda item: (-item[1], item[0]))
+    ]
+
+
+def _participant_status_key() -> list[dict]:
+    return [
+        {
+            "code": code,
+            "label": label,
+        }
+        for code, label in PARTICIPANT_STATUS_CHOICES
     ]
 
 
@@ -1070,6 +1089,7 @@ def _build_group_impact_report_payload(group_numbers: set[int] | None = None) ->
         "survey_response_rate_data": _survey_response_rate_data(participant_summary),
         "nps_rows": nps_rows[:8],
         "wellbeing_rows": wellbeing_rows[:8],
+        "participant_status_key": _participant_status_key(),
         "survey_source_note": (
             "Survey NPS and wellbeing fields are filtered by selected participant emails when possible."
             if group_numbers is not None
@@ -1335,13 +1355,18 @@ def _render_group_impact_report_pdf(payload: dict) -> bytes:
         notes_ax.text(0, 0.92, "Definitions", fontsize=10, weight="bold", color="#1f2937")
         notes = [
             "Participant workbook rows: everyone listed in the participant workbook for the selected group scope.",
-            "Started program: workbook rows with progress checks or an active/progress/graduated status.",
+            "Started program: workbook rows with progress checks or Estatus in NCP, NCPP, CG, CP, D/NC, E, G, or A.",
             "Graduated: workbook rows where Estatus is G. Graduation rate is graduated divided by started.",
             "Unique applicants: application emails deduped across repeated submissions in the selected group scope.",
             payload["survey_source_note"],
         ]
-        for index, note in enumerate(notes):
-            notes_ax.text(0, 0.78 - index * 0.14, f"- {note}", fontsize=8, color="#334155")
+        status_key = "; ".join(
+            f"{item['code']}={item['label']}" for item in payload["participant_status_key"]
+        )
+        status_lines = textwrap.wrap(f"Estatus key: {status_key}", width=132)
+        for index, note in enumerate(notes + status_lines):
+            prefix = "- " if index < len(notes) else "  "
+            notes_ax.text(0, 0.78 - index * 0.09, f"{prefix}{note}", fontsize=8, color="#334155")
         pdf.savefig(fig)
         plt.close(fig)
 

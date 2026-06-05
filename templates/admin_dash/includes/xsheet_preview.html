@@ -3069,7 +3069,9 @@
         drawerOptions.appendChild(createOptionRow('FALSE', '#ef4444'));
         return;
       }
-      const defaults = ['NFA', 'NCC', 'INCP', 'INCPP', 'CP'];
+      const defaults = sheetStatusOptions.length
+        ? sheetStatusOptions
+        : ['NFA', 'NC', 'NCP', 'NCPP', 'SG', 'CG', 'CP', 'D/NC', 'E', 'G', 'A'];
       defaults.forEach(function (text, idx) {
         drawerOptions.appendChild(createOptionRow(text, defaultPalette[idx % defaultPalette.length]));
       });
@@ -6384,16 +6386,16 @@
 
       const knownColorByUpper = {
         NFA: '#dbeafe',
-        NCC: '#fee2e2',
-        INCP: '#fef3c7',
-        INCPP: '#ffedd5',
-        CP: '#dcfce7',
-        DC: '#fecaca',
-        D: '#e5e7eb',
-        P: '#ede9fe',
-        'E/T': '#cffafe',
-        G: '#d1fae5',
+        NC: '#fee2e2',
+        NCP: '#fef3c7',
+        NCPP: '#ffedd5',
         SG: '#e0e7ff',
+        CG: '#dbeafe',
+        CP: '#dcfce7',
+        'D/NC': '#e5e7eb',
+        E: '#cffafe',
+        G: '#d1fae5',
+        A: '#ede9fe',
       };
       const colorByLabel = {};
       statusList.forEach(function (label, idx) {

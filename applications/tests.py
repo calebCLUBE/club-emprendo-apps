@@ -8,6 +8,7 @@ import re
 from unittest.mock import patch
 
 from applications import admin_dashboard_views
+from applications import admin_profiles_views
 from applications.admin import QuestionAdminForm
 from applications.admin_views import _build_second_stage_reminder_payload, _clone_form, _sync_group_form_names
 from applications.email_templates import build_form_email_context, resolve_form_email_template
@@ -932,16 +933,55 @@ class ImpactDashboardMetricTests(TestCase):
             ],
             mentoras_sheet_rows=[
                 ["", "G", 1, "Mentor", "M1", "mentor@example.com", "", "Venezuela", "", True, True, True, True, True],
-                ["", "P", 2, "Repeated Mentor", "M2", "repeat@example.com", "", "Colombia", "", True, True, True, True, False],
+                ["", "A", 2, "Repeated Mentor", "M2", "repeat@example.com", "", "Colombia", "", True, True, True, True, False],
             ],
         )
         GroupParticipantList.objects.create(
             group=self.group2,
             mentoras_sheet_rows=[
-                ["", "P", 1, "Founder Mentor", "M3", "founder@example.com", "", "Colombia", "", True, True, True, True, False],
+                ["", "A", 1, "Founder Mentor", "M3", "founder@example.com", "", "Colombia", "", True, True, True, True, False],
                 ["", "CP", 2, "Repeated Mentor", "M2", "repeat@example.com", "", "Peru", "", True, False, True, False, False],
             ],
         )
+
+    def test_participant_sheet_status_options_use_exact_default_codes(self):
+        expected = ["NFA", "NC", "NCP", "NCPP", "SG", "CG", "CP", "D/NC", "E", "G", "A"]
+
+        self.assertEqual(admin_profiles_views.MENTORAS_STATUS_OPTIONS, expected)
+        self.assertEqual(admin_profiles_views.EMPRENDEDORAS_STATUS_OPTIONS, expected)
+
+    def test_new_status_codes_drive_started_metric_semantics(self):
+        status_group = FormGroup.objects.create(
+            number=983,
+            start_day=1,
+            start_month="julio",
+            end_month="septiembre",
+            year=2026,
+        )
+        GroupParticipantList.objects.create(
+            group=status_group,
+            emprendedoras_sheet_rows=[
+                ["", "NCP", 1, "Started by status", "E3", "started-status@example.com", "", "Colombia", "", False, False, False, False, False],
+                ["", "NC", 2, "Not started by status", "E4", "not-started-status@example.com", "", "Colombia", "", False, False, False, False, False],
+                ["", "G", 3, "Graduated by status", "E5", "graduated-status@example.com", "", "Colombia", "", False, False, False, False, False],
+            ],
+        )
+
+        target_emails = {
+            "started-status@example.com",
+            "not-started-status@example.com",
+            "graduated-status@example.com",
+        }
+        records_by_email = {
+            record["email"]: record
+            for record in admin_dashboard_views._participant_records()
+            if record["email"] in target_emails
+        }
+
+        self.assertTrue(records_by_email["started-status@example.com"]["started"])
+        self.assertFalse(records_by_email["not-started-status@example.com"]["started"])
+        self.assertTrue(records_by_email["graduated-status@example.com"]["started"])
+        self.assertTrue(records_by_email["graduated-status@example.com"]["graduated"])
 
     def test_program_metric_summaries_use_participant_rows_and_deduped_applicants(self):
         records = admin_dashboard_views._participant_records()
@@ -1215,6 +1255,29 @@ class ParticipantsCapacitacionCheckTests(TestCase):
         self.assertContains(response, "Check Capacitacion")
         self.assertContains(response, "Check Encuesta final")
         self.assertContains(response, "Saved versions")
+
+    def test_track_sheet_renders_exact_status_validation_options(self):
+        expected = ["NFA", "NC", "NCP", "NCPP", "SG", "CG", "CP", "D/NC", "E", "G", "A"]
+        response = self.client.get(
+            reverse(
+                "admin_profiles_participants_track_sheet",
+                args=[self.group.number, "mentoras"],
+            )
+        )
+        self.assertEqual(response.status_code, 200)
+
+        content = response.content.decode()
+        match = re.search(
+            r'<script id="participants-track-sheet-xsheet-status-options" type="application/json">(.*?)</script>',
+            content,
+            flags=re.S,
+        )
+        self.assertIsNotNone(match)
+        self.assertEqual(json.loads(match.group(1)), expected)
+        self.assertNotContains(response, '"NCC"')
+        self.assertNotContains(response, '"INCP"')
+        self.assertNotContains(response, '"INCPP"')
+        self.assertNotContains(response, '"E/T"')
 
     def test_participants_page_links_to_combined_workbook(self):
         response = self.client.get(

@@ -1043,7 +1043,6 @@ class ImpactDashboardMetricTests(TestCase):
         self.assertContains(response, "At-a-Glance")
         self.assertContains(response, "Participant Workbook Rows")
         self.assertContains(response, "Program Flow")
-        self.assertContains(response, "Metric Coverage Map")
 
 
 class ParticipantsPageSafetyTests(TestCase):

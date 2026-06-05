@@ -694,7 +694,7 @@
           <div>
             <p class="ce-section-kicker">Interpretation Layer</p>
             <h2 class="ce-panel-title">Program Flow</h2>
-            <p class="ce-panel-subtitle">Visual summaries for the core questions: who is listed, who starts, who graduates, and what data still needs another source.</p>
+            <p class="ce-panel-subtitle">Visual summaries for the core questions: who is listed, who starts, who graduates, and who completes surveys.</p>
           </div>
         </div>
         <div class="ce-chart-grid">
@@ -712,19 +712,6 @@
             <h3 class="ce-chart-title">Impact Survey Response</h3>
             <p class="ce-chart-subtitle">Initial and final survey check rates from participant workbooks.</p>
             <div id="ce-survey-response-rate-chart" class="ce-bars ce-bars--chart"></div>
-          </div>
-          <div class="ce-chart-panel">
-            <h3 class="ce-chart-title">Metric Coverage</h3>
-            <p class="ce-chart-subtitle">How many requested metrics are available, partial, estimated, or external.</p>
-            <div class="ce-donut-wrap">
-              <div class="ce-donut" id="ce-impact-coverage-donut">
-                <div class="ce-donut-hole">
-                  <strong class="ce-donut-total" id="ce-impact-coverage-total">0</strong>
-                  <span class="ce-donut-sub">Metrics</span>
-                </div>
-              </div>
-            </div>
-            <ul class="ce-legend" id="ce-impact-coverage-legend"></ul>
           </div>
         </div>
       </section>
@@ -1127,52 +1114,6 @@
         <summary>
           <span class="ce-detail-summary">
             <span>
-              <strong>Metric Coverage Map</strong>
-              <span>Every requested metric with current handling, source, status, and owner.</span>
-            </span>
-          </span>
-        </summary>
-        <div class="ce-detail-content">
-        <div class="ce-section-head">
-          <div>
-            <p class="ce-section-kicker">Data Coverage</p>
-            <h2 class="ce-panel-title">Metric Coverage Map</h2>
-            <p class="ce-panel-subtitle">What the dashboard can calculate now and what still needs an external or manual data source.</p>
-          </div>
-        </div>
-        <div class="ce-table-wrap">
-          <table class="ce-table">
-            <thead>
-              <tr>
-                <th>Area</th>
-                <th>Metric</th>
-                <th>Status</th>
-                <th>Current handling</th>
-                <th>Source</th>
-                <th>Owner</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for row in metric_coverage_rows %}
-                <tr>
-                  <td>{{ row.area }}</td>
-                  <td>{{ row.metric }}</td>
-                  <td><span class="ce-pill ce-pill--{{ row.status_key }}">{{ row.status }}</span></td>
-                  <td>{{ row.current }}</td>
-                  <td>{{ row.source }}</td>
-                  <td>{{ row.owner|default:"-" }}</td>
-                </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-        </div>
-      </details>
-
-      <details class="ce-panel ce-detail-panel">
-        <summary>
-          <span class="ce-detail-summary">
-            <span>
               <strong>Survey Analytics and Source Detail</strong>
               <span>Response snapshots, survey charts, source sheets, and question-completion tables.</span>
             </span>
@@ -1483,7 +1424,6 @@
 {{ participant_funnel_data|json_script:"ceParticipantFunnelData" }}
 {{ conversion_chart_data|json_script:"ceConversionChartData" }}
 {{ survey_response_rate_data|json_script:"ceSurveyResponseRateData" }}
-{{ coverage_mix|json_script:"ceCoverageMixData" }}
 {{ flow_points|json_script:"ceImpactFlowData" }}
 {{ dataset_mix|json_script:"ceImpactDatasetMixData" }}
 {{ retention_mix|json_script:"ceImpactRetentionMixData" }}
@@ -1671,12 +1611,6 @@
       "ce-survey-response-rate-chart",
       parseJsonScript("ceSurveyResponseRateData"),
       { maxValue: 100, suffix: "%", emptyText: "No survey check data available." }
-    );
-    renderDonut(
-      "ce-impact-coverage-donut",
-      "ce-impact-coverage-legend",
-      "ce-impact-coverage-total",
-      parseJsonScript("ceCoverageMixData")
     );
     renderLineChart("ce-impact-line-chart", parseJsonScript("ceImpactFlowData"));
     renderDonut(

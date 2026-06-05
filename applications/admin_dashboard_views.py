@@ -803,187 +803,6 @@ def _collect_survey_metric_rows(datasets: dict[str, dict], key: str) -> list[dic
     return rows
 
 
-def _metric_coverage_rows(
-    *,
-    participant_summary: dict,
-    application_summary: dict,
-    conversion_rows: list[dict],
-    alumni_summary: dict,
-    nps_rows: list[dict],
-    wellbeing_rows: list[dict],
-) -> list[dict]:
-    overall_participants = participant_summary["overall"]
-    overall_apps = application_summary["overall"]
-    conversion_all = next((row for row in conversion_rows if row["track"] == "All"), {})
-    rows = [
-        {
-            "area": "Participantes",
-            "metric": "# de participantes",
-            "status": "Disponible",
-            "current": (
-                f"{overall_participants['rows']} filas; "
-                f"{overall_participants['started']} iniciaron; "
-                f"{overall_participants['graduated']} graduaron"
-            ),
-            "source": "Participant workbook rows",
-            "owner": "Caleb",
-        },
-        {
-            "area": "Participantes",
-            "metric": "Tasa de graduación",
-            "status": "Disponible con supuesto",
-            "current": f"{overall_participants['graduation_rate']}% usando estatus G / iniciaron",
-            "source": "Participant workbook Estatus + progress checks",
-            "owner": "Caleb",
-        },
-        {
-            "area": "Participantes",
-            "metric": "Number of applicants",
-            "status": "Disponible",
-            "current": (
-                f"{overall_apps['unique']} emails únicos; "
-                f"{overall_apps['raw']} aplicaciones; "
-                f"{overall_apps['duplicate_or_repeat']} repetidas"
-            ),
-            "source": "Application database, deduped by email",
-            "owner": "Caleb",
-        },
-        {
-            "area": "Participantes",
-            "metric": "Tasa de conversión de aplicaciones",
-            "status": "Estimado",
-            "current": (
-                f"App->inicio {conversion_all.get('app_to_start_rate', 0)}%; "
-                f"App->graduación {conversion_all.get('app_to_grad_rate', 0)}%"
-            ),
-            "source": "All-time email match across applications and participant sheets",
-            "owner": "Melanie",
-        },
-        {
-            "area": "Participantes",
-            "metric": "# de grupos",
-            "status": "Parcial",
-            "current": (
-                f"{overall_participants['groups_in_system']} grupos en el sitio; "
-                f"{overall_participants['groups_with_participants']} con participantes"
-            ),
-            "source": "FormGroup + participant lists; simultáneos still manual",
-            "owner": "Melanie",
-        },
-        {
-            "area": "Participantes",
-            "metric": "Emprendedoras que volvieron como mentoras",
-            "status": "Estimado",
-            "current": (
-                f"{alumni_summary['returnee_count']} overlap por email; "
-                f"{alumni_summary['later_returnee_count']} parecen volver en grupo posterior"
-            ),
-            "source": "Email overlap between Emprendedoras and Mentoras participant sheets",
-            "owner": "Caleb",
-        },
-        {
-            "area": "Participantes",
-            "metric": "Mentoras repetidas",
-            "status": "Estimado",
-            "current": f"{alumni_summary['repeated_mentor_count']} mentoras aparecen en 2+ grupos",
-            "source": "Mentoras participant sheets by email and group",
-            "owner": "Caleb",
-        },
-        {
-            "area": "Marketing",
-            "metric": "Seguidores en redes sociales",
-            "status": "Fuente externa",
-            "current": "No está en la base de datos del sitio",
-            "source": "Manual/platform export needed",
-            "owner": "Brenda",
-        },
-        {
-            "area": "Marketing",
-            "metric": "Tráfico del sitio web",
-            "status": "Fuente externa",
-            "current": "No analytics source connected here",
-            "source": "Analytics integration/export needed",
-            "owner": "Brenda",
-        },
-        {
-            "area": "Marketing",
-            "metric": "NPS score",
-            "status": "Parcial",
-            "current": f"{len(nps_rows)} NPS-like column(s) detected" if nps_rows else "No NPS-like numeric column detected yet",
-            "source": "Survey sheets, automatic if 0-10 recommend/NPS columns exist",
-            "owner": "",
-        },
-        {
-            "area": "Impacto",
-            "metric": "Métricas de bienestar",
-            "status": "Parcial",
-            "current": f"{len(wellbeing_rows)} numeric wellbeing-like field(s) detected" if wellbeing_rows else "No numeric wellbeing-like fields detected yet",
-            "source": "Survey sheets by keyword + numeric values",
-            "owner": "",
-        },
-        {
-            "area": "Impacto",
-            "metric": "Tasa de respuesta de encuesta de impacto",
-            "status": "Disponible",
-            "current": (
-                "Uses Encuesta inicial/final checkbox columns from participant sheets"
-            ),
-            "source": "Participant workbook check columns",
-            "owner": "",
-        },
-        {
-            "area": "Comunidad",
-            "metric": "Collabs / alumni community / group activities",
-            "status": "Fuente externa",
-            "current": "Not tracked in app data",
-            "source": "Manual tracker/Facebook/platform export needed",
-            "owner": "Brenda",
-        },
-        {
-            "area": "Comunidad",
-            "metric": "Cursos sin mentoría / logros cualitativos",
-            "status": "Fuente externa",
-            "current": "Not tracked in app data",
-            "source": "Manual/content LMS/source needed",
-            "owner": "",
-        },
-        {
-            "area": "Operaciones",
-            "metric": "Eficiencia de automatizaciones",
-            "status": "Fuente externa",
-            "current": "No reliable saved-time/cost field exists",
-            "source": "Manual baseline + task/automation tracker needed",
-            "owner": "",
-        },
-        {
-            "area": "Finanzas",
-            "metric": "Gasto por mujer impactada / program expense ratio",
-            "status": "Fuente externa",
-            "current": "No finance source connected here",
-            "source": "Accounting/budget export needed",
-            "owner": "",
-        },
-        {
-            "area": "Equipo",
-            "metric": "Tamaño del equipo de Club E",
-            "status": "Fuente externa",
-            "current": "User accounts are not a reliable team-size source",
-            "source": "Manual HR/team roster needed",
-            "owner": "",
-        },
-    ]
-    status_keys = {
-        "Disponible": "available",
-        "Disponible con supuesto": "estimated",
-        "Estimado": "estimated",
-        "Parcial": "partial",
-        "Fuente externa": "external",
-    }
-    for row in rows:
-        row["status_key"] = status_keys.get(row.get("status"), "external")
-    return rows
-
-
 def _participant_funnel_data(participant_summary: dict) -> list[dict]:
     overall = participant_summary.get("overall", {})
     return [
@@ -1052,22 +871,6 @@ def _survey_response_rate_data(participant_summary: dict) -> list[dict]:
             ]
         )
     return rows
-
-
-def _coverage_mix_data(metric_coverage_rows: list[dict]) -> list[dict]:
-    status_meta = {
-        "available": {"label": "Available", "color": "#22C55E"},
-        "estimated": {"label": "Estimated", "color": "#F59E0B"},
-        "partial": {"label": "Partial", "color": "#3B82F6"},
-        "external": {"label": "External source needed", "color": "#64748B"},
-    }
-    counts: dict[str, int] = defaultdict(int)
-    for row in metric_coverage_rows:
-        counts[row.get("status_key") or "external"] += 1
-    return [
-        {"label": meta["label"], "value": counts[key], "color": meta["color"]}
-        for key, meta in status_meta.items()
-    ]
 
 
 @staff_member_required
@@ -1169,18 +972,9 @@ def impact_dashboard(request):
     alumni_summary = _alumni_mentor_summary(participant_records)
     nps_rows = _collect_survey_metric_rows(datasets, "nps_rows")
     wellbeing_rows = _collect_survey_metric_rows(datasets, "wellbeing_rows")
-    metric_coverage_rows = _metric_coverage_rows(
-        participant_summary=participant_summary,
-        application_summary=application_summary,
-        conversion_rows=conversion_rows,
-        alumni_summary=alumni_summary,
-        nps_rows=nps_rows,
-        wellbeing_rows=wellbeing_rows,
-    )
     participant_funnel_data = _participant_funnel_data(participant_summary)
     conversion_chart_data = _conversion_chart_data(conversion_rows)
     survey_response_rate_data = _survey_response_rate_data(participant_summary)
-    coverage_mix = _coverage_mix_data(metric_coverage_rows)
 
     def _in_scope(section: dict) -> bool:
         if track_filter != "all" and section["track"] != track_filter:
@@ -1311,11 +1105,9 @@ def impact_dashboard(request):
         "alumni_summary": alumni_summary,
         "nps_rows": nps_rows[:12],
         "wellbeing_rows": wellbeing_rows[:12],
-        "metric_coverage_rows": metric_coverage_rows,
         "participant_funnel_data": participant_funnel_data,
         "conversion_chart_data": conversion_chart_data,
         "survey_response_rate_data": survey_response_rate_data,
-        "coverage_mix": coverage_mix,
         "track_summaries": track_summaries,
         "datasets": datasets,
         "source_datasets": source_datasets,

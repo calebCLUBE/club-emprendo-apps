@@ -1,3 +1,4 @@
+import io
 import re
 from collections import defaultdict
 from datetime import date, timedelta
@@ -6,6 +7,7 @@ from django.contrib import messages
 from django.contrib.admin.views.decorators import staff_member_required
 from django.db.models import Avg, Count, Q
 from django.db.models.functions import TruncDay, TruncMonth, TruncWeek
+from django.http import HttpResponse
 from django.shortcuts import render
 from django.utils import timezone
 
@@ -90,6 +92,44 @@ PARTICIPANT_TRACK_CONFIGS = {
         "final_survey_col": 13,
     },
 }
+IMPACT_SURVEY_SECTIONS = [
+    {
+        "kind": "emprendedoras",
+        "title": "Encuesta inicial - Emprendedoras",
+        "sheet_url_name": "admin_database_encuestas_sheet",
+        "track": "e",
+        "stage": "initial",
+        "short_label": "E inicial",
+        "color": "#3B82F6",
+    },
+    {
+        "kind": "emprendedoras_final",
+        "title": "Encuesta final - Emprendedoras",
+        "sheet_url_name": "admin_database_encuestas_final_sheet",
+        "track": "e",
+        "stage": "final",
+        "short_label": "E final",
+        "color": "#14B8A6",
+    },
+    {
+        "kind": "mentoras",
+        "title": "Encuesta inicial - Mentoras",
+        "sheet_url_name": "admin_database_encuestas_mentoras_sheet",
+        "track": "m",
+        "stage": "initial",
+        "short_label": "M inicial",
+        "color": "#8B5CF6",
+    },
+    {
+        "kind": "mentoras_final",
+        "title": "Encuesta final - Mentoras",
+        "sheet_url_name": "admin_database_encuestas_mentoras_final_sheet",
+        "track": "m",
+        "stage": "final",
+        "short_label": "M final",
+        "color": "#F59E0B",
+    },
+]
 
 
 def _parse_iso_date(raw: str | None) -> date | None:
@@ -354,12 +394,24 @@ def _build_wellbeing_rows(headers: list[str], rows: list[list[str]], metadata_in
     return wellbeing_rows
 
 
-def _build_impact_dataset(kind: str, title: str, sheet_url_name: str) -> tuple[dict, set[str]]:
+def _build_impact_dataset(
+    kind: str,
+    title: str,
+    sheet_url_name: str,
+    scoped_emails: set[str] | None = None,
+) -> tuple[dict, set[str]]:
     label, headers, raw_rows, file_name, file_id = _load_database_encuestas_grid(kind)
     rows = _non_empty_rows(raw_rows)
-    response_count = len(rows)
 
     email_index = _find_header_index(headers, IMPACT_EMAIL_HEADERS, IMPACT_EMAIL_TOKENS)
+    if scoped_emails is not None and email_index is not None:
+        rows = [
+            row
+            for row in rows
+            if _metric_email(_safe_row_value(row, email_index)) in scoped_emails
+        ]
+
+    response_count = len(rows)
     unique_emails = _extract_unique_emails(rows, email_index)
     timestamp_index = _find_header_index(headers, IMPACT_TIMESTAMP_HEADERS)
 
@@ -471,7 +523,7 @@ def _participant_records() -> list[dict]:
     return records
 
 
-def _participant_summary(records: list[dict]) -> dict:
+def _participant_summary(records: list[dict], group_numbers: set[int] | None = None) -> dict:
     summary_by_track: dict[str, dict] = {}
     all_participant_emails: set[str] = set()
     all_started_emails: set[str] = set()
@@ -555,10 +607,13 @@ def _participant_summary(records: list[dict]) -> dict:
         if record.get("group_number") is not None
     }
 
-    try:
-        groups_in_system = FormGroup.objects.count()
-    except Exception:
-        groups_in_system = 0
+    if group_numbers is not None:
+        groups_in_system = len(group_numbers)
+    else:
+        try:
+            groups_in_system = FormGroup.objects.count()
+        except Exception:
+            groups_in_system = 0
 
     group_summary_rows = list(group_rows.values())
     group_summary_rows.sort(
@@ -597,7 +652,7 @@ def _application_group_number(app: Application) -> int | None:
     return _group_number_from_slug(getattr(getattr(app, "form", None), "slug", ""))
 
 
-def _application_summary() -> dict:
+def _application_summary(group_numbers: set[int] | None = None) -> dict:
     apps = Application.objects.select_related("form", "form__group").order_by("created_at", "id")
     track_data: dict[str, dict] = {
         "e": {"label": "Emprendedoras", "raw": 0, "a1": 0, "a2": 0, "emails": set()},
@@ -616,6 +671,8 @@ def _application_summary() -> dict:
         email = _metric_email(getattr(app, "email", ""))
         group = getattr(getattr(app, "form", None), "group", None)
         group_number = _application_group_number(app)
+        if group_numbers is not None and group_number not in group_numbers:
+            continue
         group_year = getattr(group, "year", None)
         group_label = f"Group {group_number}" if group_number is not None else "No group"
         group_key = (group_number, track_key)
@@ -873,9 +930,583 @@ def _survey_response_rate_data(participant_summary: dict) -> list[dict]:
     return rows
 
 
+def _load_impact_survey_datasets(
+    *,
+    top_n: int,
+    scoped_emails: set[str] | None = None,
+    request=None,
+) -> tuple[dict[str, dict], dict[str, set[str]]]:
+    datasets: dict[str, dict] = {}
+    email_sets: dict[str, set[str]] = {}
+    for section in IMPACT_SURVEY_SECTIONS:
+        kind = section["kind"]
+        title = section["title"]
+        sheet_url_name = section["sheet_url_name"]
+        try:
+            if scoped_emails is None:
+                dataset, email_set = _build_impact_dataset(kind, title, sheet_url_name)
+            else:
+                dataset, email_set = _build_impact_dataset(
+                    kind,
+                    title,
+                    sheet_url_name,
+                    scoped_emails=scoped_emails,
+                )
+            dataset["completion_rows"] = list(dataset.get("completion_rows") or [])[:top_n]
+        except Exception as exc:
+            dataset = {
+                "kind": kind,
+                "title": title,
+                "sheet_url_name": sheet_url_name,
+                "error": str(exc),
+                "responses_count": 0,
+                "unique_emails_count": 0,
+                "question_count": 0,
+                "completion_rows": [],
+                "nps_rows": [],
+                "wellbeing_rows": [],
+            }
+            email_set = set()
+            if request is not None:
+                messages.error(request, f"Could not load {title}: {exc}")
+        datasets[kind] = dataset
+        email_sets[kind] = email_set
+    return datasets, email_sets
+
+
+def _impact_group_options() -> list[dict]:
+    return [
+        {
+            "number": group.number,
+            "label": str(group),
+        }
+        for group in FormGroup.objects.order_by("-number")
+    ]
+
+
+def _parse_impact_group_numbers(raw_values: list[str]) -> set[int]:
+    group_numbers: set[int] = set()
+    for raw in raw_values:
+        for part in str(raw or "").split(","):
+            value = part.strip()
+            if not value:
+                continue
+            try:
+                group_numbers.add(int(value))
+            except ValueError:
+                continue
+    return group_numbers
+
+
+def _filter_records_by_groups(records: list[dict], group_numbers: set[int] | None) -> list[dict]:
+    if group_numbers is None:
+        return records
+    return [
+        record
+        for record in records
+        if record.get("group_number") in group_numbers
+    ]
+
+
+def _impact_group_short_label(group: FormGroup | None, group_number: int) -> str:
+    if group is None:
+        return f"Group {group_number}"
+    custom_name = (getattr(group, "custom_name", "") or "").strip()
+    return custom_name or f"Group {group.number}"
+
+
+def _impact_group_scope_label(group_numbers: set[int] | None) -> str:
+    if group_numbers is None:
+        return "All groups"
+    groups_by_number = {
+        group.number: group
+        for group in FormGroup.objects.filter(number__in=group_numbers)
+    }
+    labels = [
+        _impact_group_short_label(groups_by_number.get(group_number), group_number)
+        for group_number in sorted(group_numbers)
+    ]
+    if len(labels) > 8:
+        return ", ".join(labels[:8]) + f" +{len(labels) - 8} more"
+    return ", ".join(labels) if labels else "No groups selected"
+
+
+def _impact_report_filename(group_numbers: set[int] | None) -> str:
+    if not group_numbers:
+        return "impact_report_all_groups.pdf"
+    joined = "-".join(str(group_number) for group_number in sorted(group_numbers))
+    return f"impact_report_groups_{joined}.pdf"
+
+
+def _build_group_impact_report_payload(group_numbers: set[int] | None = None) -> dict:
+    all_records = _participant_records()
+    participant_records = _filter_records_by_groups(all_records, group_numbers)
+    participant_summary = _participant_summary(participant_records, group_numbers=group_numbers)
+    application_summary = _application_summary(group_numbers)
+    conversion_rows = _conversion_summary(participant_summary, application_summary)
+    alumni_summary = _alumni_mentor_summary(participant_records)
+    participant_emails = {
+        record["email"]
+        for record in participant_records
+        if record.get("email")
+    }
+    survey_scope = participant_emails if group_numbers is not None else None
+    datasets, _email_sets = _load_impact_survey_datasets(
+        top_n=10,
+        scoped_emails=survey_scope,
+    )
+    nps_rows = _collect_survey_metric_rows(datasets, "nps_rows")
+    wellbeing_rows = _collect_survey_metric_rows(datasets, "wellbeing_rows")
+    return {
+        "group_numbers": group_numbers,
+        "group_label": _impact_group_scope_label(group_numbers),
+        "generated_at": timezone.localtime(timezone.now()).strftime("%Y-%m-%d %H:%M"),
+        "participant_summary": participant_summary,
+        "application_summary": application_summary,
+        "conversion_rows": conversion_rows,
+        "alumni_summary": alumni_summary,
+        "participant_funnel_data": _participant_funnel_data(participant_summary),
+        "conversion_chart_data": _conversion_chart_data(conversion_rows),
+        "survey_response_rate_data": _survey_response_rate_data(participant_summary),
+        "nps_rows": nps_rows[:8],
+        "wellbeing_rows": wellbeing_rows[:8],
+        "survey_source_note": (
+            "Survey NPS and wellbeing fields are filtered by selected participant emails when possible."
+            if group_numbers is not None
+            else "Survey NPS and wellbeing fields use all loaded survey rows."
+        ),
+    }
+
+
+def _impact_pdf_value(value, suffix: str = "") -> str:
+    if value is None:
+        return "-"
+    if isinstance(value, float):
+        text = f"{value:.1f}".rstrip("0").rstrip(".")
+    else:
+        text = str(value)
+    return f"{text}{suffix}"
+
+
+def _impact_pdf_draw_cards(ax, cards: list[dict]) -> None:
+    from matplotlib.patches import Rectangle
+
+    ax.axis("off")
+    columns = 4
+    rows = 2
+    gap_x = 0.018
+    gap_y = 0.12
+    card_w = (1 - gap_x * (columns - 1)) / columns
+    card_h = (1 - gap_y * (rows - 1)) / rows
+    for index, card in enumerate(cards[: columns * rows]):
+        row = index // columns
+        col = index % columns
+        x = col * (card_w + gap_x)
+        y = 1 - (row + 1) * card_h - row * gap_y
+        ax.add_patch(
+            Rectangle(
+                (x, y),
+                card_w,
+                card_h,
+                transform=ax.transAxes,
+                facecolor="#f8fbff",
+                edgecolor="#d7e2ef",
+                linewidth=1,
+            )
+        )
+        ax.add_patch(
+            Rectangle(
+                (x, y + card_h - 0.04),
+                card_w,
+                0.04,
+                transform=ax.transAxes,
+                facecolor=card.get("color", "#3B82F6"),
+                edgecolor=card.get("color", "#3B82F6"),
+                linewidth=0,
+            )
+        )
+        ax.text(
+            x + 0.025,
+            y + card_h - 0.12,
+            card["label"],
+            transform=ax.transAxes,
+            fontsize=8,
+            color="#475569",
+            weight="bold",
+            va="top",
+        )
+        ax.text(
+            x + 0.025,
+            y + 0.17,
+            str(card["value"]),
+            transform=ax.transAxes,
+            fontsize=19,
+            color="#111827",
+            weight="bold",
+            va="bottom",
+        )
+        if card.get("note"):
+            ax.text(
+                x + 0.025,
+                y + 0.06,
+                card["note"],
+                transform=ax.transAxes,
+                fontsize=7,
+                color="#64748b",
+                va="bottom",
+            )
+
+
+def _impact_pdf_draw_barh(ax, data: list[dict], title: str, suffix: str = "", max_value: float | None = None) -> None:
+    labels = [item["label"] for item in data]
+    values = [float(item.get("value") or 0) for item in data]
+    colors = [item.get("color") or "#3B82F6" for item in data]
+    ax.set_title(title, loc="left", fontsize=10, color="#1f2937", weight="bold", pad=8)
+    if not labels:
+        ax.text(0.5, 0.5, "No data available", ha="center", va="center", color="#64748b")
+        ax.axis("off")
+        return
+
+    y_positions = list(range(len(labels)))
+    ax.barh(y_positions, values, color=colors, height=0.48)
+    ax.set_yticks(y_positions)
+    ax.set_yticklabels(labels, fontsize=8)
+    ax.invert_yaxis()
+    upper = max_value if max_value is not None else max(values + [1])
+    ax.set_xlim(0, max(upper, 1))
+    ax.grid(axis="x", color="#e5ecf5", linewidth=0.7)
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+    ax.tick_params(axis="x", labelsize=7, colors="#64748b")
+    for y, value in zip(y_positions, values):
+        ax.text(
+            min(value + (upper * 0.02), upper),
+            y,
+            _impact_pdf_value(value, suffix),
+            va="center",
+            fontsize=8,
+            color="#334155",
+        )
+
+
+def _impact_pdf_draw_table(ax, title: str, columns: list[str], rows: list[list], font_size: int = 7) -> None:
+    ax.axis("off")
+    ax.set_title(title, loc="left", fontsize=10, color="#1f2937", weight="bold", pad=8)
+    if not rows:
+        ax.text(0.02, 0.78, "No data available", color="#64748b", fontsize=8)
+        return
+    table = ax.table(
+        cellText=[[str(cell) for cell in row] for row in rows],
+        colLabels=columns,
+        loc="upper left",
+        cellLoc="left",
+        colLoc="left",
+        bbox=[0, 0, 1, 0.88],
+    )
+    table.auto_set_font_size(False)
+    table.set_fontsize(font_size)
+    for (row, _col), cell in table.get_celld().items():
+        cell.set_edgecolor("#d7e2ef")
+        cell.set_linewidth(0.5)
+        if row == 0:
+            cell.set_facecolor("#eef4fb")
+            cell.set_text_props(weight="bold", color="#334155")
+        else:
+            cell.set_facecolor("#ffffff")
+
+
+def _render_group_impact_report_pdf(payload: dict) -> bytes:
+    import os
+    import tempfile
+
+    os.environ.setdefault("MPLCONFIGDIR", tempfile.gettempdir())
+    os.environ.setdefault("XDG_CACHE_HOME", tempfile.gettempdir())
+
+    import matplotlib
+
+    matplotlib.use("Agg", force=True)
+    import matplotlib.pyplot as plt
+    from matplotlib.backends.backend_pdf import PdfPages
+
+    participant_summary = payload["participant_summary"]
+    application_summary = payload["application_summary"]
+    conversion_rows = payload["conversion_rows"]
+    alumni_summary = payload["alumni_summary"]
+    overall_participants = participant_summary["overall"]
+    overall_apps = application_summary["overall"]
+    conversion_all = next((row for row in conversion_rows if row["track"] == "All"), {})
+    buffer = io.BytesIO()
+
+    cards = [
+        {
+            "label": "Workbook rows",
+            "value": overall_participants["rows"],
+            "note": f"{overall_participants['unique']} unique emails",
+            "color": "#3B82F6",
+        },
+        {
+            "label": "Started program",
+            "value": overall_participants["started"],
+            "note": f"{overall_participants['started_unique']} unique emails",
+            "color": "#14B8A6",
+        },
+        {
+            "label": "Graduated",
+            "value": overall_participants["graduated"],
+            "note": f"{overall_participants['graduation_rate']}% graduation rate",
+            "color": "#22C55E",
+        },
+        {
+            "label": "Unique applicants",
+            "value": overall_apps["unique"],
+            "note": f"{overall_apps['raw']} raw applications",
+            "color": "#F59E0B",
+        },
+        {
+            "label": "App to start",
+            "value": _impact_pdf_value(conversion_all.get("app_to_start_rate", 0), "%"),
+            "note": "Email matched",
+            "color": "#6366F1",
+        },
+        {
+            "label": "App to graduation",
+            "value": _impact_pdf_value(conversion_all.get("app_to_grad_rate", 0), "%"),
+            "note": "Email matched",
+            "color": "#8B5CF6",
+        },
+        {
+            "label": "E alumni as mentors",
+            "value": alumni_summary["returnee_count"],
+            "note": "Email overlap",
+            "color": "#22C55E",
+        },
+        {
+            "label": "Repeat mentors",
+            "value": alumni_summary["repeated_mentor_count"],
+            "note": "Mentor in 2+ groups",
+            "color": "#14B8A6",
+        },
+    ]
+
+    with PdfPages(buffer) as pdf:
+        fig = plt.figure(figsize=(11, 8.5), facecolor="white")
+        fig.text(0.06, 0.94, "Club Emprendo Impact Report", fontsize=20, weight="bold", color="#111827")
+        fig.text(0.06, 0.905, f"Groups: {payload['group_label']}", fontsize=10, color="#334155")
+        fig.text(0.06, 0.882, f"Generated: {payload['generated_at']}", fontsize=8, color="#64748b")
+        fig.text(
+            0.06,
+            0.852,
+            "Group-scoped metrics from participant workbooks, application records, and matching survey emails where available.",
+            fontsize=8,
+            color="#64748b",
+        )
+        grid = fig.add_gridspec(
+            3,
+            3,
+            left=0.06,
+            right=0.95,
+            top=0.79,
+            bottom=0.08,
+            hspace=0.55,
+            wspace=0.45,
+        )
+        _impact_pdf_draw_cards(fig.add_subplot(grid[0, :]), cards)
+        _impact_pdf_draw_barh(
+            fig.add_subplot(grid[1, 0]),
+            payload["participant_funnel_data"],
+            "Participant funnel",
+        )
+        _impact_pdf_draw_barh(
+            fig.add_subplot(grid[1, 1]),
+            payload["conversion_chart_data"],
+            "Application conversion",
+            suffix="%",
+            max_value=100,
+        )
+        _impact_pdf_draw_barh(
+            fig.add_subplot(grid[1, 2]),
+            payload["survey_response_rate_data"],
+            "Survey response checks",
+            suffix="%",
+            max_value=100,
+        )
+        notes_ax = fig.add_subplot(grid[2, :])
+        notes_ax.axis("off")
+        notes_ax.text(0, 0.92, "Definitions", fontsize=10, weight="bold", color="#1f2937")
+        notes = [
+            "Participant workbook rows: everyone listed in the participant workbook for the selected group scope.",
+            "Started program: workbook rows with progress checks or an active/progress/graduated status.",
+            "Graduated: workbook rows where Estatus is G. Graduation rate is graduated divided by started.",
+            "Unique applicants: application emails deduped across repeated submissions in the selected group scope.",
+            payload["survey_source_note"],
+        ]
+        for index, note in enumerate(notes):
+            notes_ax.text(0, 0.78 - index * 0.14, f"- {note}", fontsize=8, color="#334155")
+        pdf.savefig(fig)
+        plt.close(fig)
+
+        fig = plt.figure(figsize=(11, 8.5), facecolor="white")
+        fig.text(0.06, 0.94, "Program Detail", fontsize=18, weight="bold", color="#111827")
+        fig.text(0.06, 0.91, f"Groups: {payload['group_label']}", fontsize=9, color="#64748b")
+        grid = fig.add_gridspec(
+            2,
+            2,
+            left=0.06,
+            right=0.95,
+            top=0.86,
+            bottom=0.08,
+            hspace=0.35,
+            wspace=0.25,
+        )
+        participant_rows = [
+            [
+                track["label"],
+                track["rows"],
+                track["started"],
+                track["graduated"],
+                f"{track['graduation_rate']}%",
+                f"{track['initial_survey_rate']}%",
+                f"{track['final_survey_rate']}%",
+            ]
+            for track in participant_summary["tracks"].values()
+        ]
+        _impact_pdf_draw_table(
+            fig.add_subplot(grid[0, 0]),
+            "Participants by track",
+            ["Track", "Rows", "Started", "Grad", "Grad %", "Initial", "Final"],
+            participant_rows,
+        )
+        conversion_table_rows = [
+            [
+                row["track"],
+                row["unique_applicants"],
+                row["started_from_app"],
+                f"{row['app_to_start_rate']}%",
+                row["graduated_from_app"],
+                f"{row['app_to_grad_rate']}%",
+            ]
+            for row in conversion_rows
+        ]
+        _impact_pdf_draw_table(
+            fig.add_subplot(grid[0, 1]),
+            "Application conversion",
+            ["Track", "Apps", "Start", "Start %", "Grad", "Grad %"],
+            conversion_table_rows,
+        )
+        country_rows = [
+            [row["country"], row["count"]]
+            for row in participant_summary["country_rows"][:8]
+        ]
+        _impact_pdf_draw_table(
+            fig.add_subplot(grid[1, 0]),
+            "Participant countries",
+            ["Country", "Rows"],
+            country_rows,
+        )
+        group_rows = [
+            [
+                row["group_label"],
+                row["track"],
+                row["participants"],
+                row["started"],
+                row["graduated"],
+            ]
+            for row in participant_summary["group_rows"][:10]
+        ]
+        _impact_pdf_draw_table(
+            fig.add_subplot(grid[1, 1]),
+            "Group outcomes",
+            ["Group", "Track", "Rows", "Started", "Grad"],
+            group_rows,
+        )
+        pdf.savefig(fig)
+        plt.close(fig)
+
+        fig = plt.figure(figsize=(11, 8.5), facecolor="white")
+        fig.text(0.06, 0.94, "Impact Signals and Source Notes", fontsize=18, weight="bold", color="#111827")
+        fig.text(0.06, 0.91, f"Groups: {payload['group_label']}", fontsize=9, color="#64748b")
+        grid = fig.add_gridspec(
+            2,
+            2,
+            left=0.06,
+            right=0.95,
+            top=0.86,
+            bottom=0.08,
+            hspace=0.35,
+            wspace=0.25,
+        )
+        nps_rows = [
+            [
+                row["dataset"],
+                row["label"][:44],
+                row["score"],
+                row["responses"],
+                row["promoters"],
+                row["detractors"],
+            ]
+            for row in payload["nps_rows"][:6]
+        ]
+        _impact_pdf_draw_table(
+            fig.add_subplot(grid[0, :]),
+            "NPS-like survey fields",
+            ["Dataset", "Column", "NPS", "Resp", "Prom", "Detr"],
+            nps_rows,
+            font_size=6,
+        )
+        wellbeing_rows = [
+            [
+                row["dataset"],
+                row["label"][:44],
+                row["avg"],
+                row["responses"],
+                f"{row['min']} - {row['max']}",
+            ]
+            for row in payload["wellbeing_rows"][:6]
+        ]
+        _impact_pdf_draw_table(
+            fig.add_subplot(grid[1, 0]),
+            "Wellbeing-like survey fields",
+            ["Dataset", "Column", "Avg", "Resp", "Range"],
+            wellbeing_rows,
+            font_size=6,
+        )
+        notes_ax = fig.add_subplot(grid[1, 1])
+        notes_ax.axis("off")
+        notes_ax.set_title("External metrics not in app data", loc="left", fontsize=10, color="#1f2937", weight="bold", pad=8)
+        external_notes = [
+            "Social media followers by platform",
+            "Website traffic",
+            "Facebook alumni community activity",
+            "Course-only users outside mentoring",
+            "Qualitative achievements",
+            "Automation efficiency",
+            "Finance ratios and team size",
+        ]
+        for index, note in enumerate(external_notes):
+            notes_ax.text(0.02, 0.86 - index * 0.1, f"- {note}", fontsize=8, color="#334155")
+        pdf.savefig(fig)
+        plt.close(fig)
+
+    buffer.seek(0)
+    return buffer.getvalue()
+
+
 @staff_member_required
 def dashboards_home(request):
     return render(request, "admin_dash/dashboards_home.html")
+
+
+@staff_member_required
+def impact_dashboard_pdf(request):
+    parsed_group_numbers = _parse_impact_group_numbers(request.GET.getlist("groups"))
+    group_numbers = parsed_group_numbers or None
+    payload = _build_group_impact_report_payload(group_numbers)
+    pdf_bytes = _render_group_impact_report_pdf(payload)
+    response = HttpResponse(pdf_bytes, content_type="application/pdf")
+    response["Content-Disposition"] = (
+        f'attachment; filename="{_impact_report_filename(group_numbers)}"'
+    )
+    return response
 
 
 @staff_member_required
@@ -899,71 +1530,11 @@ def impact_dashboard(request):
     show_completion_e = _is_truthy(request.GET.get("show_completion_e")) if customize_mode else True
     show_completion_m = _is_truthy(request.GET.get("show_completion_m")) if customize_mode else True
 
-    sections = [
-        {
-            "kind": "emprendedoras",
-            "title": "Encuesta inicial - Emprendedoras",
-            "sheet_url_name": "admin_database_encuestas_sheet",
-            "track": "e",
-            "stage": "initial",
-            "short_label": "E inicial",
-            "color": "#3B82F6",
-        },
-        {
-            "kind": "emprendedoras_final",
-            "title": "Encuesta final - Emprendedoras",
-            "sheet_url_name": "admin_database_encuestas_final_sheet",
-            "track": "e",
-            "stage": "final",
-            "short_label": "E final",
-            "color": "#14B8A6",
-        },
-        {
-            "kind": "mentoras",
-            "title": "Encuesta inicial - Mentoras",
-            "sheet_url_name": "admin_database_encuestas_mentoras_sheet",
-            "track": "m",
-            "stage": "initial",
-            "short_label": "M inicial",
-            "color": "#8B5CF6",
-        },
-        {
-            "kind": "mentoras_final",
-            "title": "Encuesta final - Mentoras",
-            "sheet_url_name": "admin_database_encuestas_mentoras_final_sheet",
-            "track": "m",
-            "stage": "final",
-            "short_label": "M final",
-            "color": "#F59E0B",
-        },
-    ]
-
-    datasets: dict[str, dict] = {}
-    email_sets: dict[str, set[str]] = {}
-    for section in sections:
-        kind = section["kind"]
-        title = section["title"]
-        sheet_url_name = section["sheet_url_name"]
-        try:
-            dataset, email_set = _build_impact_dataset(kind, title, sheet_url_name)
-            dataset["completion_rows"] = list(dataset.get("completion_rows") or [])[:top_n]
-        except Exception as exc:
-            dataset = {
-                "kind": kind,
-                "title": title,
-                "sheet_url_name": sheet_url_name,
-                "error": str(exc),
-                "responses_count": 0,
-                "unique_emails_count": 0,
-                "question_count": 0,
-                "completion_rows": [],
-                "nps_rows": [],
-                "wellbeing_rows": [],
-            }
-            email_set = set()
-            messages.error(request, f"Could not load {title}: {exc}")
-        datasets[kind] = dataset
-        email_sets[kind] = email_set
+    sections = IMPACT_SURVEY_SECTIONS
+    datasets, email_sets = _load_impact_survey_datasets(
+        top_n=top_n,
+        request=request,
+    )
 
     participant_records = _participant_records()
     participant_summary = _participant_summary(participant_records)
@@ -1115,6 +1686,7 @@ def impact_dashboard(request):
         "dataset_mix": dataset_mix,
         "max_dataset_value": max_dataset_value,
         "retention_mix": retention_mix,
+        "impact_report_group_options": _impact_group_options(),
     }
     return render(request, "admin_dash/impact_dashboard.html", context)
 

@@ -28,6 +28,11 @@ urlpatterns = [
         admin_dashboard_views.impact_dashboard,
         name="admin_impact_dashboard",
     ),
+    path(
+        "admin/dashboards/impact/report.pdf",
+        admin_dashboard_views.impact_dashboard_pdf,
+        name="admin_impact_dashboard_pdf",
+    ),
     path("admin/apps/create-group/", admin_views.create_group, name="admin_create_group"),
     path("admin/apps/rename-group/<int:group_num>/", admin_views.rename_group, name="admin_rename_group"),
     path("admin/apps/update-group/<int:group_num>/", admin_views.update_group_dates, name="admin_update_group"),

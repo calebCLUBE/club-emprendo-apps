@@ -964,6 +964,9 @@ class ImpactDashboardMetricTests(TestCase):
         self.assertEqual(application_summary["overall"]["unique"], 4)
         self.assertEqual(application_summary["overall"]["duplicate_or_repeat"], 2)
         self.assertEqual(application_summary["tracks"][0]["unique"], 2)
+        group_application_summary = admin_dashboard_views._application_summary({981})
+        self.assertEqual(group_application_summary["overall"]["raw"], 5)
+        self.assertEqual(group_application_summary["overall"]["unique"], 4)
 
         e_conversion = next(row for row in conversion_rows if row["track"] == "Emprendedoras")
         self.assertEqual(e_conversion["unique_applicants"], 2)
@@ -1008,7 +1011,7 @@ class ImpactDashboardMetricTests(TestCase):
 
     @patch("applications.admin_dashboard_views._build_impact_dataset")
     def test_impact_dashboard_renders_requested_metric_sections(self, mock_build_dataset):
-        def fake_dataset(kind, title, sheet_url_name):
+        def fake_dataset(kind, title, sheet_url_name, scoped_emails=None):
             return (
                 {
                     "kind": kind,
@@ -1043,6 +1046,49 @@ class ImpactDashboardMetricTests(TestCase):
         self.assertContains(response, "At-a-Glance")
         self.assertContains(response, "Participant Workbook Rows")
         self.assertContains(response, "Program Flow")
+        self.assertContains(response, "PDF Report")
+        self.assertContains(response, "Download PDF report")
+
+    @patch("applications.admin_dashboard_views._build_impact_dataset")
+    def test_impact_dashboard_pdf_download_for_specific_group(self, mock_build_dataset):
+        def fake_dataset(kind, title, sheet_url_name, scoped_emails=None):
+            return (
+                {
+                    "kind": kind,
+                    "title": title,
+                    "label": title,
+                    "sheet_url_name": sheet_url_name,
+                    "source_name": "test.csv",
+                    "source_file_id": "test-file",
+                    "responses_count": 0,
+                    "headers_count": 0,
+                    "question_count": 0,
+                    "unique_emails_count": 0,
+                    "email_column_label": "",
+                    "completion_rows": [],
+                    "nps_rows": [],
+                    "wellbeing_rows": [],
+                },
+                set(),
+            )
+
+        mock_build_dataset.side_effect = fake_dataset
+        user_model = get_user_model()
+        staff_user = user_model.objects.create_superuser(
+            email="impact-pdf-admin@example.com",
+            password="testpass123",
+        )
+        self.client.force_login(staff_user)
+
+        response = self.client.get(
+            reverse("admin_impact_dashboard_pdf"),
+            {"groups": [str(self.group1.number)]},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/pdf")
+        self.assertIn("impact_report_groups_981.pdf", response["Content-Disposition"])
+        self.assertTrue(response.content.startswith(b"%PDF"))
 
 
 class ParticipantsPageSafetyTests(TestCase):

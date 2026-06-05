@@ -148,6 +148,33 @@
         flex-wrap: wrap;
         margin-top: 12px;
       }
+      .ce-report-grid {
+        display: grid;
+        gap: 12px;
+        grid-template-columns: minmax(260px, 420px) minmax(220px, 1fr);
+        align-items: end;
+      }
+      .ce-report-grid label {
+        display: block;
+        font-size: 12px;
+        font-weight: 700;
+        color: #344054;
+        margin-bottom: 5px;
+      }
+      .ce-report-grid select {
+        width: 100%;
+        min-height: 128px;
+        box-sizing: border-box;
+        padding: 9px;
+        border: 1px solid #d4dce8;
+        border-radius: 8px;
+        background: #fff;
+      }
+      .ce-report-copy {
+        margin: 0 0 10px;
+        color: var(--ce-muted);
+        font-size: 13px;
+      }
       .ce-kpi-grid {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -561,6 +588,9 @@
         .ce-two-col {
           grid-template-columns: 1fr;
         }
+        .ce-report-grid {
+          grid-template-columns: 1fr;
+        }
         .ce-kpi-grid--primary {
           grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
         }
@@ -630,6 +660,32 @@
           </div>
         </form>
       </details>
+
+      <section class="ce-panel ce-panel--quiet">
+        <div class="ce-section-head">
+          <div>
+            <p class="ce-section-kicker">Export</p>
+            <h2 class="ce-panel-title">PDF Report</h2>
+            <p class="ce-panel-subtitle">Generate a group-scoped report with participant, application, conversion, survey, and engagement metrics.</p>
+          </div>
+        </div>
+        <form method="get" action="{% url 'admin_impact_dashboard_pdf' %}">
+          <div class="ce-report-grid">
+            <div>
+              <label for="impact-report-groups">Groups</label>
+              <select id="impact-report-groups" name="groups" multiple>
+                {% for group in impact_report_group_options %}
+                  <option value="{{ group.number }}">{{ group.label }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div>
+              <p class="ce-report-copy">No group selection exports all groups.</p>
+              <button class="ce-btn" type="submit">Download PDF report</button>
+            </div>
+          </div>
+        </form>
+      </section>
 
       {% if not has_scoped_data %}
         <section class="ce-panel">

@@ -299,6 +299,46 @@
         text-transform: uppercase;
         letter-spacing: 0.04em;
       }
+      .ce-table-wrap {
+        overflow-x: auto;
+        margin-top: 10px;
+      }
+      .ce-two-col {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+        margin-top: 12px;
+      }
+      .ce-subpanel {
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        background: #ffffff;
+        padding: 12px;
+      }
+      .ce-subpanel h3 {
+        margin: 0 0 8px;
+        font-size: 15px;
+        color: #1f2937;
+      }
+      .ce-assumption {
+        margin-top: 10px;
+        border: 1px solid #d7e1ee;
+        border-radius: 8px;
+        background: #f8fbff;
+        color: #475569;
+        padding: 10px;
+        font-size: 12px;
+        line-height: 1.45;
+      }
+      .ce-pill {
+        display: inline-block;
+        border-radius: 999px;
+        padding: 3px 8px;
+        font-size: 12px;
+        font-weight: 700;
+        color: #1f2937;
+        background: #eef2f7;
+      }
       .ce-dataset-grid {
         margin-top: 12px;
         display: grid;
@@ -355,6 +395,9 @@
         .ce-completion-grid {
           grid-template-columns: 1fr;
         }
+        .ce-two-col {
+          grid-template-columns: 1fr;
+        }
       }
     </style>
 
@@ -362,7 +405,7 @@
       <div class="ce-impact-header">
         <div>
           <h1 class="ce-impact-title">Impact Dashboard</h1>
-          <div class="ce-impact-subtitle">Encuesta inicial and final results for emprendedoras and mentoras, with visual summaries.</div>
+          <div class="ce-impact-subtitle">Program metrics from applications, participant workbooks, and impact surveys.</div>
         </div>
         <div class="ce-actions">
           <a class="ce-btn ce-btn--ghost" href="{% url 'admin_dashboards_home' %}">Dashboards</a>
@@ -421,9 +464,400 @@
         </section>
       {% endif %}
 
+      <section class="ce-panel">
+        <h2 class="ce-panel-title">Requested Metrics From Website Data</h2>
+        <p class="ce-panel-subtitle">Best available calculations from participant workbooks and SQL application records.</p>
+        {% with p=participant_summary.overall apps=application_summary.overall %}
+        <div class="ce-kpi-grid">
+          <div class="ce-kpi ce-kpi--blue">
+            <div class="ce-kpi-k">Participant Rows</div>
+            <div class="ce-kpi-v">{{ p.rows }}</div>
+            <div class="ce-kpi-note">{{ p.unique }} unique emails</div>
+          </div>
+          <div class="ce-kpi ce-kpi--teal">
+            <div class="ce-kpi-k">Started</div>
+            <div class="ce-kpi-v">{{ p.started }}</div>
+            <div class="ce-kpi-note">{{ p.started_unique }} unique emails</div>
+          </div>
+          <div class="ce-kpi ce-kpi--green">
+            <div class="ce-kpi-k">Graduated</div>
+            <div class="ce-kpi-v">{{ p.graduated }}</div>
+            <div class="ce-kpi-note">{{ p.graduation_rate }}% graduation rate</div>
+          </div>
+          <div class="ce-kpi ce-kpi--orange">
+            <div class="ce-kpi-k">Unique Applicants</div>
+            <div class="ce-kpi-v">{{ apps.unique }}</div>
+            <div class="ce-kpi-note">{{ apps.raw }} raw applications; {{ apps.duplicate_or_repeat }} repeats</div>
+          </div>
+          <div class="ce-kpi ce-kpi--purple">
+            <div class="ce-kpi-k">Groups In Website</div>
+            <div class="ce-kpi-v">{{ p.groups_in_system }}</div>
+            <div class="ce-kpi-note">{{ p.groups_with_participants }} with participant rows</div>
+          </div>
+          <div class="ce-kpi ce-kpi--indigo">
+            <div class="ce-kpi-k">Repeated Mentors</div>
+            <div class="ce-kpi-v">{{ alumni_summary.repeated_mentor_count }}</div>
+            <div class="ce-kpi-note">{{ alumni_summary.returnee_count }} E alumni also appear as mentors</div>
+          </div>
+        </div>
+        {% endwith %}
+        <div class="ce-assumption">
+          Started means a participant row has progress checks or an active/progress status. Graduated means Estatus = G. Applicants are deduped by email, so repeat applications remain visible as the raw-vs-unique gap.
+        </div>
+
+        <div class="ce-two-col">
+          <div class="ce-subpanel">
+            <h3>Participants by Track</h3>
+            <div class="ce-table-wrap">
+              <table class="ce-table">
+                <thead>
+                  <tr>
+                    <th>Track</th>
+                    <th>Rows</th>
+                    <th>Unique</th>
+                    <th>Started</th>
+                    <th>Graduated</th>
+                    <th>Grad rate</th>
+                    <th>Initial survey</th>
+                    <th>Final survey</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for track_key, t in participant_summary.tracks.items %}
+                    <tr>
+                      <td>{{ t.label }}</td>
+                      <td>{{ t.rows }}</td>
+                      <td>{{ t.unique }}</td>
+                      <td>{{ t.started }}</td>
+                      <td>{{ t.graduated }}</td>
+                      <td>{{ t.graduation_rate }}%</td>
+                      <td>{{ t.initial_survey_responses }} ({{ t.initial_survey_rate }}%)</td>
+                      <td>{{ t.final_survey_responses }} ({{ t.final_survey_rate }}%)</td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="ce-subpanel">
+            <h3>Application Conversion</h3>
+            <div class="ce-table-wrap">
+              <table class="ce-table">
+                <thead>
+                  <tr>
+                    <th>Track</th>
+                    <th>Unique applicants</th>
+                    <th>App -> start</th>
+                    <th>Rate</th>
+                    <th>App -> graduation</th>
+                    <th>Rate</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for row in conversion_rows %}
+                    <tr>
+                      <td>{{ row.track }}</td>
+                      <td>{{ row.unique_applicants }}</td>
+                      <td>{{ row.started_from_app }}</td>
+                      <td>{{ row.app_to_start_rate }}%</td>
+                      <td>{{ row.graduated_from_app }}</td>
+                      <td>{{ row.app_to_grad_rate }}%</td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div class="ce-two-col">
+          <div class="ce-subpanel">
+            <h3>Applicants by Track</h3>
+            <div class="ce-table-wrap">
+              <table class="ce-table">
+                <thead>
+                  <tr>
+                    <th>Track</th>
+                    <th>Raw apps</th>
+                    <th>Unique emails</th>
+                    <th>Repeat gap</th>
+                    <th>A1</th>
+                    <th>A2</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for row in application_summary.tracks %}
+                    <tr>
+                      <td>{{ row.track }}</td>
+                      <td>{{ row.raw }}</td>
+                      <td>{{ row.unique }}</td>
+                      <td>{{ row.duplicate_or_repeat }}</td>
+                      <td>{{ row.a1 }}</td>
+                      <td>{{ row.a2 }}</td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="ce-subpanel">
+            <h3>Participants by Country</h3>
+            <div class="ce-table-wrap">
+              <table class="ce-table">
+                <thead>
+                  <tr>
+                    <th>Country</th>
+                    <th>Participant rows</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for row in participant_summary.country_rows %}
+                    <tr>
+                      <td>{{ row.country }}</td>
+                      <td>{{ row.count }}</td>
+                    </tr>
+                  {% empty %}
+                    <tr><td colspan="2">No country data available.</td></tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div class="ce-table-wrap">
+          <table class="ce-table">
+            <thead>
+              <tr>
+                <th>Group</th>
+                <th>Track</th>
+                <th>Participants</th>
+                <th>Started</th>
+                <th>Graduated</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in participant_summary.group_rows %}
+                <tr>
+                  <td>{{ row.group_label }}</td>
+                  <td>{{ row.track }}</td>
+                  <td>{{ row.participants }}</td>
+                  <td>{{ row.started }}</td>
+                  <td>{{ row.graduated }}</td>
+                </tr>
+              {% empty %}
+                <tr><td colspan="5">No participant group data available.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+
+        <div class="ce-table-wrap">
+          <table class="ce-table">
+            <thead>
+              <tr>
+                <th>Applicant group</th>
+                <th>Year</th>
+                <th>Track</th>
+                <th>Raw applications</th>
+                <th>Unique emails</th>
+                <th>Repeat gap</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in application_summary.group_rows %}
+                <tr>
+                  <td>{{ row.group_label }}</td>
+                  <td>{{ row.group_year|default:"-" }}</td>
+                  <td>{{ row.track }}</td>
+                  <td>{{ row.raw }}</td>
+                  <td>{{ row.unique }}</td>
+                  <td>{{ row.duplicate_or_repeat }}</td>
+                </tr>
+              {% empty %}
+                <tr><td colspan="6">No application group data available.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="ce-panel">
+        <h2 class="ce-panel-title">Alumni and Mentor Re-Engagement</h2>
+        <p class="ce-panel-subtitle">Email-based estimates from participant workbooks. Participation definition still needs final program policy.</p>
+        <div class="ce-two-col">
+          <div class="ce-subpanel">
+            <h3>Emprendedoras Returning As Mentors</h3>
+            <div class="ce-kpi-grid">
+              <div class="ce-kpi ce-kpi--green">
+                <div class="ce-kpi-k">Email overlap</div>
+                <div class="ce-kpi-v">{{ alumni_summary.returnee_count }}</div>
+              </div>
+              <div class="ce-kpi ce-kpi--teal">
+                <div class="ce-kpi-k">Later mentor group</div>
+                <div class="ce-kpi-v">{{ alumni_summary.later_returnee_count }}</div>
+              </div>
+            </div>
+            <div class="ce-table-wrap">
+              <table class="ce-table">
+                <thead>
+                  <tr>
+                    <th>Email</th>
+                    <th>E groups</th>
+                    <th>M groups</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for row in alumni_summary.returnee_preview %}
+                    <tr>
+                      <td>{{ row.email }}</td>
+                      <td>{{ row.emprendedora_groups|join:", " }}</td>
+                      <td>{{ row.mentora_groups|join:", " }}</td>
+                    </tr>
+                  {% empty %}
+                    <tr><td colspan="3">No returnees found by email overlap.</td></tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="ce-subpanel">
+            <h3>Repeated Mentors</h3>
+            <div class="ce-table-wrap">
+              <table class="ce-table">
+                <thead>
+                  <tr>
+                    <th>Email</th>
+                    <th>Groups</th>
+                    <th>Count</th>
+                    <th>First</th>
+                    <th>Last</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for row in alumni_summary.repeated_mentors %}
+                    <tr>
+                      <td>{{ row.email }}</td>
+                      <td>{{ row.groups|join:", " }}</td>
+                      <td>{{ row.group_count }}</td>
+                      <td>G{{ row.first_group }}</td>
+                      <td>G{{ row.last_group }}</td>
+                    </tr>
+                  {% empty %}
+                    <tr><td colspan="5">No mentors appear in multiple groups yet.</td></tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="ce-panel">
+        <h2 class="ce-panel-title">Survey-Derived Impact Metrics</h2>
+        <p class="ce-panel-subtitle">NPS and wellbeing fields are detected only when the connected survey sheets contain recognizable numeric columns.</p>
+        <div class="ce-two-col">
+          <div class="ce-subpanel">
+            <h3>NPS-like Columns</h3>
+            <div class="ce-table-wrap">
+              <table class="ce-table">
+                <thead>
+                  <tr>
+                    <th>Dataset</th>
+                    <th>Column</th>
+                    <th>NPS</th>
+                    <th>Responses</th>
+                    <th>Promoters</th>
+                    <th>Detractors</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for row in nps_rows %}
+                    <tr>
+                      <td>{{ row.dataset }}</td>
+                      <td>{{ row.label }}</td>
+                      <td>{{ row.score }}</td>
+                      <td>{{ row.responses }}</td>
+                      <td>{{ row.promoters }}</td>
+                      <td>{{ row.detractors }}</td>
+                    </tr>
+                  {% empty %}
+                    <tr><td colspan="6">No NPS-like 0-10 columns detected in loaded survey sheets.</td></tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="ce-subpanel">
+            <h3>Wellbeing-like Numeric Fields</h3>
+            <div class="ce-table-wrap">
+              <table class="ce-table">
+                <thead>
+                  <tr>
+                    <th>Dataset</th>
+                    <th>Column</th>
+                    <th>Avg</th>
+                    <th>Responses</th>
+                    <th>Range</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for row in wellbeing_rows %}
+                    <tr>
+                      <td>{{ row.dataset }}</td>
+                      <td>{{ row.label }}</td>
+                      <td>{{ row.avg }}</td>
+                      <td>{{ row.responses }}</td>
+                      <td>{{ row.min }} - {{ row.max }}</td>
+                    </tr>
+                  {% empty %}
+                    <tr><td colspan="5">No numeric wellbeing-like fields detected in loaded survey sheets.</td></tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="ce-panel">
+        <h2 class="ce-panel-title">Metric Coverage Map</h2>
+        <p class="ce-panel-subtitle">What the dashboard can calculate now and what still needs an external or manual data source.</p>
+        <div class="ce-table-wrap">
+          <table class="ce-table">
+            <thead>
+              <tr>
+                <th>Area</th>
+                <th>Metric</th>
+                <th>Status</th>
+                <th>Current handling</th>
+                <th>Source</th>
+                <th>Owner</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in metric_coverage_rows %}
+                <tr>
+                  <td>{{ row.area }}</td>
+                  <td>{{ row.metric }}</td>
+                  <td><span class="ce-pill">{{ row.status }}</span></td>
+                  <td>{{ row.current }}</td>
+                  <td>{{ row.source }}</td>
+                  <td>{{ row.owner|default:"-" }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
       {% if show_cards %}
       <section class="ce-panel">
-        <h2 class="ce-panel-title">Overall Impact Snapshot</h2>
+        <h2 class="ce-panel-title">Survey Response Snapshot</h2>
         <p class="ce-panel-subtitle">Top-line impact movement across initial and final surveys.</p>
         <div class="ce-kpi-grid">
           <div class="ce-kpi ce-kpi--blue">

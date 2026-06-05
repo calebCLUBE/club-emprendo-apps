@@ -1,4 +1,5 @@
 import re
+from collections import defaultdict
 from datetime import date, timedelta
 
 from django.contrib import messages
@@ -9,7 +10,7 @@ from django.shortcuts import render
 from django.utils import timezone
 
 from .admin_views import _load_database_encuestas_grid
-from .models import Application, FormGroup
+from .models import Application, FormGroup, GroupParticipantList
 
 GROUP_SLUG_RE = re.compile(r"^G(?P<num>\d+)_")
 IMPACT_EMAIL_HEADERS = {"email", "correo", "correoelectronico", "mail"}
@@ -47,6 +48,47 @@ IMPACT_METADATA_HEADERS = {
     "telefono",
     "phone",
     "whatsapp",
+}
+IMPACT_NPS_HEADER_TOKENS = ("nps", "recommend", "recomend", "probabilidad")
+IMPACT_WELLBEING_HEADER_TOKENS = (
+    "bienestar",
+    "confianza",
+    "ingreso",
+    "ingresos",
+    "ventas",
+    "satisfaccion",
+    "autoestima",
+    "estres",
+    "stress",
+    "salud",
+    "finanz",
+    "negocio",
+)
+PARTICIPANT_STATUS_STARTED = {"CP", "DC", "D", "P", "E/T", "G", "SG"}
+PARTICIPANT_STATUS_GRADUATED = {"G"}
+PARTICIPANT_TRACK_CONFIGS = {
+    "e": {
+        "label": "Emprendedoras",
+        "short_label": "E",
+        "rows_field": "emprendedoras_sheet_rows",
+        "email_col": 5,
+        "status_col": 1,
+        "country_col": 7,
+        "progress_cols": (9, 10, 11, 12, 13),
+        "initial_survey_col": 12,
+        "final_survey_col": 13,
+    },
+    "m": {
+        "label": "Mentoras",
+        "short_label": "M",
+        "rows_field": "mentoras_sheet_rows",
+        "email_col": 5,
+        "status_col": 1,
+        "country_col": 7,
+        "progress_cols": (9, 10, 11, 12, 13),
+        "initial_survey_col": 12,
+        "final_survey_col": 13,
+    },
 }
 
 
@@ -95,6 +137,78 @@ def _pct(part: int, total: int) -> float:
     if total <= 0:
         return 0.0
     return round((part / total) * 100, 1)
+
+
+def _rate(part: int, total: int) -> float:
+    return _pct(part, total)
+
+
+def _metric_email(value: str | None) -> str:
+    raw = str(value or "").strip().lower()
+    if not raw:
+        return ""
+    raw = raw.strip("<>[](){}\"'").rstrip(".,;:")
+    if "@" not in raw:
+        return ""
+    return raw
+
+
+def _metric_cell(row: list, index: int | None) -> str:
+    if index is None or index < 0 or index >= len(row):
+        return ""
+    return str(row[index] or "").strip()
+
+
+def _metric_bool(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return bool(value)
+    raw = str(value or "").strip().lower()
+    return raw in {"1", "true", "yes", "checked", "on", "x", "✓"}
+
+
+def _metric_row_has_meaning(row: list, email_col: int, status_col: int) -> bool:
+    email = _metric_email(_metric_cell(row, email_col))
+    status = _metric_cell(row, status_col)
+    name = _metric_cell(row, 3)
+    return bool(email or status or name)
+
+
+def _parse_metric_number(value) -> float | None:
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return float(value)
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    match = re.search(r"-?\d+(?:[\.,]\d+)?", raw)
+    if not match:
+        return None
+    try:
+        return float(match.group(0).replace(",", "."))
+    except ValueError:
+        return None
+
+
+def _status_label(raw_status: str | None) -> str:
+    status = (raw_status or "").strip().upper()
+    return status or "Sin estatus"
+
+
+def _status_counts_to_rows(status_counts: dict[str, int]) -> list[dict]:
+    return [
+        {"status": status, "count": count}
+        for status, count in sorted(status_counts.items(), key=lambda item: (-item[1], item[0]))
+    ]
+
+
+def _track_key_from_slug(slug: str) -> str:
+    track = _track_from_slug(slug)
+    if track == "E":
+        return "e"
+    if track == "M":
+        return "m"
+    return "other"
 
 
 def _normalized_header_key(value: str) -> str:
@@ -174,6 +288,72 @@ def _build_question_completion(
     return completion_rows
 
 
+def _build_nps_rows(headers: list[str], rows: list[list[str]], metadata_indices: set[int]) -> list[dict]:
+    nps_rows: list[dict] = []
+    for idx, header in enumerate(headers):
+        if idx in metadata_indices:
+            continue
+        normalized = _normalized_header_key(header)
+        if not any(token in normalized for token in IMPACT_NPS_HEADER_TOKENS):
+            continue
+
+        values: list[float] = []
+        for row in rows:
+            value = _parse_metric_number(_safe_row_value(row, idx))
+            if value is None:
+                continue
+            if 0 <= value <= 10:
+                values.append(value)
+        if not values:
+            continue
+
+        promoters = len([value for value in values if value >= 9])
+        detractors = len([value for value in values if value <= 6])
+        passives = len(values) - promoters - detractors
+        score = round(((promoters - detractors) / len(values)) * 100, 1)
+        nps_rows.append(
+            {
+                "label": str(header or "").strip(),
+                "responses": len(values),
+                "score": score,
+                "promoters": promoters,
+                "passives": passives,
+                "detractors": detractors,
+            }
+        )
+    return nps_rows
+
+
+def _build_wellbeing_rows(headers: list[str], rows: list[list[str]], metadata_indices: set[int]) -> list[dict]:
+    wellbeing_rows: list[dict] = []
+    for idx, header in enumerate(headers):
+        if idx in metadata_indices:
+            continue
+        normalized = _normalized_header_key(header)
+        if not any(token in normalized for token in IMPACT_WELLBEING_HEADER_TOKENS):
+            continue
+
+        values: list[float] = []
+        for row in rows:
+            value = _parse_metric_number(_safe_row_value(row, idx))
+            if value is not None:
+                values.append(value)
+        if not values:
+            continue
+
+        wellbeing_rows.append(
+            {
+                "label": str(header or "").strip(),
+                "responses": len(values),
+                "avg": round(sum(values) / len(values), 2),
+                "min": round(min(values), 2),
+                "max": round(max(values), 2),
+            }
+        )
+    wellbeing_rows.sort(key=lambda item: (-item["responses"], item["label"]))
+    return wellbeing_rows
+
+
 def _build_impact_dataset(kind: str, title: str, sheet_url_name: str) -> tuple[dict, set[str]]:
     label, headers, raw_rows, file_name, file_id = _load_database_encuestas_grid(kind)
     rows = _non_empty_rows(raw_rows)
@@ -194,6 +374,8 @@ def _build_impact_dataset(kind: str, title: str, sheet_url_name: str) -> tuple[d
         metadata_indices.add(timestamp_index)
 
     completion_rows = _build_question_completion(headers, rows, metadata_indices)
+    nps_rows = _build_nps_rows(headers, rows, metadata_indices)
+    wellbeing_rows = _build_wellbeing_rows(headers, rows, metadata_indices)
 
     dataset = {
         "kind": kind,
@@ -208,6 +390,8 @@ def _build_impact_dataset(kind: str, title: str, sheet_url_name: str) -> tuple[d
         "unique_emails_count": len(unique_emails),
         "email_column_label": headers[email_index] if email_index is not None else "",
         "completion_rows": completion_rows,
+        "nps_rows": nps_rows,
+        "wellbeing_rows": wellbeing_rows,
     }
     return dataset, unique_emails
 
@@ -233,6 +417,561 @@ def _track_impact_summary(track_label: str, initial_dataset: dict, final_dataset
         "missing_from_final_unique": missing,
         "retention_pct": _pct(matched, len(initial_emails)),
     }
+
+
+def _participant_records() -> list[dict]:
+    records: list[dict] = []
+    participant_lists = GroupParticipantList.objects.select_related("group").order_by("group__number", "id")
+
+    for participant_list in participant_lists:
+        group = getattr(participant_list, "group", None)
+        group_number = getattr(group, "number", None)
+        group_year = getattr(group, "year", None)
+        group_label = f"Group {group_number}" if group_number is not None else "No group"
+
+        for track_key, cfg in PARTICIPANT_TRACK_CONFIGS.items():
+            raw_rows = getattr(participant_list, cfg["rows_field"], []) or []
+            if not isinstance(raw_rows, list):
+                continue
+
+            for raw_row in raw_rows:
+                if not isinstance(raw_row, (list, tuple)):
+                    continue
+                row = list(raw_row)
+                if not _metric_row_has_meaning(row, cfg["email_col"], cfg["status_col"]):
+                    continue
+
+                status = _status_label(_metric_cell(row, cfg["status_col"]))
+                progress = any(_metric_bool(row[idx]) for idx in cfg["progress_cols"] if idx < len(row))
+                started = progress or status in PARTICIPANT_STATUS_STARTED
+                graduated = status in PARTICIPANT_STATUS_GRADUATED
+                country = _metric_cell(row, cfg["country_col"]) or "Sin país"
+                email = _metric_email(_metric_cell(row, cfg["email_col"]))
+
+                records.append(
+                    {
+                        "track": track_key,
+                        "track_label": cfg["label"],
+                        "email": email,
+                        "status": status,
+                        "started": started,
+                        "graduated": graduated,
+                        "country": country,
+                        "group_number": group_number,
+                        "group_year": group_year,
+                        "group_label": group_label,
+                        "initial_survey": _metric_bool(row[cfg["initial_survey_col"]])
+                        if cfg["initial_survey_col"] < len(row)
+                        else False,
+                        "final_survey": _metric_bool(row[cfg["final_survey_col"]])
+                        if cfg["final_survey_col"] < len(row)
+                        else False,
+                    }
+                )
+    return records
+
+
+def _participant_summary(records: list[dict]) -> dict:
+    summary_by_track: dict[str, dict] = {}
+    all_participant_emails: set[str] = set()
+    all_started_emails: set[str] = set()
+    all_graduated_emails: set[str] = set()
+    country_counts: dict[str, int] = defaultdict(int)
+    group_rows: dict[tuple[int | None, str], dict] = {}
+
+    for track_key, cfg in PARTICIPANT_TRACK_CONFIGS.items():
+        track_records = [record for record in records if record["track"] == track_key]
+        participant_emails = {record["email"] for record in track_records if record["email"]}
+        started_emails = {record["email"] for record in track_records if record["email"] and record["started"]}
+        graduated_emails = {record["email"] for record in track_records if record["email"] and record["graduated"]}
+        status_counts: dict[str, int] = defaultdict(int)
+        track_country_counts: dict[str, int] = defaultdict(int)
+        initial_responses = 0
+        final_responses = 0
+
+        for record in track_records:
+            status_counts[record["status"]] += 1
+            track_country_counts[record["country"]] += 1
+            country_counts[record["country"]] += 1
+            if record["initial_survey"]:
+                initial_responses += 1
+            if record["final_survey"]:
+                final_responses += 1
+
+            group_key = (record["group_number"], track_key)
+            group_row = group_rows.setdefault(
+                group_key,
+                {
+                    "group_number": record["group_number"],
+                    "group_label": record["group_label"],
+                    "track": cfg["short_label"],
+                    "participants": 0,
+                    "started": 0,
+                    "graduated": 0,
+                },
+            )
+            group_row["participants"] += 1
+            if record["started"]:
+                group_row["started"] += 1
+            if record["graduated"]:
+                group_row["graduated"] += 1
+
+        all_participant_emails |= participant_emails
+        all_started_emails |= started_emails
+        all_graduated_emails |= graduated_emails
+
+        summary_by_track[track_key] = {
+            "label": cfg["label"],
+            "short_label": cfg["short_label"],
+            "rows": len(track_records),
+            "unique": len(participant_emails),
+            "started": len([record for record in track_records if record["started"]]),
+            "started_unique": len(started_emails),
+            "graduated": len([record for record in track_records if record["graduated"]]),
+            "graduated_unique": len(graduated_emails),
+            "graduation_rate": _rate(
+                len([record for record in track_records if record["graduated"]]),
+                len([record for record in track_records if record["started"]]),
+            ),
+            "initial_survey_responses": initial_responses,
+            "initial_survey_rate": _rate(initial_responses, len(track_records)),
+            "final_survey_responses": final_responses,
+            "final_survey_rate": _rate(final_responses, len(track_records)),
+            "status_rows": _status_counts_to_rows(status_counts),
+            "country_rows": [
+                {"country": country, "count": count}
+                for country, count in sorted(track_country_counts.items(), key=lambda item: (-item[1], item[0]))[:8]
+            ],
+            "participant_emails": participant_emails,
+            "started_emails": started_emails,
+            "graduated_emails": graduated_emails,
+        }
+
+    overall_started = len([record for record in records if record["started"]])
+    overall_graduated = len([record for record in records if record["graduated"]])
+    groups_with_participants = {
+        record["group_number"]
+        for record in records
+        if record.get("group_number") is not None
+    }
+
+    try:
+        groups_in_system = FormGroup.objects.count()
+    except Exception:
+        groups_in_system = 0
+
+    group_summary_rows = list(group_rows.values())
+    group_summary_rows.sort(
+        key=lambda item: (
+            item["group_number"] is None,
+            -(item["group_number"] or 0),
+            item["track"],
+        )
+    )
+
+    return {
+        "overall": {
+            "rows": len(records),
+            "unique": len(all_participant_emails),
+            "started": overall_started,
+            "started_unique": len(all_started_emails),
+            "graduated": overall_graduated,
+            "graduated_unique": len(all_graduated_emails),
+            "graduation_rate": _rate(overall_graduated, overall_started),
+            "groups_in_system": groups_in_system,
+            "groups_with_participants": len(groups_with_participants),
+        },
+        "tracks": summary_by_track,
+        "country_rows": [
+            {"country": country, "count": count}
+            for country, count in sorted(country_counts.items(), key=lambda item: (-item[1], item[0]))[:10]
+        ],
+        "group_rows": group_summary_rows[:20],
+    }
+
+
+def _application_group_number(app: Application) -> int | None:
+    group = getattr(getattr(app, "form", None), "group", None)
+    if group and getattr(group, "number", None) is not None:
+        return group.number
+    return _group_number_from_slug(getattr(getattr(app, "form", None), "slug", ""))
+
+
+def _application_summary() -> dict:
+    apps = Application.objects.select_related("form", "form__group").order_by("created_at", "id")
+    track_data: dict[str, dict] = {
+        "e": {"label": "Emprendedoras", "raw": 0, "a1": 0, "a2": 0, "emails": set()},
+        "m": {"label": "Mentoras", "raw": 0, "a1": 0, "a2": 0, "emails": set()},
+    }
+    group_data: dict[tuple[int | None, str], dict] = {}
+    all_emails: set[str] = set()
+    raw_total = 0
+
+    for app in apps:
+        slug = getattr(getattr(app, "form", None), "slug", "")
+        track_key = _track_key_from_slug(slug)
+        if track_key not in track_data:
+            continue
+
+        email = _metric_email(getattr(app, "email", ""))
+        group = getattr(getattr(app, "form", None), "group", None)
+        group_number = _application_group_number(app)
+        group_year = getattr(group, "year", None)
+        group_label = f"Group {group_number}" if group_number is not None else "No group"
+        group_key = (group_number, track_key)
+        group_row = group_data.setdefault(
+            group_key,
+            {
+                "group_number": group_number,
+                "group_year": group_year,
+                "group_label": group_label,
+                "track": PARTICIPANT_TRACK_CONFIGS[track_key]["short_label"],
+                "raw": 0,
+                "emails": set(),
+            },
+        )
+
+        raw_total += 1
+        track_data[track_key]["raw"] += 1
+        group_row["raw"] += 1
+        if "_A1" in slug.upper():
+            track_data[track_key]["a1"] += 1
+        elif "_A2" in slug.upper():
+            track_data[track_key]["a2"] += 1
+
+        if email:
+            track_data[track_key]["emails"].add(email)
+            group_row["emails"].add(email)
+            all_emails.add(email)
+
+    track_rows = []
+    for track_key in ("e", "m"):
+        data = track_data[track_key]
+        unique = len(data["emails"])
+        track_rows.append(
+            {
+                "track": data["label"],
+                "raw": data["raw"],
+                "unique": unique,
+                "duplicate_or_repeat": max(data["raw"] - unique, 0),
+                "a1": data["a1"],
+                "a2": data["a2"],
+            }
+        )
+
+    group_rows = []
+    for row in group_data.values():
+        group_rows.append(
+            {
+                "group_number": row["group_number"],
+                "group_year": row["group_year"],
+                "group_label": row["group_label"],
+                "track": row["track"],
+                "raw": row["raw"],
+                "unique": len(row["emails"]),
+                "duplicate_or_repeat": max(row["raw"] - len(row["emails"]), 0),
+            }
+        )
+    group_rows.sort(
+        key=lambda item: (
+            item["group_number"] is None,
+            -(item["group_number"] or 0),
+            item["track"],
+        )
+    )
+
+    return {
+        "overall": {
+            "raw": raw_total,
+            "unique": len(all_emails),
+            "duplicate_or_repeat": max(raw_total - len(all_emails), 0),
+        },
+        "tracks": track_rows,
+        "group_rows": group_rows[:20],
+        "email_sets": {
+            "all": all_emails,
+            "e": track_data["e"]["emails"],
+            "m": track_data["m"]["emails"],
+        },
+    }
+
+
+def _conversion_summary(participant_summary: dict, application_summary: dict) -> list[dict]:
+    rows: list[dict] = []
+    for track_key, label in (("e", "Emprendedoras"), ("m", "Mentoras")):
+        applicant_emails = application_summary["email_sets"].get(track_key, set())
+        participant_track = participant_summary["tracks"].get(track_key, {})
+        started_emails = participant_track.get("started_emails", set())
+        graduated_emails = participant_track.get("graduated_emails", set())
+        started_from_app = len(started_emails & applicant_emails)
+        graduated_from_app = len(graduated_emails & applicant_emails)
+        rows.append(
+            {
+                "track": label,
+                "unique_applicants": len(applicant_emails),
+                "started_from_app": started_from_app,
+                "graduated_from_app": graduated_from_app,
+                "app_to_start_rate": _rate(started_from_app, len(applicant_emails)),
+                "app_to_grad_rate": _rate(graduated_from_app, len(applicant_emails)),
+                "participants_without_app_match": len(started_emails - applicant_emails),
+            }
+        )
+
+    applicant_all = application_summary["email_sets"].get("all", set())
+    started_all: set[str] = set()
+    graduated_all: set[str] = set()
+    for track_key in ("e", "m"):
+        participant_track = participant_summary["tracks"].get(track_key, {})
+        started_all |= participant_track.get("started_emails", set())
+        graduated_all |= participant_track.get("graduated_emails", set())
+    rows.append(
+        {
+            "track": "All",
+            "unique_applicants": len(applicant_all),
+            "started_from_app": len(started_all & applicant_all),
+            "graduated_from_app": len(graduated_all & applicant_all),
+            "app_to_start_rate": _rate(len(started_all & applicant_all), len(applicant_all)),
+            "app_to_grad_rate": _rate(len(graduated_all & applicant_all), len(applicant_all)),
+            "participants_without_app_match": len(started_all - applicant_all),
+        }
+    )
+    return rows
+
+
+def _alumni_mentor_summary(records: list[dict]) -> dict:
+    e_groups_by_email: dict[str, set[int]] = defaultdict(set)
+    m_groups_by_email: dict[str, set[int]] = defaultdict(set)
+    m_rows_by_email: dict[str, int] = defaultdict(int)
+
+    for record in records:
+        email = record.get("email") or ""
+        group_number = record.get("group_number")
+        if not email or group_number is None:
+            continue
+        if record["track"] == "e":
+            e_groups_by_email[email].add(int(group_number))
+        elif record["track"] == "m":
+            m_groups_by_email[email].add(int(group_number))
+            m_rows_by_email[email] += 1
+
+    returnee_emails = sorted(set(e_groups_by_email) & set(m_groups_by_email))
+    later_returnee_emails = [
+        email
+        for email in returnee_emails
+        if max(m_groups_by_email[email]) > min(e_groups_by_email[email])
+    ]
+    repeated_mentors = [
+        {
+            "email": email,
+            "groups": sorted(groups),
+            "group_count": len(groups),
+            "row_count": m_rows_by_email[email],
+            "first_group": min(groups),
+            "last_group": max(groups),
+        }
+        for email, groups in m_groups_by_email.items()
+        if len(groups) > 1
+    ]
+    repeated_mentors.sort(key=lambda item: (-item["group_count"], item["email"]))
+
+    return {
+        "returnee_count": len(returnee_emails),
+        "later_returnee_count": len(later_returnee_emails),
+        "repeated_mentor_count": len(repeated_mentors),
+        "returnee_preview": [
+            {
+                "email": email,
+                "emprendedora_groups": sorted(e_groups_by_email[email]),
+                "mentora_groups": sorted(m_groups_by_email[email]),
+            }
+            for email in returnee_emails[:8]
+        ],
+        "repeated_mentors": repeated_mentors[:10],
+    }
+
+
+def _collect_survey_metric_rows(datasets: dict[str, dict], key: str) -> list[dict]:
+    rows: list[dict] = []
+    for kind in ("emprendedoras", "emprendedoras_final", "mentoras", "mentoras_final"):
+        dataset = datasets.get(kind, {})
+        if dataset.get("error"):
+            continue
+        for row in dataset.get(key, []) or []:
+            item = dict(row)
+            item["dataset"] = dataset.get("title", kind)
+            rows.append(item)
+    return rows
+
+
+def _metric_coverage_rows(
+    *,
+    participant_summary: dict,
+    application_summary: dict,
+    conversion_rows: list[dict],
+    alumni_summary: dict,
+    nps_rows: list[dict],
+    wellbeing_rows: list[dict],
+) -> list[dict]:
+    overall_participants = participant_summary["overall"]
+    overall_apps = application_summary["overall"]
+    conversion_all = next((row for row in conversion_rows if row["track"] == "All"), {})
+    return [
+        {
+            "area": "Participantes",
+            "metric": "# de participantes",
+            "status": "Disponible",
+            "current": (
+                f"{overall_participants['rows']} filas; "
+                f"{overall_participants['started']} iniciaron; "
+                f"{overall_participants['graduated']} graduaron"
+            ),
+            "source": "Participant workbook rows",
+            "owner": "Caleb",
+        },
+        {
+            "area": "Participantes",
+            "metric": "Tasa de graduación",
+            "status": "Disponible con supuesto",
+            "current": f"{overall_participants['graduation_rate']}% usando estatus G / iniciaron",
+            "source": "Participant workbook Estatus + progress checks",
+            "owner": "Caleb",
+        },
+        {
+            "area": "Participantes",
+            "metric": "Number of applicants",
+            "status": "Disponible",
+            "current": (
+                f"{overall_apps['unique']} emails únicos; "
+                f"{overall_apps['raw']} aplicaciones; "
+                f"{overall_apps['duplicate_or_repeat']} repetidas"
+            ),
+            "source": "Application database, deduped by email",
+            "owner": "Caleb",
+        },
+        {
+            "area": "Participantes",
+            "metric": "Tasa de conversión de aplicaciones",
+            "status": "Estimado",
+            "current": (
+                f"App->inicio {conversion_all.get('app_to_start_rate', 0)}%; "
+                f"App->graduación {conversion_all.get('app_to_grad_rate', 0)}%"
+            ),
+            "source": "All-time email match across applications and participant sheets",
+            "owner": "Melanie",
+        },
+        {
+            "area": "Participantes",
+            "metric": "# de grupos",
+            "status": "Parcial",
+            "current": (
+                f"{overall_participants['groups_in_system']} grupos en el sitio; "
+                f"{overall_participants['groups_with_participants']} con participantes"
+            ),
+            "source": "FormGroup + participant lists; simultáneos still manual",
+            "owner": "Melanie",
+        },
+        {
+            "area": "Participantes",
+            "metric": "Emprendedoras que volvieron como mentoras",
+            "status": "Estimado",
+            "current": (
+                f"{alumni_summary['returnee_count']} overlap por email; "
+                f"{alumni_summary['later_returnee_count']} parecen volver en grupo posterior"
+            ),
+            "source": "Email overlap between Emprendedoras and Mentoras participant sheets",
+            "owner": "Caleb",
+        },
+        {
+            "area": "Participantes",
+            "metric": "Mentoras repetidas",
+            "status": "Estimado",
+            "current": f"{alumni_summary['repeated_mentor_count']} mentoras aparecen en 2+ grupos",
+            "source": "Mentoras participant sheets by email and group",
+            "owner": "Caleb",
+        },
+        {
+            "area": "Marketing",
+            "metric": "Seguidores en redes sociales",
+            "status": "Fuente externa",
+            "current": "No está en la base de datos del sitio",
+            "source": "Manual/platform export needed",
+            "owner": "Brenda",
+        },
+        {
+            "area": "Marketing",
+            "metric": "Tráfico del sitio web",
+            "status": "Fuente externa",
+            "current": "No analytics source connected here",
+            "source": "Analytics integration/export needed",
+            "owner": "Brenda",
+        },
+        {
+            "area": "Marketing",
+            "metric": "NPS score",
+            "status": "Parcial",
+            "current": f"{len(nps_rows)} NPS-like column(s) detected" if nps_rows else "No NPS-like numeric column detected yet",
+            "source": "Survey sheets, automatic if 0-10 recommend/NPS columns exist",
+            "owner": "",
+        },
+        {
+            "area": "Impacto",
+            "metric": "Métricas de bienestar",
+            "status": "Parcial",
+            "current": f"{len(wellbeing_rows)} numeric wellbeing-like field(s) detected" if wellbeing_rows else "No numeric wellbeing-like fields detected yet",
+            "source": "Survey sheets by keyword + numeric values",
+            "owner": "",
+        },
+        {
+            "area": "Impacto",
+            "metric": "Tasa de respuesta de encuesta de impacto",
+            "status": "Disponible",
+            "current": (
+                "Uses Encuesta inicial/final checkbox columns from participant sheets"
+            ),
+            "source": "Participant workbook check columns",
+            "owner": "",
+        },
+        {
+            "area": "Comunidad",
+            "metric": "Collabs / alumni community / group activities",
+            "status": "Fuente externa",
+            "current": "Not tracked in app data",
+            "source": "Manual tracker/Facebook/platform export needed",
+            "owner": "Brenda",
+        },
+        {
+            "area": "Comunidad",
+            "metric": "Cursos sin mentoría / logros cualitativos",
+            "status": "Fuente externa",
+            "current": "Not tracked in app data",
+            "source": "Manual/content LMS/source needed",
+            "owner": "",
+        },
+        {
+            "area": "Operaciones",
+            "metric": "Eficiencia de automatizaciones",
+            "status": "Fuente externa",
+            "current": "No reliable saved-time/cost field exists",
+            "source": "Manual baseline + task/automation tracker needed",
+            "owner": "",
+        },
+        {
+            "area": "Finanzas",
+            "metric": "Gasto por mujer impactada / program expense ratio",
+            "status": "Fuente externa",
+            "current": "No finance source connected here",
+            "source": "Accounting/budget export needed",
+            "owner": "",
+        },
+        {
+            "area": "Equipo",
+            "metric": "Tamaño del equipo de Club E",
+            "status": "Fuente externa",
+            "current": "User accounts are not a reliable team-size source",
+            "source": "Manual HR/team roster needed",
+            "owner": "",
+        },
+    ]
 
 
 @staff_member_required
@@ -319,11 +1058,29 @@ def impact_dashboard(request):
                 "unique_emails_count": 0,
                 "question_count": 0,
                 "completion_rows": [],
+                "nps_rows": [],
+                "wellbeing_rows": [],
             }
             email_set = set()
             messages.error(request, f"Could not load {title}: {exc}")
         datasets[kind] = dataset
         email_sets[kind] = email_set
+
+    participant_records = _participant_records()
+    participant_summary = _participant_summary(participant_records)
+    application_summary = _application_summary()
+    conversion_rows = _conversion_summary(participant_summary, application_summary)
+    alumni_summary = _alumni_mentor_summary(participant_records)
+    nps_rows = _collect_survey_metric_rows(datasets, "nps_rows")
+    wellbeing_rows = _collect_survey_metric_rows(datasets, "wellbeing_rows")
+    metric_coverage_rows = _metric_coverage_rows(
+        participant_summary=participant_summary,
+        application_summary=application_summary,
+        conversion_rows=conversion_rows,
+        alumni_summary=alumni_summary,
+        nps_rows=nps_rows,
+        wellbeing_rows=wellbeing_rows,
+    )
 
     def _in_scope(section: dict) -> bool:
         if track_filter != "all" and section["track"] != track_filter:
@@ -448,6 +1205,13 @@ def impact_dashboard(request):
         "has_m_completion_cards": ("mentoras" in visible_kinds) or ("mentoras_final" in visible_kinds),
         "has_scoped_data": bool(scoped_sections),
         "overall": overall_summary,
+        "participant_summary": participant_summary,
+        "application_summary": application_summary,
+        "conversion_rows": conversion_rows,
+        "alumni_summary": alumni_summary,
+        "nps_rows": nps_rows[:12],
+        "wellbeing_rows": wellbeing_rows[:12],
+        "metric_coverage_rows": metric_coverage_rows,
         "track_summaries": track_summaries,
         "datasets": datasets,
         "source_datasets": source_datasets,

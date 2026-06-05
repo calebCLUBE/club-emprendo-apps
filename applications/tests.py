@@ -7,6 +7,7 @@ import json
 import re
 from unittest.mock import patch
 
+from applications import admin_dashboard_views
 from applications.admin import QuestionAdminForm
 from applications.admin_views import _build_second_stage_reminder_payload, _clone_form, _sync_group_form_names
 from applications.email_templates import build_form_email_context, resolve_form_email_template
@@ -877,6 +878,171 @@ class A2ReminderRecipientSelectionTests(TestCase):
         self.assertIsNone(error)
         self.assertIsNotNone(payload)
         self.assertEqual(payload["targets"], ["combined@example.com"])
+
+
+class ImpactDashboardMetricTests(TestCase):
+    def setUp(self):
+        self.group1 = FormGroup.objects.create(
+            number=981,
+            start_day=1,
+            start_month="enero",
+            end_month="marzo",
+            year=2026,
+        )
+        self.group2 = FormGroup.objects.create(
+            number=982,
+            start_day=1,
+            start_month="abril",
+            end_month="junio",
+            year=2026,
+        )
+        self.e_a1 = FormDefinition.objects.create(
+            slug="G981_E_A1",
+            name="G981 E A1",
+            group=self.group1,
+        )
+        self.e_a2 = FormDefinition.objects.create(
+            slug="G981_E_A2",
+            name="G981 E A2",
+            group=self.group1,
+        )
+        self.m_g1 = FormDefinition.objects.create(
+            slug="G981_M_A1",
+            name="G981 M A1",
+            group=self.group1,
+        )
+        self.m_g2 = FormDefinition.objects.create(
+            slug="G982_M_A1",
+            name="G982 M A1",
+            group=self.group2,
+        )
+
+        Application.objects.create(form=self.e_a1, name="Founder", email="founder@example.com")
+        Application.objects.create(form=self.e_a2, name="Founder Repeat", email="founder@example.com")
+        Application.objects.create(form=self.e_a1, name="No Start", email="no-start@example.com")
+        Application.objects.create(form=self.m_g1, name="Mentor", email="mentor@example.com")
+        Application.objects.create(form=self.m_g1, name="Repeated Mentor", email="repeat@example.com")
+        Application.objects.create(form=self.m_g2, name="Founder Mentor", email="founder@example.com")
+
+        GroupParticipantList.objects.create(
+            group=self.group1,
+            emprendedoras_sheet_rows=[
+                ["", "G", 1, "Founder", "E1", "founder@example.com", "", "Colombia", "", True, True, True, True, True],
+                ["", "NFA", 2, "No Start", "E2", "no-start@example.com", "", "Peru", "", False, False, False, False, False],
+            ],
+            mentoras_sheet_rows=[
+                ["", "G", 1, "Mentor", "M1", "mentor@example.com", "", "Venezuela", "", True, True, True, True, True],
+                ["", "P", 2, "Repeated Mentor", "M2", "repeat@example.com", "", "Colombia", "", True, True, True, True, False],
+            ],
+        )
+        GroupParticipantList.objects.create(
+            group=self.group2,
+            mentoras_sheet_rows=[
+                ["", "P", 1, "Founder Mentor", "M3", "founder@example.com", "", "Colombia", "", True, True, True, True, False],
+                ["", "CP", 2, "Repeated Mentor", "M2", "repeat@example.com", "", "Peru", "", True, False, True, False, False],
+            ],
+        )
+
+    def test_program_metric_summaries_use_participant_rows_and_deduped_applicants(self):
+        records = admin_dashboard_views._participant_records()
+        participant_summary = admin_dashboard_views._participant_summary(records)
+        application_summary = admin_dashboard_views._application_summary()
+        conversion_rows = admin_dashboard_views._conversion_summary(
+            participant_summary,
+            application_summary,
+        )
+        alumni_summary = admin_dashboard_views._alumni_mentor_summary(records)
+
+        self.assertEqual(participant_summary["overall"]["rows"], 6)
+        self.assertEqual(participant_summary["overall"]["started"], 5)
+        self.assertEqual(participant_summary["overall"]["graduated"], 2)
+        self.assertEqual(participant_summary["overall"]["graduation_rate"], 40.0)
+        self.assertEqual(participant_summary["tracks"]["e"]["started"], 1)
+        self.assertEqual(participant_summary["tracks"]["m"]["graduated"], 1)
+
+        self.assertEqual(application_summary["overall"]["raw"], 6)
+        self.assertEqual(application_summary["overall"]["unique"], 4)
+        self.assertEqual(application_summary["overall"]["duplicate_or_repeat"], 2)
+        self.assertEqual(application_summary["tracks"][0]["unique"], 2)
+
+        e_conversion = next(row for row in conversion_rows if row["track"] == "Emprendedoras")
+        self.assertEqual(e_conversion["unique_applicants"], 2)
+        self.assertEqual(e_conversion["started_from_app"], 1)
+        self.assertEqual(e_conversion["graduated_from_app"], 1)
+        self.assertEqual(e_conversion["app_to_start_rate"], 50.0)
+
+        self.assertEqual(alumni_summary["returnee_count"], 1)
+        self.assertEqual(alumni_summary["later_returnee_count"], 1)
+        self.assertEqual(alumni_summary["repeated_mentor_count"], 1)
+        self.assertEqual(alumni_summary["repeated_mentors"][0]["email"], "repeat@example.com")
+        self.assertEqual(alumni_summary["repeated_mentors"][0]["groups"], [981, 982])
+
+    def test_survey_nps_and_wellbeing_rows_are_detected_from_numeric_columns(self):
+        headers = [
+            "Timestamp",
+            "Email",
+            "Que tan probable es que recomiendes Club Emprendo NPS",
+            "Bienestar financiero",
+            "Other",
+        ]
+        rows = [
+            ["2026-01-01", "one@example.com", "10", "3", "x"],
+            ["2026-01-02", "two@example.com", "9", "5", "x"],
+            ["2026-01-03", "three@example.com", "6", "4", "x"],
+        ]
+        metadata_indices = {0, 1}
+
+        nps_rows = admin_dashboard_views._build_nps_rows(headers, rows, metadata_indices)
+        wellbeing_rows = admin_dashboard_views._build_wellbeing_rows(
+            headers,
+            rows,
+            metadata_indices,
+        )
+
+        self.assertEqual(len(nps_rows), 1)
+        self.assertEqual(nps_rows[0]["score"], 33.3)
+        self.assertEqual(nps_rows[0]["promoters"], 2)
+        self.assertEqual(nps_rows[0]["detractors"], 1)
+        self.assertEqual(len(wellbeing_rows), 1)
+        self.assertEqual(wellbeing_rows[0]["avg"], 4.0)
+
+    @patch("applications.admin_dashboard_views._build_impact_dataset")
+    def test_impact_dashboard_renders_requested_metric_sections(self, mock_build_dataset):
+        def fake_dataset(kind, title, sheet_url_name):
+            return (
+                {
+                    "kind": kind,
+                    "title": title,
+                    "label": title,
+                    "sheet_url_name": sheet_url_name,
+                    "source_name": "test.csv",
+                    "source_file_id": "test-file",
+                    "responses_count": 0,
+                    "headers_count": 0,
+                    "question_count": 0,
+                    "unique_emails_count": 0,
+                    "email_column_label": "",
+                    "completion_rows": [],
+                    "nps_rows": [],
+                    "wellbeing_rows": [],
+                },
+                set(),
+            )
+
+        mock_build_dataset.side_effect = fake_dataset
+        user_model = get_user_model()
+        staff_user = user_model.objects.create_superuser(
+            email="impact-admin@example.com",
+            password="testpass123",
+        )
+        self.client.force_login(staff_user)
+
+        response = self.client.get(reverse("admin_impact_dashboard"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Requested Metrics From Website Data")
+        self.assertContains(response, "Application Conversion")
+        self.assertContains(response, "Metric Coverage Map")
 
 
 class ParticipantsPageSafetyTests(TestCase):

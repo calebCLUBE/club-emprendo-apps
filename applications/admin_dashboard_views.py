@@ -815,7 +815,7 @@ def _metric_coverage_rows(
     overall_participants = participant_summary["overall"]
     overall_apps = application_summary["overall"]
     conversion_all = next((row for row in conversion_rows if row["track"] == "All"), {})
-    return [
+    rows = [
         {
             "area": "Participantes",
             "metric": "# de participantes",
@@ -972,6 +972,16 @@ def _metric_coverage_rows(
             "owner": "",
         },
     ]
+    status_keys = {
+        "Disponible": "available",
+        "Disponible con supuesto": "estimated",
+        "Estimado": "estimated",
+        "Parcial": "partial",
+        "Fuente externa": "external",
+    }
+    for row in rows:
+        row["status_key"] = status_keys.get(row.get("status"), "external")
+    return rows
 
 
 @staff_member_required

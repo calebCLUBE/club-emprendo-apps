@@ -17,11 +17,12 @@
         margin-right: auto;
       }
       .ce-impact-shell {
-        --ce-bg-soft: #f5f8fc;
+        --ce-bg-soft: #f7f9fc;
         --ce-surface: #ffffff;
         --ce-border: #e3e9f2;
         --ce-text: #1f2937;
         --ce-muted: #667085;
+        --ce-accent: #2c3f66;
       }
       .ce-impact-header {
         display: flex;
@@ -52,22 +53,41 @@
         display: inline-block;
         padding: 8px 12px;
         border-radius: 8px;
-        border: 1px solid #2c3f66;
-        background: #2c3f66;
+        border: 1px solid var(--ce-accent);
+        background: var(--ce-accent);
         color: #fff !important;
         text-decoration: none;
         font-weight: 600;
       }
       .ce-btn--ghost {
         background: #fff;
-        color: #2c3f66 !important;
+        color: var(--ce-accent) !important;
       }
       .ce-panel {
         background: var(--ce-surface);
         border: 1px solid var(--ce-border);
-        border-radius: 14px;
-        padding: 14px;
-        margin-top: 14px;
+        border-radius: 10px;
+        padding: 16px;
+        margin-top: 16px;
+      }
+      .ce-panel--quiet {
+        background: #fbfcfe;
+      }
+      .ce-section-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 14px;
+        flex-wrap: wrap;
+        margin-bottom: 10px;
+      }
+      .ce-section-kicker {
+        margin: 0 0 4px;
+        color: #516079;
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
       }
       .ce-panel-title {
         margin: 0;
@@ -130,13 +150,13 @@
       }
       .ce-kpi-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
         gap: 10px;
         margin-top: 12px;
       }
       .ce-kpi {
         border: 1px solid #dde6f1;
-        border-radius: 12px;
+        border-radius: 8px;
         padding: 12px;
         background: #fff;
         box-shadow: 0 1px 0 rgba(16, 24, 40, 0.03);
@@ -150,6 +170,7 @@
       .ce-kpi-k {
         font-size: 12px;
         color: #64748b;
+        font-weight: 700;
       }
       .ce-kpi-v {
         margin-top: 6px;
@@ -162,6 +183,26 @@
         font-size: 12px;
         color: #6b7280;
         margin-top: 4px;
+      }
+      .ce-metric-note-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 8px;
+        margin-top: 12px;
+      }
+      .ce-metric-note {
+        border: 1px solid #dbe4f0;
+        border-radius: 8px;
+        background: #f8fbff;
+        padding: 10px;
+        color: #475569;
+        font-size: 12px;
+        line-height: 1.4;
+      }
+      .ce-metric-note strong {
+        display: block;
+        color: #25324a;
+        margin-bottom: 3px;
       }
       .ce-visual-grid {
         display: grid;
@@ -285,6 +326,7 @@
         width: 100%;
         border-collapse: collapse;
         margin-top: 10px;
+        font-size: 13px;
       }
       .ce-table th,
       .ce-table td {
@@ -295,9 +337,15 @@
       }
       .ce-table th {
         color: #334155;
-        font-size: 12px;
+        font-size: 11px;
         text-transform: uppercase;
-        letter-spacing: 0.04em;
+        letter-spacing: 0.05em;
+        background: #f8fafc;
+      }
+      .ce-table td.ce-num,
+      .ce-table th.ce-num {
+        text-align: right;
+        font-variant-numeric: tabular-nums;
       }
       .ce-table-wrap {
         overflow-x: auto;
@@ -333,11 +381,28 @@
       .ce-pill {
         display: inline-block;
         border-radius: 999px;
-        padding: 3px 8px;
-        font-size: 12px;
+        padding: 4px 9px;
+        font-size: 11px;
         font-weight: 700;
         color: #1f2937;
         background: #eef2f7;
+        white-space: nowrap;
+      }
+      .ce-pill--available {
+        background: #dcfce7;
+        color: #166534;
+      }
+      .ce-pill--estimated {
+        background: #fef3c7;
+        color: #92400e;
+      }
+      .ce-pill--partial {
+        background: #e0f2fe;
+        color: #075985;
+      }
+      .ce-pill--external {
+        background: #f1f5f9;
+        color: #475569;
       }
       .ce-dataset-grid {
         margin-top: 12px;
@@ -414,8 +479,8 @@
         </div>
       </div>
 
-      <details class="ce-panel ce-filter-wrap" open>
-        <summary>Filters and Layout Controls</summary>
+      <details class="ce-panel ce-filter-wrap">
+        <summary>Dashboard Controls</summary>
         <form method="get">
           <input type="hidden" name="customize" value="1">
           <div class="ce-filter-grid">
@@ -442,13 +507,13 @@
           </div>
 
           <div class="ce-filter-sections">
-            <label><input type="checkbox" name="show_cards" value="1" {% if show_cards %}checked{% endif %}> Overall KPI cards</label>
-            <label><input type="checkbox" name="show_visuals" value="1" {% if show_visuals %}checked{% endif %}> Visual charts (line + donuts)</label>
-            <label><input type="checkbox" name="show_volume_chart" value="1" {% if show_volume_chart %}checked{% endif %}> Response volume bars</label>
-            <label><input type="checkbox" name="show_track_table" value="1" {% if show_track_table %}checked{% endif %}> Track comparison table</label>
-            <label><input type="checkbox" name="show_dataset_cards" value="1" {% if show_dataset_cards %}checked{% endif %}> Source dataset cards</label>
-            <label><input type="checkbox" name="show_completion_e" value="1" {% if show_completion_e %}checked{% endif %}> Emprendedoras completion tables</label>
-            <label><input type="checkbox" name="show_completion_m" value="1" {% if show_completion_m %}checked{% endif %}> Mentoras completion tables</label>
+            <label><input type="checkbox" name="show_cards" value="1" {% if show_cards %}checked{% endif %}> Survey KPI cards</label>
+            <label><input type="checkbox" name="show_visuals" value="1" {% if show_visuals %}checked{% endif %}> Survey charts</label>
+            <label><input type="checkbox" name="show_volume_chart" value="1" {% if show_volume_chart %}checked{% endif %}> Survey volume bars</label>
+            <label><input type="checkbox" name="show_track_table" value="1" {% if show_track_table %}checked{% endif %}> Survey track comparison</label>
+            <label><input type="checkbox" name="show_dataset_cards" value="1" {% if show_dataset_cards %}checked{% endif %}> Survey source cards</label>
+            <label><input type="checkbox" name="show_completion_e" value="1" {% if show_completion_e %}checked{% endif %}> Emprendedoras survey completion</label>
+            <label><input type="checkbox" name="show_completion_m" value="1" {% if show_completion_m %}checked{% endif %}> Mentoras survey completion</label>
           </div>
 
           <div class="ce-filter-actions">
@@ -465,17 +530,22 @@
       {% endif %}
 
       <section class="ce-panel">
-        <h2 class="ce-panel-title">Requested Metrics From Website Data</h2>
-        <p class="ce-panel-subtitle">Best available calculations from participant workbooks and SQL application records.</p>
+        <div class="ce-section-head">
+          <div>
+            <p class="ce-section-kicker">Program Snapshot</p>
+            <h2 class="ce-panel-title">Executive Summary</h2>
+            <p class="ce-panel-subtitle">The highest-signal operating metrics currently available from website data.</p>
+          </div>
+        </div>
         {% with p=participant_summary.overall apps=application_summary.overall %}
         <div class="ce-kpi-grid">
           <div class="ce-kpi ce-kpi--blue">
-            <div class="ce-kpi-k">Participant Rows</div>
+            <div class="ce-kpi-k">Participants Tracked</div>
             <div class="ce-kpi-v">{{ p.rows }}</div>
             <div class="ce-kpi-note">{{ p.unique }} unique emails</div>
           </div>
           <div class="ce-kpi ce-kpi--teal">
-            <div class="ce-kpi-k">Started</div>
+            <div class="ce-kpi-k">Started Program</div>
             <div class="ce-kpi-v">{{ p.started }}</div>
             <div class="ce-kpi-note">{{ p.started_unique }} unique emails</div>
           </div>
@@ -490,21 +560,41 @@
             <div class="ce-kpi-note">{{ apps.raw }} raw applications; {{ apps.duplicate_or_repeat }} repeats</div>
           </div>
           <div class="ce-kpi ce-kpi--purple">
-            <div class="ce-kpi-k">Groups In Website</div>
+            <div class="ce-kpi-k">Groups in Website</div>
             <div class="ce-kpi-v">{{ p.groups_in_system }}</div>
             <div class="ce-kpi-note">{{ p.groups_with_participants }} with participant rows</div>
           </div>
           <div class="ce-kpi ce-kpi--indigo">
-            <div class="ce-kpi-k">Repeated Mentors</div>
+            <div class="ce-kpi-k">Repeat Mentors</div>
             <div class="ce-kpi-v">{{ alumni_summary.repeated_mentor_count }}</div>
             <div class="ce-kpi-note">{{ alumni_summary.returnee_count }} E alumni also appear as mentors</div>
           </div>
         </div>
         {% endwith %}
-        <div class="ce-assumption">
-          Started means a participant row has progress checks or an active/progress status. Graduated means Estatus = G. Applicants are deduped by email, so repeat applications remain visible as the raw-vs-unique gap.
+        <div class="ce-metric-note-grid">
+          <div class="ce-metric-note">
+            <strong>Participation source</strong>
+            Participant workbooks are the source for started, graduated, country, and survey response-rate metrics.
+          </div>
+          <div class="ce-metric-note">
+            <strong>Status logic</strong>
+            Started means the row has progress checks or an active/progress status. Graduated means Estatus = G.
+          </div>
+          <div class="ce-metric-note">
+            <strong>Applicant dedupe</strong>
+            Applicant totals are deduped by email; raw application totals preserve repeat applications.
+          </div>
         </div>
+      </section>
 
+      <section class="ce-panel">
+        <div class="ce-section-head">
+          <div>
+            <p class="ce-section-kicker">Pipeline</p>
+            <h2 class="ce-panel-title">Participants and Applications</h2>
+            <p class="ce-panel-subtitle">Track-level participation, application, and conversion metrics.</p>
+          </div>
+        </div>
         <div class="ce-two-col">
           <div class="ce-subpanel">
             <h3>Participants by Track</h3>
@@ -513,26 +603,26 @@
                 <thead>
                   <tr>
                     <th>Track</th>
-                    <th>Rows</th>
-                    <th>Unique</th>
-                    <th>Started</th>
-                    <th>Graduated</th>
-                    <th>Grad rate</th>
-                    <th>Initial survey</th>
-                    <th>Final survey</th>
+                    <th class="ce-num">Rows</th>
+                    <th class="ce-num">Unique</th>
+                    <th class="ce-num">Started</th>
+                    <th class="ce-num">Graduated</th>
+                    <th class="ce-num">Grad rate</th>
+                    <th class="ce-num">Initial survey</th>
+                    <th class="ce-num">Final survey</th>
                   </tr>
                 </thead>
                 <tbody>
                   {% for track_key, t in participant_summary.tracks.items %}
                     <tr>
                       <td>{{ t.label }}</td>
-                      <td>{{ t.rows }}</td>
-                      <td>{{ t.unique }}</td>
-                      <td>{{ t.started }}</td>
-                      <td>{{ t.graduated }}</td>
-                      <td>{{ t.graduation_rate }}%</td>
-                      <td>{{ t.initial_survey_responses }} ({{ t.initial_survey_rate }}%)</td>
-                      <td>{{ t.final_survey_responses }} ({{ t.final_survey_rate }}%)</td>
+                      <td class="ce-num">{{ t.rows }}</td>
+                      <td class="ce-num">{{ t.unique }}</td>
+                      <td class="ce-num">{{ t.started }}</td>
+                      <td class="ce-num">{{ t.graduated }}</td>
+                      <td class="ce-num">{{ t.graduation_rate }}%</td>
+                      <td class="ce-num">{{ t.initial_survey_responses }} ({{ t.initial_survey_rate }}%)</td>
+                      <td class="ce-num">{{ t.final_survey_responses }} ({{ t.final_survey_rate }}%)</td>
                     </tr>
                   {% endfor %}
                 </tbody>
@@ -547,22 +637,22 @@
                 <thead>
                   <tr>
                     <th>Track</th>
-                    <th>Unique applicants</th>
-                    <th>App -> start</th>
-                    <th>Rate</th>
-                    <th>App -> graduation</th>
-                    <th>Rate</th>
+                    <th class="ce-num">Unique applicants</th>
+                    <th class="ce-num">App -> start</th>
+                    <th class="ce-num">Rate</th>
+                    <th class="ce-num">App -> graduation</th>
+                    <th class="ce-num">Rate</th>
                   </tr>
                 </thead>
                 <tbody>
                   {% for row in conversion_rows %}
                     <tr>
                       <td>{{ row.track }}</td>
-                      <td>{{ row.unique_applicants }}</td>
-                      <td>{{ row.started_from_app }}</td>
-                      <td>{{ row.app_to_start_rate }}%</td>
-                      <td>{{ row.graduated_from_app }}</td>
-                      <td>{{ row.app_to_grad_rate }}%</td>
+                      <td class="ce-num">{{ row.unique_applicants }}</td>
+                      <td class="ce-num">{{ row.started_from_app }}</td>
+                      <td class="ce-num">{{ row.app_to_start_rate }}%</td>
+                      <td class="ce-num">{{ row.graduated_from_app }}</td>
+                      <td class="ce-num">{{ row.app_to_grad_rate }}%</td>
                     </tr>
                   {% endfor %}
                 </tbody>
@@ -579,22 +669,22 @@
                 <thead>
                   <tr>
                     <th>Track</th>
-                    <th>Raw apps</th>
-                    <th>Unique emails</th>
-                    <th>Repeat gap</th>
-                    <th>A1</th>
-                    <th>A2</th>
+                    <th class="ce-num">Raw apps</th>
+                    <th class="ce-num">Unique emails</th>
+                    <th class="ce-num">Repeat gap</th>
+                    <th class="ce-num">A1</th>
+                    <th class="ce-num">A2</th>
                   </tr>
                 </thead>
                 <tbody>
                   {% for row in application_summary.tracks %}
                     <tr>
                       <td>{{ row.track }}</td>
-                      <td>{{ row.raw }}</td>
-                      <td>{{ row.unique }}</td>
-                      <td>{{ row.duplicate_or_repeat }}</td>
-                      <td>{{ row.a1 }}</td>
-                      <td>{{ row.a2 }}</td>
+                      <td class="ce-num">{{ row.raw }}</td>
+                      <td class="ce-num">{{ row.unique }}</td>
+                      <td class="ce-num">{{ row.duplicate_or_repeat }}</td>
+                      <td class="ce-num">{{ row.a1 }}</td>
+                      <td class="ce-num">{{ row.a2 }}</td>
                     </tr>
                   {% endfor %}
                 </tbody>
@@ -609,14 +699,14 @@
                 <thead>
                   <tr>
                     <th>Country</th>
-                    <th>Participant rows</th>
+                    <th class="ce-num">Participant rows</th>
                   </tr>
                 </thead>
                 <tbody>
                   {% for row in participant_summary.country_rows %}
                     <tr>
                       <td>{{ row.country }}</td>
-                      <td>{{ row.count }}</td>
+                      <td class="ce-num">{{ row.count }}</td>
                     </tr>
                   {% empty %}
                     <tr><td colspan="2">No country data available.</td></tr>
@@ -627,15 +717,25 @@
           </div>
         </div>
 
+      </section>
+
+      <section class="ce-panel">
+        <div class="ce-section-head">
+          <div>
+            <p class="ce-section-kicker">Cohorts</p>
+            <h2 class="ce-panel-title">Group Detail</h2>
+            <p class="ce-panel-subtitle">Group-by-group participant outcomes and applicant volume.</p>
+          </div>
+        </div>
         <div class="ce-table-wrap">
           <table class="ce-table">
             <thead>
               <tr>
                 <th>Group</th>
                 <th>Track</th>
-                <th>Participants</th>
-                <th>Started</th>
-                <th>Graduated</th>
+                <th class="ce-num">Participants</th>
+                <th class="ce-num">Started</th>
+                <th class="ce-num">Graduated</th>
               </tr>
             </thead>
             <tbody>
@@ -643,9 +743,9 @@
                 <tr>
                   <td>{{ row.group_label }}</td>
                   <td>{{ row.track }}</td>
-                  <td>{{ row.participants }}</td>
-                  <td>{{ row.started }}</td>
-                  <td>{{ row.graduated }}</td>
+                  <td class="ce-num">{{ row.participants }}</td>
+                  <td class="ce-num">{{ row.started }}</td>
+                  <td class="ce-num">{{ row.graduated }}</td>
                 </tr>
               {% empty %}
                 <tr><td colspan="5">No participant group data available.</td></tr>
@@ -661,9 +761,9 @@
                 <th>Applicant group</th>
                 <th>Year</th>
                 <th>Track</th>
-                <th>Raw applications</th>
-                <th>Unique emails</th>
-                <th>Repeat gap</th>
+                <th class="ce-num">Raw applications</th>
+                <th class="ce-num">Unique emails</th>
+                <th class="ce-num">Repeat gap</th>
               </tr>
             </thead>
             <tbody>
@@ -672,9 +772,9 @@
                   <td>{{ row.group_label }}</td>
                   <td>{{ row.group_year|default:"-" }}</td>
                   <td>{{ row.track }}</td>
-                  <td>{{ row.raw }}</td>
-                  <td>{{ row.unique }}</td>
-                  <td>{{ row.duplicate_or_repeat }}</td>
+                  <td class="ce-num">{{ row.raw }}</td>
+                  <td class="ce-num">{{ row.unique }}</td>
+                  <td class="ce-num">{{ row.duplicate_or_repeat }}</td>
                 </tr>
               {% empty %}
                 <tr><td colspan="6">No application group data available.</td></tr>
@@ -685,8 +785,13 @@
       </section>
 
       <section class="ce-panel">
-        <h2 class="ce-panel-title">Alumni and Mentor Re-Engagement</h2>
-        <p class="ce-panel-subtitle">Email-based estimates from participant workbooks. Participation definition still needs final program policy.</p>
+        <div class="ce-section-head">
+          <div>
+            <p class="ce-section-kicker">Engagement</p>
+            <h2 class="ce-panel-title">Alumni and Mentor Re-Engagement</h2>
+            <p class="ce-panel-subtitle">Email-based estimates from participant workbooks. Participation definition still needs final program policy.</p>
+          </div>
+        </div>
         <div class="ce-two-col">
           <div class="ce-subpanel">
             <h3>Emprendedoras Returning As Mentors</h3>
@@ -732,9 +837,9 @@
                   <tr>
                     <th>Email</th>
                     <th>Groups</th>
-                    <th>Count</th>
-                    <th>First</th>
-                    <th>Last</th>
+                    <th class="ce-num">Count</th>
+                    <th class="ce-num">First</th>
+                    <th class="ce-num">Last</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -742,9 +847,9 @@
                     <tr>
                       <td>{{ row.email }}</td>
                       <td>{{ row.groups|join:", " }}</td>
-                      <td>{{ row.group_count }}</td>
-                      <td>G{{ row.first_group }}</td>
-                      <td>G{{ row.last_group }}</td>
+                      <td class="ce-num">{{ row.group_count }}</td>
+                      <td class="ce-num">G{{ row.first_group }}</td>
+                      <td class="ce-num">G{{ row.last_group }}</td>
                     </tr>
                   {% empty %}
                     <tr><td colspan="5">No mentors appear in multiple groups yet.</td></tr>
@@ -757,8 +862,13 @@
       </section>
 
       <section class="ce-panel">
-        <h2 class="ce-panel-title">Survey-Derived Impact Metrics</h2>
-        <p class="ce-panel-subtitle">NPS and wellbeing fields are detected only when the connected survey sheets contain recognizable numeric columns.</p>
+        <div class="ce-section-head">
+          <div>
+            <p class="ce-section-kicker">Impact Signals</p>
+            <h2 class="ce-panel-title">Survey-Derived Metrics</h2>
+            <p class="ce-panel-subtitle">NPS and wellbeing fields are detected only when the connected survey sheets contain recognizable numeric columns.</p>
+          </div>
+        </div>
         <div class="ce-two-col">
           <div class="ce-subpanel">
             <h3>NPS-like Columns</h3>
@@ -768,10 +878,10 @@
                   <tr>
                     <th>Dataset</th>
                     <th>Column</th>
-                    <th>NPS</th>
-                    <th>Responses</th>
-                    <th>Promoters</th>
-                    <th>Detractors</th>
+                    <th class="ce-num">NPS</th>
+                    <th class="ce-num">Responses</th>
+                    <th class="ce-num">Promoters</th>
+                    <th class="ce-num">Detractors</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -779,10 +889,10 @@
                     <tr>
                       <td>{{ row.dataset }}</td>
                       <td>{{ row.label }}</td>
-                      <td>{{ row.score }}</td>
-                      <td>{{ row.responses }}</td>
-                      <td>{{ row.promoters }}</td>
-                      <td>{{ row.detractors }}</td>
+                      <td class="ce-num">{{ row.score }}</td>
+                      <td class="ce-num">{{ row.responses }}</td>
+                      <td class="ce-num">{{ row.promoters }}</td>
+                      <td class="ce-num">{{ row.detractors }}</td>
                     </tr>
                   {% empty %}
                     <tr><td colspan="6">No NPS-like 0-10 columns detected in loaded survey sheets.</td></tr>
@@ -800,9 +910,9 @@
                   <tr>
                     <th>Dataset</th>
                     <th>Column</th>
-                    <th>Avg</th>
-                    <th>Responses</th>
-                    <th>Range</th>
+                    <th class="ce-num">Avg</th>
+                    <th class="ce-num">Responses</th>
+                    <th class="ce-num">Range</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -810,9 +920,9 @@
                     <tr>
                       <td>{{ row.dataset }}</td>
                       <td>{{ row.label }}</td>
-                      <td>{{ row.avg }}</td>
-                      <td>{{ row.responses }}</td>
-                      <td>{{ row.min }} - {{ row.max }}</td>
+                      <td class="ce-num">{{ row.avg }}</td>
+                      <td class="ce-num">{{ row.responses }}</td>
+                      <td class="ce-num">{{ row.min }} - {{ row.max }}</td>
                     </tr>
                   {% empty %}
                     <tr><td colspan="5">No numeric wellbeing-like fields detected in loaded survey sheets.</td></tr>
@@ -825,8 +935,13 @@
       </section>
 
       <section class="ce-panel">
-        <h2 class="ce-panel-title">Metric Coverage Map</h2>
-        <p class="ce-panel-subtitle">What the dashboard can calculate now and what still needs an external or manual data source.</p>
+        <div class="ce-section-head">
+          <div>
+            <p class="ce-section-kicker">Data Coverage</p>
+            <h2 class="ce-panel-title">Metric Coverage Map</h2>
+            <p class="ce-panel-subtitle">What the dashboard can calculate now and what still needs an external or manual data source.</p>
+          </div>
+        </div>
         <div class="ce-table-wrap">
           <table class="ce-table">
             <thead>
@@ -844,7 +959,7 @@
                 <tr>
                   <td>{{ row.area }}</td>
                   <td>{{ row.metric }}</td>
-                  <td><span class="ce-pill">{{ row.status }}</span></td>
+                  <td><span class="ce-pill ce-pill--{{ row.status_key }}">{{ row.status }}</span></td>
                   <td>{{ row.current }}</td>
                   <td>{{ row.source }}</td>
                   <td>{{ row.owner|default:"-" }}</td>

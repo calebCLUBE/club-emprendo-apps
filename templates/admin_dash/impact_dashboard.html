@@ -63,25 +63,30 @@
         background: #fff;
         color: var(--ce-accent) !important;
       }
-      .ce-panel {
+      .ce-metric-board {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+        align-items: start;
+      }
+      .ce-metric-box {
         background: var(--ce-surface);
         border: 1px solid var(--ce-border);
-        border-radius: 10px;
+        border-radius: 8px;
         padding: 16px;
-        margin-top: 16px;
+        min-width: 0;
       }
-      .ce-panel--quiet {
-        background: #fbfcfe;
+      .ce-metric-box--wide {
+        grid-column: 1 / -1;
       }
-      .ce-section-head {
+      .ce-box-head {
         display: flex;
         justify-content: space-between;
-        align-items: flex-start;
         gap: 14px;
-        flex-wrap: wrap;
-        margin-bottom: 10px;
+        align-items: flex-start;
+        margin-bottom: 12px;
       }
-      .ce-section-kicker {
+      .ce-box-kicker {
         margin: 0 0 4px;
         color: #516079;
         font-size: 11px;
@@ -89,276 +94,81 @@
         letter-spacing: 0.08em;
         text-transform: uppercase;
       }
-      .ce-panel-title {
+      .ce-box-title {
         margin: 0;
-        font-size: 18px;
         color: var(--ce-text);
+        font-size: 18px;
       }
-      .ce-panel-subtitle {
-        margin-top: 4px;
+      .ce-box-note {
+        margin: 4px 0 0;
         color: var(--ce-muted);
-        font-size: 13px;
-      }
-      .ce-filter-wrap summary {
-        cursor: pointer;
-        font-weight: 700;
-        color: #223413;
-      }
-      .ce-filter-grid {
-        display: grid;
-        gap: 10px;
-        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-        margin: 12px 0 14px;
-      }
-      .ce-filter-grid label {
-        display: block;
-        font-size: 12px;
-        font-weight: 700;
-        color: #344054;
-        margin-bottom: 5px;
-      }
-      .ce-filter-grid input,
-      .ce-filter-grid select {
-        width: 100%;
-        box-sizing: border-box;
-        padding: 9px;
-        border: 1px solid #d4dce8;
-        border-radius: 8px;
-        background: #fff;
-      }
-      .ce-filter-sections {
-        display: grid;
-        gap: 8px;
-        grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
-        border: 1px solid #e2e8f0;
-        border-radius: 10px;
-        background: var(--ce-bg-soft);
-        padding: 10px;
-      }
-      .ce-filter-sections label {
-        display: flex;
-        gap: 8px;
-        align-items: center;
-        color: #334155;
-        font-size: 13px;
-      }
-      .ce-filter-actions {
-        display: flex;
-        gap: 8px;
-        flex-wrap: wrap;
-        margin-top: 12px;
-      }
-      .ce-report-grid {
-        display: grid;
-        gap: 12px;
-        grid-template-columns: minmax(260px, 420px) minmax(220px, 1fr);
-        align-items: end;
-      }
-      .ce-report-grid label {
-        display: block;
-        font-size: 12px;
-        font-weight: 700;
-        color: #344054;
-        margin-bottom: 5px;
-      }
-      .ce-report-grid select {
-        width: 100%;
-        min-height: 128px;
-        box-sizing: border-box;
-        padding: 9px;
-        border: 1px solid #d4dce8;
-        border-radius: 8px;
-        background: #fff;
-      }
-      .ce-report-copy {
-        margin: 0 0 10px;
-        color: var(--ce-muted);
-        font-size: 13px;
-      }
-      .ce-kpi-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-        gap: 10px;
-        margin-top: 12px;
-      }
-      .ce-kpi {
-        border: 1px solid #dde6f1;
-        border-radius: 8px;
-        padding: 12px;
-        background: #fff;
-        box-shadow: 0 1px 0 rgba(16, 24, 40, 0.03);
-      }
-      .ce-kpi--blue { border-top: 4px solid #3b82f6; }
-      .ce-kpi--teal { border-top: 4px solid #14b8a6; }
-      .ce-kpi--purple { border-top: 4px solid #8b5cf6; }
-      .ce-kpi--orange { border-top: 4px solid #f59e0b; }
-      .ce-kpi--green { border-top: 4px solid #22c55e; }
-      .ce-kpi--indigo { border-top: 4px solid #6366f1; }
-      .ce-kpi-k {
-        font-size: 12px;
-        color: #64748b;
-        font-weight: 700;
-      }
-      .ce-kpi-v {
-        margin-top: 6px;
-        font-size: 26px;
-        line-height: 1.05;
-        color: #111827;
-        font-weight: 800;
-      }
-      .ce-kpi-note {
-        font-size: 12px;
-        color: #6b7280;
-        margin-top: 4px;
-      }
-      .ce-kpi-grid--primary {
-        grid-template-columns: repeat(5, minmax(0, 1fr));
-      }
-      .ce-definition-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
-        gap: 10px;
-        margin-top: 14px;
-      }
-      .ce-definition {
-        border-left: 4px solid #d7e2ef;
-        background: #f8fbff;
-        padding: 10px 12px;
-        color: #475569;
         font-size: 12px;
         line-height: 1.45;
       }
-      .ce-definition strong {
-        display: block;
-        color: #25324a;
-        margin-bottom: 3px;
+      .ce-big-number {
+        min-width: 96px;
+        text-align: right;
+        color: #0f172a;
+        font-size: 30px;
+        line-height: 1;
+        font-weight: 850;
+        font-variant-numeric: tabular-nums;
       }
-      .ce-chart-grid {
+      .ce-mini-stat-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-        gap: 12px;
-        margin-top: 12px;
+        grid-template-columns: repeat(auto-fit, minmax(135px, 1fr));
+        gap: 10px;
+        margin: 10px 0 12px;
       }
-      .ce-chart-panel {
-        border: 1px solid #e1e8f4;
-        border-radius: 8px;
-        background: #fff;
-        padding: 12px;
-        min-width: 0;
-      }
-      .ce-chart-title {
-        margin: 0;
-        color: #1f2937;
-        font-size: 14px;
-      }
-      .ce-chart-subtitle {
-        margin: 4px 0 0;
-        color: #64748b;
-        font-size: 12px;
-      }
-      .ce-bars--chart .ce-bar-row {
-        grid-template-columns: minmax(112px, 170px) 1fr 72px;
-      }
-      .ce-bars--chart .ce-bar-track {
-        height: 16px;
-      }
-      .ce-detail-panel summary {
-        cursor: pointer;
-        list-style: none;
-      }
-      .ce-detail-panel summary::-webkit-details-marker {
-        display: none;
-      }
-      .ce-detail-summary {
-        display: flex;
-        justify-content: space-between;
-        align-items: flex-start;
-        gap: 12px;
-        color: var(--ce-text);
-      }
-      .ce-detail-summary strong {
-        display: block;
-        font-size: 16px;
-      }
-      .ce-detail-summary span {
-        display: block;
-        margin-top: 3px;
-        color: var(--ce-muted);
-        font-size: 12px;
-      }
-      .ce-detail-summary:after {
-        content: "Open";
-        border: 1px solid #d4dce8;
-        border-radius: 999px;
-        color: #344054;
-        padding: 4px 10px;
-        font-size: 11px;
-        font-weight: 700;
-      }
-      .ce-detail-panel[open] .ce-detail-summary:after {
-        content: "Close";
-      }
-      .ce-detail-content {
-        margin-top: 12px;
-      }
-      .ce-inline-details {
-        margin-top: 12px;
-      }
-      .ce-inline-details summary {
-        cursor: pointer;
-        color: var(--ce-accent);
-        font-weight: 700;
-      }
-      .ce-metric-note-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-        gap: 8px;
-        margin-top: 12px;
-      }
-      .ce-metric-note {
-        border: 1px solid #dbe4f0;
+      .ce-mini-stat {
+        border: 1px solid #dde6f1;
         border-radius: 8px;
         background: #f8fbff;
         padding: 10px;
-        color: #475569;
+      }
+      .ce-mini-stat-k {
+        color: #64748b;
+        font-size: 11px;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+      .ce-mini-stat-v {
+        margin-top: 5px;
+        color: #111827;
+        font-size: 24px;
+        line-height: 1;
+        font-weight: 850;
+        font-variant-numeric: tabular-nums;
+      }
+      .ce-mini-stat-note {
+        margin-top: 5px;
+        color: #64748b;
         font-size: 12px;
-        line-height: 1.4;
       }
-      .ce-metric-note strong {
-        display: block;
-        color: #25324a;
-        margin-bottom: 3px;
-      }
-      .ce-visual-grid {
+      .ce-track-split {
         display: grid;
-        grid-template-columns: 2fr 1fr;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 12px;
       }
-      .ce-line-holder {
-        margin-top: 12px;
-        border: 1px solid #e1e8f4;
-        border-radius: 12px;
-        background: #fff;
-        padding: 8px;
-      }
-      .ce-line-canvas {
-        width: 100%;
-        min-height: 280px;
-      }
-      .ce-pie-stack {
-        display: grid;
-        gap: 12px;
-      }
-      .ce-pie-card {
-        border: 1px solid #e1e8f4;
-        border-radius: 12px;
-        background: #fff;
+      .ce-track-card {
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        background: #ffffff;
         padding: 12px;
+        min-width: 0;
       }
-      .ce-pie-title {
-        margin: 0;
-        font-size: 14px;
+      .ce-track-card h3,
+      .ce-chart-heading {
+        margin: 0 0 8px;
         color: #1f2937;
+        font-size: 14px;
+      }
+      .ce-chart-pair {
+        display: grid;
+        grid-template-columns: 190px 1fr;
+        gap: 12px;
+        align-items: center;
       }
       .ce-donut-wrap {
         margin-top: 10px;
@@ -420,7 +230,7 @@
       }
       .ce-bar-row {
         display: grid;
-        grid-template-columns: minmax(130px, 200px) 1fr 56px;
+        grid-template-columns: minmax(132px, 210px) 1fr 66px;
         align-items: center;
         gap: 10px;
         margin: 9px 0;
@@ -433,19 +243,31 @@
         text-overflow: ellipsis;
       }
       .ce-bar-track {
-        height: 12px;
+        position: relative;
+        height: 13px;
         border-radius: 999px;
         background: #e8edf4;
         overflow: hidden;
       }
       .ce-bar-fill {
+        position: absolute;
+        top: 0;
+        left: 0;
         height: 100%;
         border-radius: 999px;
+      }
+      .ce-bar-zero {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        width: 2px;
+        background: #94a3b8;
       }
       .ce-bar-val {
         text-align: right;
         font-size: 12px;
         color: #475569;
+        font-variant-numeric: tabular-nums;
       }
       .ce-table {
         width: 100%;
@@ -476,125 +298,52 @@
         overflow-x: auto;
         margin-top: 10px;
       }
-      .ce-two-col {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 12px;
-        margin-top: 12px;
-      }
-      .ce-subpanel {
-        border: 1px solid #e2e8f0;
-        border-radius: 8px;
-        background: #ffffff;
-        padding: 12px;
-      }
-      .ce-subpanel h3 {
-        margin: 0 0 8px;
-        font-size: 15px;
-        color: #1f2937;
-      }
-      .ce-assumption {
-        margin-top: 10px;
-        border: 1px solid #d7e1ee;
-        border-radius: 8px;
-        background: #f8fbff;
-        color: #475569;
-        padding: 10px;
+      .ce-compact-table {
         font-size: 12px;
-        line-height: 1.45;
       }
-      .ce-pill {
-        display: inline-block;
-        border-radius: 999px;
-        padding: 4px 9px;
+      .ce-muted-row {
+        display: block;
+        margin-top: 2px;
+        color: #64748b;
         font-size: 11px;
+        line-height: 1.35;
+      }
+      .ce-report-form {
+        display: grid;
+        grid-template-columns: minmax(220px, 1fr) auto;
+        gap: 10px;
+        align-items: end;
+      }
+      .ce-report-form label {
+        display: block;
+        margin-bottom: 5px;
+        color: #344054;
+        font-size: 12px;
         font-weight: 700;
-        color: #1f2937;
-        background: #eef2f7;
-        white-space: nowrap;
       }
-      .ce-pill--available {
-        background: #dcfce7;
-        color: #166534;
-      }
-      .ce-pill--estimated {
-        background: #fef3c7;
-        color: #92400e;
-      }
-      .ce-pill--partial {
-        background: #e0f2fe;
-        color: #075985;
-      }
-      .ce-pill--external {
-        background: #f1f5f9;
-        color: #475569;
-      }
-      .ce-dataset-grid {
-        margin-top: 12px;
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-        gap: 10px;
-      }
-      .ce-dataset {
-        border: 1px solid #e2e8f0;
-        border-radius: 12px;
-        background: #ffffff;
-        padding: 12px;
-      }
-      .ce-dataset h3 {
-        margin: 0;
-        font-size: 16px;
-      }
-      .ce-dataset-sub {
-        margin-top: 6px;
-        color: #475569;
-        font-size: 13px;
-      }
-      .ce-error {
-        margin-top: 8px;
-        color: #b91c1c;
-        font-size: 13px;
-      }
-      .ce-completion-grid {
-        margin-top: 12px;
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 10px;
-      }
-      .ce-completion-card {
-        border: 1px solid #e2e8f0;
-        border-radius: 12px;
+      .ce-report-select {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 9px;
+        border: 1px solid #d4dce8;
+        border-radius: 8px;
         background: #fff;
-        padding: 12px;
-      }
-      .ce-completion-card h3 {
-        margin: 0;
-      }
-      .ce-link {
-        margin-top: 8px;
-        display: inline-block;
       }
       .ce-empty {
         color: #6b7280;
         font-style: italic;
       }
       @media (max-width: 980px) {
-        .ce-visual-grid {
+        .ce-metric-board,
+        .ce-track-split,
+        .ce-chart-pair,
+        .ce-report-form {
           grid-template-columns: 1fr;
         }
-        .ce-completion-grid {
-          grid-template-columns: 1fr;
+        .ce-big-number {
+          text-align: left;
         }
-        .ce-two-col {
-          grid-template-columns: 1fr;
-        }
-        .ce-report-grid {
-          grid-template-columns: 1fr;
-        }
-        .ce-kpi-grid--primary {
-          grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
-        }
-        .ce-bars--chart .ce-bar-row {
+        .ce-bar-row {
           grid-template-columns: 1fr;
           gap: 5px;
         }
@@ -608,7 +357,7 @@
       <div class="ce-impact-header">
         <div>
           <h1 class="ce-impact-title">Impact Dashboard</h1>
-          <div class="ce-impact-subtitle">One program story across reach, participation, completion, engagement, and impact signals.</div>
+          <div class="ce-impact-subtitle">Core program metrics across applications, participant workbooks, and impact surveys.</div>
         </div>
         <div class="ce-actions">
           <a class="ce-btn ce-btn--ghost" href="{% url 'admin_dashboards_home' %}">Dashboards</a>
@@ -616,881 +365,293 @@
         </div>
       </div>
 
-      <details class="ce-panel ce-filter-wrap">
-        <summary>Dashboard Controls</summary>
-        <form method="get">
-          <input type="hidden" name="customize" value="1">
-          <div class="ce-filter-grid">
+      <div class="ce-metric-board">
+        <section class="ce-metric-box ce-metric-box--wide">
+          <div class="ce-box-head">
             <div>
-              <label for="track">Track</label>
-              <select id="track" name="track">
-                <option value="all" {% if track_filter == "all" %}selected{% endif %}>All tracks</option>
-                <option value="e" {% if track_filter == "e" %}selected{% endif %}>Emprendedoras only</option>
-                <option value="m" {% if track_filter == "m" %}selected{% endif %}>Mentoras only</option>
-              </select>
+              <p class="ce-box-kicker">Participants</p>
+              <h2 class="ce-box-title">Number of Participants</h2>
+              <p class="ce-box-note">A participant is anyone listed on the Participants page workbook. Country and Estatus are shown separately for Emprendedoras and Mentoras.</p>
             </div>
-            <div>
-              <label for="stage">Impact checkpoint</label>
-              <select id="stage" name="stage">
-                <option value="all" {% if stage_filter == "all" %}selected{% endif %}>Initial + Final</option>
-                <option value="initial" {% if stage_filter == "initial" %}selected{% endif %}>Initial only</option>
-                <option value="final" {% if stage_filter == "final" %}selected{% endif %}>Final only</option>
-              </select>
+            <div class="ce-big-number">{{ participant_summary.overall.rows }}</div>
+          </div>
+          <div class="ce-mini-stat-grid">
+            <div class="ce-mini-stat">
+              <div class="ce-mini-stat-k">All rows</div>
+              <div class="ce-mini-stat-v">{{ participant_summary.overall.rows }}</div>
+              <div class="ce-mini-stat-note">{{ participant_summary.overall.unique }} unique emails</div>
             </div>
-            <div>
-              <label for="top_n">Question rows shown per table</label>
-              <input id="top_n" type="number" min="3" max="40" name="top_n" value="{{ top_n }}">
+            <div class="ce-mini-stat">
+              <div class="ce-mini-stat-k">Emprendedoras</div>
+              <div class="ce-mini-stat-v">{{ participant_summary.tracks.e.rows }}</div>
+              <div class="ce-mini-stat-note">{{ participant_summary.tracks.e.unique }} unique emails</div>
+            </div>
+            <div class="ce-mini-stat">
+              <div class="ce-mini-stat-k">Mentoras</div>
+              <div class="ce-mini-stat-v">{{ participant_summary.tracks.m.rows }}</div>
+              <div class="ce-mini-stat-note">{{ participant_summary.tracks.m.unique }} unique emails</div>
             </div>
           </div>
-
-          <div class="ce-filter-sections">
-            <label><input type="checkbox" name="show_cards" value="1" {% if show_cards %}checked{% endif %}> Checkpoint KPI cards</label>
-            <label><input type="checkbox" name="show_visuals" value="1" {% if show_visuals %}checked{% endif %}> Checkpoint charts</label>
-            <label><input type="checkbox" name="show_volume_chart" value="1" {% if show_volume_chart %}checked{% endif %}> Checkpoint volume bars</label>
-            <label><input type="checkbox" name="show_track_table" value="1" {% if show_track_table %}checked{% endif %}> Track checkpoint comparison</label>
-            <label><input type="checkbox" name="show_dataset_cards" value="1" {% if show_dataset_cards %}checked{% endif %}> Source health cards</label>
-            <label><input type="checkbox" name="show_completion_e" value="1" {% if show_completion_e %}checked{% endif %}> Emprendedoras question completion</label>
-            <label><input type="checkbox" name="show_completion_m" value="1" {% if show_completion_m %}checked{% endif %}> Mentoras question completion</label>
+          <div class="ce-track-split">
+            <div class="ce-track-card">
+              <h3>Emprendedoras by Country</h3>
+              <div class="ce-chart-pair">
+                <div>
+                  <div class="ce-donut-wrap">
+                    <div class="ce-donut" id="ce-country-e-donut">
+                      <div class="ce-donut-hole">
+                        <strong class="ce-donut-total" id="ce-country-e-total">0</strong>
+                        <span class="ce-donut-sub">Rows</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <ul class="ce-legend" id="ce-country-e-legend"></ul>
+              </div>
+              <h3 class="ce-chart-heading">Emprendedoras by Estatus</h3>
+              <div id="ce-status-e-chart" class="ce-bars"></div>
+            </div>
+            <div class="ce-track-card">
+              <h3>Mentoras by Country</h3>
+              <div class="ce-chart-pair">
+                <div>
+                  <div class="ce-donut-wrap">
+                    <div class="ce-donut" id="ce-country-m-donut">
+                      <div class="ce-donut-hole">
+                        <strong class="ce-donut-total" id="ce-country-m-total">0</strong>
+                        <span class="ce-donut-sub">Rows</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <ul class="ce-legend" id="ce-country-m-legend"></ul>
+              </div>
+              <h3 class="ce-chart-heading">Mentoras by Estatus</h3>
+              <div id="ce-status-m-chart" class="ce-bars"></div>
+            </div>
           </div>
+        </section>
 
-          <div class="ce-filter-actions">
-            <button class="ce-btn" type="submit">Apply dashboard settings</button>
-            <a class="ce-btn ce-btn--ghost" href="{% url 'admin_impact_dashboard' %}">Reset</a>
-          </div>
-        </form>
-      </details>
-
-      <section class="ce-panel ce-panel--quiet">
-        <div class="ce-section-head">
-          <div>
-            <p class="ce-section-kicker">Export</p>
-            <h2 class="ce-panel-title">PDF Report</h2>
-            <p class="ce-panel-subtitle">Generate a group-scoped report that follows the same reach-to-impact story as the dashboard.</p>
-          </div>
-        </div>
-        <form method="get" action="{% url 'admin_impact_dashboard_pdf' %}">
-          <div class="ce-report-grid">
+        <section class="ce-metric-box">
+          <div class="ce-box-head">
             <div>
-              <label for="impact-report-groups">Groups</label>
-              <select id="impact-report-groups" name="groups" multiple>
+              <p class="ce-box-kicker">Completion</p>
+              <h2 class="ce-box-title">Graduation Rate</h2>
+              <p class="ce-box-note">Graduated rows use Estatus G. The rate is graduated divided by participant rows whose Estatus indicates they began the program.</p>
+            </div>
+            <div class="ce-big-number">{{ participant_summary.overall.graduation_rate }}%</div>
+          </div>
+          <div class="ce-mini-stat-grid">
+            <div class="ce-mini-stat">
+              <div class="ce-mini-stat-k">Graduated</div>
+              <div class="ce-mini-stat-v">{{ participant_summary.overall.graduated }}</div>
+              <div class="ce-mini-stat-note">{{ participant_summary.overall.started }} rows counted as began</div>
+            </div>
+          </div>
+          <div id="ce-graduation-rate-chart" class="ce-bars"></div>
+        </section>
+
+        <section class="ce-metric-box">
+          <div class="ce-box-head">
+            <div>
+              <p class="ce-box-kicker">Applications</p>
+              <h2 class="ce-box-title">Application Conversion</h2>
+              <p class="ce-box-note">Converted to listed means the applicant email appears on the Participants page. Graduated uses the same applicant email match.</p>
+            </div>
+            {% for row in conversion_rows %}
+              {% if row.track == "All" %}
+                <div class="ce-big-number">{{ row.app_to_listed_rate }}%</div>
+              {% endif %}
+            {% endfor %}
+          </div>
+          <div id="ce-application-conversion-chart" class="ce-bars"></div>
+          <div class="ce-table-wrap">
+            <table class="ce-table ce-compact-table">
+              <thead>
+                <tr>
+                  <th>Track</th>
+                  <th class="ce-num">Applicants</th>
+                  <th class="ce-num">Listed</th>
+                  <th class="ce-num">Graduated</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in conversion_rows %}
+                  <tr>
+                    <td>{{ row.track }}</td>
+                    <td class="ce-num">{{ row.unique_applicants }}</td>
+                    <td class="ce-num">{{ row.listed_from_app }} ({{ row.app_to_listed_rate }}%)</td>
+                    <td class="ce-num">{{ row.graduated_from_app }} ({{ row.app_to_grad_rate }}%)</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="ce-metric-box ce-metric-box--wide">
+          <div class="ce-box-head">
+            <div>
+              <p class="ce-box-kicker">Groups</p>
+              <h2 class="ce-box-title">Number of Groups</h2>
+              <p class="ce-box-note">Group names use the admin group labels. Intake source is inferred by matching participant emails back to application emails.</p>
+            </div>
+            <div class="ce-big-number">{{ participant_summary.overall.groups_with_participants }}</div>
+          </div>
+          <div class="ce-mini-stat-grid">
+            <div class="ce-mini-stat">
+              <div class="ce-mini-stat-k">Groups with participants</div>
+              <div class="ce-mini-stat-v">{{ participant_summary.overall.groups_with_participants }}</div>
+            </div>
+            <div class="ce-mini-stat">
+              <div class="ce-mini-stat-k">Groups in system</div>
+              <div class="ce-mini-stat-v">{{ participant_summary.overall.groups_in_system }}</div>
+            </div>
+          </div>
+          <div class="ce-table-wrap">
+            <table class="ce-table ce-compact-table">
+              <thead>
+                <tr>
+                  <th>Participant group</th>
+                  <th class="ce-num">Participants</th>
+                  <th>Matched intake source</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in group_source_rows %}
+                  <tr>
+                    <td>{{ row.group_label }}</td>
+                    <td class="ce-num">{{ row.participants }}</td>
+                    <td>
+                      {{ row.source_label }}
+                      <span class="ce-muted-row">{{ row.source_detail }}</span>
+                    </td>
+                  </tr>
+                {% empty %}
+                  <tr><td colspan="3">No participant group data available.</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="ce-metric-box">
+          <div class="ce-box-head">
+            <div>
+              <p class="ce-box-kicker">Alumni</p>
+              <h2 class="ce-box-title">Emprendedoras Returning as Mentoras</h2>
+              <p class="ce-box-note">Email overlap between Emprendedora participant rows and Mentora participant rows.</p>
+            </div>
+            <div class="ce-big-number">{{ alumni_summary.returnee_count }}</div>
+          </div>
+          <div id="ce-alumni-returnee-chart" class="ce-bars"></div>
+        </section>
+
+        <section class="ce-metric-box">
+          <div class="ce-box-head">
+            <div>
+              <p class="ce-box-kicker">Mentoras</p>
+              <h2 class="ce-box-title">Repeat Mentoras</h2>
+              <p class="ce-box-note">Mentora emails that appear in two or more participant groups.</p>
+            </div>
+            <div class="ce-big-number">{{ alumni_summary.repeated_mentor_count }}</div>
+          </div>
+          <div id="ce-repeat-mentor-chart" class="ce-bars"></div>
+        </section>
+
+        <section class="ce-metric-box">
+          <div class="ce-box-head">
+            <div>
+              <p class="ce-box-kicker">Survey</p>
+              <h2 class="ce-box-title">NPS</h2>
+              <p class="ce-box-note">Weighted score from NPS-like 0-10 survey columns detected in the impact surveys.</p>
+            </div>
+            <div class="ce-big-number">{{ nps_summary.score|default_if_none:"-" }}</div>
+          </div>
+          <div class="ce-mini-stat-grid">
+            <div class="ce-mini-stat">
+              <div class="ce-mini-stat-k">Responses</div>
+              <div class="ce-mini-stat-v">{{ nps_summary.responses }}</div>
+            </div>
+          </div>
+          <div id="ce-nps-chart" class="ce-bars"></div>
+        </section>
+
+        <section class="ce-metric-box">
+          <div class="ce-box-head">
+            <div>
+              <p class="ce-box-kicker">Impact</p>
+              <h2 class="ce-box-title">Quality of Life</h2>
+              <p class="ce-box-note">Weighted average from wellbeing and quality-of-life-like numeric survey fields.</p>
+            </div>
+            <div class="ce-big-number">{{ wellbeing_summary.avg|default_if_none:"-" }}</div>
+          </div>
+          <div class="ce-mini-stat-grid">
+            <div class="ce-mini-stat">
+              <div class="ce-mini-stat-k">Responses</div>
+              <div class="ce-mini-stat-v">{{ wellbeing_summary.responses }}</div>
+            </div>
+          </div>
+          <div id="ce-wellbeing-chart" class="ce-bars"></div>
+        </section>
+
+        <section class="ce-metric-box">
+          <div class="ce-box-head">
+            <div>
+              <p class="ce-box-kicker">Survey</p>
+              <h2 class="ce-box-title">Survey Response Rate</h2>
+              <p class="ce-box-note">Initial and final impact survey completion from participant workbook check columns.</p>
+            </div>
+            <div class="ce-big-number">{{ participant_summary.overall.final_survey_rate }}%</div>
+          </div>
+          <div class="ce-mini-stat-grid">
+            <div class="ce-mini-stat">
+              <div class="ce-mini-stat-k">Final responses</div>
+              <div class="ce-mini-stat-v">{{ participant_summary.overall.final_survey_responses }}</div>
+            </div>
+            <div class="ce-mini-stat">
+              <div class="ce-mini-stat-k">Initial responses</div>
+              <div class="ce-mini-stat-v">{{ participant_summary.overall.initial_survey_responses }}</div>
+            </div>
+          </div>
+          <div id="ce-survey-response-rate-chart" class="ce-bars"></div>
+        </section>
+
+        <section class="ce-metric-box">
+          <div class="ce-box-head">
+            <div>
+              <p class="ce-box-kicker">Export</p>
+              <h2 class="ce-box-title">Download PDF Report</h2>
+              <p class="ce-box-note">Choose one participant group, or export all groups.</p>
+            </div>
+          </div>
+          <form class="ce-report-form" method="get" action="{% url 'admin_impact_dashboard_pdf' %}">
+            <div>
+              <label for="impact-report-groups">Group scope</label>
+              <select id="impact-report-groups" class="ce-report-select" name="groups">
+                <option value="">All groups</option>
                 {% for group in impact_report_group_options %}
                   <option value="{{ group.number }}">{{ group.label }}</option>
                 {% endfor %}
               </select>
             </div>
-            <div>
-              <p class="ce-report-copy">No group selection exports all groups.</p>
-              <button class="ce-btn" type="submit">Download PDF report</button>
-            </div>
-          </div>
-        </form>
-      </section>
-
-      {% if not has_scoped_data %}
-        <section class="ce-panel">
-          <p class="ce-empty">No checkpoint data matches the current filters.</p>
+            <button class="ce-btn" type="submit">Download PDF report</button>
+          </form>
         </section>
-      {% endif %}
-
-      <section class="ce-panel">
-        <div class="ce-section-head">
-          <div>
-            <p class="ce-section-kicker">Program Snapshot</p>
-            <h2 class="ce-panel-title">At-a-Glance</h2>
-            <p class="ce-panel-subtitle">The fastest read from first expression of interest through final impact check-ins.</p>
-          </div>
-        </div>
-        {% with p=participant_summary.overall apps=application_summary.overall %}
-        <div class="ce-kpi-grid ce-kpi-grid--primary">
-          <div class="ce-kpi ce-kpi--orange">
-            <div class="ce-kpi-k">Applicant Reach</div>
-            <div class="ce-kpi-v">{{ apps.unique }}</div>
-            <div class="ce-kpi-note">{{ apps.raw }} total forms; {{ apps.duplicate_or_repeat }} repeats</div>
-          </div>
-          <div class="ce-kpi ce-kpi--blue">
-            <div class="ce-kpi-k">Participant Workbook Rows</div>
-            <div class="ce-kpi-v">{{ p.rows }}</div>
-            <div class="ce-kpi-note">{{ p.unique }} unique emails listed</div>
-          </div>
-          <div class="ce-kpi ce-kpi--teal">
-            <div class="ce-kpi-k">Started Program</div>
-            <div class="ce-kpi-v">{{ p.started }}</div>
-            <div class="ce-kpi-note">{{ p.started_unique }} unique emails</div>
-          </div>
-          <div class="ce-kpi ce-kpi--green">
-            <div class="ce-kpi-k">Graduated</div>
-            <div class="ce-kpi-v">{{ p.graduated }}</div>
-            <div class="ce-kpi-note">{{ p.graduation_rate }}% graduation rate</div>
-          </div>
-          <div class="ce-kpi ce-kpi--purple">
-            <div class="ce-kpi-k">Final Impact Check-ins</div>
-            <div class="ce-kpi-v">{{ overall.final_unique }}</div>
-            <div class="ce-kpi-note">{{ overall.final_responses }} total responses</div>
-          </div>
-        </div>
-        {% endwith %}
-        <div class="ce-definition-grid">
-          <div class="ce-definition">
-            <strong>Applicant reach</strong>
-            Unique emails from intake forms, deduped across repeated submissions. Form totals still preserve repeats.
-          </div>
-          <div class="ce-definition">
-            <strong>Participant workbook rows</strong>
-            Everyone listed in the participant workbook. This is the broadest count and may include selected people who have not started.
-          </div>
-          <div class="ce-definition">
-            <strong>Started program</strong>
-            Workbook rows with progress checks or Estatus in NCP, NCPP, CG, CP, D/NC, E, G, or A. This is a subset of workbook rows.
-          </div>
-          <div class="ce-definition">
-            <strong>Graduated</strong>
-            Workbook rows where Estatus is G. Graduation rate uses graduated divided by started.
-          </div>
-          <div class="ce-definition">
-            <strong>Final impact check-ins</strong>
-            Unique emails captured at the final checkpoint. Totals can be filtered by track and checkpoint using dashboard controls.
-          </div>
-        </div>
-      </section>
-
-      <section class="ce-panel">
-        <div class="ce-section-head">
-          <div>
-            <p class="ce-section-kicker">Interpretation Layer</p>
-            <h2 class="ce-panel-title">Impact Story</h2>
-            <p class="ce-panel-subtitle">A combined view of reach, participation, outcomes, and follow-up evidence.</p>
-          </div>
-        </div>
-        <div class="ce-chart-grid">
-          <div class="ce-chart-panel">
-            <h3 class="ce-chart-title">Reach to Impact Journey</h3>
-            <p class="ce-chart-subtitle">The same participant story from intake through final check-ins.</p>
-            <div id="ce-impact-journey-chart" class="ce-bars ce-bars--chart"></div>
-          </div>
-          <div class="ce-chart-panel">
-            <h3 class="ce-chart-title">Outcome Rates</h3>
-            <p class="ce-chart-subtitle">Conversion, graduation, and checkpoint completion in one place.</p>
-            <div id="ce-impact-rate-chart" class="ce-bars ce-bars--chart"></div>
-          </div>
-          <div class="ce-chart-panel">
-            <h3 class="ce-chart-title">Track Check-ins</h3>
-            <p class="ce-chart-subtitle">Initial and final checkpoint completion by participant track.</p>
-            <div id="ce-checkpoint-rate-chart" class="ce-bars ce-bars--chart"></div>
-          </div>
-        </div>
-      </section>
-
-      <details class="ce-panel ce-detail-panel">
-        <summary>
-          <span class="ce-detail-summary">
-            <span>
-              <strong>Reach, Participation, and Outcome Detail</strong>
-              <span>Track, country, and conversion tables for audit and follow-up.</span>
-            </span>
-          </span>
-        </summary>
-        <div class="ce-detail-content">
-        <div class="ce-section-head">
-          <div>
-            <p class="ce-section-kicker">Pipeline</p>
-            <h2 class="ce-panel-title">Integrated Pipeline</h2>
-            <p class="ce-panel-subtitle">Track-level reach, participation, completion, and conversion metrics.</p>
-          </div>
-        </div>
-        <div class="ce-two-col">
-          <div class="ce-subpanel">
-            <h3>Participants by Track</h3>
-            <div class="ce-table-wrap">
-              <table class="ce-table">
-                <thead>
-                  <tr>
-                    <th>Track</th>
-                    <th class="ce-num">Rows</th>
-                    <th class="ce-num">Unique</th>
-                    <th class="ce-num">Started</th>
-                    <th class="ce-num">Graduated</th>
-                    <th class="ce-num">Grad rate</th>
-                    <th class="ce-num">Initial check-in</th>
-                    <th class="ce-num">Final check-in</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {% for track_key, t in participant_summary.tracks.items %}
-                    <tr>
-                      <td>{{ t.label }}</td>
-                      <td class="ce-num">{{ t.rows }}</td>
-                      <td class="ce-num">{{ t.unique }}</td>
-                      <td class="ce-num">{{ t.started }}</td>
-                      <td class="ce-num">{{ t.graduated }}</td>
-                      <td class="ce-num">{{ t.graduation_rate }}%</td>
-                      <td class="ce-num">{{ t.initial_survey_responses }} ({{ t.initial_survey_rate }}%)</td>
-                      <td class="ce-num">{{ t.final_survey_responses }} ({{ t.final_survey_rate }}%)</td>
-                    </tr>
-                  {% endfor %}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          <div class="ce-subpanel">
-            <h3>Conversion to Program Outcomes</h3>
-            <div class="ce-table-wrap">
-              <table class="ce-table">
-                <thead>
-                  <tr>
-                    <th>Track</th>
-                    <th class="ce-num">Unique applicants</th>
-                    <th class="ce-num">App -> start</th>
-                    <th class="ce-num">Rate</th>
-                    <th class="ce-num">App -> graduation</th>
-                    <th class="ce-num">Rate</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {% for row in conversion_rows %}
-                    <tr>
-                      <td>{{ row.track }}</td>
-                      <td class="ce-num">{{ row.unique_applicants }}</td>
-                      <td class="ce-num">{{ row.started_from_app }}</td>
-                      <td class="ce-num">{{ row.app_to_start_rate }}%</td>
-                      <td class="ce-num">{{ row.graduated_from_app }}</td>
-                      <td class="ce-num">{{ row.app_to_grad_rate }}%</td>
-                    </tr>
-                  {% endfor %}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-
-        <div class="ce-two-col">
-          <div class="ce-subpanel">
-            <h3>Reach by Track</h3>
-            <div class="ce-table-wrap">
-              <table class="ce-table">
-                <thead>
-                  <tr>
-                    <th>Track</th>
-                    <th class="ce-num">Raw apps</th>
-                    <th class="ce-num">Unique emails</th>
-                    <th class="ce-num">Repeat gap</th>
-                    <th class="ce-num">A1</th>
-                    <th class="ce-num">A2</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {% for row in application_summary.tracks %}
-                    <tr>
-                      <td>{{ row.track }}</td>
-                      <td class="ce-num">{{ row.raw }}</td>
-                      <td class="ce-num">{{ row.unique }}</td>
-                      <td class="ce-num">{{ row.duplicate_or_repeat }}</td>
-                      <td class="ce-num">{{ row.a1 }}</td>
-                      <td class="ce-num">{{ row.a2 }}</td>
-                    </tr>
-                  {% endfor %}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          <div class="ce-subpanel">
-            <h3>Participants by Country</h3>
-            <div class="ce-table-wrap">
-              <table class="ce-table">
-                <thead>
-                  <tr>
-                    <th>Country</th>
-                    <th class="ce-num">Participant rows</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {% for row in participant_summary.country_rows %}
-                    <tr>
-                      <td>{{ row.country }}</td>
-                      <td class="ce-num">{{ row.count }}</td>
-                    </tr>
-                  {% empty %}
-                    <tr><td colspan="2">No country data available.</td></tr>
-                  {% endfor %}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-
-        </div>
-      </details>
-
-      <details class="ce-panel ce-detail-panel">
-        <summary>
-          <span class="ce-detail-summary">
-            <span>
-              <strong>Group Detail</strong>
-              <span>Group-by-group participant outcomes and reach volume.</span>
-            </span>
-          </span>
-        </summary>
-        <div class="ce-detail-content">
-        <div class="ce-section-head">
-          <div>
-            <p class="ce-section-kicker">Cohorts</p>
-            <h2 class="ce-panel-title">Group Detail</h2>
-            <p class="ce-panel-subtitle">Group-by-group participant outcomes and reach volume.</p>
-          </div>
-        </div>
-        <div class="ce-table-wrap">
-          <table class="ce-table">
-            <thead>
-              <tr>
-                <th>Group</th>
-                <th>Track</th>
-                <th class="ce-num">Participants</th>
-                <th class="ce-num">Started</th>
-                <th class="ce-num">Graduated</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for row in participant_summary.group_rows %}
-                <tr>
-                  <td>{{ row.group_label }}</td>
-                  <td>{{ row.track }}</td>
-                  <td class="ce-num">{{ row.participants }}</td>
-                  <td class="ce-num">{{ row.started }}</td>
-                  <td class="ce-num">{{ row.graduated }}</td>
-                </tr>
-              {% empty %}
-                <tr><td colspan="5">No participant group data available.</td></tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-
-        <div class="ce-table-wrap">
-          <table class="ce-table">
-            <thead>
-              <tr>
-                <th>Group</th>
-                <th>Year</th>
-                <th>Track</th>
-                <th class="ce-num">Raw forms</th>
-                <th class="ce-num">Unique emails</th>
-                <th class="ce-num">Repeat gap</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for row in application_summary.group_rows %}
-                <tr>
-                  <td>{{ row.group_label }}</td>
-                  <td>{{ row.group_year|default:"-" }}</td>
-                  <td>{{ row.track }}</td>
-                  <td class="ce-num">{{ row.raw }}</td>
-                  <td class="ce-num">{{ row.unique }}</td>
-                  <td class="ce-num">{{ row.duplicate_or_repeat }}</td>
-                </tr>
-              {% empty %}
-                <tr><td colspan="6">No reach group data available.</td></tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-        </div>
-      </details>
-
-      <section class="ce-panel">
-        <div class="ce-section-head">
-          <div>
-            <p class="ce-section-kicker">Engagement</p>
-            <h2 class="ce-panel-title">Alumni and Mentor Re-Engagement</h2>
-            <p class="ce-panel-subtitle">Email-based estimates from participant workbooks. Participation definition still needs final program policy.</p>
-          </div>
-        </div>
-        {% with p=participant_summary.overall %}
-        <div class="ce-kpi-grid">
-          <div class="ce-kpi ce-kpi--green">
-            <div class="ce-kpi-k">E Alumni Also Mentors</div>
-            <div class="ce-kpi-v">{{ alumni_summary.returnee_count }}</div>
-            <div class="ce-kpi-note">Email overlap across tracks</div>
-          </div>
-          <div class="ce-kpi ce-kpi--teal">
-            <div class="ce-kpi-k">Later Mentor Group</div>
-            <div class="ce-kpi-v">{{ alumni_summary.later_returnee_count }}</div>
-            <div class="ce-kpi-note">Mentor group appears after E group</div>
-          </div>
-          <div class="ce-kpi ce-kpi--indigo">
-            <div class="ce-kpi-k">Repeat Mentors</div>
-            <div class="ce-kpi-v">{{ alumni_summary.repeated_mentor_count }}</div>
-            <div class="ce-kpi-note">Mentor email in 2+ groups</div>
-          </div>
-          <div class="ce-kpi ce-kpi--purple">
-            <div class="ce-kpi-k">Groups in Website</div>
-            <div class="ce-kpi-v">{{ p.groups_in_system }}</div>
-            <div class="ce-kpi-note">{{ p.groups_with_participants }} with participant rows</div>
-          </div>
-        </div>
-        {% endwith %}
-        <details class="ce-inline-details">
-          <summary>Show email-level engagement detail</summary>
-        <div class="ce-two-col">
-          <div class="ce-subpanel">
-            <h3>Emprendedoras Returning As Mentors</h3>
-            <div class="ce-table-wrap">
-              <table class="ce-table">
-                <thead>
-                  <tr>
-                    <th>Email</th>
-                    <th>E groups</th>
-                    <th>M groups</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {% for row in alumni_summary.returnee_preview %}
-                    <tr>
-                      <td>{{ row.email }}</td>
-                      <td>{{ row.emprendedora_groups|join:", " }}</td>
-                      <td>{{ row.mentora_groups|join:", " }}</td>
-                    </tr>
-                  {% empty %}
-                    <tr><td colspan="3">No returnees found by email overlap.</td></tr>
-                  {% endfor %}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          <div class="ce-subpanel">
-            <h3>Repeated Mentors</h3>
-            <div class="ce-table-wrap">
-              <table class="ce-table">
-                <thead>
-                  <tr>
-                    <th>Email</th>
-                    <th>Groups</th>
-                    <th class="ce-num">Count</th>
-                    <th class="ce-num">First</th>
-                    <th class="ce-num">Last</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {% for row in alumni_summary.repeated_mentors %}
-                    <tr>
-                      <td>{{ row.email }}</td>
-                      <td>{{ row.groups|join:", " }}</td>
-                      <td class="ce-num">{{ row.group_count }}</td>
-                      <td class="ce-num">G{{ row.first_group }}</td>
-                      <td class="ce-num">G{{ row.last_group }}</td>
-                    </tr>
-                  {% empty %}
-                    <tr><td colspan="5">No mentors appear in multiple groups yet.</td></tr>
-                  {% endfor %}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-        </details>
-      </section>
-
-      <details class="ce-panel ce-detail-panel">
-        <summary>
-          <span class="ce-detail-summary">
-            <span>
-              <strong>NPS, Wellbeing, and Impact Signals</strong>
-              <span>NPS-like and wellbeing-like fields detected in connected impact check-ins.</span>
-            </span>
-          </span>
-        </summary>
-        <div class="ce-detail-content">
-        <div class="ce-section-head">
-          <div>
-            <p class="ce-section-kicker">Impact Signals</p>
-            <h2 class="ce-panel-title">NPS, Wellbeing, and Impact Signals</h2>
-            <p class="ce-panel-subtitle">These fields appear when the connected impact check-ins contain recognizable numeric columns.</p>
-          </div>
-        </div>
-        <div class="ce-two-col">
-          <div class="ce-subpanel">
-            <h3>NPS-like Fields</h3>
-            <div class="ce-table-wrap">
-              <table class="ce-table">
-                <thead>
-                  <tr>
-                    <th>Checkpoint</th>
-                    <th>Column</th>
-                    <th class="ce-num">NPS</th>
-                    <th class="ce-num">Responses</th>
-                    <th class="ce-num">Promoters</th>
-                    <th class="ce-num">Detractors</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {% for row in nps_rows %}
-                    <tr>
-                      <td>{{ row.dataset }}</td>
-                      <td>{{ row.label }}</td>
-                      <td class="ce-num">{{ row.score }}</td>
-                      <td class="ce-num">{{ row.responses }}</td>
-                      <td class="ce-num">{{ row.promoters }}</td>
-                      <td class="ce-num">{{ row.detractors }}</td>
-                    </tr>
-                  {% empty %}
-                    <tr><td colspan="6">No NPS-like 0-10 columns detected in loaded impact check-ins.</td></tr>
-                  {% endfor %}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          <div class="ce-subpanel">
-            <h3>Wellbeing-like Fields</h3>
-            <div class="ce-table-wrap">
-              <table class="ce-table">
-                <thead>
-                  <tr>
-                    <th>Checkpoint</th>
-                    <th>Column</th>
-                    <th class="ce-num">Avg</th>
-                    <th class="ce-num">Responses</th>
-                    <th class="ce-num">Range</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {% for row in wellbeing_rows %}
-                    <tr>
-                      <td>{{ row.dataset }}</td>
-                      <td>{{ row.label }}</td>
-                      <td class="ce-num">{{ row.avg }}</td>
-                      <td class="ce-num">{{ row.responses }}</td>
-                      <td class="ce-num">{{ row.min }} - {{ row.max }}</td>
-                    </tr>
-                  {% empty %}
-                    <tr><td colspan="5">No numeric wellbeing-like fields detected in loaded impact check-ins.</td></tr>
-                  {% endfor %}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-        </div>
-      </details>
-
-      <details class="ce-panel ce-detail-panel">
-        <summary>
-          <span class="ce-detail-summary">
-            <span>
-              <strong>Evidence and Completion Detail</strong>
-              <span>Checkpoint snapshots, source health, and question-completion tables.</span>
-            </span>
-          </span>
-        </summary>
-        <div class="ce-detail-content">
-
-      {% if show_cards %}
-      <section class="ce-panel">
-        <h2 class="ce-panel-title">Impact Checkpoint Snapshot</h2>
-        <p class="ce-panel-subtitle">Top-line movement across initial and final impact checkpoints.</p>
-        <div class="ce-kpi-grid">
-          <div class="ce-kpi ce-kpi--blue">
-            <div class="ce-kpi-k">Initial Check-ins</div>
-            <div class="ce-kpi-v">{{ overall.initial_responses }}</div>
-          </div>
-          <div class="ce-kpi ce-kpi--teal">
-            <div class="ce-kpi-k">Final Check-ins</div>
-            <div class="ce-kpi-v">{{ overall.final_responses }}</div>
-            <div class="ce-kpi-note">{{ overall.final_vs_initial_pct }}% of initial volume</div>
-          </div>
-          <div class="ce-kpi ce-kpi--purple">
-            <div class="ce-kpi-k">Response Growth</div>
-            <div class="ce-kpi-v">{{ overall.response_growth }}</div>
-          </div>
-          <div class="ce-kpi ce-kpi--orange">
-            <div class="ce-kpi-k">Initial Unique People</div>
-            <div class="ce-kpi-v">{{ overall.initial_unique }}</div>
-          </div>
-          <div class="ce-kpi ce-kpi--green">
-            <div class="ce-kpi-k">Final Unique People</div>
-            <div class="ce-kpi-v">{{ overall.final_unique }}</div>
-          </div>
-          <div class="ce-kpi ce-kpi--indigo">
-            <div class="ce-kpi-k">People Seen Both Times</div>
-            <div class="ce-kpi-v">{{ overall.retention_pct }}%</div>
-            <div class="ce-kpi-note">{{ overall.matched_unique }} people completed both</div>
-          </div>
-        </div>
-      </section>
-      {% endif %}
-
-      {% if show_visuals %}
-      <section class="ce-panel">
-        <h2 class="ce-panel-title">Checkpoint Visuals</h2>
-        <p class="ce-panel-subtitle">Flow and composition charts for quick scan.</p>
-        <div class="ce-visual-grid">
-          <div>
-            <div class="ce-line-holder">
-              <div id="ce-impact-line-chart" class="ce-line-canvas"></div>
-            </div>
-          </div>
-
-          <div class="ce-pie-stack">
-            <div class="ce-pie-card">
-              <h3 class="ce-pie-title">Check-in Mix</h3>
-              <div class="ce-donut-wrap">
-                <div class="ce-donut" id="ce-impact-dataset-donut">
-                  <div class="ce-donut-hole">
-                    <strong class="ce-donut-total" id="ce-impact-dataset-total">0</strong>
-                    <span class="ce-donut-sub">Total</span>
-                  </div>
-                </div>
-              </div>
-              <ul class="ce-legend" id="ce-impact-dataset-legend"></ul>
-            </div>
-
-            <div class="ce-pie-card">
-              <h3 class="ce-pie-title">Unique Retention Mix</h3>
-              <div class="ce-donut-wrap">
-                <div class="ce-donut" id="ce-impact-retention-donut">
-                  <div class="ce-donut-hole">
-                    <strong class="ce-donut-total" id="ce-impact-retention-total">0</strong>
-                    <span class="ce-donut-sub">Unique</span>
-                  </div>
-                </div>
-              </div>
-              <ul class="ce-legend" id="ce-impact-retention-legend"></ul>
-            </div>
-          </div>
-        </div>
-      </section>
-      {% endif %}
-
-      {% if show_volume_chart %}
-      <section class="ce-panel">
-        <h2 class="ce-panel-title">Check-in Volume</h2>
-        <p class="ce-panel-subtitle">Initial and final checkpoint totals across both tracks.</p>
-        <div class="ce-bars">
-          {% for d in dataset_mix %}
-            <div class="ce-bar-row">
-              <div class="ce-bar-label">{{ d.label }}</div>
-              <div class="ce-bar-track">
-                <div class="ce-bar-fill" style="width: {% widthratio d.value max_dataset_value 100 %}%; background: {{ d.color }};"></div>
-              </div>
-              <div class="ce-bar-val">{{ d.value }}</div>
-            </div>
-          {% empty %}
-            <p class="ce-empty">No checkpoint volume available.</p>
-          {% endfor %}
-        </div>
-      </section>
-      {% endif %}
-
-      {% if show_track_table %}
-      <section class="ce-panel">
-        <h2 class="ce-panel-title">Track Check-in Comparison</h2>
-        <table class="ce-table">
-          <thead>
-            <tr>
-              <th>Track</th>
-              <th>Initial check-ins</th>
-              <th>Final check-ins</th>
-              <th>Final vs initial</th>
-              <th>Initial unique</th>
-              <th>Final unique</th>
-              <th>Retained unique</th>
-              <th>Retention</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for row in track_summaries %}
-              <tr>
-                <td>{{ row.label }}</td>
-                <td>{{ row.initial_responses }}</td>
-                <td>{{ row.final_responses }}</td>
-                <td>{{ row.final_vs_initial_pct }}%</td>
-                <td>{{ row.initial_unique }}</td>
-                <td>{{ row.final_unique }}</td>
-                <td>{{ row.matched_unique }}</td>
-                <td>{{ row.retention_pct }}%</td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </section>
-      {% endif %}
-
-      {% if show_dataset_cards %}
-      <section class="ce-panel">
-        <h2 class="ce-panel-title">Source Health</h2>
-        <div class="ce-dataset-grid">
-          {% for d in source_datasets %}
-            <div class="ce-dataset">
-              <h3>{{ d.title }}</h3>
-              {% if d.error %}
-                <div class="ce-error">{{ d.error }}</div>
-              {% else %}
-                <div class="ce-dataset-sub">{{ d.responses_count }} check-ins • {{ d.unique_emails_count }} unique people • {{ d.question_count }} question columns</div>
-                <a class="ce-link" href="{% url d.sheet_url_name %}">Open sheet</a>
-              {% endif %}
-            </div>
-          {% empty %}
-            <p class="ce-empty">No source health cards match the selected filters.</p>
-          {% endfor %}
-        </div>
-      </section>
-      {% endif %}
-
-      {% if show_completion_e and has_e_completion_cards %}
-      <section class="ce-panel">
-        <h2 class="ce-panel-title">Question Completion: Emprendedoras (Top {{ top_n }})</h2>
-        <div class="ce-completion-grid">
-          {% if show_e_initial %}
-          {% with d=datasets.emprendedoras %}
-            <div class="ce-completion-card">
-              <h3>Initial checkpoint</h3>
-              {% if d.error %}
-                <div class="ce-error">{{ d.error }}</div>
-              {% elif d.completion_rows %}
-                <table class="ce-table">
-                  <thead>
-                    <tr>
-                      <th>Question column</th>
-                      <th>Answered</th>
-                      <th>Completion</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {% for row in d.completion_rows %}
-                      <tr>
-                        <td>{{ row.label }}</td>
-                        <td>{{ row.answered }}</td>
-                        <td>{{ row.pct }}%</td>
-                      </tr>
-                    {% endfor %}
-                  </tbody>
-                </table>
-              {% else %}
-                <div class="ce-empty">No completion metrics available.</div>
-              {% endif %}
-            </div>
-          {% endwith %}
-          {% endif %}
-
-          {% if show_e_final %}
-          {% with d=datasets.emprendedoras_final %}
-            <div class="ce-completion-card">
-              <h3>Final checkpoint</h3>
-              {% if d.error %}
-                <div class="ce-error">{{ d.error }}</div>
-              {% elif d.completion_rows %}
-                <table class="ce-table">
-                  <thead>
-                    <tr>
-                      <th>Question column</th>
-                      <th>Answered</th>
-                      <th>Completion</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {% for row in d.completion_rows %}
-                      <tr>
-                        <td>{{ row.label }}</td>
-                        <td>{{ row.answered }}</td>
-                        <td>{{ row.pct }}%</td>
-                      </tr>
-                    {% endfor %}
-                  </tbody>
-                </table>
-              {% else %}
-                <div class="ce-empty">No completion metrics available.</div>
-              {% endif %}
-            </div>
-          {% endwith %}
-          {% endif %}
-        </div>
-      </section>
-      {% endif %}
-
-      {% if show_completion_m and has_m_completion_cards %}
-      <section class="ce-panel">
-        <h2 class="ce-panel-title">Question Completion: Mentoras (Top {{ top_n }})</h2>
-        <div class="ce-completion-grid">
-          {% if show_m_initial %}
-          {% with d=datasets.mentoras %}
-            <div class="ce-completion-card">
-              <h3>Initial checkpoint</h3>
-              {% if d.error %}
-                <div class="ce-error">{{ d.error }}</div>
-              {% elif d.completion_rows %}
-                <table class="ce-table">
-                  <thead>
-                    <tr>
-                      <th>Question column</th>
-                      <th>Answered</th>
-                      <th>Completion</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {% for row in d.completion_rows %}
-                      <tr>
-                        <td>{{ row.label }}</td>
-                        <td>{{ row.answered }}</td>
-                        <td>{{ row.pct }}%</td>
-                      </tr>
-                    {% endfor %}
-                  </tbody>
-                </table>
-              {% else %}
-                <div class="ce-empty">No completion metrics available.</div>
-              {% endif %}
-            </div>
-          {% endwith %}
-          {% endif %}
-
-          {% if show_m_final %}
-          {% with d=datasets.mentoras_final %}
-            <div class="ce-completion-card">
-              <h3>Final checkpoint</h3>
-              {% if d.error %}
-                <div class="ce-error">{{ d.error }}</div>
-              {% elif d.completion_rows %}
-                <table class="ce-table">
-                  <thead>
-                    <tr>
-                      <th>Question column</th>
-                      <th>Answered</th>
-                      <th>Completion</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {% for row in d.completion_rows %}
-                      <tr>
-                        <td>{{ row.label }}</td>
-                        <td>{{ row.answered }}</td>
-                        <td>{{ row.pct }}%</td>
-                      </tr>
-                    {% endfor %}
-                  </tbody>
-                </table>
-              {% else %}
-                <div class="ce-empty">No completion metrics available.</div>
-              {% endif %}
-            </div>
-          {% endwith %}
-          {% endif %}
-        </div>
-      </section>
-      {% endif %}
-
-        </div>
-      </details>
+      </div>
     </div>
   </div>
 </div>
 
-{{ impact_journey_data|json_script:"ceImpactJourneyData" }}
-{{ impact_story_rate_data|json_script:"ceImpactStoryRateData" }}
-{{ survey_response_rate_data|json_script:"ceCheckpointRateData" }}
-{{ flow_points|json_script:"ceImpactFlowData" }}
-{{ dataset_mix|json_script:"ceImpactDatasetMixData" }}
-{{ retention_mix|json_script:"ceImpactRetentionMixData" }}
+{{ participant_country_chart_data|json_script:"ceParticipantCountryData" }}
+{{ participant_status_chart_data|json_script:"ceParticipantStatusData" }}
+{{ graduation_rate_chart_data|json_script:"ceGraduationRateData" }}
+{{ application_conversion_chart_data|json_script:"ceApplicationConversionData" }}
+{{ alumni_returnee_chart_data|json_script:"ceAlumniReturneeData" }}
+{{ repeat_mentor_chart_data|json_script:"ceRepeatMentorData" }}
+{{ nps_summary.chart_data|json_script:"ceNpsData" }}
+{{ wellbeing_summary.chart_data|json_script:"ceWellbeingData" }}
+{{ survey_response_rate_data|json_script:"ceSurveyResponseRateData" }}
 
 <script>
   (function () {
@@ -1517,65 +678,10 @@
         .replace(/'/g, "&#039;");
     }
 
-    function renderLineChart(containerId, points) {
-      const container = byId(containerId);
-      if (!container) return;
-
-      if (!Array.isArray(points) || !points.length) {
-        container.innerHTML = '<p class="ce-empty">No flow data available.</p>';
-        return;
-      }
-
-      const width = 920;
-      const height = 300;
-      const pad = { top: 20, right: 20, bottom: 42, left: 36 };
-      const chartW = width - pad.left - pad.right;
-      const chartH = height - pad.top - pad.bottom;
-      const values = points.map(function (p) { return Number(p.count || 0); });
-      const maxVal = Math.max.apply(null, values.concat([1]));
-      const count = points.length;
-      const stepX = count > 1 ? chartW / (count - 1) : 0;
-
-      const coords = points.map(function (p, i) {
-        const x = pad.left + (count > 1 ? i * stepX : chartW / 2);
-        const y = pad.top + chartH - ((Number(p.count || 0) / maxVal) * chartH);
-        return { x: x, y: y };
-      });
-
-      const linePoints = coords.map(function (c) { return c.x + "," + c.y; }).join(" ");
-      const areaPoints = pad.left + "," + (pad.top + chartH) + " " + linePoints + " " + (pad.left + chartW) + "," + (pad.top + chartH);
-
-      let grid = "";
-      for (let i = 0; i <= 4; i += 1) {
-        const y = pad.top + (chartH / 4) * i;
-        const axisVal = Math.round(maxVal - (maxVal / 4) * i);
-        grid += '<line x1="' + pad.left + '" y1="' + y + '" x2="' + (pad.left + chartW) + '" y2="' + y + '" stroke="#e5ecf5" stroke-width="1" />';
-        grid += '<text x="' + (pad.left - 8) + '" y="' + (y + 4) + '" text-anchor="end" fill="#667085" font-size="11">' + axisVal + "</text>";
-      }
-
-      let labels = "";
-      for (let i = 0; i < coords.length; i += 1) {
-        labels += '<text x="' + coords[i].x + '" y="' + (height - 12) + '" text-anchor="middle" fill="#667085" font-size="11">' + escapeHtml(points[i].label) + "</text>";
-      }
-
-      const dots = coords.map(function (c) {
-        return '<circle cx="' + c.x + '" cy="' + c.y + '" r="3.6" fill="#3b82f6" />';
-      }).join("");
-
-      container.innerHTML =
-        '<svg viewBox="0 0 ' + width + ' ' + height + '" width="100%" height="300" role="img" aria-label="Impact check-in flow line chart">' +
-          '<defs>' +
-            '<linearGradient id="ceImpactFlowFill" x1="0" y1="0" x2="0" y2="1">' +
-              '<stop offset="0%" stop-color="#3b82f6" stop-opacity="0.34" />' +
-              '<stop offset="100%" stop-color="#3b82f6" stop-opacity="0.04" />' +
-            '</linearGradient>' +
-          '</defs>' +
-          grid +
-          '<polygon points="' + areaPoints + '" fill="url(#ceImpactFlowFill)" />' +
-          '<polyline fill="none" stroke="#2563eb" stroke-width="3" points="' + linePoints + '" />' +
-          dots +
-          labels +
-        '</svg>';
+    function formatValue(value, suffix) {
+      const numeric = Number(value || 0);
+      const rounded = Math.round(numeric * 10) / 10;
+      return String(rounded).replace(/\.0$/, "") + (suffix || "");
     }
 
     function renderDonut(donutId, legendId, totalId, rawData) {
@@ -1628,13 +734,19 @@
       const container = byId(containerId);
       if (!container) return;
 
-      const settings = Object.assign({ maxValue: null, suffix: "", emptyText: "No data available." }, options || {});
+      const settings = Object.assign({
+        minValue: 0,
+        maxValue: null,
+        suffix: "",
+        emptyText: "No data available.",
+      }, options || {});
       const data = (Array.isArray(rawData) ? rawData : [])
         .map(function (item) {
           return {
             label: item.label || "",
             value: Number(item.value || 0),
             color: item.color || "#3B82F6",
+            displayValue: item.display_value,
           };
         })
         .filter(function (item) { return item.label; });
@@ -1644,51 +756,73 @@
         return;
       }
 
-      const maxFromData = Math.max.apply(null, data.map(function (item) { return item.value; }).concat([1]));
-      const maxValue = Number(settings.maxValue || maxFromData) || maxFromData;
+      const values = data.map(function (item) { return item.value; });
+      const minValue = Number(settings.minValue);
+      const maxValue = Number(settings.maxValue !== null ? settings.maxValue : Math.max.apply(null, values.concat([1])));
+      const range = Math.max(maxValue - minValue, 1);
+      const hasZero = minValue < 0 && maxValue > 0;
+      const zeroPct = hasZero ? ((0 - minValue) / range) * 100 : 0;
+
       container.innerHTML = data.map(function (item) {
-        const width = item.value <= 0 ? 0 : Math.max(1, Math.min(100, (item.value / maxValue) * 100));
-        const value = settings.suffix ? item.value + settings.suffix : item.value;
+        const clamped = Math.max(minValue, Math.min(maxValue, item.value));
+        const valuePct = ((clamped - minValue) / range) * 100;
+        const left = hasZero ? Math.min(zeroPct, valuePct) : 0;
+        const width = hasZero ? Math.abs(valuePct - zeroPct) : Math.max(1, valuePct);
+        const displayValue = item.displayValue !== undefined && item.displayValue !== null
+          ? item.displayValue
+          : formatValue(item.value, settings.suffix);
+        const zeroLine = hasZero
+          ? '<span class="ce-bar-zero" style="left:' + zeroPct + '%;"></span>'
+          : '';
         return (
           '<div class="ce-bar-row">' +
             '<div class="ce-bar-label" title="' + escapeHtml(item.label) + '">' + escapeHtml(item.label) + '</div>' +
             '<div class="ce-bar-track">' +
-              '<div class="ce-bar-fill" style="width:' + width + '%; background:' + item.color + ';"></div>' +
+              zeroLine +
+              '<div class="ce-bar-fill" style="left:' + left + '%; width:' + width + '%; background:' + item.color + ';"></div>' +
             '</div>' +
-            '<div class="ce-bar-val">' + escapeHtml(value) + '</div>' +
+            '<div class="ce-bar-val">' + escapeHtml(displayValue) + '</div>' +
           '</div>'
         );
       }).join("");
     }
 
-    renderHorizontalBars(
-      "ce-impact-journey-chart",
-      parseJsonScript("ceImpactJourneyData"),
-      { emptyText: "No impact journey data available." }
-    );
-    renderHorizontalBars(
-      "ce-impact-rate-chart",
-      parseJsonScript("ceImpactStoryRateData"),
-      { maxValue: 100, suffix: "%", emptyText: "No outcome rate data available." }
-    );
-    renderHorizontalBars(
-      "ce-checkpoint-rate-chart",
-      parseJsonScript("ceCheckpointRateData"),
-      { maxValue: 100, suffix: "%", emptyText: "No checkpoint data available." }
-    );
-    renderLineChart("ce-impact-line-chart", parseJsonScript("ceImpactFlowData"));
-    renderDonut(
-      "ce-impact-dataset-donut",
-      "ce-impact-dataset-legend",
-      "ce-impact-dataset-total",
-      parseJsonScript("ceImpactDatasetMixData")
-    );
-    renderDonut(
-      "ce-impact-retention-donut",
-      "ce-impact-retention-legend",
-      "ce-impact-retention-total",
-      parseJsonScript("ceImpactRetentionMixData")
-    );
+    const countryData = parseJsonScript("ceParticipantCountryData") || {};
+    const statusData = parseJsonScript("ceParticipantStatusData") || {};
+
+    renderDonut("ce-country-e-donut", "ce-country-e-legend", "ce-country-e-total", countryData.e || []);
+    renderDonut("ce-country-m-donut", "ce-country-m-legend", "ce-country-m-total", countryData.m || []);
+    renderHorizontalBars("ce-status-e-chart", statusData.e || [], { emptyText: "No Estatus data available." });
+    renderHorizontalBars("ce-status-m-chart", statusData.m || [], { emptyText: "No Estatus data available." });
+    renderHorizontalBars("ce-graduation-rate-chart", parseJsonScript("ceGraduationRateData"), {
+      maxValue: 100,
+      suffix: "%",
+      emptyText: "No graduation data available.",
+    });
+    renderHorizontalBars("ce-application-conversion-chart", parseJsonScript("ceApplicationConversionData"), {
+      maxValue: 100,
+      suffix: "%",
+      emptyText: "No application conversion data available.",
+    });
+    renderHorizontalBars("ce-alumni-returnee-chart", parseJsonScript("ceAlumniReturneeData"), {
+      emptyText: "No returning alumni found.",
+    });
+    renderHorizontalBars("ce-repeat-mentor-chart", parseJsonScript("ceRepeatMentorData"), {
+      emptyText: "No repeat mentoras found.",
+    });
+    renderHorizontalBars("ce-nps-chart", parseJsonScript("ceNpsData"), {
+      minValue: -100,
+      maxValue: 100,
+      emptyText: "No NPS-like survey fields detected.",
+    });
+    renderHorizontalBars("ce-wellbeing-chart", parseJsonScript("ceWellbeingData"), {
+      emptyText: "No quality-of-life survey fields detected.",
+    });
+    renderHorizontalBars("ce-survey-response-rate-chart", parseJsonScript("ceSurveyResponseRateData"), {
+      maxValue: 100,
+      suffix: "%",
+      emptyText: "No survey response data available.",
+    });
   })();
 </script>
 {% endblock %}

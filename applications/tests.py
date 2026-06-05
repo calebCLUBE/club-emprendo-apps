@@ -992,6 +992,7 @@ class ImpactDashboardMetricTests(TestCase):
             application_summary,
         )
         alumni_summary = admin_dashboard_views._alumni_mentor_summary(records)
+        group_source_rows = admin_dashboard_views._group_recruitment_source_rows(records)
 
         self.assertEqual(participant_summary["overall"]["rows"], 6)
         self.assertEqual(participant_summary["overall"]["started"], 5)
@@ -1010,15 +1011,21 @@ class ImpactDashboardMetricTests(TestCase):
 
         e_conversion = next(row for row in conversion_rows if row["track"] == "Emprendedoras")
         self.assertEqual(e_conversion["unique_applicants"], 2)
-        self.assertEqual(e_conversion["started_from_app"], 1)
+        self.assertEqual(e_conversion["started_from_app"], 2)
+        self.assertEqual(e_conversion["listed_from_app"], 2)
         self.assertEqual(e_conversion["graduated_from_app"], 1)
-        self.assertEqual(e_conversion["app_to_start_rate"], 50.0)
+        self.assertEqual(e_conversion["app_to_start_rate"], 100.0)
+        self.assertEqual(e_conversion["app_to_listed_rate"], 100.0)
 
         self.assertEqual(alumni_summary["returnee_count"], 1)
         self.assertEqual(alumni_summary["later_returnee_count"], 1)
         self.assertEqual(alumni_summary["repeated_mentor_count"], 1)
         self.assertEqual(alumni_summary["repeated_mentors"][0]["email"], "repeat@example.com")
         self.assertEqual(alumni_summary["repeated_mentors"][0]["groups"], [981, 982])
+        group1_source = next(row for row in group_source_rows if row["group_number"] == 981)
+        group2_source = next(row for row in group_source_rows if row["group_number"] == 982)
+        self.assertEqual(group1_source["source_label"], "Group 981")
+        self.assertEqual(group2_source["source_label"], "Group 981")
 
     def test_survey_nps_and_wellbeing_rows_are_detected_from_numeric_columns(self):
         headers = [
@@ -1083,10 +1090,14 @@ class ImpactDashboardMetricTests(TestCase):
         response = self.client.get(reverse("admin_impact_dashboard"))
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "At-a-Glance")
-        self.assertContains(response, "Participant Workbook Rows")
-        self.assertContains(response, "Impact Story")
-        self.assertContains(response, "PDF Report")
+        self.assertContains(response, "Number of Participants")
+        self.assertContains(response, "Application Conversion")
+        self.assertContains(response, "Number of Groups")
+        self.assertContains(response, "Emprendedoras Returning as Mentoras")
+        self.assertContains(response, "Repeat Mentoras")
+        self.assertContains(response, "Quality of Life")
+        self.assertContains(response, "Survey Response Rate")
+        self.assertContains(response, "Group scope")
         self.assertContains(response, "Download PDF report")
 
     @patch("applications.admin_dashboard_views._build_impact_dataset")

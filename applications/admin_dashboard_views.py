@@ -100,7 +100,7 @@ PARTICIPANT_TRACK_CONFIGS = {
 IMPACT_SURVEY_SECTIONS = [
     {
         "kind": "emprendedoras",
-        "title": "Encuesta inicial - Emprendedoras",
+        "title": "Initial checkpoint - Emprendedoras",
         "sheet_url_name": "admin_database_encuestas_sheet",
         "track": "e",
         "stage": "initial",
@@ -109,7 +109,7 @@ IMPACT_SURVEY_SECTIONS = [
     },
     {
         "kind": "emprendedoras_final",
-        "title": "Encuesta final - Emprendedoras",
+        "title": "Final checkpoint - Emprendedoras",
         "sheet_url_name": "admin_database_encuestas_final_sheet",
         "track": "e",
         "stage": "final",
@@ -118,7 +118,7 @@ IMPACT_SURVEY_SECTIONS = [
     },
     {
         "kind": "mentoras",
-        "title": "Encuesta inicial - Mentoras",
+        "title": "Initial checkpoint - Mentoras",
         "sheet_url_name": "admin_database_encuestas_mentoras_sheet",
         "track": "m",
         "stage": "initial",
@@ -127,7 +127,7 @@ IMPACT_SURVEY_SECTIONS = [
     },
     {
         "kind": "mentoras_final",
-        "title": "Encuesta final - Mentoras",
+        "title": "Final checkpoint - Mentoras",
         "sheet_url_name": "admin_database_encuestas_mentoras_final_sheet",
         "track": "m",
         "stage": "final",
@@ -879,51 +879,6 @@ def _collect_survey_metric_rows(datasets: dict[str, dict], key: str) -> list[dic
     return rows
 
 
-def _participant_funnel_data(participant_summary: dict) -> list[dict]:
-    overall = participant_summary.get("overall", {})
-    return [
-        {
-            "label": "Workbook rows",
-            "value": overall.get("rows", 0),
-            "color": "#3B82F6",
-        },
-        {
-            "label": "Started program",
-            "value": overall.get("started", 0),
-            "color": "#14B8A6",
-        },
-        {
-            "label": "Graduated",
-            "value": overall.get("graduated", 0),
-            "color": "#22C55E",
-        },
-    ]
-
-
-def _conversion_chart_data(conversion_rows: list[dict]) -> list[dict]:
-    rows = [row for row in conversion_rows if row.get("track") in {"Emprendedoras", "Mentoras"}]
-    data: list[dict] = []
-    for row in rows:
-        prefix = "E" if row["track"] == "Emprendedoras" else "M"
-        start_color = "#3B82F6" if prefix == "E" else "#14B8A6"
-        grad_color = "#22C55E" if prefix == "E" else "#F59E0B"
-        data.extend(
-            [
-                {
-                    "label": f"{prefix}: app to start",
-                    "value": row.get("app_to_start_rate", 0),
-                    "color": start_color,
-                },
-                {
-                    "label": f"{prefix}: app to grad",
-                    "value": row.get("app_to_grad_rate", 0),
-                    "color": grad_color,
-                },
-            ]
-        )
-    return data
-
-
 def _survey_response_rate_data(participant_summary: dict) -> list[dict]:
     tracks = participant_summary.get("tracks", {})
     rows: list[dict] = []
@@ -935,18 +890,86 @@ def _survey_response_rate_data(participant_summary: dict) -> list[dict]:
         rows.extend(
             [
                 {
-                    "label": f"{prefix}: initial survey",
+                    "label": f"{prefix}: initial check-in",
                     "value": track.get("initial_survey_rate", 0),
                     "color": initial_color,
                 },
                 {
-                    "label": f"{prefix}: final survey",
+                    "label": f"{prefix}: final check-in",
                     "value": track.get("final_survey_rate", 0),
                     "color": final_color,
                 },
             ]
         )
     return rows
+
+
+def _impact_journey_data(participant_summary: dict, application_summary: dict, overall_summary: dict) -> list[dict]:
+    participants = participant_summary.get("overall", {})
+    applications = application_summary.get("overall", {})
+    return [
+        {
+            "label": "Applicant reach",
+            "value": applications.get("unique", 0),
+            "color": "#F59E0B",
+        },
+        {
+            "label": "Workbook rows",
+            "value": participants.get("rows", 0),
+            "color": "#3B82F6",
+        },
+        {
+            "label": "Started",
+            "value": participants.get("started", 0),
+            "color": "#14B8A6",
+        },
+        {
+            "label": "Graduated",
+            "value": participants.get("graduated", 0),
+            "color": "#22C55E",
+        },
+        {
+            "label": "Final check-ins",
+            "value": overall_summary.get("final_unique", 0),
+            "color": "#8B5CF6",
+        },
+    ]
+
+
+def _impact_story_rate_data(participant_summary: dict, conversion_rows: list[dict]) -> list[dict]:
+    participants = participant_summary.get("overall", {})
+    conversion_all = next((row for row in conversion_rows if row.get("track") == "All"), {})
+    tracks = participant_summary.get("tracks", {})
+    initial_checks = sum(int(track.get("initial_survey_responses") or 0) for track in tracks.values())
+    final_checks = sum(int(track.get("final_survey_responses") or 0) for track in tracks.values())
+    participant_rows = int(participants.get("rows") or 0)
+    return [
+        {
+            "label": "Reach -> start",
+            "value": conversion_all.get("app_to_start_rate", 0),
+            "color": "#F59E0B",
+        },
+        {
+            "label": "Reach -> graduation",
+            "value": conversion_all.get("app_to_grad_rate", 0),
+            "color": "#6366F1",
+        },
+        {
+            "label": "Started -> graduation",
+            "value": participants.get("graduation_rate", 0),
+            "color": "#22C55E",
+        },
+        {
+            "label": "Initial check-in complete",
+            "value": _rate(initial_checks, participant_rows),
+            "color": "#3B82F6",
+        },
+        {
+            "label": "Final check-in complete",
+            "value": _rate(final_checks, participant_rows),
+            "color": "#14B8A6",
+        },
+    ]
 
 
 def _load_impact_survey_datasets(
@@ -1070,10 +1093,17 @@ def _build_group_impact_report_payload(group_numbers: set[int] | None = None) ->
         if record.get("email")
     }
     survey_scope = participant_emails if group_numbers is not None else None
-    datasets, _email_sets = _load_impact_survey_datasets(
+    datasets, email_sets = _load_impact_survey_datasets(
         top_n=10,
         scoped_emails=survey_scope,
     )
+    final_checkin_emails: set[str] = set()
+    for section in IMPACT_SURVEY_SECTIONS:
+        if section.get("stage") == "final":
+            final_checkin_emails |= email_sets.get(section["kind"], set())
+    report_overall_summary = {
+        "final_unique": len(final_checkin_emails),
+    }
     nps_rows = _collect_survey_metric_rows(datasets, "nps_rows")
     wellbeing_rows = _collect_survey_metric_rows(datasets, "wellbeing_rows")
     return {
@@ -1084,16 +1114,20 @@ def _build_group_impact_report_payload(group_numbers: set[int] | None = None) ->
         "application_summary": application_summary,
         "conversion_rows": conversion_rows,
         "alumni_summary": alumni_summary,
-        "participant_funnel_data": _participant_funnel_data(participant_summary),
-        "conversion_chart_data": _conversion_chart_data(conversion_rows),
+        "impact_journey_data": _impact_journey_data(
+            participant_summary,
+            application_summary,
+            report_overall_summary,
+        ),
+        "impact_story_rate_data": _impact_story_rate_data(participant_summary, conversion_rows),
         "survey_response_rate_data": _survey_response_rate_data(participant_summary),
         "nps_rows": nps_rows[:8],
         "wellbeing_rows": wellbeing_rows[:8],
         "participant_status_key": _participant_status_key(),
         "survey_source_note": (
-            "Survey NPS and wellbeing fields are filtered by selected participant emails when possible."
+            "NPS and wellbeing fields are filtered by selected participant emails when possible."
             if group_numbers is not None
-            else "Survey NPS and wellbeing fields use all loaded survey rows."
+            else "NPS and wellbeing fields use all loaded impact check-in rows."
         ),
     }
 
@@ -1279,7 +1313,7 @@ def _render_group_impact_report_pdf(payload: dict) -> bytes:
         {
             "label": "Unique applicants",
             "value": overall_apps["unique"],
-            "note": f"{overall_apps['raw']} raw applications",
+            "note": f"{overall_apps['raw']} raw intake forms",
             "color": "#F59E0B",
         },
         {
@@ -1316,7 +1350,7 @@ def _render_group_impact_report_pdf(payload: dict) -> bytes:
         fig.text(
             0.06,
             0.852,
-            "Group-scoped metrics from participant workbooks, application records, and matching survey emails where available.",
+            "Group-scoped metrics from participant workbooks, intake records, and matching impact check-ins where available.",
             fontsize=8,
             color="#64748b",
         )
@@ -1333,20 +1367,20 @@ def _render_group_impact_report_pdf(payload: dict) -> bytes:
         _impact_pdf_draw_cards(fig.add_subplot(grid[0, :]), cards)
         _impact_pdf_draw_barh(
             fig.add_subplot(grid[1, 0]),
-            payload["participant_funnel_data"],
-            "Participant funnel",
+            payload["impact_journey_data"],
+            "Impact journey",
         )
         _impact_pdf_draw_barh(
             fig.add_subplot(grid[1, 1]),
-            payload["conversion_chart_data"],
-            "Application conversion",
+            payload["impact_story_rate_data"],
+            "Outcome rates",
             suffix="%",
             max_value=100,
         )
         _impact_pdf_draw_barh(
             fig.add_subplot(grid[1, 2]),
             payload["survey_response_rate_data"],
-            "Survey response checks",
+            "Track check-ins",
             suffix="%",
             max_value=100,
         )
@@ -1357,7 +1391,7 @@ def _render_group_impact_report_pdf(payload: dict) -> bytes:
             "Participant workbook rows: everyone listed in the participant workbook for the selected group scope.",
             "Started program: workbook rows with progress checks or Estatus in NCP, NCPP, CG, CP, D/NC, E, G, or A.",
             "Graduated: workbook rows where Estatus is G. Graduation rate is graduated divided by started.",
-            "Unique applicants: application emails deduped across repeated submissions in the selected group scope.",
+            "Unique applicants: intake emails deduped across repeated submissions in the selected group scope.",
             payload["survey_source_note"],
         ]
         status_key = "; ".join(
@@ -1414,7 +1448,7 @@ def _render_group_impact_report_pdf(payload: dict) -> bytes:
         ]
         _impact_pdf_draw_table(
             fig.add_subplot(grid[0, 1]),
-            "Application conversion",
+            "Reach to outcome conversion",
             ["Track", "Apps", "Start", "Start %", "Grad", "Grad %"],
             conversion_table_rows,
         )
@@ -1448,7 +1482,7 @@ def _render_group_impact_report_pdf(payload: dict) -> bytes:
         plt.close(fig)
 
         fig = plt.figure(figsize=(11, 8.5), facecolor="white")
-        fig.text(0.06, 0.94, "Impact Signals and Source Notes", fontsize=18, weight="bold", color="#111827")
+        fig.text(0.06, 0.94, "Impact Signals and Evidence Notes", fontsize=18, weight="bold", color="#111827")
         fig.text(0.06, 0.91, f"Groups: {payload['group_label']}", fontsize=9, color="#64748b")
         grid = fig.add_gridspec(
             2,
@@ -1473,8 +1507,8 @@ def _render_group_impact_report_pdf(payload: dict) -> bytes:
         ]
         _impact_pdf_draw_table(
             fig.add_subplot(grid[0, :]),
-            "NPS-like survey fields",
-            ["Dataset", "Column", "NPS", "Resp", "Prom", "Detr"],
+            "NPS-like check-in fields",
+            ["Checkpoint", "Column", "NPS", "Resp", "Prom", "Detr"],
             nps_rows,
             font_size=6,
         )
@@ -1490,14 +1524,14 @@ def _render_group_impact_report_pdf(payload: dict) -> bytes:
         ]
         _impact_pdf_draw_table(
             fig.add_subplot(grid[1, 0]),
-            "Wellbeing-like survey fields",
-            ["Dataset", "Column", "Avg", "Resp", "Range"],
+            "Wellbeing-like check-in fields",
+            ["Checkpoint", "Column", "Avg", "Resp", "Range"],
             wellbeing_rows,
             font_size=6,
         )
         notes_ax = fig.add_subplot(grid[1, 1])
         notes_ax.axis("off")
-        notes_ax.set_title("External metrics not in app data", loc="left", fontsize=10, color="#1f2937", weight="bold", pad=8)
+        notes_ax.set_title("Manual/external metrics to add", loc="left", fontsize=10, color="#1f2937", weight="bold", pad=8)
         external_notes = [
             "Social media followers by platform",
             "Website traffic",
@@ -1568,8 +1602,6 @@ def impact_dashboard(request):
     alumni_summary = _alumni_mentor_summary(participant_records)
     nps_rows = _collect_survey_metric_rows(datasets, "nps_rows")
     wellbeing_rows = _collect_survey_metric_rows(datasets, "wellbeing_rows")
-    participant_funnel_data = _participant_funnel_data(participant_summary)
-    conversion_chart_data = _conversion_chart_data(conversion_rows)
     survey_response_rate_data = _survey_response_rate_data(participant_summary)
 
     def _in_scope(section: dict) -> bool:
@@ -1674,6 +1706,12 @@ def impact_dashboard(request):
         },
     ]
 
+    impact_journey_data = _impact_journey_data(
+        participant_summary,
+        application_summary,
+        overall_summary,
+    )
+    impact_story_rate_data = _impact_story_rate_data(participant_summary, conversion_rows)
     source_datasets = [datasets[section["kind"]] for section in scoped_sections]
 
     context = {
@@ -1701,8 +1739,8 @@ def impact_dashboard(request):
         "alumni_summary": alumni_summary,
         "nps_rows": nps_rows[:12],
         "wellbeing_rows": wellbeing_rows[:12],
-        "participant_funnel_data": participant_funnel_data,
-        "conversion_chart_data": conversion_chart_data,
+        "impact_journey_data": impact_journey_data,
+        "impact_story_rate_data": impact_story_rate_data,
         "survey_response_rate_data": survey_response_rate_data,
         "track_summaries": track_summaries,
         "datasets": datasets,

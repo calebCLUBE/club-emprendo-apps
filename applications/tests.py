@@ -1085,7 +1085,7 @@ class ImpactDashboardMetricTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "At-a-Glance")
         self.assertContains(response, "Participant Workbook Rows")
-        self.assertContains(response, "Program Flow")
+        self.assertContains(response, "Impact Story")
         self.assertContains(response, "PDF Report")
         self.assertContains(response, "Download PDF report")
 

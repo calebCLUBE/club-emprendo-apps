@@ -61,18 +61,24 @@ IMPACT_METADATA_HEADERS = {
 }
 IMPACT_NPS_HEADER_TOKENS = ("nps", "recommend", "recomend", "probabilidad")
 IMPACT_WELLBEING_HEADER_TOKENS = (
-    "bienestar",
-    "confianza",
+    "satisfechacontuvida",
+    "satisfechaconlavida",
+    "satisfechaconmivida",
+    "vidaengeneral",
+    "calidaddevida",
+    "qualityoflife",
+    "lifesatisfaction",
+    "satisfactionwithlife",
+)
+IMPACT_WELLBEING_EXCLUDE_HEADER_TOKENS = (
+    "financ",
     "ingreso",
     "ingresos",
     "ventas",
-    "satisfaccion",
-    "autoestima",
-    "estres",
-    "stress",
-    "salud",
-    "finanz",
     "negocio",
+    "emprendimiento",
+    "contabilidad",
+    "salario",
 )
 PARTICIPANT_TRACK_CONFIGS = {
     "e": {
@@ -400,6 +406,8 @@ def _build_wellbeing_rows(headers: list[str], rows: list[list[str]], metadata_in
             continue
         normalized = _normalized_header_key(header)
         if not any(token in normalized for token in IMPACT_WELLBEING_HEADER_TOKENS):
+            continue
+        if any(token in normalized for token in IMPACT_WELLBEING_EXCLUDE_HEADER_TOKENS):
             continue
 
         values: list[float] = []

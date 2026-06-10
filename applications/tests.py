@@ -1027,18 +1027,20 @@ class ImpactDashboardMetricTests(TestCase):
         self.assertEqual(group1_source["source_label"], "Group 981")
         self.assertEqual(group2_source["source_label"], "Group 981")
 
-    def test_survey_nps_and_wellbeing_rows_are_detected_from_numeric_columns(self):
+    def test_survey_nps_and_quality_of_life_rows_exclude_financial_columns(self):
         headers = [
             "Timestamp",
             "Email",
             "Que tan probable es que recomiendes Club Emprendo NPS",
             "Bienestar financiero",
+            "¿Te sientes satisfecha con tu vida en general?",
+            "¿Qué tanta confianza tienes en este momento en la gestión de tu emprendimiento?",
             "Other",
         ]
         rows = [
-            ["2026-01-01", "one@example.com", "10", "3", "x"],
-            ["2026-01-02", "two@example.com", "9", "5", "x"],
-            ["2026-01-03", "three@example.com", "6", "4", "x"],
+            ["2026-01-01", "one@example.com", "10", "500", "3", "5", "x"],
+            ["2026-01-02", "two@example.com", "9", "700", "5", "5", "x"],
+            ["2026-01-03", "three@example.com", "6", "900", "4", "5", "x"],
         ]
         metadata_indices = {0, 1}
 
@@ -1054,6 +1056,10 @@ class ImpactDashboardMetricTests(TestCase):
         self.assertEqual(nps_rows[0]["promoters"], 2)
         self.assertEqual(nps_rows[0]["detractors"], 1)
         self.assertEqual(len(wellbeing_rows), 1)
+        self.assertEqual(
+            wellbeing_rows[0]["label"],
+            "¿Te sientes satisfecha con tu vida en general?",
+        )
         self.assertEqual(wellbeing_rows[0]["avg"], 4.0)
 
     @patch("applications.admin_dashboard_views._build_impact_dataset")

@@ -59,7 +59,36 @@ IMPACT_METADATA_HEADERS = {
     "phone",
     "whatsapp",
 }
-IMPACT_NPS_HEADER_TOKENS = ("nps", "recommend", "recomend", "probabilidad")
+IMPACT_NPS_HEADER_TOKENS = (
+    "nps",
+    "recommend",
+    "recomend",
+    "recomiend",
+    "probabilidad",
+    "probable",
+)
+IMPACT_NPS_CONTEXT_HEADER_TOKENS = (
+    "amiga",
+    "amigo",
+    "friend",
+    "likely",
+    "probable",
+    "probabilidad",
+    "programa",
+    "program",
+    "mentoria",
+    "mentorship",
+    "clubemprendo",
+)
+IMPACT_NPS_EXCLUDE_HEADER_TOKENS = (
+    "cambiar",
+    "cambio",
+    "change",
+    "comentario",
+    "feedback",
+    "mejorar",
+    "sugerencia",
+)
 IMPACT_WELLBEING_HEADER_TOKENS = (
     "satisfechacontuvida",
     "satisfechaconlavida",
@@ -306,6 +335,22 @@ def _safe_row_value(row: list[str], index: int | None) -> str:
     return str(row[index] or "").strip()
 
 
+def _is_nps_header(normalized_header: str) -> bool:
+    if not any(token in normalized_header for token in IMPACT_NPS_HEADER_TOKENS):
+        return False
+    if any(token in normalized_header for token in IMPACT_NPS_EXCLUDE_HEADER_TOKENS):
+        return False
+    if "nps" in normalized_header:
+        return True
+    has_recommend_token = any(
+        token in normalized_header for token in ("recommend", "recomend", "recomiend")
+    )
+    has_context_token = any(
+        token in normalized_header for token in IMPACT_NPS_CONTEXT_HEADER_TOKENS
+    )
+    return has_recommend_token and has_context_token
+
+
 def _find_header_index(
     headers: list[str],
     exact_keys: set[str],
@@ -369,7 +414,7 @@ def _build_nps_rows(headers: list[str], rows: list[list[str]], metadata_indices:
         if idx in metadata_indices:
             continue
         normalized = _normalized_header_key(header)
-        if not any(token in normalized for token in IMPACT_NPS_HEADER_TOKENS):
+        if not _is_nps_header(normalized):
             continue
 
         values: list[float] = []

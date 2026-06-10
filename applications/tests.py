@@ -1062,6 +1062,28 @@ class ImpactDashboardMetricTests(TestCase):
         )
         self.assertEqual(wellbeing_rows[0]["avg"], 4.0)
 
+    def test_nps_rows_ignore_open_ended_recommendation_change_fields(self):
+        headers = [
+            "Timestamp",
+            "Email",
+            "¿Qué recomendarías cambiar (si es que hay algo) en la capacitación de mentores?",
+            "¿Qué tan probable es que recomiendes este programa de mentoría a una amiga?",
+        ]
+        rows = [
+            ["2026-01-01", "one@example.com", "1 cosa", "10"],
+            ["2026-01-02", "two@example.com", "2 cambios", "9"],
+            ["2026-01-03", "three@example.com", "3 temas", "6"],
+        ]
+
+        nps_rows = admin_dashboard_views._build_nps_rows(headers, rows, {0, 1})
+
+        self.assertEqual(len(nps_rows), 1)
+        self.assertEqual(
+            nps_rows[0]["label"],
+            "¿Qué tan probable es que recomiendes este programa de mentoría a una amiga?",
+        )
+        self.assertEqual(nps_rows[0]["score"], 33.3)
+
     @patch("applications.admin_dashboard_views._build_impact_dataset")
     def test_impact_dashboard_renders_requested_metric_sections(self, mock_build_dataset):
         def fake_dataset(kind, title, sheet_url_name, scoped_emails=None):

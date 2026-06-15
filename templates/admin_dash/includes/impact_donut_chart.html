@@ -1,0 +1,23 @@
+<div class="ce-chart-pair">
+  <div>
+    <div class="ce-donut-wrap">
+      <div class="ce-donut" id="{{ donut_id }}" style="background: {{ donut.background }};">
+        <div class="ce-donut-hole">
+          <strong class="ce-donut-total" id="{{ total_id }}">{{ donut.total }}</strong>
+          <span class="ce-donut-sub">Rows</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <ul class="ce-legend" id="{{ legend_id }}">
+    {% for item in donut.legend %}
+      <li>
+        <span class="ce-legend-dot" style="background: {{ item.color }};"></span>
+        <span>{{ item.label }}</span>
+        <strong>{{ item.value_display }} ({{ item.pct }}%)</strong>
+      </li>
+    {% empty %}
+      <li><span class="ce-empty">No data available.</span></li>
+    {% endfor %}
+  </ul>
+</div>

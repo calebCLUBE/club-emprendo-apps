@@ -1,0 +1,16 @@
+{% if rows %}
+  {% for item in rows %}
+    <div class="ce-bar-row">
+      <div class="ce-bar-label" title="{{ item.label }}">{{ item.label }}</div>
+      <div class="ce-bar-track">
+        {% if item.bar_has_zero %}
+          <span class="ce-bar-zero" style="left: {{ item.bar_zero_pct }}%;"></span>
+        {% endif %}
+        <div class="ce-bar-fill" style="left: {{ item.bar_left }}%; width: {{ item.bar_width }}%; background: {{ item.color|default:'#3B82F6' }};"></div>
+      </div>
+      <div class="ce-bar-val">{{ item.bar_display_value }}</div>
+    </div>
+  {% endfor %}
+{% else %}
+  <p class="ce-empty">{{ empty_text }}</p>
+{% endif %}

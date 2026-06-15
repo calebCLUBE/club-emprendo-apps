@@ -944,13 +944,25 @@ class ImpactDashboardMetricTests(TestCase):
             ],
         )
 
-    def test_participant_sheet_status_options_use_exact_default_codes(self):
-        expected = ["NFA", "NC", "NCP", "NCPP", "SG", "CG", "CP", "D/NC", "E", "G", "A"]
+    def test_participant_sheet_status_options_use_requested_default_labels(self):
+        expected = [
+            "No Firmo A",
+            "No Capacitacion",
+            "No Continua P",
+            "No Continua PP",
+            "Siguiente grupo",
+            "Cambio de grupo",
+            "Cambio de pareja",
+            "DIficil/No contacto",
+            "Exelente",
+            "Graduada",
+            "Activa",
+        ]
 
         self.assertEqual(admin_profiles_views.MENTORAS_STATUS_OPTIONS, expected)
         self.assertEqual(admin_profiles_views.EMPRENDEDORAS_STATUS_OPTIONS, expected)
 
-    def test_new_status_codes_drive_started_metric_semantics(self):
+    def test_status_codes_and_sheet_labels_drive_started_metric_semantics(self):
         status_group = FormGroup.objects.create(
             number=983,
             start_day=1,
@@ -963,7 +975,7 @@ class ImpactDashboardMetricTests(TestCase):
             emprendedoras_sheet_rows=[
                 ["", "NCP", 1, "Started by status", "E3", "started-status@example.com", "", "Colombia", "", False, False, False, False, False],
                 ["", "NC", 2, "Not started by status", "E4", "not-started-status@example.com", "", "Colombia", "", False, False, False, False, False],
-                ["", "G", 3, "Graduated by status", "E5", "graduated-status@example.com", "", "Colombia", "", False, False, False, False, False],
+                ["", "Graduada", 3, "Graduated by status", "E5", "graduated-status@example.com", "", "Colombia", "", False, False, False, False, False],
             ],
         )
 
@@ -1296,7 +1308,19 @@ class ParticipantsCapacitacionCheckTests(TestCase):
         self.assertContains(response, "Saved versions")
 
     def test_track_sheet_renders_exact_status_validation_options(self):
-        expected = ["NFA", "NC", "NCP", "NCPP", "SG", "CG", "CP", "D/NC", "E", "G", "A"]
+        expected = [
+            "No Firmo A",
+            "No Capacitacion",
+            "No Continua P",
+            "No Continua PP",
+            "Siguiente grupo",
+            "Cambio de grupo",
+            "Cambio de pareja",
+            "DIficil/No contacto",
+            "Exelente",
+            "Graduada",
+            "Activa",
+        ]
         response = self.client.get(
             reverse(
                 "admin_profiles_participants_track_sheet",
@@ -1313,6 +1337,8 @@ class ParticipantsCapacitacionCheckTests(TestCase):
         )
         self.assertIsNotNone(match)
         self.assertEqual(json.loads(match.group(1)), expected)
+        self.assertNotContains(response, '"NFA"')
+        self.assertNotContains(response, '"NC"')
         self.assertNotContains(response, '"NCC"')
         self.assertNotContains(response, '"INCP"')
         self.assertNotContains(response, '"INCPP"')

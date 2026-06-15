@@ -10,6 +10,7 @@ from django.db.models import Avg, Count, Q
 from django.db.models.functions import TruncDay, TruncMonth, TruncWeek
 from django.http import HttpResponse
 from django.shortcuts import render
+from django.template.loader import render_to_string
 from django.utils import timezone
 
 from .admin_views import _group_label_for_number, _load_database_encuestas_grid
@@ -20,6 +21,7 @@ from .participant_statuses import (
     PARTICIPANT_STATUS_GRADUATED,
     PARTICIPANT_STATUS_LABELS,
     PARTICIPANT_STATUS_STARTED,
+    normalize_participant_status,
 )
 
 GROUP_SLUG_RE = re.compile(r"^G(?P<num>\d+)_")
@@ -281,7 +283,7 @@ def _parse_metric_number(value) -> float | None:
 
 
 def _status_label(raw_status: str | None) -> str:
-    status = (raw_status or "").strip().upper()
+    status = normalize_participant_status(raw_status)
     return status or "Sin estatus"
 
 
@@ -1455,6 +1457,136 @@ def _impact_report_filename(group_numbers: set[int] | None) -> str:
     return f"impact_report_groups_{joined}.pdf"
 
 
+def _impact_dashboard_format_value(value, suffix: str = "") -> str:
+    try:
+        numeric = float(value or 0)
+    except (TypeError, ValueError):
+        return f"{value}{suffix}"
+    rounded = round(numeric, 1)
+    text = f"{rounded:.1f}".rstrip("0").rstrip(".")
+    return f"{text}{suffix}"
+
+
+def _impact_dashboard_bar_rows(
+    data: list[dict],
+    *,
+    min_value: float = 0,
+    max_value: float | None = None,
+    suffix: str = "",
+) -> list[dict]:
+    values = []
+    for item in data or []:
+        try:
+            values.append(float(item.get("value") or 0))
+        except (TypeError, ValueError):
+            values.append(0.0)
+    upper = float(max_value) if max_value is not None else max(values + [1])
+    lower = float(min_value)
+    value_range = max(upper - lower, 1)
+    has_zero = lower < 0 < upper
+    zero_pct = ((0 - lower) / value_range) * 100 if has_zero else 0
+    rows = []
+    for item, raw_value in zip(data or [], values):
+        label = str(item.get("label") or "")
+        if not label:
+            continue
+        clamped = max(lower, min(upper, raw_value))
+        value_pct = ((clamped - lower) / value_range) * 100
+        left = min(zero_pct, value_pct) if has_zero else 0
+        width = abs(value_pct - zero_pct) if has_zero else max(1, value_pct)
+        rows.append(
+            {
+                **item,
+                "bar_left": round(left, 3),
+                "bar_width": round(width, 3),
+                "bar_zero_pct": round(zero_pct, 3),
+                "bar_has_zero": has_zero,
+                "bar_display_value": item.get("display_value")
+                if item.get("display_value") is not None
+                else _impact_dashboard_format_value(raw_value, suffix),
+            }
+        )
+    return rows
+
+
+def _impact_dashboard_donut(data: list[dict]) -> dict:
+    rows = [
+        {
+            "label": str(item.get("label") or ""),
+            "value": float(item.get("value") or 0),
+            "color": item.get("color") or "#94a3b8",
+        }
+        for item in data or []
+        if item.get("value")
+    ]
+    total = sum(item["value"] for item in rows)
+    if total <= 0:
+        return {"total": 0, "background": "#e5e7eb", "legend": []}
+    current = 0.0
+    parts = []
+    legend = []
+    for item in rows:
+        start = (current / total) * 360
+        current += item["value"]
+        end = (current / total) * 360
+        parts.append(f"{item['color']} {start:.3f}deg {end:.3f}deg")
+        legend.append(
+            {
+                **item,
+                "value_display": _impact_dashboard_format_value(item["value"]),
+                "pct": round((item["value"] / total) * 100, 1),
+            }
+        )
+    return {
+        "total": _impact_dashboard_format_value(total),
+        "background": f"conic-gradient({', '.join(parts)})",
+        "legend": legend,
+    }
+
+
+def _prepare_impact_dashboard_chart_context(context: dict) -> dict:
+    country_data = context.get("participant_country_chart_data") or {}
+    status_data = context.get("participant_status_chart_data") or {}
+    context.update(
+        {
+            "country_e_donut": _impact_dashboard_donut(country_data.get("e", [])),
+            "country_m_donut": _impact_dashboard_donut(country_data.get("m", [])),
+            "status_e_bar_rows": _impact_dashboard_bar_rows(status_data.get("e", [])),
+            "status_m_bar_rows": _impact_dashboard_bar_rows(status_data.get("m", [])),
+            "graduation_rate_bar_rows": _impact_dashboard_bar_rows(
+                context.get("graduation_rate_chart_data") or [],
+                max_value=100,
+                suffix="%",
+            ),
+            "application_conversion_bar_rows": _impact_dashboard_bar_rows(
+                context.get("application_conversion_chart_data") or [],
+                max_value=100,
+                suffix="%",
+            ),
+            "alumni_returnee_bar_rows": _impact_dashboard_bar_rows(
+                context.get("alumni_returnee_chart_data") or []
+            ),
+            "repeat_mentor_bar_rows": _impact_dashboard_bar_rows(
+                context.get("repeat_mentor_chart_data") or []
+            ),
+            "nps_bar_rows": _impact_dashboard_bar_rows(
+                (context.get("nps_summary") or {}).get("chart_data") or [],
+                min_value=-100,
+                max_value=100,
+            ),
+            "wellbeing_bar_rows": _impact_dashboard_bar_rows(
+                (context.get("wellbeing_summary") or {}).get("chart_data") or []
+            ),
+            "survey_response_rate_bar_rows": _impact_dashboard_bar_rows(
+                context.get("survey_response_rate_data") or [],
+                max_value=100,
+                suffix="%",
+            ),
+        }
+    )
+    return context
+
+
 def _build_group_impact_report_payload(group_numbers: set[int] | None = None) -> dict:
     all_records = _participant_records()
     participant_records = _filter_records_by_groups(all_records, group_numbers)
@@ -1961,6 +2093,54 @@ def _render_group_impact_report_pdf(payload: dict) -> bytes:
     return buffer.getvalue()
 
 
+def _impact_dashboard_context_from_payload(payload: dict) -> dict:
+    return _prepare_impact_dashboard_chart_context(
+        {
+            "top_n": 10,
+            "participant_summary": payload["participant_summary"],
+            "application_summary": payload["application_summary"],
+            "conversion_rows": payload["conversion_rows"],
+            "alumni_summary": payload["alumni_summary"],
+            "group_source_rows": payload["group_source_rows"],
+            "nps_rows": payload.get("nps_rows", [])[:12],
+            "wellbeing_rows": payload.get("wellbeing_rows", [])[:12],
+            "nps_summary": payload["nps_summary"],
+            "wellbeing_summary": payload["wellbeing_summary"],
+            "participant_country_chart_data": payload["participant_country_chart_data"],
+            "participant_status_chart_data": payload["participant_status_chart_data"],
+            "graduation_rate_chart_data": payload["graduation_rate_chart_data"],
+            "application_conversion_chart_data": payload["application_conversion_chart_data"],
+            "alumni_engagement_chart_data": payload["alumni_engagement_chart_data"],
+            "alumni_returnee_chart_data": payload["alumni_returnee_chart_data"],
+            "repeat_mentor_chart_data": payload["repeat_mentor_chart_data"],
+            "survey_response_rate_data": payload["survey_response_rate_data"],
+            "impact_report_group_options": _impact_group_options(),
+            "impact_report_group_label": payload["group_label"],
+        }
+    )
+
+
+def _render_impact_dashboard_html_pdf(request, context: dict) -> bytes | None:
+    try:
+        from contextlib import redirect_stderr, redirect_stdout
+
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            from weasyprint import HTML
+    except (ImportError, OSError):
+        return None
+
+    pdf_context = {
+        **context,
+        "is_pdf_export": True,
+        "impact_dashboard_base_template": "admin_dash/impact_dashboard_pdf_base.html",
+    }
+    html = render_to_string("admin_dash/impact_dashboard.html", pdf_context, request=request)
+    return HTML(
+        string=html,
+        base_url=request.build_absolute_uri("/"),
+    ).write_pdf()
+
+
 @staff_member_required
 def dashboards_home(request):
     return render(request, "admin_dash/dashboards_home.html")
@@ -1971,7 +2151,10 @@ def impact_dashboard_pdf(request):
     parsed_group_numbers = _parse_impact_group_numbers(request.GET.getlist("groups"))
     group_numbers = parsed_group_numbers or None
     payload = _build_group_impact_report_payload(group_numbers)
-    pdf_bytes = _render_group_impact_report_pdf(payload)
+    dashboard_context = _impact_dashboard_context_from_payload(payload)
+    pdf_bytes = _render_impact_dashboard_html_pdf(request, dashboard_context)
+    if pdf_bytes is None:
+        pdf_bytes = _render_group_impact_report_pdf(payload)
     response = HttpResponse(pdf_bytes, content_type="application/pdf")
     response["Content-Disposition"] = (
         f'attachment; filename="{_impact_report_filename(group_numbers)}"'
@@ -2000,27 +2183,29 @@ def impact_dashboard(request):
     nps_summary = _nps_metric_summary(nps_rows)
     wellbeing_summary = _wellbeing_metric_summary(wellbeing_rows)
 
-    context = {
-        "top_n": top_n,
-        "participant_summary": participant_summary,
-        "application_summary": application_summary,
-        "conversion_rows": conversion_rows,
-        "alumni_summary": alumni_summary,
-        "group_source_rows": group_source_rows,
-        "nps_rows": nps_rows[:12],
-        "wellbeing_rows": wellbeing_rows[:12],
-        "nps_summary": nps_summary,
-        "wellbeing_summary": wellbeing_summary,
-        "participant_country_chart_data": _participant_country_chart_data(participant_summary),
-        "participant_status_chart_data": _participant_status_chart_data(participant_summary),
-        "graduation_rate_chart_data": _graduation_rate_chart_data(participant_summary),
-        "application_conversion_chart_data": _application_conversion_chart_data(conversion_rows),
-        "alumni_engagement_chart_data": _alumni_engagement_chart_data(alumni_summary),
-        "alumni_returnee_chart_data": _alumni_returnee_chart_data(alumni_summary),
-        "repeat_mentor_chart_data": _repeat_mentor_chart_data(alumni_summary),
-        "survey_response_rate_data": survey_response_rate_data,
-        "impact_report_group_options": _impact_group_options(),
-    }
+    context = _prepare_impact_dashboard_chart_context(
+        {
+            "top_n": top_n,
+            "participant_summary": participant_summary,
+            "application_summary": application_summary,
+            "conversion_rows": conversion_rows,
+            "alumni_summary": alumni_summary,
+            "group_source_rows": group_source_rows,
+            "nps_rows": nps_rows[:12],
+            "wellbeing_rows": wellbeing_rows[:12],
+            "nps_summary": nps_summary,
+            "wellbeing_summary": wellbeing_summary,
+            "participant_country_chart_data": _participant_country_chart_data(participant_summary),
+            "participant_status_chart_data": _participant_status_chart_data(participant_summary),
+            "graduation_rate_chart_data": _graduation_rate_chart_data(participant_summary),
+            "application_conversion_chart_data": _application_conversion_chart_data(conversion_rows),
+            "alumni_engagement_chart_data": _alumni_engagement_chart_data(alumni_summary),
+            "alumni_returnee_chart_data": _alumni_returnee_chart_data(alumni_summary),
+            "repeat_mentor_chart_data": _repeat_mentor_chart_data(alumni_summary),
+            "survey_response_rate_data": survey_response_rate_data,
+            "impact_report_group_options": _impact_group_options(),
+        }
+    )
     return render(request, "admin_dash/impact_dashboard.html", context)
 
 

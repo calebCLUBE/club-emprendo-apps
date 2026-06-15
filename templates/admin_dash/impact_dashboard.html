@@ -1,4 +1,4 @@
-{% extends "admin/base_site.html" %}
+{% extends impact_dashboard_base_template|default:"admin/base_site.html" %}
 
 {% block content %}
 <div class="ce-admin-wrap">
@@ -333,6 +333,32 @@
         color: #6b7280;
         font-style: italic;
       }
+      @page {
+        size: letter landscape;
+        margin: 0.35in;
+      }
+      @media print {
+        body {
+          background: #fff;
+        }
+        .ce-admin-wrap {
+          padding: 0;
+        }
+        .ce-admin-card.ce-admin-card--wide {
+          box-shadow: none;
+          border: 0;
+          padding: 0;
+        }
+        .ce-impact-header,
+        .ce-metric-box {
+          break-inside: avoid;
+          page-break-inside: avoid;
+        }
+        .ce-actions,
+        .ce-pdf-hidden {
+          display: none !important;
+        }
+      }
       @media (max-width: 980px) {
         .ce-metric-board,
         .ce-track-split,
@@ -357,12 +383,17 @@
       <div class="ce-impact-header">
         <div>
           <h1 class="ce-impact-title">Impact Dashboard</h1>
-          <div class="ce-impact-subtitle">Core program metrics across applications, participant workbooks, and impact surveys.</div>
+          <div class="ce-impact-subtitle">
+            Core program metrics across applications, participant workbooks, and impact surveys.
+            {% if impact_report_group_label %} Scope: {{ impact_report_group_label }}.{% endif %}
+          </div>
         </div>
-        <div class="ce-actions">
-          <a class="ce-btn ce-btn--ghost" href="{% url 'admin_dashboards_home' %}">Dashboards</a>
-          <a class="ce-btn ce-btn--ghost" href="{% url 'admin_database' %}">Database</a>
-        </div>
+        {% if not is_pdf_export %}
+          <div class="ce-actions">
+            <a class="ce-btn ce-btn--ghost" href="{% url 'admin_dashboards_home' %}">Dashboards</a>
+            <a class="ce-btn ce-btn--ghost" href="{% url 'admin_database' %}">Database</a>
+          </div>
+        {% endif %}
       </div>
 
       <div class="ce-metric-board">
@@ -395,39 +426,19 @@
           <div class="ce-track-split">
             <div class="ce-track-card">
               <h3>Emprendedoras by Country</h3>
-              <div class="ce-chart-pair">
-                <div>
-                  <div class="ce-donut-wrap">
-                    <div class="ce-donut" id="ce-country-e-donut">
-                      <div class="ce-donut-hole">
-                        <strong class="ce-donut-total" id="ce-country-e-total">0</strong>
-                        <span class="ce-donut-sub">Rows</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <ul class="ce-legend" id="ce-country-e-legend"></ul>
-              </div>
+              {% include "admin_dash/includes/impact_donut_chart.html" with donut=country_e_donut donut_id="ce-country-e-donut" legend_id="ce-country-e-legend" total_id="ce-country-e-total" %}
               <h3 class="ce-chart-heading">Emprendedoras by Estatus</h3>
-              <div id="ce-status-e-chart" class="ce-bars"></div>
+              <div id="ce-status-e-chart" class="ce-bars">
+                {% include "admin_dash/includes/impact_bar_chart.html" with rows=status_e_bar_rows empty_text="No Estatus data available." %}
+              </div>
             </div>
             <div class="ce-track-card">
               <h3>Mentoras by Country</h3>
-              <div class="ce-chart-pair">
-                <div>
-                  <div class="ce-donut-wrap">
-                    <div class="ce-donut" id="ce-country-m-donut">
-                      <div class="ce-donut-hole">
-                        <strong class="ce-donut-total" id="ce-country-m-total">0</strong>
-                        <span class="ce-donut-sub">Rows</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <ul class="ce-legend" id="ce-country-m-legend"></ul>
-              </div>
+              {% include "admin_dash/includes/impact_donut_chart.html" with donut=country_m_donut donut_id="ce-country-m-donut" legend_id="ce-country-m-legend" total_id="ce-country-m-total" %}
               <h3 class="ce-chart-heading">Mentoras by Estatus</h3>
-              <div id="ce-status-m-chart" class="ce-bars"></div>
+              <div id="ce-status-m-chart" class="ce-bars">
+                {% include "admin_dash/includes/impact_bar_chart.html" with rows=status_m_bar_rows empty_text="No Estatus data available." %}
+              </div>
             </div>
           </div>
         </section>
@@ -448,7 +459,9 @@
               <div class="ce-mini-stat-note">{{ participant_summary.overall.started }} rows counted as began</div>
             </div>
           </div>
-          <div id="ce-graduation-rate-chart" class="ce-bars"></div>
+          <div id="ce-graduation-rate-chart" class="ce-bars">
+            {% include "admin_dash/includes/impact_bar_chart.html" with rows=graduation_rate_bar_rows empty_text="No graduation data available." %}
+          </div>
         </section>
 
         <section class="ce-metric-box">
@@ -464,7 +477,9 @@
               {% endif %}
             {% endfor %}
           </div>
-          <div id="ce-application-conversion-chart" class="ce-bars"></div>
+          <div id="ce-application-conversion-chart" class="ce-bars">
+            {% include "admin_dash/includes/impact_bar_chart.html" with rows=application_conversion_bar_rows empty_text="No application conversion data available." %}
+          </div>
           <div class="ce-table-wrap">
             <table class="ce-table ce-compact-table">
               <thead>
@@ -544,7 +559,9 @@
             </div>
             <div class="ce-big-number">{{ alumni_summary.returnee_count }}</div>
           </div>
-          <div id="ce-alumni-returnee-chart" class="ce-bars"></div>
+          <div id="ce-alumni-returnee-chart" class="ce-bars">
+            {% include "admin_dash/includes/impact_bar_chart.html" with rows=alumni_returnee_bar_rows empty_text="No returning alumni found." %}
+          </div>
         </section>
 
         <section class="ce-metric-box">
@@ -556,7 +573,9 @@
             </div>
             <div class="ce-big-number">{{ alumni_summary.repeated_mentor_count }}</div>
           </div>
-          <div id="ce-repeat-mentor-chart" class="ce-bars"></div>
+          <div id="ce-repeat-mentor-chart" class="ce-bars">
+            {% include "admin_dash/includes/impact_bar_chart.html" with rows=repeat_mentor_bar_rows empty_text="No repeat mentoras found." %}
+          </div>
         </section>
 
         <section class="ce-metric-box">
@@ -574,7 +593,9 @@
               <div class="ce-mini-stat-v">{{ nps_summary.responses }}</div>
             </div>
           </div>
-          <div id="ce-nps-chart" class="ce-bars"></div>
+          <div id="ce-nps-chart" class="ce-bars">
+            {% include "admin_dash/includes/impact_bar_chart.html" with rows=nps_bar_rows empty_text="No NPS-like survey fields detected." %}
+          </div>
         </section>
 
         <section class="ce-metric-box">
@@ -592,7 +613,9 @@
               <div class="ce-mini-stat-v">{{ wellbeing_summary.responses }}</div>
             </div>
           </div>
-          <div id="ce-wellbeing-chart" class="ce-bars"></div>
+          <div id="ce-wellbeing-chart" class="ce-bars">
+            {% include "admin_dash/includes/impact_bar_chart.html" with rows=wellbeing_bar_rows empty_text="No quality-of-life survey fields detected." %}
+          </div>
         </section>
 
         <section class="ce-metric-box">
@@ -614,10 +637,13 @@
               <div class="ce-mini-stat-v">{{ participant_summary.overall.initial_survey_responses }}</div>
             </div>
           </div>
-          <div id="ce-survey-response-rate-chart" class="ce-bars"></div>
+          <div id="ce-survey-response-rate-chart" class="ce-bars">
+            {% include "admin_dash/includes/impact_bar_chart.html" with rows=survey_response_rate_bar_rows empty_text="No survey response data available." %}
+          </div>
         </section>
 
-        <section class="ce-metric-box">
+        {% if not is_pdf_export %}
+        <section class="ce-metric-box ce-pdf-hidden">
           <div class="ce-box-head">
             <div>
               <p class="ce-box-kicker">Export</p>
@@ -638,6 +664,7 @@
             <button class="ce-btn" type="submit">Download PDF report</button>
           </form>
         </section>
+        {% endif %}
       </div>
     </div>
   </div>

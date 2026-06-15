@@ -14,7 +14,40 @@ PARTICIPANT_STATUS_CHOICES = [
 
 PARTICIPANT_STATUS_CODES = [code for code, _label in PARTICIPANT_STATUS_CHOICES]
 
+PARTICIPANT_STATUS_SHEET_OPTIONS = [
+    "No Firmo A",
+    "No Capacitacion",
+    "No Continua P",
+    "No Continua PP",
+    "Siguiente grupo",
+    "Cambio de grupo",
+    "Cambio de pareja",
+    "DIficil/No contacto",
+    "Exelente",
+    "Graduada",
+    "Activa",
+]
+
+PARTICIPANT_STATUS_SHEET_OPTION_CODES = dict(
+    zip(PARTICIPANT_STATUS_SHEET_OPTIONS, PARTICIPANT_STATUS_CODES)
+)
+
 PARTICIPANT_STATUS_LABELS = dict(PARTICIPANT_STATUS_CHOICES)
+
+_PARTICIPANT_STATUS_ALIASES = {
+    **{code.upper(): code for code in PARTICIPANT_STATUS_CODES},
+    **{
+        label.strip().upper(): code
+        for label, code in PARTICIPANT_STATUS_SHEET_OPTION_CODES.items()
+    },
+}
+
+
+def normalize_participant_status(value: str | None) -> str:
+    status = str(value or "").strip()
+    if not status:
+        return ""
+    return _PARTICIPANT_STATUS_ALIASES.get(status.upper(), status.upper())
 
 PARTICIPANT_STATUS_STARTED = {"NCP", "NCPP", "CG", "CP", "D/NC", "E", "G", "A"}
 PARTICIPANT_STATUS_GRADUATED = {"G"}

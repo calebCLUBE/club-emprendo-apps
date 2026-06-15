@@ -108,3 +108,4 @@ pandas>=2.0
 numpy>=1.24
 google-api-python-client>=2.0
 google-auth>=2.0
+weasyprint>=62.0

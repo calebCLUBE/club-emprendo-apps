@@ -186,6 +186,7 @@ class ZernioMarketingClient:
     def __init__(self, config: ZernioMarketingConfig | None = None, timeout: float = 30.0):
         self.config = config or load_zernio_marketing_config()
         self.timeout = timeout
+        self.last_account_id = ""
 
     def _url(self, path: str) -> str:
         return f"{self.config.base_url.rstrip('/')}/{path.strip('/')}"
@@ -211,6 +212,7 @@ class ZernioMarketingClient:
 
     def resolve_account_id(self) -> str:
         if self.config.account_id:
+            self.last_account_id = self.config.account_id
             return self.config.account_id
         for account in self.accounts():
             platform = str(account.get("platform") or account.get("type") or "").lower()
@@ -222,6 +224,7 @@ class ZernioMarketingClient:
                     or account.get("socialAccountId")
                 )
                 if account_id:
+                    self.last_account_id = str(account_id)
                     return str(account_id)
         raise RuntimeError(
             "No Zernio Meta Ads account id found. Set ZERNIO_META_ADS_ACCOUNT_ID."
@@ -242,12 +245,14 @@ class ZernioMarketingClient:
                 "fromDate": date_from.isoformat(),
                 "toDate": date_to.isoformat(),
                 "level": level,
+                "source": "all",
             },
         )
-        campaigns = data.get("data") or data.get("campaigns") or data.get("items") or []
-        if isinstance(campaigns, dict):
-            campaigns = campaigns.get("campaigns") or campaigns.get("items") or []
-        return [_normalize_zernio_campaign(row) for row in campaigns if isinstance(row, dict)]
+        return [
+            _normalize_zernio_campaign(row)
+            for row in _extract_zernio_campaign_nodes(data)
+            if isinstance(row, dict)
+        ]
 
     def instagram_user_insights(
         self,
@@ -264,6 +269,31 @@ def _metric_value(row: dict, name: str) -> Any:
         if isinstance(nested, dict) and nested.get(name) is not None:
             return nested.get(name)
     return row.get(name)
+
+
+def _extract_zernio_campaign_nodes(data: dict) -> list[dict]:
+    candidates = [
+        data.get("data"),
+        data.get("campaigns"),
+        data.get("items"),
+        data.get("results"),
+    ]
+    for candidate in candidates:
+        rows = _coerce_zernio_rows(candidate)
+        if rows:
+            return rows
+    return []
+
+
+def _coerce_zernio_rows(value: Any) -> list[dict]:
+    if isinstance(value, list):
+        return [row for row in value if isinstance(row, dict)]
+    if isinstance(value, dict):
+        for key in ("campaigns", "items", "results", "nodes"):
+            rows = _coerce_zernio_rows(value.get(key))
+            if rows:
+                return rows
+    return []
 
 
 def _normalize_zernio_campaign(row: dict) -> dict:

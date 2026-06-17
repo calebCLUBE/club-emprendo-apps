@@ -2483,6 +2483,7 @@ def marketing_dashboard(request):
     errors: list[str] = []
     ad_rows: list[dict] = []
     organic_summary: dict = {}
+    zernio_account_id = zernio_config.account_id
     if configured:
         client = (
             ZernioMarketingClient(zernio_config)
@@ -2491,6 +2492,8 @@ def marketing_dashboard(request):
         )
         try:
             ad_rows = client.ad_insights(date_from=date_from, date_to=date_to, level=level)
+            if provider == "zernio":
+                zernio_account_id = getattr(client, "last_account_id", zernio_account_id)
         except Exception as exc:
             errors.append(f"Could not load marketing ad insights: {exc}")
         try:
@@ -2506,6 +2509,11 @@ def marketing_dashboard(request):
 
     summary = summarize_ad_insights(ad_rows)
     rows = campaign_rows(ad_rows)
+    if configured and provider == "zernio" and not rows and not errors:
+        errors.append(
+            "Zernio is connected, but returned 0 campaign rows for this date range. "
+            "Try a wider date range or confirm the connected account has Meta ad campaigns."
+        )
     return render(
         request,
         "admin_dash/marketing_dashboard.html",
@@ -2519,6 +2527,8 @@ def marketing_dashboard(request):
             "campaign_rows": rows[:25],
             "organic_summary": organic_summary,
             "provider": provider,
+            "ad_row_count": len(ad_rows),
+            "zernio_account_id": zernio_account_id,
             "zernio_config": zernio_config,
             "meta_config": config,
         },

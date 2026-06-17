@@ -81,6 +81,31 @@
         color: #713f12;
         padding: 12px;
       }
+      .ce-status-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 10px;
+        margin: 12px 0 16px;
+      }
+      .ce-status-item {
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        background: #f8fafc;
+        padding: 10px 12px;
+      }
+      .ce-status-k {
+        color: #64748b;
+        font-size: 11px;
+        font-weight: 800;
+        text-transform: uppercase;
+      }
+      .ce-status-v {
+        margin-top: 4px;
+        color: #111827;
+        font-size: 13px;
+        font-weight: 700;
+        overflow-wrap: anywhere;
+      }
       .ce-table {
         width: 100%;
         border-collapse: collapse;
@@ -122,6 +147,25 @@
         <div class="ce-marketing-sub">Facebook and Instagram marketing data from Meta APIs.</div>
       </div>
       <a class="button" href="{% url 'admin_dashboards_home' %}">Dashboards</a>
+    </div>
+
+    <div class="ce-status-grid">
+      <div class="ce-status-item">
+        <div class="ce-status-k">Provider</div>
+        <div class="ce-status-v">{{ provider|title }}</div>
+      </div>
+      <div class="ce-status-item">
+        <div class="ce-status-k">Connected</div>
+        <div class="ce-status-v">{% if configured %}Yes{% else %}No{% endif %}</div>
+      </div>
+      <div class="ce-status-item">
+        <div class="ce-status-k">Zernio Account</div>
+        <div class="ce-status-v">{{ zernio_account_id|default:"Auto-detect" }}</div>
+      </div>
+      <div class="ce-status-item">
+        <div class="ce-status-k">Rows Loaded</div>
+        <div class="ce-status-v">{{ ad_row_count|default:0 }}</div>
+      </div>
     </div>
 
     <form class="ce-filter-grid" method="get">
@@ -191,7 +235,7 @@
             <td class="ce-num">${{ row.cpc }}</td>
           </tr>
         {% empty %}
-          <tr><td colspan="7" class="ce-muted">No Meta ad data loaded yet.</td></tr>
+          <tr><td colspan="7" class="ce-muted">No marketing ad data loaded for this date range.</td></tr>
         {% endfor %}
       </tbody>
     </table>

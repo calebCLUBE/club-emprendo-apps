@@ -314,7 +314,15 @@
         gap: 10px;
         align-items: end;
       }
-      .ce-report-form label {
+      .ce-filter-form {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(150px, 1fr)) auto auto;
+        gap: 10px;
+        align-items: end;
+        margin-bottom: 14px;
+      }
+      .ce-report-form label,
+      .ce-filter-form label {
         display: block;
         margin-bottom: 5px;
         color: #344054;
@@ -363,7 +371,8 @@
         .ce-metric-board,
         .ce-track-split,
         .ce-chart-pair,
-        .ce-report-form {
+        .ce-report-form,
+        .ce-filter-form {
           grid-template-columns: 1fr;
         }
         .ce-big-number {
@@ -395,6 +404,39 @@
           </div>
         {% endif %}
       </div>
+
+      {% if not is_pdf_export %}
+        <form class="ce-filter-form ce-pdf-hidden" method="get" action="{% url 'admin_impact_dashboard' %}">
+          <div>
+            <label for="impact-filter-group">Group</label>
+            <select id="impact-filter-group" class="ce-report-select" name="group">
+              <option value="">All groups</option>
+              {% for group in impact_group_options %}
+                <option value="{{ group.number }}" {% if group.number|stringformat:"s" == impact_filters.group %}selected{% endif %}>{{ group.label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <label for="impact-filter-year">Year</label>
+            <select id="impact-filter-year" class="ce-report-select" name="year">
+              <option value="">All years</option>
+              {% for year in impact_year_options %}
+                <option value="{{ year }}" {% if year == impact_filters.year %}selected{% endif %}>{{ year }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <label for="impact-filter-track">Track</label>
+            <select id="impact-filter-track" class="ce-report-select" name="track">
+              {% for option in impact_track_options %}
+                <option value="{{ option.value }}" {% if option.value == impact_filters.track %}selected{% endif %}>{{ option.label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <button class="ce-btn" type="submit">Apply filters</button>
+          <a class="ce-btn ce-btn--ghost" href="{% url 'admin_impact_dashboard' %}">Reset</a>
+        </form>
+      {% endif %}
 
       <div class="ce-metric-board">
         <section class="ce-metric-box ce-metric-box--wide">
@@ -634,18 +676,20 @@
             <div>
               <p class="ce-box-kicker">Survey</p>
               <h2 class="ce-box-title">Survey Response Rate</h2>
-              <p class="ce-box-note">Initial and final impact survey completion from participant workbook check columns.</p>
+              <p class="ce-box-note">Matched survey response emails divided by eligible participant emails. Final only includes completed groups.</p>
             </div>
-            <div class="ce-big-number">{{ participant_summary.overall.final_survey_rate }}%</div>
+            <div class="ce-big-number">{{ survey_response_summary.final_rate }}%</div>
           </div>
           <div class="ce-mini-stat-grid">
             <div class="ce-mini-stat">
               <div class="ce-mini-stat-k">Final responses</div>
-              <div class="ce-mini-stat-v">{{ participant_summary.overall.final_survey_responses }}</div>
+              <div class="ce-mini-stat-v">{{ survey_response_summary.final_responses }}</div>
+              <div class="ce-mini-stat-note">{{ survey_response_summary.final_eligible }} eligible participants</div>
             </div>
             <div class="ce-mini-stat">
               <div class="ce-mini-stat-k">Initial responses</div>
-              <div class="ce-mini-stat-v">{{ participant_summary.overall.initial_survey_responses }}</div>
+              <div class="ce-mini-stat-v">{{ survey_response_summary.initial_responses }}</div>
+              <div class="ce-mini-stat-note">{{ survey_response_summary.initial_eligible }} eligible participants</div>
             </div>
           </div>
           <div id="ce-survey-response-rate-chart" class="ce-bars">
@@ -668,10 +712,12 @@
               <select id="impact-report-groups" class="ce-report-select" name="groups">
                 <option value="">All groups</option>
                 {% for group in impact_report_group_options %}
-                  <option value="{{ group.number }}">{{ group.label }}</option>
+                  <option value="{{ group.number }}" {% if group.number|stringformat:"s" == impact_filters.group %}selected{% endif %}>{{ group.label }}</option>
                 {% endfor %}
               </select>
             </div>
+            <input type="hidden" name="year" value="{{ impact_filters.year|default_if_none:'' }}">
+            <input type="hidden" name="track" value="{{ impact_filters.track|default:'all' }}">
             <button class="ce-btn" type="submit">Download PDF report</button>
           </form>
         </section>

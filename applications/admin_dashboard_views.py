@@ -771,7 +771,12 @@ def _application_group_number(app: Application) -> int | None:
     return _group_number_from_slug(getattr(getattr(app, "form", None), "slug", ""))
 
 
-def _application_summary(group_numbers: set[int] | None = None) -> dict:
+def _application_summary(
+    group_numbers: set[int] | None = None,
+    *,
+    track_filter: str = "all",
+) -> dict:
+    track_filter = _normalize_impact_track_filter(track_filter)
     apps = Application.objects.select_related("form", "form__group").order_by("created_at", "id")
     group_map = {group.number: group for group in FormGroup.objects.all()}
     track_data: dict[str, dict] = {
@@ -786,6 +791,8 @@ def _application_summary(group_numbers: set[int] | None = None) -> dict:
         slug = getattr(getattr(app, "form", None), "slug", "")
         track_key = _track_key_from_slug(slug)
         if track_key not in track_data:
+            continue
+        if track_filter != "all" and track_key != track_filter:
             continue
 
         email = _metric_email(getattr(app, "email", ""))
@@ -1163,44 +1170,93 @@ def _wellbeing_comparison_summary(initial_rows: list[dict], final_rows: list[dic
     }
 
 
-def _survey_response_rate_data(participant_summary: dict) -> list[dict]:
-    tracks = participant_summary.get("tracks", {})
-    overall = participant_summary.get("overall", {})
+def _participant_email_sets_by_track(
+    records: list[dict],
+    *,
+    completed_groups_only: bool = False,
+) -> dict[str, set[str]]:
+    completed_group_numbers = {
+        record["group_number"]
+        for record in records
+        if record.get("group_number") is not None and record.get("graduated")
+    }
+    emails_by_track = {"e": set(), "m": set()}
+    for record in records:
+        track = record.get("track")
+        email = record.get("email")
+        if track not in emails_by_track or not email:
+            continue
+        if completed_groups_only and record.get("group_number") not in completed_group_numbers:
+            continue
+        emails_by_track[track].add(email)
+    return emails_by_track
+
+
+def _survey_response_rate_data(
+    participant_records: list[dict],
+    email_sets: dict[str, set[str]],
+) -> tuple[list[dict], dict]:
+    all_participant_emails = _participant_email_sets_by_track(participant_records)
+    completed_participant_emails = _participant_email_sets_by_track(
+        participant_records,
+        completed_groups_only=True,
+    )
+    all_initial_denominator = all_participant_emails["e"] | all_participant_emails["m"]
+    all_final_denominator = completed_participant_emails["e"] | completed_participant_emails["m"]
+    all_initial_responses = (
+        set(email_sets.get("emprendedoras") or set())
+        | set(email_sets.get("mentoras") or set())
+    )
+    all_final_responses = (
+        set(email_sets.get("emprendedoras_final") or set())
+        | set(email_sets.get("mentoras_final") or set())
+    )
+
+    def row(label: str, responses: set[str], denominator: set[str], color: str) -> dict:
+        matched = responses & denominator if denominator else set()
+        return {
+            "label": label,
+            "value": _rate(len(matched), len(denominator)),
+            "responses": len(matched),
+            "eligible": len(denominator),
+            "color": color,
+        }
+
     rows: list[dict] = []
     rows.extend(
         [
-            {
-                "label": "All: initial check-in",
-                "value": overall.get("initial_survey_rate", 0),
-                "color": "#6366F1",
-            },
-            {
-                "label": "All: final check-in",
-                "value": overall.get("final_survey_rate", 0),
-                "color": "#8B5CF6",
-            },
+            row("All: initial check-in", all_initial_responses, all_initial_denominator, "#6366F1"),
+            row("All: final check-in", all_final_responses, all_final_denominator, "#8B5CF6"),
         ]
     )
-    for key, prefix, initial_color, final_color in (
-        ("e", "E", "#3B82F6", "#22C55E"),
-        ("m", "M", "#14B8A6", "#F59E0B"),
+    for key, prefix, initial_kind, final_kind, initial_color, final_color in (
+        ("e", "E", "emprendedoras", "emprendedoras_final", "#3B82F6", "#22C55E"),
+        ("m", "M", "mentoras", "mentoras_final", "#14B8A6", "#F59E0B"),
     ):
-        track = tracks.get(key, {})
         rows.extend(
             [
-                {
-                    "label": f"{prefix}: initial check-in",
-                    "value": track.get("initial_survey_rate", 0),
-                    "color": initial_color,
-                },
-                {
-                    "label": f"{prefix}: final check-in",
-                    "value": track.get("final_survey_rate", 0),
-                    "color": final_color,
-                },
+                row(
+                    f"{prefix}: initial check-in",
+                    set(email_sets.get(initial_kind) or set()),
+                    all_participant_emails[key],
+                    initial_color,
+                ),
+                row(
+                    f"{prefix}: final check-in",
+                    set(email_sets.get(final_kind) or set()),
+                    completed_participant_emails[key],
+                    final_color,
+                ),
             ]
         )
-    return rows
+    return rows, {
+        "initial_rate": rows[0]["value"],
+        "initial_responses": rows[0]["responses"],
+        "initial_eligible": rows[0]["eligible"],
+        "final_rate": rows[1]["value"],
+        "final_responses": rows[1]["responses"],
+        "final_eligible": rows[1]["eligible"],
+    }
 
 
 def _chart_rows(rows: list[dict], label_key: str, value_key: str = "count", colors: list[str] | None = None) -> list[dict]:
@@ -1513,6 +1569,16 @@ def _impact_group_options() -> list[dict]:
     ]
 
 
+def _impact_year_options() -> list[int]:
+    years = (
+        FormGroup.objects.exclude(year__isnull=True)
+        .values_list("year", flat=True)
+        .distinct()
+        .order_by("-year")
+    )
+    return [int(year) for year in years if year]
+
+
 def _parse_impact_group_numbers(raw_values: list[str]) -> set[int]:
     group_numbers: set[int] = set()
     for raw in raw_values:
@@ -1527,13 +1593,35 @@ def _parse_impact_group_numbers(raw_values: list[str]) -> set[int]:
     return group_numbers
 
 
-def _filter_records_by_groups(records: list[dict], group_numbers: set[int] | None) -> list[dict]:
-    if group_numbers is None:
-        return records
+def _normalize_impact_track_filter(raw: str | None) -> str:
+    value = str(raw or "all").strip().lower()
+    return value if value in {"all", "e", "m"} else "all"
+
+
+def _parse_impact_year(raw: str | None) -> int | None:
+    value = str(raw or "").strip()
+    if not value:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _filter_records_by_impact_scope(
+    records: list[dict],
+    *,
+    group_numbers: set[int] | None = None,
+    year: int | None = None,
+    track_filter: str = "all",
+) -> list[dict]:
+    track_filter = _normalize_impact_track_filter(track_filter)
     return [
         record
         for record in records
-        if record.get("group_number") in group_numbers
+        if (group_numbers is None or record.get("group_number") in group_numbers)
+        and (year is None or record.get("group_year") == year)
+        and (track_filter == "all" or record.get("track") == track_filter)
     ]
 
 
@@ -1555,6 +1643,28 @@ def _impact_group_scope_label(group_numbers: set[int] | None) -> str:
     if len(labels) > 8:
         return ", ".join(labels[:8]) + f" +{len(labels) - 8} more"
     return ", ".join(labels) if labels else "No groups selected"
+
+
+def _impact_track_label(track_filter: str) -> str:
+    return {
+        "e": "Emprendedoras",
+        "m": "Mentoras",
+        "all": "Mentoras and Emprendedoras",
+    }.get(_normalize_impact_track_filter(track_filter), "Mentoras and Emprendedoras")
+
+
+def _impact_scope_label(
+    group_numbers: set[int] | None,
+    *,
+    year: int | None = None,
+    track_filter: str = "all",
+) -> str:
+    parts = [_impact_group_scope_label(group_numbers)]
+    if year is not None:
+        parts.append(str(year))
+    if _normalize_impact_track_filter(track_filter) != "all":
+        parts.append(_impact_track_label(track_filter))
+    return " / ".join(parts)
 
 
 def _impact_report_filename(group_numbers: set[int] | None) -> str:
@@ -1694,12 +1804,29 @@ def _prepare_impact_dashboard_chart_context(context: dict) -> dict:
     return context
 
 
-def _build_group_impact_report_payload(group_numbers: set[int] | None = None) -> dict:
+def _build_group_impact_report_payload(
+    group_numbers: set[int] | None = None,
+    *,
+    year: int | None = None,
+    track_filter: str = "all",
+) -> dict:
+    track_filter = _normalize_impact_track_filter(track_filter)
     all_records = _participant_records()
-    participant_records = _filter_records_by_groups(all_records, group_numbers)
-    participant_summary = _participant_summary(participant_records, group_numbers=group_numbers)
+    participant_records = _filter_records_by_impact_scope(
+        all_records,
+        group_numbers=group_numbers,
+        year=year,
+        track_filter=track_filter,
+    )
+    filtered_group_numbers = {
+        int(record["group_number"])
+        for record in participant_records
+        if record.get("group_number") is not None
+    }
+    summary_group_numbers = group_numbers if group_numbers is not None else (filtered_group_numbers if year is not None else None)
+    participant_summary = _participant_summary(participant_records, group_numbers=summary_group_numbers)
     group_source_rows = _group_recruitment_source_rows(participant_records, group_numbers)
-    application_group_numbers = group_numbers
+    application_group_numbers = summary_group_numbers
     if group_numbers is not None:
         inferred_source_groups = {
             int(source_group_number)
@@ -1708,7 +1835,7 @@ def _build_group_impact_report_payload(group_numbers: set[int] | None = None) ->
         }
         if inferred_source_groups:
             application_group_numbers = inferred_source_groups
-    application_summary = _application_summary(application_group_numbers)
+    application_summary = _application_summary(application_group_numbers, track_filter=track_filter)
     conversion_rows = _conversion_summary(participant_summary, application_summary)
     alumni_summary = _alumni_mentor_summary(participant_records)
     participant_emails = {
@@ -1717,8 +1844,8 @@ def _build_group_impact_report_payload(group_numbers: set[int] | None = None) ->
         if record.get("email")
     }
     completed_participant_emails = _completed_group_participant_emails(participant_records)
-    survey_scope = participant_emails if group_numbers is not None else None
-    datasets, _email_sets = _load_impact_survey_datasets(
+    survey_scope = participant_emails if (group_numbers is not None or year is not None or track_filter != "all") else None
+    datasets, email_sets = _load_impact_survey_datasets(
         top_n=10,
         scoped_emails=survey_scope,
     )
@@ -1736,9 +1863,15 @@ def _build_group_impact_report_payload(group_numbers: set[int] | None = None) ->
         initial_wellbeing_rows,
         final_wellbeing_rows,
     )
+    survey_response_rate_data, survey_response_summary = _survey_response_rate_data(
+        participant_records,
+        email_sets,
+    )
     return {
         "group_numbers": group_numbers,
-        "group_label": _impact_group_scope_label(group_numbers),
+        "group_label": _impact_scope_label(group_numbers, year=year, track_filter=track_filter),
+        "filter_year": year,
+        "track_filter": track_filter,
         "generated_at": timezone.localtime(timezone.now()).strftime("%Y-%m-%d %H:%M"),
         "participant_summary": participant_summary,
         "application_summary": application_summary,
@@ -1752,7 +1885,8 @@ def _build_group_impact_report_payload(group_numbers: set[int] | None = None) ->
         "alumni_engagement_chart_data": _alumni_engagement_chart_data(alumni_summary),
         "alumni_returnee_chart_data": _alumni_returnee_chart_data(alumni_summary),
         "repeat_mentor_chart_data": _repeat_mentor_chart_data(alumni_summary),
-        "survey_response_rate_data": _survey_response_rate_data(participant_summary),
+        "survey_response_rate_data": survey_response_rate_data,
+        "survey_response_summary": survey_response_summary,
         "nps_rows": nps_rows[:8],
         "wellbeing_rows": (initial_wellbeing_rows + final_wellbeing_rows)[:8],
         "nps_summary": _nps_metric_summary(nps_rows),
@@ -1970,6 +2104,7 @@ def _render_group_impact_report_pdf(payload: dict) -> bytes:
     conversion_all = next((row for row in conversion_rows if row["track"] == "All"), {})
     nps_summary = payload.get("nps_summary", {})
     wellbeing_summary = payload.get("wellbeing_summary", {})
+    survey_response_summary = payload.get("survey_response_summary", {})
     country_data = payload.get("participant_country_chart_data", {})
     status_data = payload.get("participant_status_chart_data", {})
     buffer = io.BytesIO()
@@ -2040,8 +2175,11 @@ def _render_group_impact_report_pdf(payload: dict) -> bytes:
         },
         {
             "label": "Survey Response Rate",
-            "value": _impact_pdf_value(overall_participants.get("final_survey_rate", 0), "%"),
-            "note": f"{overall_participants.get('final_survey_responses', 0)} final responses",
+            "value": _impact_pdf_value(survey_response_summary.get("final_rate", 0), "%"),
+            "note": (
+                f"{survey_response_summary.get('final_responses', 0)} of "
+                f"{survey_response_summary.get('final_eligible', 0)} final eligible"
+            ),
             "color": "#F59E0B",
         },
     ]
@@ -2223,6 +2361,18 @@ def _impact_dashboard_context_from_payload(payload: dict) -> dict:
     return _prepare_impact_dashboard_chart_context(
         {
             "top_n": 10,
+            "impact_filters": {
+                "group": str(next(iter(payload.get("group_numbers") or []))) if payload.get("group_numbers") and len(payload.get("group_numbers") or []) == 1 else "",
+                "year": payload.get("filter_year"),
+                "track": payload.get("track_filter") or "all",
+            },
+            "impact_group_options": _impact_group_options(),
+            "impact_year_options": _impact_year_options(),
+            "impact_track_options": [
+                {"value": "all", "label": "Both"},
+                {"value": "e", "label": "Emprendedoras"},
+                {"value": "m", "label": "Mentoras"},
+            ],
             "participant_summary": payload["participant_summary"],
             "application_summary": payload["application_summary"],
             "conversion_rows": payload["conversion_rows"],
@@ -2240,6 +2390,7 @@ def _impact_dashboard_context_from_payload(payload: dict) -> dict:
             "alumni_returnee_chart_data": payload["alumni_returnee_chart_data"],
             "repeat_mentor_chart_data": payload["repeat_mentor_chart_data"],
             "survey_response_rate_data": payload["survey_response_rate_data"],
+            "survey_response_summary": payload.get("survey_response_summary", {}),
             "impact_report_group_options": _impact_group_options(),
             "impact_report_group_label": payload["group_label"],
         }
@@ -2276,7 +2427,13 @@ def dashboards_home(request):
 def impact_dashboard_pdf(request):
     parsed_group_numbers = _parse_impact_group_numbers(request.GET.getlist("groups"))
     group_numbers = parsed_group_numbers or None
-    payload = _build_group_impact_report_payload(group_numbers)
+    year_filter = _parse_impact_year(request.GET.get("year"))
+    track_filter = _normalize_impact_track_filter(request.GET.get("track"))
+    payload = _build_group_impact_report_payload(
+        group_numbers,
+        year=year_filter,
+        track_filter=track_filter,
+    )
     dashboard_context = _impact_dashboard_context_from_payload(payload)
     pdf_bytes = _render_impact_dashboard_html_pdf(request, dashboard_context)
     if pdf_bytes is None:
@@ -2291,19 +2448,49 @@ def impact_dashboard_pdf(request):
 @staff_member_required
 def impact_dashboard(request):
     top_n = _safe_int(request.GET.get("top_n"), default=10, minimum=3, maximum=40)
+    group_numbers = _parse_impact_group_numbers(request.GET.getlist("groups") or [request.GET.get("group") or ""]) or None
+    year_filter = _parse_impact_year(request.GET.get("year"))
+    track_filter = _normalize_impact_track_filter(request.GET.get("track"))
 
-    datasets, _email_sets = _load_impact_survey_datasets(
+    all_participant_records = _participant_records()
+    participant_records = _filter_records_by_impact_scope(
+        all_participant_records,
+        group_numbers=group_numbers,
+        year=year_filter,
+        track_filter=track_filter,
+    )
+    filtered_group_numbers = {
+        int(record["group_number"])
+        for record in participant_records
+        if record.get("group_number") is not None
+    }
+    summary_group_numbers = group_numbers if group_numbers is not None else (filtered_group_numbers if year_filter is not None else None)
+    scoped_participant_emails = {
+        record["email"]
+        for record in participant_records
+        if record.get("email")
+    }
+    survey_scope = scoped_participant_emails if (group_numbers is not None or year_filter is not None or track_filter != "all") else None
+    datasets, email_sets = _load_impact_survey_datasets(
         top_n=top_n,
+        scoped_emails=survey_scope,
         request=request,
     )
-
-    participant_records = _participant_records()
-    participant_summary = _participant_summary(participant_records)
+    participant_summary = _participant_summary(participant_records, group_numbers=summary_group_numbers)
     completed_participant_emails = _completed_group_participant_emails(participant_records)
-    application_summary = _application_summary()
+    application_group_numbers = summary_group_numbers
+    group_source_rows = _group_recruitment_source_rows(participant_records, group_numbers)
+    if group_numbers is not None:
+        inferred_source_groups = {
+            int(source_group_number)
+            for row in group_source_rows
+            for source_group_number in row.get("source_group_numbers", [])
+        }
+        if inferred_source_groups:
+            application_group_numbers = inferred_source_groups
+    application_summary = _application_summary(application_group_numbers, track_filter=track_filter)
     conversion_rows = _conversion_summary(participant_summary, application_summary)
     alumni_summary = _alumni_mentor_summary(participant_records)
-    group_source_rows = _group_recruitment_source_rows(participant_records)
     nps_rows = _collect_survey_metric_rows(datasets, "nps_rows")
     initial_wellbeing_rows = _collect_survey_metric_rows_for_kinds(
         datasets,
@@ -2315,7 +2502,10 @@ def impact_dashboard(request):
         completed_emails=completed_participant_emails,
         request=request,
     )
-    survey_response_rate_data = _survey_response_rate_data(participant_summary)
+    survey_response_rate_data, survey_response_summary = _survey_response_rate_data(
+        participant_records,
+        email_sets,
+    )
     nps_summary = _nps_metric_summary(nps_rows)
     wellbeing_summary = _wellbeing_comparison_summary(
         initial_wellbeing_rows,
@@ -2325,6 +2515,23 @@ def impact_dashboard(request):
     context = _prepare_impact_dashboard_chart_context(
         {
             "top_n": top_n,
+            "impact_filters": {
+                "group": str(next(iter(group_numbers))) if group_numbers and len(group_numbers) == 1 else "",
+                "year": year_filter,
+                "track": track_filter,
+            },
+            "impact_group_options": _impact_group_options(),
+            "impact_year_options": _impact_year_options(),
+            "impact_track_options": [
+                {"value": "all", "label": "Both"},
+                {"value": "e", "label": "Emprendedoras"},
+                {"value": "m", "label": "Mentoras"},
+            ],
+            "impact_report_group_label": _impact_scope_label(
+                group_numbers,
+                year=year_filter,
+                track_filter=track_filter,
+            ),
             "participant_summary": participant_summary,
             "application_summary": application_summary,
             "conversion_rows": conversion_rows,
@@ -2342,7 +2549,7 @@ def impact_dashboard(request):
             "alumni_returnee_chart_data": _alumni_returnee_chart_data(alumni_summary),
             "repeat_mentor_chart_data": _repeat_mentor_chart_data(alumni_summary),
             "survey_response_rate_data": survey_response_rate_data,
-            "impact_report_group_options": _impact_group_options(),
+            "survey_response_summary": survey_response_summary,
         }
     )
     return render(request, "admin_dash/impact_dashboard.html", context)

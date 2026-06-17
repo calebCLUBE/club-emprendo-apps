@@ -1082,6 +1082,28 @@ class ImpactDashboardMetricTests(TestCase):
         self.assertEqual(group1_source["source_label"], "Group 981")
         self.assertEqual(group2_source["source_label"], "Group 981")
 
+    def test_impact_dashboard_scope_filters_group_year_and_track(self):
+        records = admin_dashboard_views._participant_records()
+
+        filtered = admin_dashboard_views._filter_records_by_impact_scope(
+            records,
+            group_numbers={981},
+            year=2026,
+            track_filter="e",
+        )
+
+        self.assertEqual(len(filtered), 2)
+        self.assertTrue(all(record["group_number"] == 981 for record in filtered))
+        self.assertTrue(all(record["group_year"] == 2026 for record in filtered))
+        self.assertTrue(all(record["track"] == "e" for record in filtered))
+
+        app_summary = admin_dashboard_views._application_summary({981}, track_filter="e")
+        self.assertEqual(app_summary["overall"]["raw"], 3)
+        self.assertEqual(app_summary["tracks"][0]["track"], "Emprendedoras")
+        self.assertEqual(app_summary["tracks"][0]["raw"], 3)
+        self.assertEqual(app_summary["tracks"][1]["track"], "Mentoras")
+        self.assertEqual(app_summary["tracks"][1]["raw"], 0)
+
     def test_survey_nps_and_quality_of_life_rows_exclude_financial_columns(self):
         headers = [
             "Timestamp",
@@ -1137,6 +1159,53 @@ class ImpactDashboardMetricTests(TestCase):
             [row["label"] for row in summary["chart_data"]],
             ["Initial", "Final completed groups"],
         )
+
+    def test_survey_response_rate_uses_survey_email_matches_not_workbook_checks(self):
+        records = [
+            {
+                "track": "e",
+                "email": "founder@example.com",
+                "group_number": 1,
+                "graduated": True,
+                "initial_survey": False,
+                "final_survey": False,
+            },
+            {
+                "track": "e",
+                "email": "active-founder@example.com",
+                "group_number": 2,
+                "graduated": False,
+                "initial_survey": False,
+                "final_survey": False,
+            },
+            {
+                "track": "m",
+                "email": "mentor@example.com",
+                "group_number": 1,
+                "graduated": False,
+                "initial_survey": False,
+                "final_survey": False,
+            },
+        ]
+        rows, summary = admin_dashboard_views._survey_response_rate_data(
+            records,
+            {
+                "emprendedoras": {"founder@example.com", "active-founder@example.com"},
+                "mentoras": {"mentor@example.com"},
+                "emprendedoras_final": {"founder@example.com", "active-founder@example.com"},
+                "mentoras_final": {"mentor@example.com"},
+            },
+        )
+
+        self.assertEqual(summary["initial_rate"], 100.0)
+        self.assertEqual(summary["initial_responses"], 3)
+        self.assertEqual(summary["initial_eligible"], 3)
+        self.assertEqual(summary["final_rate"], 100.0)
+        self.assertEqual(summary["final_responses"], 2)
+        self.assertEqual(summary["final_eligible"], 2)
+        final_all = next(row for row in rows if row["label"] == "All: final check-in")
+        self.assertEqual(final_all["eligible"], 2)
+        self.assertEqual(final_all["responses"], 2)
 
     @patch("applications.admin_dashboard_views._load_impact_survey_datasets")
     def test_final_quality_of_life_rows_use_completed_group_email_scope(self, mock_load):

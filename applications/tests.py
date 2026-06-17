@@ -1354,6 +1354,45 @@ class ParticipantsCapacitacionCheckTests(TestCase):
         self.assertNotContains(response, "Open Mentoras sheet")
         self.assertNotContains(response, "Open Emprendedoras sheet")
 
+    @patch("applications.admin_profiles_views.fetch_drive_csv_file_text")
+    def test_participants_page_syncs_database_from_google_sheet(self, mock_fetch):
+        mock_fetch.return_value = (
+            "\n".join(
+                [
+                    "Grupo,Track,Estatus,Nombre,Id,Email,WhatsApp,Reside,Edad,Acta,Website,Capacitacion,Encuesta inicial,Encuesta final",
+                    "993,Mentoras,Activa,Mentora Sheet,M9,mentor-sheet@example.com,+57,Colombia,30,true,false,true,false,true",
+                    "994,Emprendedoras,Graduada,Founder Sheet,E9,founder-sheet@example.com,+51,Peru,40,true,true,true,true,true",
+                ]
+            ),
+            "drive-file-id",
+            "Participant source",
+        )
+
+        response = self.client.post(
+            reverse("admin_profiles_participants"),
+            data={"action": "sync_from_google_sheet"},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        group_994 = FormGroup.objects.get(number=994)
+        synced_existing = GroupParticipantList.objects.get(group=self.group)
+        synced_new = GroupParticipantList.objects.get(group=group_994)
+        self.assertEqual(synced_existing.mentoras_sheet_rows[0][1], "Activa")
+        self.assertEqual(synced_existing.mentoras_sheet_rows[0][3], "Mentora Sheet")
+        self.assertEqual(synced_existing.mentoras_sheet_rows[0][5], "mentor-sheet@example.com")
+        self.assertTrue(synced_existing.mentoras_sheet_rows[0][9])
+        self.assertFalse(synced_existing.mentoras_sheet_rows[0][10])
+        self.assertTrue(synced_existing.mentoras_sheet_rows[0][11])
+        self.assertEqual(synced_new.emprendedoras_sheet_rows[0][1], "Graduada")
+        self.assertEqual(synced_new.emprendedoras_sheet_rows[0][3], "Founder Sheet")
+        self.assertEqual(synced_new.emprendedoras_sheet_rows[0][5], "founder-sheet@example.com")
+        self.assertTrue(
+            ParticipantEmailStatus.objects.filter(email="mentor-sheet@example.com", participated=True).exists()
+        )
+        self.assertTrue(
+            ParticipantEmailStatus.objects.filter(email="founder-sheet@example.com", participated=True).exists()
+        )
+
     def test_combined_track_sheet_renders_both_tabs(self):
         response = self.client.get(
             reverse(

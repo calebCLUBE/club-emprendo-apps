@@ -154,6 +154,15 @@
           <div class="ce-muted">No groups available yet.</div>
         {% endfor %}
       </div>
+      <form method="post" style="margin-top:12px;">
+        {% csrf_token %}
+        <button class="ce-btn" type="submit" name="action" value="sync_from_google_sheet">
+          Sync participant database from Google Sheet
+        </button>
+      </form>
+      <div class="ce-muted">
+        Source: {{ participants_drive_file }}
+      </div>
     </section>
 
     {% if selected_group %}
@@ -177,6 +186,13 @@
         </div>
 
         <div class="ce-actions" style="margin-top:12px;">
+          <form method="post">
+            {% csrf_token %}
+            <input type="hidden" name="group" value="{{ selected_group.number }}">
+            <button class="ce-btn" type="submit" name="action" value="sync_from_google_sheet">
+              Sync this group from Google Sheet
+            </button>
+          </form>
           <form method="post">
             {% csrf_token %}
             <input type="hidden" name="group" value="{{ selected_group.number }}">

@@ -94,6 +94,9 @@ EMPRENDEDORAS_ENCUESTAS_FINAL_DRIVE_FILE_DEFAULT = (
 MENTORAS_ENCUESTAS_FINAL_DRIVE_FILE_DEFAULT = (
     "https://docs.google.com/spreadsheets/d/1OdQ0exguYQkOz8zGmKex8txi-8KsJxVLfBnuUTJtSMg/edit?resourcekey=&gid=1172577522#gid=1172577522"
 )
+PARTICIPANTS_DRIVE_FILE_DEFAULT = (
+    "https://docs.google.com/spreadsheets/d/11TXU8gmcTPqfoEhc4JKIaRuOjhKnVLTnhAJfDR2Lxr8/edit?gid=2127194111#gid=2127194111"
+)
 
 PROFILE_OVERVIEW_FIELDS = [
     ("full_name", "Full name"),
@@ -212,6 +215,47 @@ EMPRENDEDORAS_COLUMN_TYPES = [
     "checkbox",      # W/E
 ]
 
+PARTICIPANT_SOURCE_GROUP_KEYS = {
+    "group",
+    "grupo",
+    "groupnumber",
+    "numerogrupo",
+    "nmerogrupo",
+    "grupoactual",
+    "participantgroup",
+}
+PARTICIPANT_SOURCE_TRACK_KEYS = {
+    "track",
+    "me",
+    "tipo",
+    "role",
+    "rol",
+    "perfil",
+    "participanttype",
+    "tipoparticipante",
+}
+PARTICIPANT_SOURCE_MENTORA_TOKENS = ("mentora", "mentor", "m")
+PARTICIPANT_SOURCE_EMPRENDEDORA_TOKENS = ("emprendedora", "emprendedor", "founder", "e")
+PARTICIPANT_SOURCE_FIELD_ALIASES = {
+    "info": ("info", "informacion", "informacin"),
+    "status": ("estatus", "status", "estado"),
+    "name": ("nombre", "name", "fullname", "full_name", "nombrecompleto"),
+    "id": ("id", "cedula", "cdula", "documento", "identificacion", "identificacin"),
+    "email": ("email", "correo", "correoelectronico", "correoelectrnico", "mail"),
+    "whatsapp": ("whatsapp", "telefono", "telfono", "phone", "celular"),
+    "country": ("reside", "recide", "pais", "pas", "country", "countryresidence", "paisresidencia"),
+    "age": ("edad", "age", "agerange", "rangodeedad"),
+    "acta": ("acta", "firmoacta", "firmacta"),
+    "website": ("website", "web", "sitio"),
+    "capacitacion": ("capacitacion", "capacitacin", "training"),
+    "encuesta_inicial": ("encuestainicial", "initialsurvey", "surveyinitial"),
+    "encuesta_final": ("encuestafinal", "finalsurvey", "surveyfinal"),
+    "plazo_extra": ("plazoextra", "extra"),
+    "lanzamiento": ("lanzamiento", "launch"),
+    "wm": ("wm", "wmentora", "w/m"),
+    "we": ("we", "wemprendedora", "w/e"),
+}
+
 
 def _model_has_field(model, field_name: str) -> bool:
     try:
@@ -260,6 +304,19 @@ def _normalize_email(value: str | None) -> str:
     if not raw:
         return ""
     return raw
+
+
+def _normalized_source_header(value: str | None) -> str:
+    return re.sub(r"[^a-z0-9]+", "", str(value or "").strip().lower())
+
+
+def _setting_or_env(name: str, default: str = "") -> str:
+    value = getattr(settings, name, None)
+    if value is not None:
+        text = str(value).strip()
+        if text:
+            return text
+    return os.getenv(name, default).strip()
 
 
 def _clean_valid_emails(raw_emails: list[str]) -> list[str]:
@@ -940,6 +997,256 @@ def _coerce_bool_columns(rows: list[list], bool_cols: list[int]) -> list[list]:
                 row_copy[idx] = _as_checkbox_bool(row_copy[idx])
         out.append(row_copy)
     return out
+
+
+def _participant_source_url() -> str:
+    return _setting_or_env("PARTICIPANTS_DRIVE_FILE", PARTICIPANTS_DRIVE_FILE_DEFAULT)
+
+
+def _participant_source_column(headers: list[str], keys: set[str]) -> int | None:
+    normalized_headers = [_normalized_source_header(header) for header in headers]
+    for idx, normalized in enumerate(normalized_headers):
+        if normalized in keys:
+            return idx
+    for idx, normalized in enumerate(normalized_headers):
+        if any(key and key in normalized for key in keys):
+            return idx
+    return None
+
+
+def _participant_source_field_index(headers: list[str], field_name: str) -> int | None:
+    normalized_headers = [_normalized_source_header(header) for header in headers]
+    aliases = set(PARTICIPANT_SOURCE_FIELD_ALIASES.get(field_name, ()))
+    for idx, normalized in enumerate(normalized_headers):
+        if normalized in aliases:
+            return idx
+    for idx, normalized in enumerate(normalized_headers):
+        if any(alias and alias in normalized for alias in aliases):
+            return idx
+    return None
+
+
+def _participant_source_value(row: list[str], index: int | None) -> str:
+    if index is None or index < 0 or index >= len(row):
+        return ""
+    return str(row[index] or "").strip()
+
+
+def _participant_source_group_number(value: str | None) -> int | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    match = re.search(r"\d{1,4}", raw)
+    if not match:
+        return None
+    try:
+        return int(match.group(0))
+    except Exception:
+        return None
+
+
+def _participant_source_track(value: str | None) -> str:
+    raw = str(value or "").strip().lower()
+    if not raw:
+        return ""
+    normalized = _normalized_source_header(raw)
+    if normalized in {"m", "mentor", "mentora", "mentoras"}:
+        return "mentoras"
+    if normalized in {"e", "emprendedor", "emprendedora", "emprendedoras", "founder"}:
+        return "emprendedoras"
+    if "mentor" in normalized or "mentora" in normalized:
+        return "mentoras"
+    if "emprendedor" in normalized or "emprendedora" in normalized or "founder" in normalized:
+        return "emprendedoras"
+    return ""
+
+
+def _participant_source_track_from_row(row: list[str], track_idx: int | None, headers: list[str]) -> str:
+    explicit_track = _participant_source_track(_participant_source_value(row, track_idx))
+    if explicit_track:
+        return explicit_track
+
+    joined = " ".join(_participant_source_value(row, idx) for idx in range(min(len(row), len(headers))))
+    return _participant_source_track(joined)
+
+
+def _participant_source_row_to_sheet_row(
+    source_row: list[str],
+    headers: list[str],
+    cfg: dict,
+    field_indexes: dict[str, int | None],
+) -> list:
+    row = [""] * len(cfg["headers"])
+    row[2] = 0
+    row[0] = _participant_source_value(source_row, field_indexes.get("info"))
+    row[1] = _participant_source_value(source_row, field_indexes.get("status"))
+    row[3] = _participant_source_value(source_row, field_indexes.get("name"))
+    row[4] = _participant_source_value(source_row, field_indexes.get("id"))
+    row[cfg["email_col"]] = _participant_source_value(source_row, field_indexes.get("email"))
+    row[6] = _participant_source_value(source_row, field_indexes.get("whatsapp"))
+    row[7] = _participant_source_value(source_row, field_indexes.get("country"))
+    row[8] = _participant_source_value(source_row, field_indexes.get("age"))
+
+    checkbox_fields = [
+        ("acta", cfg["acta_col"]),
+        ("website", 10),
+        ("capacitacion", cfg["capacitacion_col"]),
+        ("encuesta_inicial", cfg["encuestas_initial_col"]),
+        ("encuesta_final", cfg["encuestas_final_col"]),
+        ("plazo_extra", 14),
+        ("lanzamiento", 15),
+        ("wm", 16),
+        ("we", 17),
+    ]
+    for field_name, target_idx in checkbox_fields:
+        if target_idx is None or target_idx >= len(row):
+            continue
+        row[target_idx] = _as_checkbox_bool(
+            _participant_source_value(source_row, field_indexes.get(field_name))
+        )
+
+    # If the source sheet uses exact participant-workbook headers, copy any
+    # fields not covered above by their matching header.
+    normalized_source_headers = [_normalized_source_header(header) for header in headers]
+    for target_idx, target_header in enumerate(cfg["headers"]):
+        if target_idx == 2 or target_idx >= len(row):
+            continue
+        target_key = _normalized_source_header(target_header)
+        if not target_key or str(row[target_idx]).strip() or isinstance(row[target_idx], bool):
+            continue
+        try:
+            source_idx = normalized_source_headers.index(target_key)
+        except ValueError:
+            continue
+        row[target_idx] = _participant_source_value(source_row, source_idx)
+    return row
+
+
+def _participant_source_group_defaults(group_number: int) -> dict:
+    today = timezone.localdate()
+    return {
+        "start_day": 1,
+        "start_month": "",
+        "end_month": "",
+        "year": today.year,
+    }
+
+
+def _sync_participants_from_drive_sheet(group_number: int | None = None) -> dict:
+    source_url = _participant_source_url()
+    csv_text, file_id, file_name = fetch_drive_csv_file_text(source_url)
+    reader = csv.reader(io.StringIO(csv_text))
+    rows = list(reader)
+    if not rows:
+        raise ValueError("Participant Google Sheet is empty.")
+
+    headers = [str(value or "").strip() for value in rows[0]]
+    body_rows = [list(row) for row in rows[1:] if any(str(cell or "").strip() for cell in row)]
+    group_idx = _participant_source_column(headers, PARTICIPANT_SOURCE_GROUP_KEYS)
+    track_idx = _participant_source_column(headers, PARTICIPANT_SOURCE_TRACK_KEYS)
+    if group_idx is None:
+        raise ValueError("Participant Google Sheet needs a group column, such as Group or Grupo.")
+    if track_idx is None:
+        raise ValueError("Participant Google Sheet needs a track/type column, such as Track, Rol, or Tipo.")
+
+    configs = _participant_track_sheet_configs()
+    field_indexes = {
+        field_name: _participant_source_field_index(headers, field_name)
+        for field_name in PARTICIPANT_SOURCE_FIELD_ALIASES
+    }
+
+    rows_by_group: dict[int, dict[str, list[list]]] = defaultdict(lambda: {"mentoras": [], "emprendedoras": []})
+    skipped_rows = 0
+    for source_row in body_rows:
+        parsed_group = _participant_source_group_number(_participant_source_value(source_row, group_idx))
+        if parsed_group is None:
+            skipped_rows += 1
+            continue
+        if group_number is not None and int(parsed_group) != int(group_number):
+            continue
+
+        track_slug = _participant_source_track_from_row(source_row, track_idx, headers)
+        if track_slug not in configs:
+            skipped_rows += 1
+            continue
+        cfg = configs[track_slug]
+        sheet_row = _participant_source_row_to_sheet_row(source_row, headers, cfg, field_indexes)
+        if not _normalize_email(_participant_source_value(sheet_row, cfg["email_col"])):
+            skipped_rows += 1
+            continue
+        rows_by_group[int(parsed_group)][track_slug].append(sheet_row)
+
+    if group_number is not None and int(group_number) not in rows_by_group:
+        raise ValueError(f"No participant rows found in the Google Sheet for Group {group_number}.")
+
+    synced_groups = 0
+    created_groups = 0
+    mentoras_total = 0
+    emprendedoras_total = 0
+    marked_emails: list[str] = []
+
+    for parsed_group, track_rows in sorted(rows_by_group.items()):
+        group, created = FormGroup.objects.get_or_create(
+            number=parsed_group,
+            defaults=_participant_source_group_defaults(parsed_group),
+        )
+        if created:
+            created_groups += 1
+        elif _formgroup_is_active_column_exists() and not getattr(group, "is_active", True):
+            group.is_active = True
+            group.save(update_fields=["is_active"])
+
+        participant_obj, _created_list = GroupParticipantList.objects.get_or_create(group=group)
+        updates: list[str] = []
+        changed_tracks: list[tuple[dict, list[list]]] = []
+        for track_slug in ("mentoras", "emprendedoras"):
+            cfg = configs[track_slug]
+            rows_for_track = _normalize_sheet_rows(track_rows.get(track_slug, []), cfg["headers"])
+            rows_for_track = _coerce_bool_columns(rows_for_track, cfg["bool_cols"])
+            rows_for_track = _number_sheet_rows(rows_for_track, number_col=2)
+            emails = _emails_from_sheet_rows(rows_for_track, cfg["email_col"])
+            marked_emails.extend(emails)
+            next_emails_text = "\n".join(emails)
+            if getattr(participant_obj, cfg["text_field"]) != next_emails_text:
+                setattr(participant_obj, cfg["text_field"], next_emails_text)
+                updates.append(cfg["text_field"])
+            if getattr(participant_obj, cfg["rows_field"]) != rows_for_track:
+                setattr(participant_obj, cfg["rows_field"], rows_for_track)
+                updates.append(cfg["rows_field"])
+                changed_tracks.append((cfg, rows_for_track))
+            if track_slug == "mentoras":
+                mentoras_total += len(rows_for_track)
+            else:
+                emprendedoras_total += len(rows_for_track)
+
+        if updates:
+            participant_obj.save(update_fields=updates + ["updated_at"])
+            for cfg, rows_for_track in changed_tracks:
+                _create_participant_sheet_version(
+                    group=group,
+                    track_slug=cfg["slug"],
+                    rows=rows_for_track,
+                    request=None,
+                    action="google_sheet_sync",
+                )
+        synced_groups += 1
+
+    created_count, updated_count, unchanged_count = _mark_participated_yes(
+        list(dict.fromkeys(marked_emails))
+    )
+    return {
+        "file_id": file_id,
+        "file_name": file_name,
+        "source_url": source_url,
+        "groups": synced_groups,
+        "created_groups": created_groups,
+        "mentoras": mentoras_total,
+        "emprendedoras": emprendedoras_total,
+        "skipped_rows": skipped_rows,
+        "participation_created": created_count,
+        "participation_updated": updated_count,
+        "participation_unchanged": unchanged_count,
+    }
 
 
 def _emails_from_sheet_rows(rows: list[list], email_col: int) -> list[str]:
@@ -2738,6 +3045,40 @@ def profiles_participants(request):
             participant_list = GroupParticipantList.objects.filter(group=selected_group).first()
 
     if request.method == "POST":
+        action = (request.POST.get("action") or "save_sheet").strip()
+        if action == "sync_from_google_sheet":
+            scoped_group = int(group_raw) if group_raw.isdigit() else None
+            try:
+                sync_result = _sync_participants_from_drive_sheet(scoped_group)
+            except Exception as exc:
+                messages.error(request, f"Could not sync participants from Google Sheet: {exc}")
+                if scoped_group:
+                    return redirect(f"{reverse('admin_profiles_participants')}?group={scoped_group}")
+                return redirect(reverse("admin_profiles_participants"))
+
+            messages.success(
+                request,
+                (
+                    f"Synced participant database from {sync_result['file_name']}. "
+                    f"Groups: {sync_result['groups']} "
+                    f"({sync_result['created_groups']} new). "
+                    f"Mentoras: {sync_result['mentoras']} rows · "
+                    f"Emprendedoras: {sync_result['emprendedoras']} rows. "
+                    f"Profile participation set to Yes: "
+                    f"{sync_result['participation_created']} new, "
+                    f"{sync_result['participation_updated']} changed, "
+                    f"{sync_result['participation_unchanged']} already yes."
+                ),
+            )
+            if sync_result["skipped_rows"]:
+                messages.warning(
+                    request,
+                    f"Skipped {sync_result['skipped_rows']} source rows missing group, track, or email.",
+                )
+            if scoped_group:
+                return redirect(f"{reverse('admin_profiles_participants')}?group={scoped_group}")
+            return redirect(reverse("admin_profiles_participants"))
+
         posted_group = (request.POST.get("group") or "").strip()
         if not posted_group.isdigit():
             messages.error(request, "Please select a valid group.")
@@ -2749,7 +3090,6 @@ def profiles_participants(request):
             messages.error(request, "Selected group does not exist or is archived.")
             return redirect(reverse("admin_profiles_participants"))
 
-        action = (request.POST.get("action") or "save_sheet").strip()
         if action in {"delete_group", "force_delete_group", "delete_group_force"}:
             messages.error(
                 request,
@@ -3192,6 +3532,7 @@ def profiles_participants(request):
         "mentoras_count": len(mentoras_rows),
         "emprendedoras_count": len(emprendedoras_rows),
         "has_list": has_list,
+        "participants_drive_file": _participant_source_url(),
     }
     return render(request, "admin_dash/profiles_participants.html", context)
 

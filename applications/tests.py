@@ -897,6 +897,14 @@ class ImpactDashboardMetricTests(TestCase):
             end_month="junio",
             year=2026,
         )
+        self.non_program_group = FormGroup.objects.create(
+            number=984,
+            start_day=1,
+            start_month="julio",
+            end_month="agosto",
+            year=2025,
+            custom_name="Pilot Cohort",
+        )
         self.e_a1 = FormDefinition.objects.create(
             slug="G981_E_A1",
             name="G981 E A1",
@@ -917,6 +925,11 @@ class ImpactDashboardMetricTests(TestCase):
             name="G982 M A1",
             group=self.group2,
         )
+        self.non_program_form = FormDefinition.objects.create(
+            slug="G984_E_A1",
+            name="G984 E A1",
+            group=self.non_program_group,
+        )
 
         Application.objects.create(form=self.e_a1, name="Founder", email="founder@example.com")
         Application.objects.create(form=self.e_a2, name="Founder Repeat", email="founder@example.com")
@@ -924,6 +937,7 @@ class ImpactDashboardMetricTests(TestCase):
         Application.objects.create(form=self.m_g1, name="Mentor", email="mentor@example.com")
         Application.objects.create(form=self.m_g1, name="Repeated Mentor", email="repeat@example.com")
         Application.objects.create(form=self.m_g2, name="Founder Mentor", email="founder@example.com")
+        Application.objects.create(form=self.non_program_form, name="Pilot", email="pilot@example.com")
 
         GroupParticipantList.objects.create(
             group=self.group1,
@@ -941,6 +955,12 @@ class ImpactDashboardMetricTests(TestCase):
             mentoras_sheet_rows=[
                 ["", "A", 1, "Founder Mentor", "M3", "founder@example.com", "", "Colombia", "", True, True, True, True, False],
                 ["", "CP", 2, "Repeated Mentor", "M2", "repeat@example.com", "", "Peru", "", True, False, True, False, False],
+            ],
+        )
+        GroupParticipantList.objects.create(
+            group=self.non_program_group,
+            emprendedoras_sheet_rows=[
+                ["", "G", 1, "Pilot", "P1", "pilot@example.com", "", "Colombia", "", True, True, True, True, True],
             ],
         )
 
@@ -1103,6 +1123,22 @@ class ImpactDashboardMetricTests(TestCase):
         self.assertEqual(app_summary["tracks"][0]["raw"], 3)
         self.assertEqual(app_summary["tracks"][1]["track"], "Mentoras")
         self.assertEqual(app_summary["tracks"][1]["raw"], 0)
+
+    def test_impact_dashboard_only_includes_group_labeled_groups(self):
+        records = admin_dashboard_views._participant_records()
+        self.assertNotIn("pilot@example.com", {record["email"] for record in records})
+
+        group_options = admin_dashboard_views._impact_group_options()
+        self.assertIn(self.group1.number, {option["number"] for option in group_options})
+        self.assertNotIn(self.non_program_group.number, {option["number"] for option in group_options})
+        self.assertNotIn(2025, admin_dashboard_views._impact_year_options())
+        self.assertEqual(
+            admin_dashboard_views._impact_allowed_group_filter({self.non_program_group.number}),
+            set(),
+        )
+
+        application_summary = admin_dashboard_views._application_summary()
+        self.assertEqual(application_summary["overall"]["raw"], 6)
 
     def test_survey_nps_and_quality_of_life_rows_exclude_financial_columns(self):
         headers = [

@@ -245,6 +245,10 @@ def _impact_group_label(group_number: int | None, group_map: dict[int, FormGroup
         return f"Group {int(group_number)}"
 
 
+def _impact_group_label_starts_with_group(group_number: int | None, group_map: dict[int, FormGroup] | None = None) -> bool:
+    return _impact_group_label(group_number, group_map).strip().lower().startswith("group")
+
+
 def _metric_cell(row: list, index: int | None) -> str:
     if index is None or index < 0 or index >= len(row):
         return ""
@@ -565,6 +569,8 @@ def _participant_records() -> list[dict]:
         group_number = getattr(group, "number", None)
         group_year = getattr(group, "year", None)
         group_label = _impact_group_label(group_number, group_map)
+        if not group_label.strip().lower().startswith("group"):
+            continue
 
         for track_key, cfg in PARTICIPANT_TRACK_CONFIGS.items():
             raw_rows = getattr(participant_list, cfg["rows_field"], []) or []
@@ -777,6 +783,8 @@ def _application_summary(
     track_filter: str = "all",
 ) -> dict:
     track_filter = _normalize_impact_track_filter(track_filter)
+    allowed_group_numbers = _impact_allowed_group_numbers()
+    group_numbers = allowed_group_numbers if group_numbers is None else (group_numbers & allowed_group_numbers)
     apps = Application.objects.select_related("form", "form__group").order_by("created_at", "id")
     group_map = {group.number: group for group in FormGroup.objects.all()}
     track_data: dict[str, dict] = {
@@ -798,7 +806,7 @@ def _application_summary(
         email = _metric_email(getattr(app, "email", ""))
         group = getattr(getattr(app, "form", None), "group", None)
         group_number = _application_group_number(app)
-        if group_numbers is not None and group_number not in group_numbers:
+        if group_number not in group_numbers:
             continue
         group_year = getattr(group, "year", None)
         group_label = _impact_group_label(group_number, group_map)
@@ -1006,6 +1014,7 @@ def _group_recruitment_source_rows(records: list[dict], group_numbers: set[int] 
         return []
 
     group_map = {group.number: group for group in FormGroup.objects.all()}
+    allowed_group_numbers = _impact_allowed_group_numbers()
     app_groups_by_email: dict[str, Counter] = defaultdict(Counter)
     app_names_by_group: dict[int | None, Counter] = defaultdict(Counter)
     for app in Application.objects.select_related("form", "form__group"):
@@ -1013,6 +1022,8 @@ def _group_recruitment_source_rows(records: list[dict], group_numbers: set[int] 
         if not email:
             continue
         app_group_number = _application_group_number(app)
+        if app_group_number not in allowed_group_numbers:
+            continue
         app_groups_by_email[email][app_group_number] += 1
         form_name = str(getattr(getattr(app, "form", None), "name", "") or "").strip()
         if form_name:
@@ -1563,20 +1574,31 @@ def _impact_group_options() -> list[dict]:
     return [
         {
             "number": group.number,
-            "label": _impact_group_label(group.number, group_map),
+            "label": label,
         }
         for group in group_map.values()
+        for label in [_impact_group_label(group.number, group_map)]
+        if label.strip().lower().startswith("group")
     ]
 
 
+def _impact_allowed_group_numbers() -> set[int]:
+    group_map = {group.number: group for group in FormGroup.objects.all()}
+    return {
+        int(group.number)
+        for group in group_map.values()
+        if _impact_group_label_starts_with_group(group.number, group_map)
+    }
+
+
 def _impact_year_options() -> list[int]:
-    years = (
-        FormGroup.objects.exclude(year__isnull=True)
-        .values_list("year", flat=True)
-        .distinct()
-        .order_by("-year")
-    )
-    return [int(year) for year in years if year]
+    group_map = {group.number: group for group in FormGroup.objects.exclude(year__isnull=True)}
+    years = {
+        int(group.year)
+        for group in group_map.values()
+        if group.year and _impact_group_label_starts_with_group(group.number, group_map)
+    }
+    return sorted(years, reverse=True)
 
 
 def _parse_impact_group_numbers(raw_values: list[str]) -> set[int]:
@@ -1591,6 +1613,12 @@ def _parse_impact_group_numbers(raw_values: list[str]) -> set[int]:
             except ValueError:
                 continue
     return group_numbers
+
+
+def _impact_allowed_group_filter(group_numbers: set[int] | None) -> set[int] | None:
+    if group_numbers is None:
+        return None
+    return {group_number for group_number in group_numbers if group_number in _impact_allowed_group_numbers()}
 
 
 def _normalize_impact_track_filter(raw: str | None) -> str:
@@ -1810,6 +1838,7 @@ def _build_group_impact_report_payload(
     year: int | None = None,
     track_filter: str = "all",
 ) -> dict:
+    group_numbers = _impact_allowed_group_filter(group_numbers)
     track_filter = _normalize_impact_track_filter(track_filter)
     all_records = _participant_records()
     participant_records = _filter_records_by_impact_scope(
@@ -2448,7 +2477,8 @@ def impact_dashboard_pdf(request):
 @staff_member_required
 def impact_dashboard(request):
     top_n = _safe_int(request.GET.get("top_n"), default=10, minimum=3, maximum=40)
-    group_numbers = _parse_impact_group_numbers(request.GET.getlist("groups") or [request.GET.get("group") or ""]) or None
+    group_numbers = _parse_impact_group_numbers(request.GET.getlist("groups") or [request.GET.get("group") or ""])
+    group_numbers = _impact_allowed_group_filter(group_numbers) if group_numbers else None
     year_filter = _parse_impact_year(request.GET.get("year"))
     track_filter = _normalize_impact_track_filter(request.GET.get("track"))
 

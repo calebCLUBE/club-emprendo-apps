@@ -1,5 +1,6 @@
 import json
 import os
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any
@@ -252,6 +253,61 @@ class ZernioMarketingClient:
             if isinstance(row, dict)
         ]
 
+    def account_analytics(
+        self,
+        *,
+        date_from: date,
+        date_to: date,
+        account_id: str = "",
+        accounts: list[dict] | None = None,
+    ) -> dict:
+        end = date_to
+        start = max(date_from, end - timedelta(days=88))
+        selected_id = (account_id or "").strip()
+        source_accounts = accounts if accounts is not None else self.accounts()
+        rows: list[dict] = []
+        for account in source_accounts:
+            account_platform = str(account.get("platform") or account.get("type") or "").lower()
+            account_identifier = zernio_account_id(account)
+            if account_platform not in {"facebook", "instagram"}:
+                continue
+            if selected_id and selected_id != account_identifier:
+                continue
+            try:
+                if account_platform == "facebook":
+                    data = self._get(
+                        "analytics/facebook/page-insights",
+                        {
+                            "accountId": account_identifier,
+                            "since": start.isoformat(),
+                            "until": end.isoformat(),
+                            "metricType": "total_value",
+                        },
+                    )
+                else:
+                    data = self._get(
+                        "analytics/instagram/account-insights",
+                        {
+                            "accountId": account_identifier,
+                            "since": start.isoformat(),
+                            "until": end.isoformat(),
+                            "metricType": "total_value",
+                        },
+                    )
+                rows.append(
+                    {
+                        "account_id": account_identifier,
+                        "account_label": zernio_account_label(account),
+                        "platform": account_platform,
+                        "metrics": _extract_zernio_metric_totals(data),
+                    }
+                )
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code in {400, 404}:
+                    continue
+                raise
+        return summarize_zernio_account_analytics(rows)
+
     def instagram_user_insights(
         self,
         *,
@@ -267,6 +323,46 @@ def _metric_value(row: dict, name: str) -> Any:
         if isinstance(nested, dict) and nested.get(name) is not None:
             return nested.get(name)
     return row.get(name)
+
+
+def _extract_zernio_metric_totals(data: dict) -> dict[str, float]:
+    out: dict[str, float] = {}
+    metrics = data.get("metrics") if isinstance(data.get("metrics"), dict) else {}
+    for name, payload in metrics.items():
+        if isinstance(payload, dict):
+            out[name] = _to_float(payload.get("total") if payload.get("total") is not None else payload.get("value"))
+        else:
+            out[name] = _to_float(payload)
+    return out
+
+
+def summarize_zernio_account_analytics(rows: list[dict]) -> dict:
+    totals: defaultdict[str, float] = defaultdict(float)
+    platforms: defaultdict[str, int] = defaultdict(int)
+    for row in rows:
+        platform = str(row.get("platform") or "").lower()
+        if platform:
+            platforms[platform] += 1
+        metrics = row.get("metrics") if isinstance(row.get("metrics"), dict) else {}
+        for name, value in metrics.items():
+            totals[name] += _to_float(value)
+    return {
+        "accounts": rows,
+        "account_count": len(rows),
+        "platforms": dict(platforms),
+        "reach": int(totals["reach"]),
+        "views": int(totals["views"] + totals["page_views_total"]),
+        "media_views": int(totals["page_media_view"]),
+        "engagements": int(totals["page_post_engagements"] + totals["total_interactions"] + totals["accounts_engaged"]),
+        "followers": int(totals["page_follows"]),
+        "followers_gained": int(totals["followers_gained"]),
+        "followers_lost": int(totals["followers_lost"]),
+        "likes": int(totals["likes"]),
+        "comments": int(totals["comments"]),
+        "shares": int(totals["shares"]),
+        "saves": int(totals["saves"]),
+        "clicks": int(totals["profile_links_taps"]),
+    }
 
 
 def _extract_zernio_campaign_nodes(data: dict) -> list[dict]:

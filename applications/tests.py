@@ -1478,6 +1478,46 @@ class MarketingDashboardTests(TestCase):
 
         self.assertEqual(rows[0]["name"], "Nested Campaign")
 
+    def test_zernio_account_analytics_summary(self):
+        config = meta_marketing.ZernioMarketingConfig(api_key="test-key")
+        client = meta_marketing.ZernioMarketingClient(config)
+        client._get = Mock(
+            side_effect=[
+                {
+                    "metrics": {
+                        "page_media_view": {"total": 1000},
+                        "page_post_engagements": {"total": 80},
+                        "followers_gained": {"total": 12},
+                    }
+                },
+                {
+                    "metrics": {
+                        "reach": {"total": 500},
+                        "views": {"total": 900},
+                        "total_interactions": {"total": 45},
+                        "profile_links_taps": {"total": 7},
+                    }
+                },
+            ]
+        )
+
+        summary = client.account_analytics(
+            date_from=date(2026, 1, 1),
+            date_to=date(2026, 1, 31),
+            accounts=[
+                {"_id": "fb_1", "platform": "facebook", "name": "Facebook Page"},
+                {"_id": "ig_1", "platform": "instagram", "name": "Instagram"},
+            ],
+        )
+
+        self.assertEqual(summary["account_count"], 2)
+        self.assertEqual(summary["media_views"], 1000)
+        self.assertEqual(summary["reach"], 500)
+        self.assertEqual(summary["views"], 900)
+        self.assertEqual(summary["engagements"], 125)
+        self.assertEqual(summary["followers_gained"], 12)
+        self.assertEqual(summary["clicks"], 7)
+
     @patch.dict(
         "os.environ",
         {
@@ -1532,6 +1572,7 @@ class MarketingDashboardTests(TestCase):
         ]
         mock_client.instagram_user_insights.return_value = []
         mock_client.accounts.return_value = []
+        mock_client.account_analytics.return_value = {}
 
         response = self.client.get(reverse("admin_marketing_dashboard"))
 

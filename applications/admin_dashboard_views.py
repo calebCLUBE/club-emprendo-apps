@@ -2489,8 +2489,10 @@ def marketing_dashboard(request):
     errors: list[str] = []
     ad_rows: list[dict] = []
     organic_summary: dict = {}
+    account_analytics_summary: dict = {}
     zernio_account_id = zernio_config.account_id
     zernio_account_options: list[dict] = []
+    zernio_accounts: list[dict] = []
     if configured:
         client = (
             ZernioMarketingClient(zernio_config)
@@ -2499,12 +2501,13 @@ def marketing_dashboard(request):
         )
         if provider == "zernio":
             try:
+                zernio_accounts = client.accounts()
                 zernio_account_options = [
                     {
                         "id": get_zernio_account_id(account),
                         "label": zernio_account_label(account),
                     }
-                    for account in client.accounts()
+                    for account in zernio_accounts
                     if get_zernio_account_id(account)
                 ]
             except Exception as exc:
@@ -2515,6 +2518,16 @@ def marketing_dashboard(request):
                 zernio_account_id = getattr(client, "last_account_id", zernio_account_id)
         except Exception as exc:
             errors.append(f"Could not load marketing ad insights: {exc}")
+        if provider == "zernio":
+            try:
+                account_analytics_summary = client.account_analytics(
+                    date_from=date_from,
+                    date_to=date_to,
+                    account_id=selected_zernio_account_id,
+                    accounts=zernio_accounts,
+                )
+            except Exception as exc:
+                errors.append(f"Could not load Zernio Facebook/Instagram analytics: {exc}")
         try:
             organic_summary = summarize_instagram_insights(
                 client.instagram_user_insights(date_from=date_from, date_to=date_to)
@@ -2530,8 +2543,8 @@ def marketing_dashboard(request):
     rows = campaign_rows(ad_rows)
     if configured and provider == "zernio" and not rows and not errors:
         errors.append(
-            "Zernio is connected, but returned 0 campaign rows for this date range. "
-            "Try a wider date range or confirm the connected account has Meta ad campaigns."
+            "Zernio returned 0 ad campaign rows for this date range. "
+            "Showing Facebook/Instagram account analytics if available."
         )
     return render(
         request,
@@ -2547,6 +2560,7 @@ def marketing_dashboard(request):
             "organic_summary": organic_summary,
             "provider": provider,
             "ad_row_count": len(ad_rows),
+            "account_analytics_summary": account_analytics_summary,
             "zernio_account_id": zernio_account_id,
             "zernio_account_options": zernio_account_options,
             "zernio_config": zernio_config,

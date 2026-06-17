@@ -222,6 +222,20 @@
       <div class="ce-card"><div class="ce-card-k">CPM</div><div class="ce-card-v">${{ summary.cpm }}</div></div>
     </div>
 
+    {% if account_analytics_summary.account_count %}
+      <h2 class="ce-section-title">Facebook / Instagram Analytics</h2>
+      <div class="ce-card-grid">
+        <div class="ce-card"><div class="ce-card-k">Accounts</div><div class="ce-card-v">{{ account_analytics_summary.account_count }}</div></div>
+        <div class="ce-card"><div class="ce-card-k">Reach</div><div class="ce-card-v">{{ account_analytics_summary.reach }}</div></div>
+        <div class="ce-card"><div class="ce-card-k">Views</div><div class="ce-card-v">{{ account_analytics_summary.views }}</div></div>
+        <div class="ce-card"><div class="ce-card-k">Media Views</div><div class="ce-card-v">{{ account_analytics_summary.media_views }}</div></div>
+        <div class="ce-card"><div class="ce-card-k">Engagements</div><div class="ce-card-v">{{ account_analytics_summary.engagements }}</div></div>
+        <div class="ce-card"><div class="ce-card-k">Followers Gained</div><div class="ce-card-v">{{ account_analytics_summary.followers_gained }}</div></div>
+        <div class="ce-card"><div class="ce-card-k">Followers Lost</div><div class="ce-card-v">{{ account_analytics_summary.followers_lost }}</div></div>
+        <div class="ce-card"><div class="ce-card-k">Clicks</div><div class="ce-card-v">{{ account_analytics_summary.clicks }}</div></div>
+      </div>
+    {% endif %}
+
     <h2 class="ce-section-title">Campaign Performance</h2>
     <table class="ce-table">
       <thead>

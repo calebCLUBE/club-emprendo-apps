@@ -350,8 +350,13 @@
         margin: 0.35in;
       }
       @media print {
+        html,
         body {
           background: #fff;
+          color: #1f2937;
+          font-family: Arial, Helvetica, sans-serif;
+          font-size: 10px;
+          line-height: 1.28;
         }
         .ce-admin-wrap {
           padding: 0;
@@ -361,10 +366,168 @@
           border: 0;
           padding: 0;
         }
-        .ce-impact-header,
+        .ce-impact-shell {
+          --ce-border: #d8e0ec;
+        }
+        .ce-impact-header {
+          border-bottom: 1px solid #d8e0ec;
+          margin-bottom: 10px;
+          padding-bottom: 8px;
+        }
+        .ce-impact-title {
+          font-size: 22px;
+        }
+        .ce-impact-subtitle {
+          font-size: 10px;
+        }
+        .ce-metric-board {
+          display: block;
+          font-size: 0;
+        }
         .ce-metric-box {
+          display: inline-block;
+          width: 48.8%;
+          box-sizing: border-box;
+          margin: 0 1.2% 10px 0;
+          padding: 10px;
+          border-radius: 6px;
+          vertical-align: top;
+          font-size: 10px;
           break-inside: avoid;
           page-break-inside: avoid;
+        }
+        .ce-metric-box--wide {
+          display: block;
+          width: 100%;
+          margin-right: 0;
+        }
+        .ce-box-head {
+          margin-bottom: 7px;
+          gap: 8px;
+        }
+        .ce-box-kicker {
+          font-size: 8px;
+          letter-spacing: 0.06em;
+        }
+        .ce-box-title {
+          font-size: 13px;
+        }
+        .ce-box-note,
+        .ce-mini-stat-note,
+        .ce-muted-row {
+          font-size: 8.5px;
+          line-height: 1.25;
+        }
+        .ce-big-number {
+          min-width: 58px;
+          font-size: 20px;
+        }
+        .ce-mini-stat-grid {
+          display: block;
+          margin: 6px 0 8px;
+          font-size: 0;
+        }
+        .ce-mini-stat {
+          display: inline-block;
+          width: 31.6%;
+          box-sizing: border-box;
+          margin: 0 1.6% 6px 0;
+          padding: 7px;
+          border-radius: 6px;
+          vertical-align: top;
+          font-size: 9px;
+        }
+        .ce-mini-stat-k {
+          font-size: 7.5px;
+          letter-spacing: 0.03em;
+        }
+        .ce-mini-stat-v {
+          font-size: 17px;
+        }
+        .ce-track-split {
+          display: block;
+          font-size: 0;
+        }
+        .ce-track-card {
+          display: inline-block;
+          width: 49%;
+          box-sizing: border-box;
+          margin-right: 1%;
+          padding: 8px;
+          vertical-align: top;
+          font-size: 9px;
+        }
+        .ce-track-card h3,
+        .ce-chart-heading {
+          font-size: 10px;
+          margin-bottom: 5px;
+        }
+        .ce-chart-pair {
+          display: block;
+        }
+        .ce-donut-wrap {
+          margin-top: 4px;
+        }
+        .ce-donut {
+          width: 88px;
+          height: 88px;
+          margin: 0 auto;
+        }
+        .ce-donut-hole {
+          width: 48px;
+          height: 48px;
+        }
+        .ce-donut-total {
+          font-size: 13px;
+        }
+        .ce-donut-sub {
+          font-size: 7.5px;
+        }
+        .ce-legend {
+          gap: 3px;
+          margin-top: 5px;
+        }
+        .ce-legend li {
+          grid-template-columns: 9px 1fr auto;
+          gap: 4px;
+          font-size: 8px;
+        }
+        .ce-legend-dot {
+          width: 7px;
+          height: 7px;
+        }
+        .ce-bars {
+          margin-top: 6px;
+        }
+        .ce-bar-row {
+          grid-template-columns: minmax(72px, 130px) 1fr 42px;
+          gap: 5px;
+          margin: 4px 0;
+        }
+        .ce-bar-label,
+        .ce-bar-val {
+          font-size: 8px;
+        }
+        .ce-bar-track {
+          height: 8px;
+        }
+        .ce-table {
+          margin-top: 6px;
+          font-size: 8px;
+        }
+        .ce-table th,
+        .ce-table td {
+          padding: 4px 5px;
+        }
+        .ce-table th {
+          font-size: 7.5px;
+          letter-spacing: 0.02em;
+        }
+        .ce-table-wrap {
+          overflow: visible;
+        }
+        .ce-empty {
+          font-size: 9px;
         }
         .ce-actions,
         .ce-pdf-hidden {

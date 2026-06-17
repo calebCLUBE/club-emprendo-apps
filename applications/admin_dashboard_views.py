@@ -1958,7 +1958,7 @@ def _impact_pdf_draw_cards(ax, cards: list[dict], columns: int = 5, rows: int = 
 
     ax.axis("off")
     gap_x = 0.018
-    gap_y = 0.12
+    gap_y = 0.055
     card_w = (1 - gap_x * (columns - 1)) / columns
     card_h = (1 - gap_y * (rows - 1)) / rows
     for index, card in enumerate(cards[: columns * rows]):
@@ -1990,20 +1990,20 @@ def _impact_pdf_draw_cards(ax, cards: list[dict], columns: int = 5, rows: int = 
         )
         ax.text(
             x + 0.025,
-            y + card_h - 0.12,
+            y + card_h - 0.075,
             textwrap.fill(str(card["label"]), width=18),
             transform=ax.transAxes,
-            fontsize=7.5,
+            fontsize=8,
             color="#475569",
             weight="bold",
             va="top",
         )
         ax.text(
             x + 0.025,
-            y + 0.17,
+            y + card_h * 0.34,
             str(card["value"]),
             transform=ax.transAxes,
-            fontsize=19,
+            fontsize=20,
             color="#111827",
             weight="bold",
             va="bottom",
@@ -2014,7 +2014,7 @@ def _impact_pdf_draw_cards(ax, cards: list[dict], columns: int = 5, rows: int = 
                 y + 0.06,
                 textwrap.fill(str(card["note"]), width=24),
                 transform=ax.transAxes,
-                fontsize=7,
+                fontsize=7.2,
                 color="#64748b",
                 va="bottom",
             )
@@ -2240,19 +2240,21 @@ def _render_group_impact_report_pdf(payload: dict) -> bytes:
             color="#64748b",
         )
         grid = fig.add_gridspec(
-            2,
             1,
             left=0.06,
             right=0.95,
-            top=0.79,
-            bottom=0.08,
-            hspace=0.25,
-            height_ratios=[2.2, 1],
+            top=0.82,
+            bottom=0.06,
         )
-        _impact_pdf_draw_cards(fig.add_subplot(grid[0, 0]), cards, columns=5, rows=2)
-        notes_ax = fig.add_subplot(grid[1, 0])
+        _impact_pdf_draw_cards(fig.add_subplot(grid[0, 0]), cards, columns=3, rows=4)
+        pdf.savefig(fig)
+        plt.close(fig)
+
+        fig = plt.figure(figsize=(11, 8.5), facecolor="white")
+        fig.text(0.06, 0.94, "Metric Definitions", fontsize=18, weight="bold", color="#111827")
+        fig.text(0.06, 0.91, f"Groups: {payload['group_label']}", fontsize=9, color="#64748b")
+        notes_ax = fig.add_axes([0.06, 0.08, 0.89, 0.78])
         notes_ax.axis("off")
-        notes_ax.text(0, 0.92, "Definitions", fontsize=10, weight="bold", color="#1f2937")
         notes = [
             "Number of participants: rows listed on the Participants page workbook.",
             "Application -> listed: applicant emails that appear on the Participants page.",
@@ -2266,7 +2268,7 @@ def _render_group_impact_report_pdf(payload: dict) -> bytes:
         status_lines = textwrap.wrap(f"Estatus key: {status_key}", width=132)
         for index, note in enumerate(notes + status_lines):
             prefix = "- " if index < len(notes) else "  "
-            notes_ax.text(0, 0.78 - index * 0.09, f"{prefix}{note}", fontsize=8, color="#334155")
+            notes_ax.text(0, 0.94 - index * 0.075, f"{prefix}{note}", fontsize=9, color="#334155")
         pdf.savefig(fig)
         plt.close(fig)
 

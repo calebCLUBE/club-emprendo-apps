@@ -1117,6 +1117,60 @@ class ImpactDashboardMetricTests(TestCase):
         )
         self.assertEqual(wellbeing_rows[0]["avg"], 4.0)
 
+    def test_quality_of_life_summary_splits_initial_final_and_change(self):
+        summary = admin_dashboard_views._wellbeing_comparison_summary(
+            [
+                {"label": "Life", "responses": 2, "avg": 4.0},
+                {"label": "Life", "responses": 2, "avg": 3.0},
+            ],
+            [
+                {"label": "Life", "responses": 3, "avg": 4.5},
+            ],
+        )
+
+        self.assertEqual(summary["initial"]["avg"], 3.5)
+        self.assertEqual(summary["initial"]["responses"], 4)
+        self.assertEqual(summary["final"]["avg"], 4.5)
+        self.assertEqual(summary["final"]["responses"], 3)
+        self.assertEqual(summary["change"], 1.0)
+        self.assertEqual(
+            [row["label"] for row in summary["chart_data"]],
+            ["Initial", "Final completed groups"],
+        )
+
+    @patch("applications.admin_dashboard_views._load_impact_survey_datasets")
+    def test_final_quality_of_life_rows_use_completed_group_email_scope(self, mock_load):
+        completed_emails = {"founder@example.com", "mentor@example.com"}
+        mock_load.return_value = (
+            {
+                "emprendedoras": {
+                    "wellbeing_rows": [{"label": "Initial ignored", "responses": 9, "avg": 2.0}]
+                },
+                "emprendedoras_final": {
+                    "title": "Final E",
+                    "wellbeing_rows": [{"label": "Final E Life", "responses": 1, "avg": 5.0}],
+                },
+                "mentoras_final": {
+                    "title": "Final M",
+                    "wellbeing_rows": [{"label": "Final M Life", "responses": 1, "avg": 4.0}],
+                },
+            },
+            {},
+        )
+
+        rows = admin_dashboard_views._final_completed_wellbeing_rows(
+            top_n=10,
+            completed_emails=completed_emails,
+        )
+
+        mock_load.assert_called_once_with(
+            top_n=10,
+            scoped_emails=completed_emails,
+            request=None,
+        )
+        self.assertEqual([row["dataset"] for row in rows], ["Final E", "Final M"])
+        self.assertEqual([row["avg"] for row in rows], [5.0, 4.0])
+
     def test_nps_rows_ignore_open_ended_recommendation_change_fields(self):
         headers = [
             "Timestamp",

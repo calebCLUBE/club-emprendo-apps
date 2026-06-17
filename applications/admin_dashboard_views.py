@@ -1081,6 +1081,88 @@ def _collect_survey_metric_rows(datasets: dict[str, dict], key: str) -> list[dic
     return rows
 
 
+def _collect_survey_metric_rows_for_kinds(
+    datasets: dict[str, dict],
+    key: str,
+    kinds: tuple[str, ...],
+) -> list[dict]:
+    rows: list[dict] = []
+    for kind in kinds:
+        dataset = datasets.get(kind, {})
+        if dataset.get("error"):
+            continue
+        for row in dataset.get(key, []) or []:
+            item = dict(row)
+            item["dataset"] = dataset.get("title", kind)
+            item["kind"] = kind
+            rows.append(item)
+    return rows
+
+
+def _completed_group_participant_emails(records: list[dict]) -> set[str]:
+    completed_group_numbers = {
+        record["group_number"]
+        for record in records
+        if record.get("group_number") is not None and record.get("graduated")
+    }
+    return {
+        record["email"]
+        for record in records
+        if record.get("email") and record.get("group_number") in completed_group_numbers
+    }
+
+
+def _final_completed_wellbeing_rows(
+    *,
+    top_n: int,
+    completed_emails: set[str],
+    request=None,
+) -> list[dict]:
+    if not completed_emails:
+        return []
+    datasets, _email_sets = _load_impact_survey_datasets(
+        top_n=top_n,
+        scoped_emails=completed_emails,
+        request=request,
+    )
+    return _collect_survey_metric_rows_for_kinds(
+        datasets,
+        "wellbeing_rows",
+        ("emprendedoras_final", "mentoras_final"),
+    )
+
+
+def _wellbeing_comparison_summary(initial_rows: list[dict], final_rows: list[dict]) -> dict:
+    initial = _wellbeing_metric_summary(initial_rows)
+    final = _wellbeing_metric_summary(final_rows)
+    change = None
+    if initial.get("avg") is not None and final.get("avg") is not None:
+        change = round(float(final["avg"]) - float(initial["avg"]), 2)
+    chart_data = []
+    if initial.get("avg") is not None:
+        chart_data.append(
+            {
+                "label": "Initial",
+                "value": initial["avg"],
+                "color": "#3B82F6",
+            }
+        )
+    if final.get("avg") is not None:
+        chart_data.append(
+            {
+                "label": "Final completed groups",
+                "value": final["avg"],
+                "color": "#22C55E",
+            }
+        )
+    return {
+        "initial": initial,
+        "final": final,
+        "change": change,
+        "chart_data": chart_data,
+    }
+
+
 def _survey_response_rate_data(participant_summary: dict) -> list[dict]:
     tracks = participant_summary.get("tracks", {})
     overall = participant_summary.get("overall", {})
@@ -1634,13 +1716,26 @@ def _build_group_impact_report_payload(group_numbers: set[int] | None = None) ->
         for record in participant_records
         if record.get("email")
     }
+    completed_participant_emails = _completed_group_participant_emails(participant_records)
     survey_scope = participant_emails if group_numbers is not None else None
     datasets, _email_sets = _load_impact_survey_datasets(
         top_n=10,
         scoped_emails=survey_scope,
     )
     nps_rows = _collect_survey_metric_rows(datasets, "nps_rows")
-    wellbeing_rows = _collect_survey_metric_rows(datasets, "wellbeing_rows")
+    initial_wellbeing_rows = _collect_survey_metric_rows_for_kinds(
+        datasets,
+        "wellbeing_rows",
+        ("emprendedoras", "mentoras"),
+    )
+    final_wellbeing_rows = _final_completed_wellbeing_rows(
+        top_n=10,
+        completed_emails=completed_participant_emails,
+    )
+    wellbeing_summary = _wellbeing_comparison_summary(
+        initial_wellbeing_rows,
+        final_wellbeing_rows,
+    )
     return {
         "group_numbers": group_numbers,
         "group_label": _impact_group_scope_label(group_numbers),
@@ -1659,9 +1754,9 @@ def _build_group_impact_report_payload(group_numbers: set[int] | None = None) ->
         "repeat_mentor_chart_data": _repeat_mentor_chart_data(alumni_summary),
         "survey_response_rate_data": _survey_response_rate_data(participant_summary),
         "nps_rows": nps_rows[:8],
-        "wellbeing_rows": wellbeing_rows[:8],
+        "wellbeing_rows": (initial_wellbeing_rows + final_wellbeing_rows)[:8],
         "nps_summary": _nps_metric_summary(nps_rows),
-        "wellbeing_summary": _wellbeing_metric_summary(wellbeing_rows),
+        "wellbeing_summary": wellbeing_summary,
         "participant_status_key": _participant_status_key(),
         "survey_source_note": (
             "NPS and wellbeing fields are filtered by selected participant emails when possible."
@@ -1936,8 +2031,11 @@ def _render_group_impact_report_pdf(payload: dict) -> bytes:
         },
         {
             "label": "Quality of Life",
-            "value": _impact_pdf_value(wellbeing_summary.get("avg")),
-            "note": f"{wellbeing_summary.get('responses', 0)} responses",
+            "value": _impact_pdf_value((wellbeing_summary.get("final") or {}).get("avg")),
+            "note": (
+                f"Initial {_impact_pdf_value((wellbeing_summary.get('initial') or {}).get('avg'))}; "
+                f"change {_impact_pdf_value(wellbeing_summary.get('change'))}"
+            ),
             "color": "#22C55E",
         },
         {
@@ -2201,15 +2299,28 @@ def impact_dashboard(request):
 
     participant_records = _participant_records()
     participant_summary = _participant_summary(participant_records)
+    completed_participant_emails = _completed_group_participant_emails(participant_records)
     application_summary = _application_summary()
     conversion_rows = _conversion_summary(participant_summary, application_summary)
     alumni_summary = _alumni_mentor_summary(participant_records)
     group_source_rows = _group_recruitment_source_rows(participant_records)
     nps_rows = _collect_survey_metric_rows(datasets, "nps_rows")
-    wellbeing_rows = _collect_survey_metric_rows(datasets, "wellbeing_rows")
+    initial_wellbeing_rows = _collect_survey_metric_rows_for_kinds(
+        datasets,
+        "wellbeing_rows",
+        ("emprendedoras", "mentoras"),
+    )
+    final_wellbeing_rows = _final_completed_wellbeing_rows(
+        top_n=top_n,
+        completed_emails=completed_participant_emails,
+        request=request,
+    )
     survey_response_rate_data = _survey_response_rate_data(participant_summary)
     nps_summary = _nps_metric_summary(nps_rows)
-    wellbeing_summary = _wellbeing_metric_summary(wellbeing_rows)
+    wellbeing_summary = _wellbeing_comparison_summary(
+        initial_wellbeing_rows,
+        final_wellbeing_rows,
+    )
 
     context = _prepare_impact_dashboard_chart_context(
         {
@@ -2220,7 +2331,7 @@ def impact_dashboard(request):
             "alumni_summary": alumni_summary,
             "group_source_rows": group_source_rows,
             "nps_rows": nps_rows[:12],
-            "wellbeing_rows": wellbeing_rows[:12],
+            "wellbeing_rows": (initial_wellbeing_rows + final_wellbeing_rows)[:12],
             "nps_summary": nps_summary,
             "wellbeing_summary": wellbeing_summary,
             "participant_country_chart_data": _participant_country_chart_data(participant_summary),

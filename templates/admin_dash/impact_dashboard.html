@@ -603,14 +603,25 @@
             <div>
               <p class="ce-box-kicker">Impact</p>
               <h2 class="ce-box-title">Quality of Life</h2>
-              <p class="ce-box-note">Weighted average from life-satisfaction and quality-of-life numeric survey fields.</p>
+              <p class="ce-box-note">Initial and final weighted averages from life-satisfaction fields. Final only includes completed groups.</p>
             </div>
-            <div class="ce-big-number">{{ wellbeing_summary.avg|default_if_none:"-" }}</div>
+            <div class="ce-big-number">{{ wellbeing_summary.final.avg|default_if_none:"-" }}</div>
           </div>
           <div class="ce-mini-stat-grid">
             <div class="ce-mini-stat">
-              <div class="ce-mini-stat-k">Responses</div>
-              <div class="ce-mini-stat-v">{{ wellbeing_summary.responses }}</div>
+              <div class="ce-mini-stat-k">Initial avg</div>
+              <div class="ce-mini-stat-v">{{ wellbeing_summary.initial.avg|default_if_none:"-" }}</div>
+              <div class="ce-mini-stat-note">{{ wellbeing_summary.initial.responses }} responses</div>
+            </div>
+            <div class="ce-mini-stat">
+              <div class="ce-mini-stat-k">Final avg</div>
+              <div class="ce-mini-stat-v">{{ wellbeing_summary.final.avg|default_if_none:"-" }}</div>
+              <div class="ce-mini-stat-note">{{ wellbeing_summary.final.responses }} completed-group responses</div>
+            </div>
+            <div class="ce-mini-stat">
+              <div class="ce-mini-stat-k">Change</div>
+              <div class="ce-mini-stat-v">{{ wellbeing_summary.change|default_if_none:"-" }}</div>
+              <div class="ce-mini-stat-note">Final minus initial</div>
             </div>
           </div>
           <div id="ce-wellbeing-chart" class="ce-bars">

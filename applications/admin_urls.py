@@ -58,6 +58,11 @@ urlpatterns = [
         name="admin_profiles_participants",
     ),
     path(
+        "profiles/participants/google-sheet/",
+        admin_profiles_views.profiles_participants_google_sheet,
+        name="admin_profiles_participants_google_sheet",
+    ),
+    path(
         "profiles/participants/<int:group_num>/download/",
         admin_profiles_views.profiles_participants_download,
         name="admin_profiles_participants_download",

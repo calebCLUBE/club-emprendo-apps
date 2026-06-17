@@ -141,6 +141,7 @@
       <a class="ce-btn ce-btn--ghost" href="{% url 'admin_profiles_list' %}">Back to profiles</a>
       <a class="ce-btn ce-btn--ghost" href="/admin/">Admin home</a>
       <a class="ce-btn ce-btn--ghost" href="{% url 'admin_emparejamiento_home' %}">Emparejamiento</a>
+      <a class="ce-btn ce-btn--ghost" href="{% url 'admin_profiles_participants_google_sheet' %}">View Google Sheet</a>
     </div>
 
     <section class="ce-panel">
@@ -159,6 +160,9 @@
         <button class="ce-btn" type="submit" name="action" value="sync_from_google_sheet">
           Sync participant database from Google Sheet
         </button>
+        <a class="ce-btn ce-btn--ghost" href="{% url 'admin_profiles_participants_google_sheet' %}">
+          View complete Google Sheet
+        </a>
       </form>
       <div class="ce-muted">
         Source: {{ participants_drive_file }}

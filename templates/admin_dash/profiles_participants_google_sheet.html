@@ -1,0 +1,70 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+  <style>
+    html,
+    body {
+      height: 100%;
+      overflow: hidden;
+    }
+    #container,
+    .main,
+    #content,
+    #content-main {
+      height: 100%;
+    }
+    #content,
+    #content-main {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+    }
+    .ce-sheet-page {
+      width: 100%;
+      box-sizing: border-box;
+      height: calc(100vh - 66px);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      background: #fff;
+    }
+    .ce-sheet-head {
+      padding: 8px 14px;
+      border-bottom: 1px solid #e5e7eb;
+      font-size: 12px;
+      color: #4b5563;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      flex: 0 0 auto;
+    }
+    .ce-sheet-shell {
+      width: 100%;
+      margin: 0;
+      background: #fff;
+      border: 0;
+      border-radius: 0;
+      padding: 0;
+      box-sizing: border-box;
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+  </style>
+
+  <div class="ce-sheet-page">
+    <div class="ce-sheet-head">
+      <a class="button" href="{% url 'admin_profiles_participants' %}">Back</a>
+      <a class="button" href="{% url 'admin_profiles_participants_google_sheet' %}?refresh=1">Refresh</a>
+      <strong>Participant Google Sheet</strong>
+      <span>Source: {{ source_name }}</span>
+      <span>File ID: {{ source_file_id }}</span>
+    </div>
+    <div class="ce-sheet-shell">
+      {% include "admin_dash/includes/xsheet_preview.html" with sheet_id="participants-google-sheet" sheet_headers=sheet_headers sheet_rows=sheet_rows sheet_height=760 sheet_deferred=True %}
+    </div>
+  </div>
+{% endblock %}

@@ -1351,8 +1351,27 @@ class ParticipantsCapacitacionCheckTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Open participant workbook")
         self.assertContains(response, f"/profiles/participants/{self.group.number}/all/")
+        self.assertContains(response, reverse("admin_profiles_participants_google_sheet"))
         self.assertNotContains(response, "Open Mentoras sheet")
         self.assertNotContains(response, "Open Emprendedoras sheet")
+
+    @patch("applications.admin_profiles_views.fetch_drive_csv_file_text")
+    def test_participant_google_sheet_view_renders_complete_source_sheet(self, mock_fetch):
+        mock_fetch.return_value = (
+            "Grupo,Track,Nombre,Email\n993,Mentoras,Mentora Sheet,mentor-sheet@example.com\n994,Emprendedoras,Founder Sheet,founder-sheet@example.com\n",
+            "drive-file-id",
+            "Participant source",
+        )
+
+        response = self.client.get(reverse("admin_profiles_participants_google_sheet"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Participant Google Sheet")
+        self.assertContains(response, "Participant source")
+        self.assertContains(response, "drive-file-id")
+        self.assertContains(response, "participants-google-sheet-headers")
+        self.assertContains(response, "mentor-sheet@example.com")
+        self.assertContains(response, "founder-sheet@example.com")
 
     @patch("applications.admin_profiles_views.fetch_drive_csv_file_text")
     def test_participants_page_syncs_database_from_google_sheet(self, mock_fetch):

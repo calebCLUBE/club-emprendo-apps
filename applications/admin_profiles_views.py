@@ -1249,6 +1249,22 @@ def _sync_participants_from_drive_sheet(group_number: int | None = None) -> dict
     }
 
 
+def _load_participants_drive_grid() -> tuple[list[str], list[list[str]], str, str]:
+    csv_text, file_id, file_name = fetch_drive_csv_file_text(_participant_source_url())
+    parsed = list(csv.reader(io.StringIO(csv_text or "")))
+    if not parsed:
+        raise RuntimeError("Participant Google Sheet returned no rows.")
+    headers = [str(value or "").strip() for value in parsed[0]]
+    rows = [
+        [str(value or "").strip() for value in row]
+        for row in parsed[1:]
+        if any(str(cell or "").strip() for cell in row)
+    ]
+    if not headers:
+        raise RuntimeError("Participant Google Sheet returned no header row.")
+    return headers, rows, file_name, file_id
+
+
 def _emails_from_sheet_rows(rows: list[list], email_col: int) -> list[str]:
     seen = set()
     out: list[str] = []
@@ -3535,6 +3551,34 @@ def profiles_participants(request):
         "participants_drive_file": _participant_source_url(),
     }
     return render(request, "admin_dash/profiles_participants.html", context)
+
+
+@staff_member_required
+def profiles_participants_google_sheet(request):
+    try:
+        headers, rows, file_name, file_id = _load_participants_drive_grid()
+    except Exception as exc:
+        messages.error(request, f"Could not load participant Google Sheet: {exc}")
+        return redirect(reverse("admin_profiles_participants"))
+
+    refresh_requested = str(request.GET.get("refresh") or "").strip().lower() in {"1", "true", "yes"}
+    if refresh_requested:
+        messages.success(
+            request,
+            f"Participant Google Sheet refreshed: {len(rows)} row(s), {len(headers)} column(s).",
+        )
+
+    return render(
+        request,
+        "admin_dash/profiles_participants_google_sheet.html",
+        {
+            "sheet_headers": headers,
+            "sheet_rows": rows,
+            "source_name": file_name,
+            "source_file_id": file_id,
+            "source_url": _participant_source_url(),
+        },
+    )
 
 
 @staff_member_required

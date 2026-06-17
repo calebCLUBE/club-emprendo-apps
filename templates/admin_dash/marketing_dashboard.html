@@ -1,0 +1,207 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+<div class="ce-admin-wrap">
+  <div class="ce-admin-card ce-admin-card--wide">
+    <style>
+      .ce-marketing-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin-bottom: 16px;
+      }
+      .ce-marketing-title {
+        margin: 0;
+        color: #0f172a;
+        font-size: 30px;
+      }
+      .ce-marketing-sub {
+        margin-top: 6px;
+        color: #475569;
+      }
+      .ce-filter-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(140px, 1fr));
+        gap: 10px;
+        align-items: end;
+        margin: 12px 0 16px;
+      }
+      .ce-filter-grid label {
+        display: block;
+        margin-bottom: 5px;
+        color: #344054;
+        font-size: 12px;
+        font-weight: 700;
+      }
+      .ce-filter-grid input,
+      .ce-filter-grid select {
+        width: 100%;
+        min-height: 40px;
+        box-sizing: border-box;
+        border: 1px solid #d4dce8;
+        border-radius: 8px;
+        padding: 8px 10px;
+        background: #fff;
+        color: #1f2937;
+      }
+      .ce-card-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+        gap: 12px;
+        margin-bottom: 16px;
+      }
+      .ce-card {
+        border: 1px solid #d9e4f6;
+        border-radius: 8px;
+        background: #fff;
+        padding: 14px;
+      }
+      .ce-card-k {
+        color: #64748b;
+        font-size: 11px;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+      .ce-card-v {
+        margin-top: 6px;
+        color: #111827;
+        font-size: 28px;
+        line-height: 1;
+        font-weight: 850;
+        font-variant-numeric: tabular-nums;
+      }
+      .ce-alert {
+        margin: 12px 0;
+        border: 1px solid #facc15;
+        border-radius: 8px;
+        background: #fffbeb;
+        color: #713f12;
+        padding: 12px;
+      }
+      .ce-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+      }
+      .ce-table th,
+      .ce-table td {
+        border-bottom: 1px solid #e5e7eb;
+        padding: 9px 8px;
+        text-align: left;
+      }
+      .ce-table th {
+        color: #475569;
+        font-size: 11px;
+        text-transform: uppercase;
+      }
+      .ce-num {
+        text-align: right !important;
+        font-variant-numeric: tabular-nums;
+      }
+      .ce-section-title {
+        margin: 18px 0 10px;
+        color: #111827;
+        font-size: 18px;
+      }
+      .ce-muted {
+        color: #64748b;
+      }
+      @media (max-width: 760px) {
+        .ce-filter-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+
+    <div class="ce-marketing-head">
+      <div>
+        <h1 class="ce-marketing-title">Marketing Dashboard</h1>
+        <div class="ce-marketing-sub">Facebook and Instagram marketing data from Meta APIs.</div>
+      </div>
+      <a class="button" href="{% url 'admin_dashboards_home' %}">Dashboards</a>
+    </div>
+
+    <form class="ce-filter-grid" method="get">
+      <div>
+        <label for="date_from">From</label>
+        <input id="date_from" type="date" name="date_from" value="{{ date_from }}">
+      </div>
+      <div>
+        <label for="date_to">To</label>
+        <input id="date_to" type="date" name="date_to" value="{{ date_to }}">
+      </div>
+      <div>
+        <label for="level">Breakdown</label>
+        <select id="level" name="level">
+          <option value="campaign" {% if level == "campaign" %}selected{% endif %}>Campaign</option>
+          <option value="adset" {% if level == "adset" %}selected{% endif %}>Ad set</option>
+          <option value="ad" {% if level == "ad" %}selected{% endif %}>Ad</option>
+        </select>
+      </div>
+      <button class="button" type="submit">Refresh</button>
+    </form>
+
+    {% for error in errors %}
+      <div class="ce-alert">{{ error }}</div>
+    {% endfor %}
+
+    {% if not configured %}
+      <div class="ce-alert">
+        Add <strong>ZERNIO_API_KEY</strong> to connect through Zernio.
+        If the dashboard cannot find the connected account automatically, also add
+        <strong>ZERNIO_META_ADS_ACCOUNT_ID</strong>.
+      </div>
+    {% endif %}
+
+    <div class="ce-card-grid">
+      <div class="ce-card"><div class="ce-card-k">Spend</div><div class="ce-card-v">${{ summary.spend }}</div></div>
+      <div class="ce-card"><div class="ce-card-k">Impressions</div><div class="ce-card-v">{{ summary.impressions }}</div></div>
+      <div class="ce-card"><div class="ce-card-k">Reach</div><div class="ce-card-v">{{ summary.reach }}</div></div>
+      <div class="ce-card"><div class="ce-card-k">Clicks</div><div class="ce-card-v">{{ summary.clicks }}</div></div>
+      <div class="ce-card"><div class="ce-card-k">CTR</div><div class="ce-card-v">{{ summary.ctr }}%</div></div>
+      <div class="ce-card"><div class="ce-card-k">CPC</div><div class="ce-card-v">${{ summary.cpc }}</div></div>
+      <div class="ce-card"><div class="ce-card-k">CPM</div><div class="ce-card-v">${{ summary.cpm }}</div></div>
+    </div>
+
+    <h2 class="ce-section-title">Campaign Performance</h2>
+    <table class="ce-table">
+      <thead>
+        <tr>
+          <th>Campaign</th>
+          <th class="ce-num">Spend</th>
+          <th class="ce-num">Impressions</th>
+          <th class="ce-num">Reach</th>
+          <th class="ce-num">Clicks</th>
+          <th class="ce-num">CTR</th>
+          <th class="ce-num">CPC</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in campaign_rows %}
+          <tr>
+            <td>{{ row.name }}</td>
+            <td class="ce-num">${{ row.spend }}</td>
+            <td class="ce-num">{{ row.impressions }}</td>
+            <td class="ce-num">{{ row.reach }}</td>
+            <td class="ce-num">{{ row.clicks }}</td>
+            <td class="ce-num">{{ row.ctr }}%</td>
+            <td class="ce-num">${{ row.cpc }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="7" class="ce-muted">No Meta ad data loaded yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <h2 class="ce-section-title">Instagram Organic</h2>
+    <div class="ce-card-grid">
+      <div class="ce-card"><div class="ce-card-k">Reach</div><div class="ce-card-v">{{ organic_summary.reach|default:0 }}</div></div>
+      <div class="ce-card"><div class="ce-card-k">Profile Views</div><div class="ce-card-v">{{ organic_summary.profile_views|default:0 }}</div></div>
+      <div class="ce-card"><div class="ce-card-k">Website Clicks</div><div class="ce-card-v">{{ organic_summary.website_clicks|default:0 }}</div></div>
+    </div>
+  </div>
+</div>
+{% endblock %}

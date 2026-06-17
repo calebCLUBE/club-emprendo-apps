@@ -24,6 +24,11 @@ urlpatterns = [
         name="admin_dashboards_home",
     ),
     path(
+        "admin/dashboards/marketing/",
+        admin_dashboard_views.marketing_dashboard,
+        name="admin_marketing_dashboard",
+    ),
+    path(
         "admin/dashboards/impact/",
         admin_dashboard_views.impact_dashboard,
         name="admin_impact_dashboard",

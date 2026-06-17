@@ -5,10 +5,11 @@ from django.contrib.auth import get_user_model
 from django.utils import timezone
 import json
 import re
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from applications import admin_dashboard_views
 from applications import admin_profiles_views
+from applications import meta_marketing
 from applications.admin import QuestionAdminForm
 from applications.admin_views import _build_second_stage_reminder_payload, _clone_form, _sync_group_form_names
 from applications.email_templates import build_form_email_context, resolve_form_email_template
@@ -1382,6 +1383,138 @@ class ImpactDashboardMetricTests(TestCase):
         self.assertEqual(response["Content-Type"], "application/pdf")
         self.assertIn("impact_report_groups_981.pdf", response["Content-Disposition"])
         self.assertTrue(response.content.startswith(b"%PDF"))
+
+
+class MarketingDashboardTests(TestCase):
+    def setUp(self):
+        user_model = get_user_model()
+        self.staff_user = user_model.objects.create_superuser(
+            email="marketing-admin@example.com",
+            password="testpass123",
+        )
+        self.client.force_login(self.staff_user)
+
+    def test_meta_ad_summary_helpers(self):
+        rows = [
+            {
+                "campaign_name": "Campaign A",
+                "spend": "10.50",
+                "impressions": "1000",
+                "reach": "800",
+                "clicks": "25",
+            },
+            {
+                "campaign_name": "Campaign A",
+                "spend": "4.50",
+                "impressions": "500",
+                "reach": "300",
+                "clicks": "5",
+            },
+        ]
+
+        summary = meta_marketing.summarize_ad_insights(rows)
+        campaign_rows = meta_marketing.campaign_rows(rows)
+
+        self.assertEqual(summary["spend"], 15.0)
+        self.assertEqual(summary["impressions"], 1500)
+        self.assertEqual(summary["clicks"], 30)
+        self.assertEqual(summary["ctr"], 2.0)
+        self.assertEqual(campaign_rows[0]["name"], "Campaign A")
+        self.assertEqual(campaign_rows[0]["spend"], 15.0)
+
+    def test_zernio_account_resolution_and_campaign_normalization(self):
+        config = meta_marketing.ZernioMarketingConfig(api_key="test-key")
+        client = meta_marketing.ZernioMarketingClient(config)
+        client.accounts = Mock(
+            return_value=[
+                {"id": "fb_1", "platform": "facebook"},
+                {"id": "ads_1", "platform": "metaads"},
+            ]
+        )
+        client._get = Mock(
+            return_value={
+                "data": [
+                    {
+                        "name": "Zernio Campaign",
+                        "metrics": {
+                            "spend": "30",
+                            "impressions": "3000",
+                            "reach": "2100",
+                            "clicks": "60",
+                        },
+                    }
+                ]
+            }
+        )
+
+        rows = client.ad_insights(
+            date_from=date(2026, 1, 1),
+            date_to=date(2026, 1, 31),
+        )
+
+        self.assertEqual(rows[0]["campaign_name"], "Zernio Campaign")
+        self.assertEqual(rows[0]["spend"], "30")
+        client._get.assert_called_once()
+
+    @patch.dict(
+        "os.environ",
+        {
+            "META_ACCESS_TOKEN": "test-token",
+            "META_AD_ACCOUNT_ID": "123456",
+            "META_INSTAGRAM_BUSINESS_ACCOUNT_ID": "987654",
+        },
+    )
+    @patch("applications.admin_dashboard_views.MetaMarketingClient")
+    def test_marketing_dashboard_renders_with_mocked_meta_data(self, mock_client_cls):
+        mock_client = mock_client_cls.return_value
+        mock_client.ad_insights.return_value = [
+            {
+                "campaign_name": "Campaign A",
+                "spend": "20",
+                "impressions": "2000",
+                "reach": "1500",
+                "clicks": "40",
+            }
+        ]
+        mock_client.instagram_user_insights.return_value = [
+            {"name": "reach", "values": [{"value": 100}]},
+            {"name": "profile_views", "values": [{"value": 12}]},
+        ]
+
+        response = self.client.get(reverse("admin_marketing_dashboard"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Marketing Dashboard")
+        self.assertContains(response, "Campaign A")
+        self.assertContains(response, "$20.0")
+        mock_client.ad_insights.assert_called_once()
+
+    def test_marketing_dashboard_shows_setup_message_without_env(self):
+        response = self.client.get(reverse("admin_marketing_dashboard"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "ZERNIO_API_KEY")
+
+    @patch.dict("os.environ", {"ZERNIO_API_KEY": "test-key"}, clear=True)
+    @patch("applications.admin_dashboard_views.ZernioMarketingClient")
+    def test_marketing_dashboard_prefers_zernio_when_configured(self, mock_client_cls):
+        mock_client = mock_client_cls.return_value
+        mock_client.ad_insights.return_value = [
+            {
+                "campaign_name": "Zernio Campaign",
+                "spend": "30",
+                "impressions": "3000",
+                "reach": "2100",
+                "clicks": "60",
+            }
+        ]
+        mock_client.instagram_user_insights.return_value = []
+
+        response = self.client.get(reverse("admin_marketing_dashboard"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Zernio Campaign")
+        mock_client.ad_insights.assert_called_once()
 
 
 class ParticipantsPageSafetyTests(TestCase):

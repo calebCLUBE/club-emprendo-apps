@@ -15,6 +15,17 @@ from django.utils import timezone
 
 from .admin_views import _group_label_for_number, _load_database_encuestas_grid
 from .models import Application, FormGroup, GroupParticipantList
+from .meta_marketing import (
+    MetaMarketingClient,
+    ZernioMarketingClient,
+    campaign_rows,
+    default_date_range,
+    load_meta_marketing_config,
+    load_zernio_marketing_config,
+    parse_iso_date as parse_meta_iso_date,
+    summarize_ad_insights,
+    summarize_instagram_insights,
+)
 from .participant_statuses import (
     PARTICIPANT_STATUS_CHOICES,
     PARTICIPANT_STATUS_COLORS,
@@ -2450,6 +2461,68 @@ def _render_impact_dashboard_html_pdf(request, context: dict) -> bytes | None:
 @staff_member_required
 def dashboards_home(request):
     return render(request, "admin_dash/dashboards_home.html")
+
+
+@staff_member_required
+def marketing_dashboard(request):
+    default_from, default_to = default_date_range()
+    date_from = parse_meta_iso_date(request.GET.get("date_from")) or default_from
+    date_to = parse_meta_iso_date(request.GET.get("date_to")) or default_to
+    if date_from > date_to:
+        date_from, date_to = date_to, date_from
+
+    level = (request.GET.get("level") or "campaign").strip().lower()
+    if level not in {"campaign", "adset", "ad"}:
+        level = "campaign"
+
+    zernio_config = load_zernio_marketing_config()
+    meta_config = load_meta_marketing_config()
+    provider = "zernio" if zernio_config.is_configured else "meta"
+    config = zernio_config if provider == "zernio" else meta_config
+    configured = config.is_configured
+    errors: list[str] = []
+    ad_rows: list[dict] = []
+    organic_summary: dict = {}
+    if configured:
+        client = (
+            ZernioMarketingClient(zernio_config)
+            if provider == "zernio"
+            else MetaMarketingClient(meta_config)
+        )
+        try:
+            ad_rows = client.ad_insights(date_from=date_from, date_to=date_to, level=level)
+        except Exception as exc:
+            errors.append(f"Could not load marketing ad insights: {exc}")
+        try:
+            organic_summary = summarize_instagram_insights(
+                client.instagram_user_insights(date_from=date_from, date_to=date_to)
+            )
+        except Exception as exc:
+            errors.append(f"Could not load Instagram organic insights: {exc}")
+    else:
+        errors.append(
+            "Set ZERNIO_API_KEY, or set META_ACCESS_TOKEN and META_AD_ACCOUNT_ID, to connect marketing data."
+        )
+
+    summary = summarize_ad_insights(ad_rows)
+    rows = campaign_rows(ad_rows)
+    return render(
+        request,
+        "admin_dash/marketing_dashboard.html",
+        {
+            "configured": configured,
+            "errors": errors,
+            "date_from": date_from.isoformat(),
+            "date_to": date_to.isoformat(),
+            "level": level,
+            "summary": summary,
+            "campaign_rows": rows[:25],
+            "organic_summary": organic_summary,
+            "provider": provider,
+            "zernio_config": zernio_config,
+            "meta_config": config,
+        },
+    )
 
 
 @staff_member_required

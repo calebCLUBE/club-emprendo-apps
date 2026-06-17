@@ -944,6 +944,19 @@ class ImpactDashboardMetricTests(TestCase):
             ],
         )
 
+    def _participant_source_csv(self):
+        return "\n".join(
+            [
+                "Grupo,Track,Estatus,Nombre,Id,Email,WhatsApp,Reside,Edad,Acta,Website,Capacitacion,Encuesta inicial,Encuesta final",
+                "981,Emprendedoras,Graduada,Founder From Sheet,E1,founder@example.com,+57,Colombia,31,true,true,true,true,true",
+                "981,Emprendedoras,No Firmo A,No Start From Sheet,E2,no-start@example.com,+51,Peru,29,false,false,false,false,false",
+                "981,Mentoras,Graduada,Mentor From Sheet,M1,mentor@example.com,+58,Venezuela,35,true,true,true,true,true",
+                "981,Mentoras,Activa,Repeated Mentor From Sheet,M2,repeat@example.com,+57,Colombia,36,true,true,true,true,false",
+                "982,Mentoras,Activa,Founder Mentor From Sheet,M3,founder@example.com,+57,Colombia,37,true,true,true,true,false",
+                "982,Mentoras,Cambio de pareja,Repeated Mentor G2 From Sheet,M2,repeat@example.com,+51,Peru,38,true,false,true,false,false",
+            ]
+        )
+
     def test_participant_sheet_status_options_use_requested_default_labels(self):
         expected = [
             "No Firmo A",
@@ -994,6 +1007,30 @@ class ImpactDashboardMetricTests(TestCase):
         self.assertFalse(records_by_email["not-started-status@example.com"]["started"])
         self.assertTrue(records_by_email["graduated-status@example.com"]["started"])
         self.assertTrue(records_by_email["graduated-status@example.com"]["graduated"])
+
+        participant_summary = admin_dashboard_views._participant_summary(records_by_email.values())
+        status_labels = {
+            row["status"]: row["label"]
+            for row in participant_summary["tracks"]["e"]["status_rows"]
+        }
+        self.assertEqual(status_labels["NCP"], "No Continua P")
+        self.assertEqual(status_labels["NC"], "No Capacitacion")
+        self.assertEqual(status_labels["G"], "Graduada")
+
+        chart_labels = {
+            row["label"]
+            for row in admin_dashboard_views._participant_status_chart_data(participant_summary)["e"]
+        }
+        self.assertIn("No Continua P", chart_labels)
+        self.assertIn("No Capacitacion", chart_labels)
+        self.assertIn("Graduada", chart_labels)
+
+        status_key = {
+            row["code"]: row["label"]
+            for row in admin_dashboard_views._participant_status_key()
+        }
+        self.assertEqual(status_key["G"], "Graduada")
+        self.assertEqual(status_key["A"], "Activa")
 
     def test_program_metric_summaries_use_participant_rows_and_deduped_applicants(self):
         records = admin_dashboard_views._participant_records()
@@ -1354,6 +1391,30 @@ class ParticipantsCapacitacionCheckTests(TestCase):
         self.assertContains(response, reverse("admin_profiles_participants_google_sheet"))
         self.assertNotContains(response, "Open Mentoras sheet")
         self.assertNotContains(response, "Open Emprendedoras sheet")
+
+    @patch("applications.admin_profiles_views.fetch_drive_csv_file_text")
+    def test_participants_page_auto_refreshes_database_from_google_sheet(self, mock_fetch):
+        mock_fetch.return_value = (
+            "\n".join(
+                [
+                    "Grupo,Track,Estatus,Nombre,Id,Email,WhatsApp,Reside,Edad,Acta,Website,Capacitacion,Encuesta inicial,Encuesta final",
+                    "993,Mentoras,Activa,Mentora Auto,M9,mentor-auto@example.com,+57,Colombia,30,true,false,true,false,true",
+                    "994,Emprendedoras,Graduada,Founder Auto,E9,founder-auto@example.com,+51,Peru,40,true,true,true,true,true",
+                ]
+            ),
+            "drive-file-id",
+            "Participant source",
+        )
+
+        response = self.client.get(reverse("admin_profiles_participants"))
+
+        self.assertEqual(response.status_code, 200)
+        synced_existing = GroupParticipantList.objects.get(group=self.group)
+        synced_new = GroupParticipantList.objects.get(group__number=994)
+        self.assertEqual(synced_existing.mentoras_sheet_rows[0][3], "Mentora Auto")
+        self.assertEqual(synced_existing.mentoras_sheet_rows[0][5], "mentor-auto@example.com")
+        self.assertEqual(synced_new.emprendedoras_sheet_rows[0][3], "Founder Auto")
+        self.assertEqual(synced_new.emprendedoras_sheet_rows[0][5], "founder-auto@example.com")
 
     @patch("applications.admin_profiles_views.fetch_drive_csv_file_text")
     def test_participant_google_sheet_view_renders_complete_source_sheet(self, mock_fetch):

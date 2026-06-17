@@ -1265,6 +1265,20 @@ def _load_participants_drive_grid() -> tuple[list[str], list[list[str]], str, st
     return headers, rows, file_name, file_id
 
 
+def _auto_refresh_participant_database_from_drive(request) -> dict | None:
+    try:
+        return _sync_participants_from_drive_sheet()
+    except Exception as exc:
+        messages.warning(
+            request,
+            (
+                "Could not refresh participant database from Google Sheet. "
+                f"Using the last synced participant data instead. Error: {exc}"
+            ),
+        )
+        return None
+
+
 def _emails_from_sheet_rows(rows: list[list], email_col: int) -> list[str]:
     seen = set()
     out: list[str] = []
@@ -3049,9 +3063,12 @@ def profiles_sheet(request):
 
 @staff_member_required
 def profiles_participants(request):
+    group_raw = (request.GET.get("group") or request.POST.get("group") or "").strip()
+    if request.method == "GET":
+        _auto_refresh_participant_database_from_drive(request)
+
     groups_qs = _formgroup_active_queryset()
     groups = list(groups_qs)
-    group_raw = (request.GET.get("group") or request.POST.get("group") or "").strip()
     selected_group = None
     participant_list = None
 

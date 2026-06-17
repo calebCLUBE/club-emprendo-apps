@@ -19,7 +19,7 @@ from .participant_statuses import (
     PARTICIPANT_STATUS_CHOICES,
     PARTICIPANT_STATUS_COLORS,
     PARTICIPANT_STATUS_GRADUATED,
-    PARTICIPANT_STATUS_LABELS,
+    PARTICIPANT_STATUS_SHEET_LABELS,
     PARTICIPANT_STATUS_STARTED,
     normalize_participant_status,
 )
@@ -291,7 +291,7 @@ def _status_counts_to_rows(status_counts: dict[str, int]) -> list[dict]:
     return [
         {
             "status": status,
-            "label": PARTICIPANT_STATUS_LABELS.get(status, status),
+            "label": PARTICIPANT_STATUS_SHEET_LABELS.get(status, status),
             "count": count,
         }
         for status, count in sorted(status_counts.items(), key=lambda item: (-item[1], item[0]))
@@ -302,7 +302,7 @@ def _participant_status_key() -> list[dict]:
     return [
         {
             "code": code,
-            "label": label,
+            "label": PARTICIPANT_STATUS_SHEET_LABELS.get(code, label),
         }
         for code, label in PARTICIPANT_STATUS_CHOICES
     ]
@@ -1126,10 +1126,7 @@ def _participant_status_chart_data(participant_summary: dict) -> dict:
         rows = []
         for row in tracks.get(track_key, {}).get("status_rows", []) or []:
             status = str(row.get("status") or "").strip()
-            label = status
-            meaning = str(row.get("label") or "").strip()
-            if meaning and meaning != status:
-                label = f"{status}: {meaning}"
+            label = str(row.get("label") or "").strip() or status
             rows.append(
                 {
                     "label": label,
@@ -1949,7 +1946,7 @@ def _render_group_impact_report_pdf(payload: dict) -> bytes:
         notes = [
             "Number of participants: rows listed on the Participants page workbook.",
             "Application -> listed: applicant emails that appear on the Participants page.",
-            "Graduation rate: Estatus G divided by rows whose Estatus indicates they began the program.",
+            "Graduation rate: Estatus Graduada divided by rows whose Estatus indicates they began the program.",
             "Group source: inferred from matching participant emails back to intake/application emails.",
             payload["survey_source_note"],
         ]

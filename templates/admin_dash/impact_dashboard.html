@@ -332,10 +332,14 @@
       .ce-report-select {
         width: 100%;
         box-sizing: border-box;
-        padding: 9px;
+        min-height: 42px;
+        padding: 8px 10px;
         border: 1px solid #d4dce8;
         border-radius: 8px;
         background: #fff;
+        color: #1f2937;
+        font-size: 13px;
+        line-height: 20px;
       }
       .ce-empty {
         color: #6b7280;
@@ -546,52 +550,6 @@
           </div>
         </section>
 
-        <section class="ce-metric-box ce-metric-box--wide">
-          <div class="ce-box-head">
-            <div>
-              <p class="ce-box-kicker">Groups</p>
-              <h2 class="ce-box-title">Number of Groups</h2>
-              <p class="ce-box-note">Group names use the admin group labels. Intake source is inferred by matching participant emails back to application emails.</p>
-            </div>
-            <div class="ce-big-number">{{ participant_summary.overall.groups_with_participants }}</div>
-          </div>
-          <div class="ce-mini-stat-grid">
-            <div class="ce-mini-stat">
-              <div class="ce-mini-stat-k">Groups with participants</div>
-              <div class="ce-mini-stat-v">{{ participant_summary.overall.groups_with_participants }}</div>
-            </div>
-            <div class="ce-mini-stat">
-              <div class="ce-mini-stat-k">Groups in system</div>
-              <div class="ce-mini-stat-v">{{ participant_summary.overall.groups_in_system }}</div>
-            </div>
-          </div>
-          <div class="ce-table-wrap">
-            <table class="ce-table ce-compact-table">
-              <thead>
-                <tr>
-                  <th>Participant group</th>
-                  <th class="ce-num">Participants</th>
-                  <th>Matched intake source</th>
-                </tr>
-              </thead>
-              <tbody>
-                {% for row in group_source_rows %}
-                  <tr>
-                    <td>{{ row.group_label }}</td>
-                    <td class="ce-num">{{ row.participants }}</td>
-                    <td>
-                      {{ row.source_label }}
-                      <span class="ce-muted-row">{{ row.source_detail }}</span>
-                    </td>
-                  </tr>
-                {% empty %}
-                  <tr><td colspan="3">No participant group data available.</td></tr>
-                {% endfor %}
-              </tbody>
-            </table>
-          </div>
-        </section>
-
         <section class="ce-metric-box">
           <div class="ce-box-head">
             <div>
@@ -694,6 +652,52 @@
           </div>
           <div id="ce-survey-response-rate-chart" class="ce-bars">
             {% include "admin_dash/includes/impact_bar_chart.html" with rows=survey_response_rate_bar_rows empty_text="No survey response data available." %}
+          </div>
+        </section>
+
+        <section class="ce-metric-box ce-metric-box--wide">
+          <div class="ce-box-head">
+            <div>
+              <p class="ce-box-kicker">Groups</p>
+              <h2 class="ce-box-title">Number of Groups</h2>
+              <p class="ce-box-note">Group names use the admin group labels. Intake source is inferred by matching participant emails back to application emails.</p>
+            </div>
+            <div class="ce-big-number">{{ participant_summary.overall.groups_with_participants }}</div>
+          </div>
+          <div class="ce-mini-stat-grid">
+            <div class="ce-mini-stat">
+              <div class="ce-mini-stat-k">Groups with participants</div>
+              <div class="ce-mini-stat-v">{{ participant_summary.overall.groups_with_participants }}</div>
+            </div>
+            <div class="ce-mini-stat">
+              <div class="ce-mini-stat-k">Groups in system</div>
+              <div class="ce-mini-stat-v">{{ participant_summary.overall.groups_in_system }}</div>
+            </div>
+          </div>
+          <div class="ce-table-wrap">
+            <table class="ce-table ce-compact-table">
+              <thead>
+                <tr>
+                  <th>Participant group</th>
+                  <th class="ce-num">Participants</th>
+                  <th>Matched intake source</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in group_source_rows %}
+                  <tr>
+                    <td>{{ row.group_label }}</td>
+                    <td class="ce-num">{{ row.participants }}</td>
+                    <td>
+                      {{ row.source_label }}
+                      <span class="ce-muted-row">{{ row.source_detail }}</span>
+                    </td>
+                  </tr>
+                {% empty %}
+                  <tr><td colspan="3">No participant group data available.</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
           </div>
         </section>
 

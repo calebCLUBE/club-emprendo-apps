@@ -448,15 +448,15 @@
             <div>
               <p class="ce-box-kicker">Completion</p>
               <h2 class="ce-box-title">Graduation Rate</h2>
-              <p class="ce-box-note">Graduated rows use Estatus Graduada. The rate is graduated divided by participant rows whose Estatus indicates they began the program.</p>
+              <p class="ce-box-note">Graduated rows use Estatus Graduada. Active groups are excluded; a group is active until it has at least one Graduada.</p>
             </div>
             <div class="ce-big-number">{{ participant_summary.overall.graduation_rate }}%</div>
           </div>
           <div class="ce-mini-stat-grid">
             <div class="ce-mini-stat">
               <div class="ce-mini-stat-k">Graduated</div>
-              <div class="ce-mini-stat-v">{{ participant_summary.overall.graduated }}</div>
-              <div class="ce-mini-stat-note">{{ participant_summary.overall.started }} rows counted as began</div>
+              <div class="ce-mini-stat-v">{{ participant_summary.overall.graduation_graduated }}</div>
+              <div class="ce-mini-stat-note">{{ participant_summary.overall.graduation_started }} began rows in completed groups</div>
             </div>
           </div>
           <div id="ce-graduation-rate-chart" class="ce-bars">

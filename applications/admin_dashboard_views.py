@@ -615,12 +615,24 @@ def _participant_summary(records: list[dict], group_numbers: set[int] | None = N
     all_graduated_emails: set[str] = set()
     country_counts: dict[str, int] = defaultdict(int)
     group_rows: dict[tuple[int | None, str], dict] = {}
+    completed_group_numbers = {
+        record["group_number"]
+        for record in records
+        if record.get("group_number") is not None and record.get("graduated")
+    }
 
     for track_key, cfg in PARTICIPANT_TRACK_CONFIGS.items():
         track_records = [record for record in records if record["track"] == track_key]
+        graduation_scope_records = [
+            record
+            for record in track_records
+            if record.get("group_number") in completed_group_numbers
+        ]
         participant_emails = {record["email"] for record in track_records if record["email"]}
         started_emails = {record["email"] for record in track_records if record["email"] and record["started"]}
         graduated_emails = {record["email"] for record in track_records if record["email"] and record["graduated"]}
+        graduation_started = len([record for record in graduation_scope_records if record["started"]])
+        graduation_graduated = len([record for record in graduation_scope_records if record["graduated"]])
         status_counts: dict[str, int] = defaultdict(int)
         track_country_counts: dict[str, int] = defaultdict(int)
         initial_responses = 0
@@ -666,9 +678,11 @@ def _participant_summary(records: list[dict], group_numbers: set[int] | None = N
             "started_unique": len(started_emails),
             "graduated": len([record for record in track_records if record["graduated"]]),
             "graduated_unique": len(graduated_emails),
+            "graduation_started": graduation_started,
+            "graduation_graduated": graduation_graduated,
             "graduation_rate": _rate(
-                len([record for record in track_records if record["graduated"]]),
-                len([record for record in track_records if record["started"]]),
+                graduation_graduated,
+                graduation_started,
             ),
             "initial_survey_responses": initial_responses,
             "initial_survey_rate": _rate(initial_responses, len(track_records)),
@@ -686,6 +700,17 @@ def _participant_summary(records: list[dict], group_numbers: set[int] | None = N
 
     overall_started = len([record for record in records if record["started"]])
     overall_graduated = len([record for record in records if record["graduated"]])
+    overall_graduation_scope_records = [
+        record
+        for record in records
+        if record.get("group_number") in completed_group_numbers
+    ]
+    overall_graduation_started = len(
+        [record for record in overall_graduation_scope_records if record["started"]]
+    )
+    overall_graduation_graduated = len(
+        [record for record in overall_graduation_scope_records if record["graduated"]]
+    )
     overall_initial_survey = len([record for record in records if record["initial_survey"]])
     overall_final_survey = len([record for record in records if record["final_survey"]])
     groups_with_participants = {
@@ -719,7 +744,10 @@ def _participant_summary(records: list[dict], group_numbers: set[int] | None = N
             "started_unique": len(all_started_emails),
             "graduated": overall_graduated,
             "graduated_unique": len(all_graduated_emails),
-            "graduation_rate": _rate(overall_graduated, overall_started),
+            "graduation_started": overall_graduation_started,
+            "graduation_graduated": overall_graduation_graduated,
+            "graduation_completed_groups": len(completed_group_numbers),
+            "graduation_rate": _rate(overall_graduation_graduated, overall_graduation_started),
             "initial_survey_responses": overall_initial_survey,
             "initial_survey_rate": _rate(overall_initial_survey, len(records)),
             "final_survey_responses": overall_final_survey,
@@ -1864,7 +1892,10 @@ def _render_group_impact_report_pdf(payload: dict) -> bytes:
         {
             "label": "Graduation Rate",
             "value": _impact_pdf_value(overall_participants["graduation_rate"], "%"),
-            "note": f"{overall_participants['graduated']} graduated of {overall_participants['started']} began",
+            "note": (
+                f"{overall_participants.get('graduation_graduated', 0)} graduated of "
+                f"{overall_participants.get('graduation_started', 0)} began in completed groups"
+            ),
             "color": "#22C55E",
         },
         {
@@ -1946,7 +1977,7 @@ def _render_group_impact_report_pdf(payload: dict) -> bytes:
         notes = [
             "Number of participants: rows listed on the Participants page workbook.",
             "Application -> listed: applicant emails that appear on the Participants page.",
-            "Graduation rate: Estatus Graduada divided by rows whose Estatus indicates they began the program.",
+            "Graduation rate: Estatus Graduada divided by began rows in groups with at least one Graduada.",
             "Group source: inferred from matching participant emails back to intake/application emails.",
             payload["survey_source_note"],
         ]

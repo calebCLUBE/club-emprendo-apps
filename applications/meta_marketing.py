@@ -10,7 +10,8 @@ import httpx
 META_GRAPH_VERSION_DEFAULT = "v20.0"
 META_GRAPH_BASE_URL = "https://graph.facebook.com"
 ZERNIO_BASE_URL_DEFAULT = "https://zernio.com/api/v1"
-ZERNIO_META_PLATFORMS = {"metaads", "facebook", "instagram"}
+ZERNIO_META_PLATFORM_PRIORITY = ("metaads", "facebook", "instagram")
+ZERNIO_META_PLATFORMS = set(ZERNIO_META_PLATFORM_PRIORITY)
 
 
 @dataclass(frozen=True)
@@ -214,15 +215,12 @@ class ZernioMarketingClient:
         if self.config.account_id:
             self.last_account_id = self.config.account_id
             return self.config.account_id
-        for account in self.accounts():
-            platform = str(account.get("platform") or account.get("type") or "").lower()
-            if platform in ZERNIO_META_PLATFORMS:
-                account_id = (
-                    account.get("id")
-                    or account.get("_id")
-                    or account.get("accountId")
-                    or account.get("socialAccountId")
-                )
+        for platform_name in ZERNIO_META_PLATFORM_PRIORITY:
+            for account in self.accounts():
+                platform = str(account.get("platform") or account.get("type") or "").lower()
+                if platform != platform_name:
+                    continue
+                account_id = zernio_account_id(account)
                 if account_id:
                     self.last_account_id = str(account_id)
                     return str(account_id)
@@ -272,17 +270,7 @@ def _metric_value(row: dict, name: str) -> Any:
 
 
 def _extract_zernio_campaign_nodes(data: dict) -> list[dict]:
-    candidates = [
-        data.get("data"),
-        data.get("campaigns"),
-        data.get("items"),
-        data.get("results"),
-    ]
-    for candidate in candidates:
-        rows = _coerce_zernio_rows(candidate)
-        if rows:
-            return rows
-    return []
+    return _find_zernio_rows_by_key(data, {"campaigns", "items", "results", "data"})
 
 
 def _coerce_zernio_rows(value: Any) -> list[dict]:
@@ -294,6 +282,48 @@ def _coerce_zernio_rows(value: Any) -> list[dict]:
             if rows:
                 return rows
     return []
+
+
+def _find_zernio_rows_by_key(value: Any, keys: set[str]) -> list[dict]:
+    if isinstance(value, dict):
+        for key in keys:
+            rows = _coerce_zernio_rows(value.get(key))
+            if rows:
+                return rows
+        for child in value.values():
+            rows = _find_zernio_rows_by_key(child, keys)
+            if rows:
+                return rows
+    if isinstance(value, list):
+        for item in value:
+            rows = _find_zernio_rows_by_key(item, keys)
+            if rows:
+                return rows
+    return []
+
+
+def zernio_account_id(account: dict) -> str:
+    account_id = (
+        account.get("_id")
+        or account.get("id")
+        or account.get("accountId")
+        or account.get("socialAccountId")
+    )
+    return str(account_id or "").strip()
+
+
+def zernio_account_label(account: dict) -> str:
+    platform = str(account.get("platform") or account.get("type") or "account").strip()
+    name = str(
+        account.get("name")
+        or account.get("username")
+        or account.get("pageName")
+        or account.get("displayName")
+        or ""
+    ).strip()
+    account_id = zernio_account_id(account)
+    label = f"{platform}: {name}" if name else platform
+    return f"{label} ({account_id})" if account_id else label
 
 
 def _normalize_zernio_campaign(row: dict) -> dict:

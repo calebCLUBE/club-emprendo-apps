@@ -1455,6 +1455,28 @@ class MarketingDashboardTests(TestCase):
         self.assertEqual(rows[0]["campaign_name"], "Zernio Campaign")
         self.assertEqual(rows[0]["spend"], "30")
         client._get.assert_called_once()
+        self.assertEqual(client._get.call_args.args[0], "ads/tree")
+        self.assertEqual(client._get.call_args.args[1]["accountId"], "ads_1")
+
+    def test_zernio_extracts_nested_campaign_tree(self):
+        rows = meta_marketing._extract_zernio_campaign_nodes(
+            {
+                "tree": {
+                    "adAccounts": [
+                        {
+                            "campaigns": [
+                                {
+                                    "name": "Nested Campaign",
+                                    "metrics": {"spend": "12"},
+                                }
+                            ]
+                        }
+                    ]
+                }
+            }
+        )
+
+        self.assertEqual(rows[0]["name"], "Nested Campaign")
 
     @patch.dict(
         "os.environ",
@@ -1509,6 +1531,7 @@ class MarketingDashboardTests(TestCase):
             }
         ]
         mock_client.instagram_user_insights.return_value = []
+        mock_client.accounts.return_value = []
 
         response = self.client.get(reverse("admin_marketing_dashboard"))
 

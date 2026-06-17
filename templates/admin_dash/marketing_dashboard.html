@@ -185,6 +185,18 @@
           <option value="ad" {% if level == "ad" %}selected{% endif %}>Ad</option>
         </select>
       </div>
+      {% if provider == "zernio" and zernio_account_options %}
+        <div>
+          <label for="zernio_account_id">Zernio Account</label>
+          <select id="zernio_account_id" name="zernio_account_id">
+            {% for account in zernio_account_options %}
+              <option value="{{ account.id }}" {% if account.id == zernio_account_id %}selected{% endif %}>
+                {{ account.label }}
+              </option>
+            {% endfor %}
+          </select>
+        </div>
+      {% endif %}
       <button class="button" type="submit">Refresh</button>
     </form>
 

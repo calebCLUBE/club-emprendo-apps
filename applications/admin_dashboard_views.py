@@ -2,6 +2,7 @@ import io
 import re
 import textwrap
 from collections import Counter, defaultdict
+from dataclasses import replace
 from datetime import date, timedelta
 
 from django.contrib import messages
@@ -25,6 +26,8 @@ from .meta_marketing import (
     parse_iso_date as parse_meta_iso_date,
     summarize_ad_insights,
     summarize_instagram_insights,
+    zernio_account_id as get_zernio_account_id,
+    zernio_account_label,
 )
 from .participant_statuses import (
     PARTICIPANT_STATUS_CHOICES,
@@ -2476,6 +2479,9 @@ def marketing_dashboard(request):
         level = "campaign"
 
     zernio_config = load_zernio_marketing_config()
+    selected_zernio_account_id = (request.GET.get("zernio_account_id") or "").strip()
+    if selected_zernio_account_id:
+        zernio_config = replace(zernio_config, account_id=selected_zernio_account_id)
     meta_config = load_meta_marketing_config()
     provider = "zernio" if zernio_config.is_configured else "meta"
     config = zernio_config if provider == "zernio" else meta_config
@@ -2484,12 +2490,25 @@ def marketing_dashboard(request):
     ad_rows: list[dict] = []
     organic_summary: dict = {}
     zernio_account_id = zernio_config.account_id
+    zernio_account_options: list[dict] = []
     if configured:
         client = (
             ZernioMarketingClient(zernio_config)
             if provider == "zernio"
             else MetaMarketingClient(meta_config)
         )
+        if provider == "zernio":
+            try:
+                zernio_account_options = [
+                    {
+                        "id": get_zernio_account_id(account),
+                        "label": zernio_account_label(account),
+                    }
+                    for account in client.accounts()
+                    if get_zernio_account_id(account)
+                ]
+            except Exception as exc:
+                errors.append(f"Could not load Zernio connected accounts: {exc}")
         try:
             ad_rows = client.ad_insights(date_from=date_from, date_to=date_to, level=level)
             if provider == "zernio":
@@ -2529,6 +2548,7 @@ def marketing_dashboard(request):
             "provider": provider,
             "ad_row_count": len(ad_rows),
             "zernio_account_id": zernio_account_id,
+            "zernio_account_options": zernio_account_options,
             "zernio_config": zernio_config,
             "meta_config": config,
         },

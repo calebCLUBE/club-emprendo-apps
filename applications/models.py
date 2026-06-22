@@ -383,7 +383,7 @@ class Question(models.Model):
     BOOLEAN = "boolean"            # single checkbox
     CHOICE = "choice"              # single choice (radio/dropdown)
     MULTI_CHOICE = "multi_choice"  # multiple choice (checkbox list)
-    MULTIPLE_CHOICE_GRID = "choice_grid"  # one radio-button choice per row
+    MULTIPLE_CHOICE_GRID = "choice_grid"  # independent checkbox choices across a row/column grid
 
     FIELD_TYPES = [
         (SHORT_TEXT, "Short text"),

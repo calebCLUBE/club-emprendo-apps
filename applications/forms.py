@@ -76,19 +76,39 @@ class MultipleChoiceGridWidget(forms.Widget):
         self.columns = list(columns)
 
     def value_from_datadict(self, data, files, name):
-        return [data.get(f"{name}__row_{index}", "") for index in range(len(self.rows))]
+        return [
+            data.getlist(f"{name}__row_{index}")
+            if hasattr(data, "getlist")
+            else data.get(f"{name}__row_{index}", [])
+            for index in range(len(self.rows))
+        ]
 
     def get_context(self, name, value, attrs):
         context = super().get_context(name, value, attrs)
         selected = list(value) if isinstance(value, (list, tuple)) else []
-        context["widget"]["grid_rows"] = [
-            {
+        grid_rows = []
+        for index, label in enumerate(self.rows):
+            raw_selected = selected[index] if index < len(selected) else []
+            if isinstance(raw_selected, (list, tuple)):
+                selected_values = {str(item) for item in raw_selected if str(item)}
+            elif raw_selected:
+                # Backward-compatible rendering for the previous one-value-per-row shape.
+                selected_values = {str(raw_selected)}
+            else:
+                selected_values = set()
+            grid_rows.append({
                 "index": index,
                 "label": label,
-                "selected": selected[index] if index < len(selected) else "",
-            }
-            for index, label in enumerate(self.rows)
-        ]
+                "cells": [
+                    {
+                        "value": column_value,
+                        "label": column_label,
+                        "checked": str(column_value) in selected_values,
+                    }
+                    for column_value, column_label in self.columns
+                ],
+            })
+        context["widget"]["grid_rows"] = grid_rows
         context["widget"]["grid_columns"] = self.columns
         context["widget"]["grid_required"] = bool(attrs and attrs.get("required"))
         context["widget"]["grid_base_required"] = (attrs or {}).get("data-base-required", "")
@@ -97,7 +117,7 @@ class MultipleChoiceGridWidget(forms.Widget):
 
 class MultipleChoiceGridField(forms.Field):
     default_error_messages = {
-        "required": "Selecciona una respuesta para cada fila.",
+        "required": "Selecciona al menos una opción en la cuadrícula.",
         "invalid": "Una de las respuestas de la cuadrícula no es válida.",
     }
 
@@ -108,14 +128,23 @@ class MultipleChoiceGridField(forms.Field):
         super().__init__(**kwargs)
 
     def clean(self, value):
-        values = list(value or [])
-        values += [""] * max(0, len(self.rows) - len(values))
-        values = values[:len(self.rows)]
+        raw_values = list(value or [])
+        raw_values += [[]] * max(0, len(self.rows) - len(raw_values))
+        values = []
+        for raw_row in raw_values[:len(self.rows)]:
+            if isinstance(raw_row, (list, tuple)):
+                row_values = [str(item) for item in raw_row if str(item)]
+            elif raw_row:
+                row_values = [str(raw_row)]
+            else:
+                row_values = []
+            # Preserve checkbox order while ignoring duplicate submitted values.
+            values.append(list(dict.fromkeys(row_values)))
         allowed = {str(column[0]) for column in self.columns}
 
-        if self.required and (not self.rows or any(not item for item in values)):
+        if self.required and not any(values):
             raise forms.ValidationError(self.error_messages["required"], code="required")
-        if any(item and str(item) not in allowed for item in values):
+        if any(item not in allowed for row_values in values for item in row_values):
             raise forms.ValidationError(self.error_messages["invalid"], code="invalid")
         if not any(values):
             return ""
@@ -124,10 +153,11 @@ class MultipleChoiceGridField(forms.Field):
         answers = [
             {
                 "row": row,
-                "value": str(selected or ""),
-                "label": labels.get(str(selected or ""), ""),
+                "value": selected,
+                "label": labels.get(selected, ""),
             }
-            for row, selected in zip(self.rows, values)
+            for row, selected_values in zip(self.rows, values)
+            for selected in selected_values
         ]
         return json.dumps(answers, ensure_ascii=False)
 

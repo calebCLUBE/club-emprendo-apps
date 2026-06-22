@@ -7,7 +7,11 @@
   .ce-grid-choice__input:checked + .ce-grid-choice__mark::after { transform: scale(1); }
   .ce-grid-choice__input:focus-visible + .ce-grid-choice__mark { outline: 3px solid rgba(103, 58, 183, .22); outline-offset: 2px; }
 </style>
-<div class="ce-grid-question" role="group" aria-label="{{ widget.attrs.aria_label|default:'Multiple choice grid' }}">
+<div class="ce-grid-question"
+     role="group"
+     aria-label="{{ widget.attrs.aria_label|default:'Multiple choice grid' }}"
+     data-grid-required="{% if widget.grid_required %}1{% endif %}"
+     data-grid-base-required="{{ widget.grid_base_required }}">
   <div class="ce-grid-question__scroll">
     <table class="ce-grid-question__table">
       <thead>
@@ -22,17 +26,15 @@
         {% for row in widget.grid_rows %}
           <tr data-grid-row>
             <th scope="row">{{ row.label }}</th>
-            {% for column in widget.grid_columns %}
+            {% for cell in row.cells %}
               <td>
                 <label class="ce-grid-choice">
                   <input class="ce-grid-choice__input"
-                         type="radio"
+                         type="checkbox"
                          name="{{ widget.name }}__row_{{ row.index }}"
-                         value="{{ column.0 }}"
-                         aria-label="{{ row.label }}: {{ column.1 }}"
-                         {% if row.selected|stringformat:'s' == column.0|stringformat:'s' %}checked{% endif %}
-                         {% if widget.grid_required %}required{% endif %}
-                         {% if widget.grid_base_required %}data-base-required="{{ widget.grid_base_required }}"{% endif %}>
+                         value="{{ cell.value }}"
+                         aria-label="{{ row.label }}: {{ cell.label }}"
+                         {% if cell.checked %}checked{% endif %}>
                   <span class="ce-grid-choice__mark"
                         style="display:grid;width:22px;height:22px;place-items:center;border:2px solid #5f6368;border-radius:4px;background:#fff;"
                         aria-hidden="true"></span>
@@ -45,3 +47,26 @@
     </table>
   </div>
 </div>
+<script>
+  (function () {
+    const grid = document.currentScript.previousElementSibling;
+    if (!grid || !grid.matches(".ce-grid-question")) return;
+    const inputs = Array.from(grid.querySelectorAll("input[type='checkbox']"));
+    if (!inputs.length) return;
+
+    function isRequired() {
+      const question = grid.closest(".form-question");
+      return question?.style.display !== "none"
+        && (grid.dataset.gridRequired === "1" || grid.dataset.gridBaseRequired === "1");
+    }
+
+    function validate() {
+      const valid = !isRequired() || inputs.some((input) => input.checked);
+      inputs[0].setCustomValidity(valid ? "" : "Selecciona al menos una opción en la cuadrícula.");
+    }
+
+    inputs.forEach((input) => input.addEventListener("change", validate));
+    grid.closest("form")?.addEventListener("submit", validate);
+    validate();
+  })();
+</script>

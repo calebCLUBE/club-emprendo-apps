@@ -529,7 +529,7 @@ class MultipleChoiceGridTests(TestCase):
         Choice.objects.create(question=self.question, value="low", label="Bajo", position=1)
         Choice.objects.create(question=self.question, value="high", label="Alto", position=2)
 
-    def test_grid_renders_rows_columns_and_one_radio_group_per_row(self):
+    def test_grid_renders_independent_checkboxes_for_every_cell(self):
         form = build_application_form(self.form_def.slug)()
         html = str(form["q_area_grid"])
 
@@ -539,23 +539,27 @@ class MultipleChoiceGridTests(TestCase):
         self.assertIn("Alto", html)
         self.assertIn('name="q_area_grid__row_0"', html)
         self.assertIn('name="q_area_grid__row_1"', html)
+        self.assertEqual(html.count('type="checkbox"'), 4)
+        self.assertNotIn('type="radio"', html)
         self.assertEqual(html.count('class="ce-grid-choice__mark"'), 4)
 
-    def test_required_grid_validates_every_row_and_stores_labels(self):
+    def test_required_grid_accepts_one_checkbox_anywhere_and_multiple_per_row(self):
         ApplicationForm = build_application_form(self.form_def.slug)
-        incomplete = ApplicationForm({"q_area_grid__row_0": "low"})
-        self.assertFalse(incomplete.is_valid())
-        self.assertIn("q_area_grid", incomplete.errors)
+        empty = ApplicationForm({})
+        self.assertFalse(empty.is_valid())
+        self.assertIn("q_area_grid", empty.errors)
 
-        complete = ApplicationForm({
-            "q_area_grid__row_0": "low",
-            "q_area_grid__row_1": "high",
+        one_selection = ApplicationForm({"q_area_grid__row_1": "high"})
+        self.assertTrue(one_selection.is_valid(), one_selection.errors)
+
+        multiple = ApplicationForm({
+            "q_area_grid__row_0": ["low", "high"],
         })
-        self.assertTrue(complete.is_valid(), complete.errors)
-        answers = json.loads(complete.cleaned_data["q_area_grid"])
+        self.assertTrue(multiple.is_valid(), multiple.errors)
+        answers = json.loads(multiple.cleaned_data["q_area_grid"])
         self.assertEqual(answers, [
             {"row": "Ventas", "value": "low", "label": "Bajo"},
-            {"row": "Finanzas", "value": "high", "label": "Alto"},
+            {"row": "Ventas", "value": "high", "label": "Alto"},
         ])
 
     def test_admin_requires_grid_rows_and_columns(self):

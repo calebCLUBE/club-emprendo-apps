@@ -628,6 +628,7 @@
           block.querySelector(".form-row > label")?.classList.toggle(
             "required",
             Array.from(inputs).some(inp => inp.required)
+              || !!block.querySelector(".ce-grid-question[data-grid-base-required='1']")
           );
         } else {
           block.style.display = "none";

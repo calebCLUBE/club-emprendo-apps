@@ -347,6 +347,26 @@
     actions.append(advanced, duplicate, removeQuestion);
     if (required) actions.appendChild(required);
     card.appendChild(actions);
+
+    const errorMessages = Array.from(card.querySelectorAll(".errorlist li"))
+      .map((item) => item.textContent.trim()).filter(Boolean);
+    if (errorMessages.length) {
+      card.classList.add("ce-card-invalid");
+      const summary = document.createElement("div");
+      summary.className = "ce-card-error-summary";
+      summary.setAttribute("role", "alert");
+      summary.textContent = `This question could not be saved: ${Array.from(new Set(errorMessages)).join(" ")}`;
+      dragHandle.after(summary);
+      let revealedAdvancedError = false;
+      ADVANCED_FIELDS.forEach((name) => {
+        const row = rowFor(card, name);
+        if (row?.querySelector(".errorlist")) {
+          row.classList.remove("ce-builder-hidden");
+          revealedAdvancedError = true;
+        }
+      });
+      if (revealedAdvancedError) advanced.textContent = "Hide options";
+    }
   }
 
   function enhanceSection(card) {
@@ -392,8 +412,8 @@
   function enhanceAll(root) {
     const scope = root || document;
     const cards = [];
-    if (scope.matches?.(".inline-related")) cards.push(scope);
-    cards.push(...scope.querySelectorAll(".inline-related"));
+    if (scope.matches?.(".inline-related:not(.empty-form)")) cards.push(scope);
+    cards.push(...scope.querySelectorAll(".inline-related:not(.empty-form)"));
     cards.forEach((card) => {
       enhanceQuestion(card);
       enhanceSection(card);
@@ -513,6 +533,8 @@
 
   document.addEventListener("DOMContentLoaded", () => {
     enhanceAll(document); initializeSectionLayout(); simplifyAddButtons(); addRail(); enableReordering(); setHeaderLinks(); saveState();
+    const firstInvalid = document.querySelector("#questions-group .ce-card-invalid");
+    if (firstInvalid) window.requestAnimationFrame(() => firstInvalid.scrollIntoView({ block: "center" }));
     document.addEventListener("formset:added", (event) => {
       placeAddedCard(event.target); simplifyAddButtons();
     });

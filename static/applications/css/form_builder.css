@@ -101,6 +101,8 @@ body.app-applications.model-formdefinition.change-form select:focus { border-bot
 .ce-multiple-options .ce-option-marker { width: 14px; height: 14px; box-sizing: border-box; border: 2px solid #9aa0a6; border-radius: 2px; color: transparent; }
 .ce-option-dragging { opacity: .45; background: #f1f3f4; }
 .ce-pointer-dragging { opacity: .55; box-shadow: 0 8px 24px rgba(60,64,67,.3) !important; }
+.ce-card-invalid { border: 2px solid #d93025 !important; }
+.ce-card-error-summary { margin: 24px 24px 0; padding: 10px 12px; border-radius: 4px; background: #fce8e6; color: #b3261e; font: 600 12px/1.45 Arial,sans-serif; }
 .ce-option-row input { width: 100%; background: transparent !important; }
 .ce-option-remove, .ce-add-option, .ce-question-actions button, .ce-builder-rail button { border: 0; background: transparent; color: #5f6368; cursor: pointer; }
 .ce-option-remove { font-size: 25px; font-weight: 300; }

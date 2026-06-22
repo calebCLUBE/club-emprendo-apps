@@ -86,6 +86,93 @@ class QuestionAdminFormTests(TestCase):
         self.assertEqual(obj.show_if_question_id, self.controller.id)
         self.assertEqual(obj.show_if_value, "yes")
 
+    def test_new_question_generates_internal_slug_when_editor_leaves_it_blank(self):
+        form = QuestionAdminForm(
+            data={
+                "form": str(self.form_def.id),
+                "text": "¿Cuál es tu experiencia profesional?",
+                "slug": "",
+                "field_type": Question.SHORT_TEXT,
+                "required": "on",
+                "position": "2",
+                "active": "on",
+                "show_if_conditions": "[]",
+                "end_form_rules": "[]",
+            },
+            instance=Question(),
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        question = form.save()
+        self.assertEqual(question.slug, "cual_es_tu_experiencia_profesional")
+
+    @override_settings(
+        STORAGES={
+            "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+            "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
+        }
+    )
+    def test_admin_editor_saves_new_questions_without_manual_slugs(self):
+        empty_form = FormDefinition.objects.create(
+            slug="empty_editor_form",
+            name="Empty editor form",
+        )
+        user = get_user_model().objects.create_superuser(
+            email="editor-save@example.com",
+            password="test-password",
+        )
+        self.client.force_login(user)
+        data = {
+            "name": empty_form.name,
+            "description": "",
+            "slug": empty_form.slug,
+            "group": "",
+            "default_section_title": "Información",
+            "questions-TOTAL_FORMS": "2",
+            "questions-INITIAL_FORMS": "0",
+            "questions-MIN_NUM_FORMS": "0",
+            "questions-MAX_NUM_FORMS": "1000",
+            "questions-0-id": "",
+            "questions-0-form": str(empty_form.pk),
+            "questions-0-position": "1",
+            "questions-0-active": "on",
+            "questions-0-slug": "",
+            "questions-0-text": "New editor question",
+            "questions-0-field_type": Question.SHORT_TEXT,
+            "questions-0-answer_options": "",
+            "questions-0-help_text_clean": "",
+            "questions-0-section_token": "",
+            "questions-0-required": "on",
+            "questions-0-show_if_conditions": "[]",
+            "questions-0-end_form_rules": "[]",
+            "questions-0-pre_text": "",
+            "_save": "Save",
+        }
+        for key, value in list(data.items()):
+            if key.startswith("questions-0-"):
+                data[key.replace("questions-0-", "questions-1-")] = value
+        for prefix in ("stored_emails", "sections"):
+            data.update({
+                f"{prefix}-TOTAL_FORMS": "0",
+                f"{prefix}-INITIAL_FORMS": "0",
+                f"{prefix}-MIN_NUM_FORMS": "0",
+                f"{prefix}-MAX_NUM_FORMS": "1000",
+            })
+
+        response = self.client.post(
+            reverse("admin:applications_formdefinition_change", args=[empty_form.pk]),
+            data,
+        )
+
+        self.assertEqual(response.status_code, 302, response.context and response.context["errors"])
+        questions = list(empty_form.questions.order_by("position", "id"))
+        self.assertEqual(len(questions), 2)
+        self.assertEqual({question.text for question in questions}, {"New editor question"})
+        self.assertEqual(
+            {question.slug for question in questions},
+            {"new_editor_question", "new_editor_question_2"},
+        )
+
     def test_new_question_post_preserves_show_if_question_without_value(self):
         form = QuestionAdminForm(
             data={

@@ -5,6 +5,7 @@ from django.utils.html import format_html
 from django.utils.text import slugify
 import re
 from django import forms
+from django.forms.models import BaseInlineFormSet
 import json
 from django.http import HttpResponseRedirect
 
@@ -78,6 +79,18 @@ def _condition_questions_json(questions) -> str:
     ])
 
 
+def _available_question_slug(base: str, used: set[str], max_length: int = 50) -> str:
+    """Return a stable question slug that does not collide with existing questions."""
+    base = (base or "question")[:max_length].rstrip("_-") or "question"
+    candidate = base
+    suffix = 2
+    while candidate in used:
+        ending = f"_{suffix}"
+        candidate = f"{base[:max_length - len(ending)].rstrip('_-')}{ending}"
+        suffix += 1
+    return candidate
+
+
 # =========================
 # CUSTOM ADMIN FORM FOR QUESTION
 # =========================
@@ -128,6 +141,11 @@ class QuestionAdminForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+
+        # The simplified editor does not require users to manage internal IDs.
+        # Existing slugs stay stable; new ones are generated in clean().
+        if "slug" in self.fields:
+            self.fields["slug"].required = False
 
         if "field_type" in self.fields:
             self.fields["field_type"].choices = [
@@ -272,6 +290,30 @@ class QuestionAdminForm(forms.ModelForm):
             self.fields["end_form_rules"].initial = list(
                 getattr(self.instance, "end_form_rules", []) or []
             )
+
+    def clean(self):
+        cleaned_data = super().clean()
+        if (cleaned_data.get("slug") or "").strip():
+            return cleaned_data
+
+        text = (cleaned_data.get("text") or "").strip()
+        if not text:
+            return cleaned_data
+
+        max_length = Question._meta.get_field("slug").max_length
+        base = (slugify(text).replace("-", "_") or "question")[:max_length]
+        form_obj = getattr(self.instance, "form", None)
+        used = set()
+        if form_obj and getattr(form_obj, "pk", None):
+            existing = form_obj.questions.all()
+            if getattr(self.instance, "pk", None):
+                existing = existing.exclude(pk=self.instance.pk)
+            used = set(existing.values_list("slug", flat=True))
+        generated = _available_question_slug(base, used, max_length)
+        cleaned_data["slug"] = generated
+        self.instance.slug = generated
+        self._generated_slug_base = base
+        return cleaned_data
 
     def save(self, commit=True):
         obj = super().save(commit=False)
@@ -499,9 +541,40 @@ class StoredEmailInline(admin.StackedInline):
     verbose_name_plural = "Stored emails"
 
 
+class QuestionInlineFormSet(BaseInlineFormSet):
+    """Resolve duplicate auto-generated slugs across questions added in one save."""
+
+    def clean(self):
+        submitted_ids = {
+            form.instance.pk for form in self.forms if getattr(form.instance, "pk", None)
+        }
+        used = (
+            set(self.instance.questions.exclude(pk__in=submitted_ids).values_list("slug", flat=True))
+            if getattr(self.instance, "pk", None)
+            else set()
+        )
+        max_length = Question._meta.get_field("slug").max_length
+
+        for form in self.forms:
+            cleaned_data = getattr(form, "cleaned_data", None)
+            if not cleaned_data or cleaned_data.get("DELETE"):
+                continue
+            slug = (cleaned_data.get("slug") or "").strip()
+            generated_base = getattr(form, "_generated_slug_base", "")
+            if generated_base:
+                slug = _available_question_slug(generated_base, used, max_length)
+                cleaned_data["slug"] = slug
+                form.instance.slug = slug
+            if slug:
+                used.add(slug)
+
+        super().clean()
+
+
 class QuestionInline(admin.StackedInline):
     model = Question
     form = QuestionAdminForm  # ✅ IMPORTANT: make inline use the custom form
+    formset = QuestionInlineFormSet
     extra = 0
     show_change_link = False
     ordering = ("position", "id")

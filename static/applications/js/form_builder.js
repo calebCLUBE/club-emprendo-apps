@@ -9,10 +9,25 @@
   let pendingSectionAfter = null;
   let pendingQuestionAfter = null;
 
+  function positionBuilderRail(card) {
+    const group = document.querySelector("#questions-group");
+    const rail = group?.querySelector(":scope > .ce-builder-rail");
+    if (!group || !rail) return;
+    const target = card || group.querySelector(".ce-structure-card.ce-card-active:not([hidden])");
+    if (!target || target.hidden) {
+      rail.style.top = "4px";
+      return;
+    }
+    const groupRect = group.getBoundingClientRect();
+    const cardRect = target.getBoundingClientRect();
+    rail.style.top = `${Math.max(4, cardRect.top - groupRect.top + 4)}px`;
+  }
+
   function activateCard(card) {
     document.querySelectorAll("#questions-group .ce-structure-card.ce-card-active")
       .forEach((item) => item.classList.remove("ce-card-active"));
     card?.classList.add("ce-card-active");
+    window.requestAnimationFrame(() => positionBuilderRail(card));
   }
 
   function questionContainer() {
@@ -57,6 +72,7 @@
           : "";
       }
     });
+    positionBuilderRail(container.querySelector(".ce-structure-card.ce-card-active:not([hidden])"));
     document.querySelector("#content-main form")?.dispatchEvent(new Event("input", { bubbles: true }));
   }
 
@@ -88,6 +104,7 @@
       if (nextSibling === item || (!nextSibling && item === item.parentElement.lastElementChild)) return;
       target.parentElement.insertBefore(item, nextSibling);
       moved = true;
+      if (item.classList.contains("ce-card-active")) positionBuilderRail(item);
     }
 
     function autoScroll() {
@@ -474,6 +491,10 @@
     });
     rail.append(question, section);
     group.appendChild(rail);
+    const initialCard = group.querySelector(".ce-structure-card.ce-card-active:not([hidden])")
+      || group.querySelector(".ce-structure-card:not([hidden])");
+    if (initialCard) activateCard(initialCard);
+    else positionBuilderRail(null);
   }
 
   function enableReordering() {
@@ -544,5 +565,6 @@
         simplifyAddButtons();
       });
     }
+    window.addEventListener("resize", () => positionBuilderRail(null));
   });
 })();

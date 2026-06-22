@@ -206,6 +206,20 @@ form {
   margin-bottom: 0.4rem;
 }
 
+.ce-help-text p {
+  margin: 0 0 0.7rem;
+}
+
+.ce-help-text p:last-child {
+  margin-bottom: 0;
+}
+
+.ce-help-text a {
+  color: var(--ce-purple);
+  overflow-wrap: anywhere;
+  text-decoration: underline;
+}
+
 input[type="text"],
 input[type="email"],
 input[type="number"],

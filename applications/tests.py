@@ -15,7 +15,7 @@ from unittest.mock import Mock, patch
 from applications import admin_dashboard_views
 from applications import admin_profiles_views
 from applications import meta_marketing
-from applications.admin import FormDefinitionAdmin, QuestionAdminForm, SectionAdminForm
+from applications.admin import FormDefinitionAdmin, QuestionAdminForm, QuestionInlineFormSet, SectionAdminForm
 from applications.admin_views import (
     _build_second_stage_reminder_payload,
     _clone_form,
@@ -24,6 +24,7 @@ from applications.admin_views import (
 )
 from applications.email_templates import build_form_email_context, resolve_form_email_template
 from applications.forms import build_application_form
+from applications.templatetags.app_extras import format_help_text
 from applications.mentora_application_schema import apply_mentora_schema
 from applications.emprendedora_a1_autograde import (
     autograde_and_email_emprendedora_a1,
@@ -173,6 +174,45 @@ class QuestionAdminFormTests(TestCase):
             {"new_editor_question", "new_editor_question_2"},
         )
 
+    def test_inline_delete_cleans_answers_choices_and_json_condition_references(self):
+        controller = Question.objects.create(
+            form=self.form_def,
+            text="Controller to delete",
+            slug="controller_to_delete",
+            field_type=Question.CHOICE,
+            position=2,
+        )
+        Choice.objects.create(question=controller, label="Yes", value="yes", position=1)
+        dependent = Question.objects.create(
+            form=self.form_def,
+            text="Dependent",
+            slug="dependent_on_deleted",
+            field_type=Question.SHORT_TEXT,
+            position=3,
+            show_if_conditions=[{"question_id": controller.pk, "value": "yes"}],
+        )
+        section = Section.objects.create(
+            form=self.form_def,
+            title="Conditional on deleted question",
+            position=1,
+            show_if_conditions=[{"question_id": controller.pk, "value": "yes"}],
+        )
+        application = Application.objects.create(
+            form=self.form_def,
+            name="Existing applicant",
+            email="applicant@example.com",
+        )
+        Answer.objects.create(application=application, question=controller, value="yes")
+
+        formset = object.__new__(QuestionInlineFormSet)
+        formset.delete_existing(controller, commit=True)
+
+        self.assertFalse(Question.objects.filter(pk=controller.pk).exists())
+        self.assertFalse(Answer.objects.filter(application=application).exists())
+        dependent.refresh_from_db()
+        section.refresh_from_db()
+        self.assertEqual(dependent.show_if_conditions, [])
+        self.assertEqual(section.show_if_conditions, [])
     def test_new_question_post_preserves_show_if_question_without_value(self):
         form = QuestionAdminForm(
             data={
@@ -435,6 +475,33 @@ class QuestionAdminFormTests(TestCase):
 
         question.refresh_from_db()
         self.assertEqual(question.section, section)
+
+
+class HelpTextFormattingTests(TestCase):
+    def test_pasted_help_text_keeps_paragraphs_and_auto_links_url(self):
+        rendered = str(format_help_text(
+            "Soy mujer.\n\n"
+            "Hablo espanol.\n\n"
+            "Revisé el PDF que ofrece una breve introducción.\n\n"
+            "https://drive.google.com/file/d/1MPN5JD6WoAsEnkgyUOtEEzfUtiMytD3s/view"
+        ))
+
+        self.assertIn("<p>Soy mujer.</p>", rendered)
+        self.assertIn("<p>Hablo espanol.</p>", rendered)
+        self.assertIn(
+            'href="https://drive.google.com/file/d/1MPN5JD6WoAsEnkgyUOtEEzfUtiMytD3s/view"',
+            rendered,
+        )
+        self.assertIn('target="_blank"', rendered)
+
+    def test_legacy_anchor_help_text_is_normalized_without_showing_html(self):
+        rendered = str(format_help_text(
+            '📄 <a href="https://example.com/file">Abrir PDF</a>'
+        ))
+
+        self.assertIn("📄 Abrir PDF", rendered)
+        self.assertIn('href="https://example.com/file"', rendered)
+        self.assertNotIn("&lt;a", rendered)
 
 
 class SingleCombinedApplicationTests(TestCase):

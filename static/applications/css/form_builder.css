@@ -147,6 +147,7 @@ body.app-applications.model-formdefinition.change-form select:focus { border-bot
 .ce-builder-rail {
   position: absolute; top: 4px; right: -58px; z-index: 10; display: grid; gap: 2px; padding: 6px;
   border: 1px solid #dadce0; border-radius: 8px; background: #fff; box-shadow: 0 1px 3px rgba(60,64,67,.2);
+  transition: top .12s ease-out;
 }
 .ce-builder-rail button { width: 36px; height: 36px; border-radius: 50%; font-size: 22px; }
 .ce-builder-rail button:hover { background: #f1f3f4; color: var(--form-purple); }
@@ -159,7 +160,9 @@ body.app-applications.model-formdefinition.change-form .submit-row {
 body.app-applications.model-formdefinition.change-form .submit-row input { border-radius: 4px; padding: 10px 18px; }
 body.app-applications.model-formdefinition.change-form .submit-row input[name="_save"] { order: 10; background: var(--form-purple); }
 body.app-applications.model-formdefinition.change-form .submit-row input[name="_save"]:hover { background: var(--form-purple-dark); }
-@media (max-width: 900px) { .ce-builder-rail { position: sticky; bottom: 72px; margin-left: auto; width: max-content; grid-auto-flow: column; } }
+@media (max-width: 900px) {
+  .ce-builder-rail { position: absolute; right: 8px; bottom: auto; margin-left: 0; width: max-content; grid-auto-flow: column; }
+}
 @media (max-width: 650px) {
   body.app-applications.model-formdefinition.change-form #content { width: calc(100% - 16px); padding-top: 112px; }
   .ce-builder-heading { padding: 9px 12px; }

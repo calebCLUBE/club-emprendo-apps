@@ -544,6 +544,35 @@ class StoredEmailInline(admin.StackedInline):
 class QuestionInlineFormSet(BaseInlineFormSet):
     """Resolve duplicate auto-generated slugs across questions added in one save."""
 
+    @staticmethod
+    def _remove_condition_reference(instance, question_id):
+        conditions = list(getattr(instance, "show_if_conditions", []) or [])
+        filtered = [
+            condition for condition in conditions
+            if str(condition.get("question_id") or "") != str(question_id)
+        ]
+        if filtered != conditions:
+            instance.show_if_conditions = filtered
+            instance.save(update_fields=["show_if_conditions"])
+
+    def delete_existing(self, obj, commit=True):
+        if commit:
+            # Delete dependent rows explicitly before the question. Django's
+            # collector normally cascades these, but an older production FK can
+            # otherwise turn an inline delete into a database-level 500.
+            obj.answer_set.all().delete()
+            obj.choices.all().delete()
+
+            # JSON conditions aren't database foreign keys, so remove stale
+            # references before deleting their controlling question.
+            for question in Question.objects.exclude(show_if_conditions=[]).iterator():
+                if question.pk != obj.pk:
+                    self._remove_condition_reference(question, obj.pk)
+            for section in Section.objects.exclude(show_if_conditions=[]).iterator():
+                self._remove_condition_reference(section, obj.pk)
+
+        super().delete_existing(obj, commit=commit)
+
     def clean(self):
         submitted_ids = {
             form.instance.pk for form in self.forms if getattr(form.instance, "pk", None)

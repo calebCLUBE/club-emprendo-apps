@@ -19,6 +19,7 @@ from .models import (
     ParticipantEmailStatus,
     Question,
     Section,
+    StoredEmailTemplate,
     TaskType,
 )
 
@@ -244,6 +245,34 @@ class QuestionAdminForm(forms.ModelForm):
                 choices=opts,
             )
 
+        answer_options = []
+        if getattr(self.instance, "field_type", None) == Question.BOOLEAN:
+            answer_options = [{"value": "yes", "label": "Sí"}, {"value": "no", "label": "No"}]
+        elif getattr(self.instance, "field_type", None) in (Question.CHOICE, Question.MULTI_CHOICE):
+            answer_options = (
+                [{"value": c.value, "label": c.label or c.value} for c in self.instance.choices.all()]
+                if getattr(self.instance, "pk", None)
+                else []
+            )
+        stored_email_names = (
+            list(form_obj.stored_emails.order_by("position", "id").values_list("name", flat=True))
+            if form_obj and getattr(form_obj, "pk", None)
+            else []
+        )
+        self.fields["end_form_rules"] = forms.JSONField(
+            required=False,
+            label="End application based on an answer",
+            help_text="Show a final rejection page and optionally send a stored email.",
+            widget=EndFormRulesWidget(
+                answer_options_json=json.dumps(answer_options),
+                stored_emails_json=json.dumps(stored_email_names),
+            ),
+        )
+        if not self.data:
+            self.fields["end_form_rules"].initial = list(
+                getattr(self.instance, "end_form_rules", []) or []
+            )
+
     def save(self, commit=True):
         obj = super().save(commit=False)
 
@@ -376,6 +405,25 @@ class ShowIfConditionsWidget(forms.Widget):
         return ctx
 
 
+class EndFormRulesWidget(forms.Widget):
+    template_name = "admin/widgets/end_form_rules.html"
+
+    class Media:
+        js = ("applications/js/admin_end_form_rules.js",)
+
+    def __init__(self, *args, **kwargs):
+        self.answer_options_json = kwargs.pop("answer_options_json", "[]")
+        self.stored_emails_json = kwargs.pop("stored_emails_json", "[]")
+        super().__init__(*args, **kwargs)
+
+    def get_context(self, name, value, attrs):
+        context = super().get_context(name, value, attrs)
+        context["widget"]["answer_options_json"] = self.answer_options_json
+        context["widget"]["stored_emails_json"] = self.stored_emails_json
+        context["widget"]["value_json"] = value if isinstance(value, str) else json.dumps(value or [])
+        return context
+
+
 class SectionAdminForm(forms.ModelForm):
     class Meta:
         model = Section
@@ -441,6 +489,16 @@ class SectionInline(admin.StackedInline):
     ordering = ("position", "id")
 
 
+class StoredEmailInline(admin.StackedInline):
+    model = StoredEmailTemplate
+    extra = 0
+    fields = ("position", "name", "subject", "body")
+    ordering = ("position", "id")
+    classes = ("collapse",)
+    verbose_name = "Stored email"
+    verbose_name_plural = "Stored emails"
+
+
 class QuestionInline(admin.StackedInline):
     model = Question
     form = QuestionAdminForm  # ✅ IMPORTANT: make inline use the custom form
@@ -460,6 +518,7 @@ class QuestionInline(admin.StackedInline):
         "section_token",
         "required",
         "show_if_conditions",
+        "end_form_rules",
         "confirm_value",
         "pre_hr",
         "pre_text",
@@ -548,17 +607,10 @@ class FormDefinitionAdmin(admin.ModelAdmin):
                 "default_section_title",
             ) if name in fields
         ]
-        messages = [name for name in self.thanks_fields if name in fields]
-        emails = [
-            name for name in (self.a1_email_fields + self.a2_email_fields)
-            if name in fields
-        ]
         links = [name for name in self.link_fields if name in fields]
         return (
             (None, {"fields": basics}),
             ("Form settings", {"fields": settings, "classes": ("collapse",)}),
-            ("Confirmation messages", {"fields": messages, "classes": ("collapse",)}),
-            ("Email messages", {"fields": emails, "classes": ("collapse",)}),
             ("Preview and responses", {"fields": links, "classes": ("collapse",)}),
         )
 
@@ -577,7 +629,7 @@ class FormDefinitionAdmin(admin.ModelAdmin):
         if self._should_follow_default(request):
             return super().response_add(request, obj, post_url_continue)
         return HttpResponseRedirect(reverse("admin_apps_list"))
-    inlines = [SectionInline, QuestionInline]
+    inlines = [StoredEmailInline, SectionInline, QuestionInline]
     change_form_template = "admin/applications/formdefinition/change_form.html"
 
     def save_related(self, request, form, formsets, change):
@@ -681,6 +733,7 @@ class QuestionAdmin(admin.ModelAdmin):
         "section",
         "required",
         "show_if_conditions",
+        "end_form_rules",
         "confirm_value",
         "pre_hr",
         "pre_text",

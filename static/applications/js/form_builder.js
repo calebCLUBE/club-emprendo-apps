@@ -1,7 +1,7 @@
 (function () {
   const QUESTION_TYPES_WITH_OPTIONS = new Set(["choice", "multi_choice"]);
   const ADVANCED_FIELDS = [
-    "field-show_if_conditions", "field-confirm_value", "field-pre_hr",
+    "field-show_if_conditions", "field-end_form_rules", "field-confirm_value", "field-pre_hr",
     "field-pre_text", "field-slug", "field-position", "field-active",
   ];
 
@@ -60,6 +60,87 @@
     document.querySelector("#content-main form")?.dispatchEvent(new Event("input", { bubbles: true }));
   }
 
+  function wirePointerSort(handle, item, itemSelector, onEnd) {
+    let active = false;
+    let moved = false;
+    let pointerId = null;
+    let clientX = 0;
+    let clientY = 0;
+    let autoScrollFrame = null;
+    handle.draggable = false;
+
+    function moveItemAtPointer() {
+      const candidates = Array.from(item.parentElement?.querySelectorAll(`:scope > ${itemSelector}`) || [])
+        .filter((candidate) => candidate !== item && !candidate.hidden);
+      if (!candidates.length) return;
+      const directTarget = document.elementFromPoint(clientX, clientY)?.closest(itemSelector);
+      const target = directTarget && directTarget !== item && directTarget.parentElement === item.parentElement
+        ? directTarget
+        : candidates.reduce((closest, candidate) => {
+          const rect = candidate.getBoundingClientRect();
+          const distance = Math.abs(clientY - (rect.top + rect.height / 2));
+          return !closest || distance < closest.distance ? { candidate, distance } : closest;
+        }, null)?.candidate;
+      if (!target) return;
+      const rect = target.getBoundingClientRect();
+      const before = clientY < rect.top + rect.height / 2;
+      const nextSibling = before ? target : target.nextSibling;
+      if (nextSibling === item || (!nextSibling && item === item.parentElement.lastElementChild)) return;
+      target.parentElement.insertBefore(item, nextSibling);
+      moved = true;
+    }
+
+    function autoScroll() {
+      if (!active) return;
+      let amount = 0;
+      if (clientY < 80) amount = -Math.max(8, Math.round((80 - clientY) / 3));
+      else if (clientY > window.innerHeight - 80) {
+        amount = Math.max(8, Math.round((clientY - (window.innerHeight - 80)) / 3));
+      }
+      if (amount) {
+        window.scrollBy(0, amount);
+        moveItemAtPointer();
+      }
+      autoScrollFrame = window.requestAnimationFrame(autoScroll);
+    }
+
+    handle.addEventListener("pointerdown", (event) => {
+      if (event.button !== undefined && event.button !== 0) return;
+      event.preventDefault();
+      active = true;
+      moved = false;
+      pointerId = event.pointerId;
+      clientX = event.clientX;
+      clientY = event.clientY;
+      item.classList.add("ce-pointer-dragging");
+      document.addEventListener("pointermove", move, true);
+      document.addEventListener("pointerup", finish, true);
+      document.addEventListener("pointercancel", finish, true);
+      autoScrollFrame = window.requestAnimationFrame(autoScroll);
+    });
+
+    function move(event) {
+      if (!active || (pointerId !== null && event.pointerId !== pointerId)) return;
+      event.preventDefault();
+      clientX = event.clientX;
+      clientY = event.clientY;
+      moveItemAtPointer();
+    }
+
+    function finish(event) {
+      if (!active || (pointerId !== null && event.pointerId !== pointerId)) return;
+      active = false;
+      pointerId = null;
+      if (autoScrollFrame !== null) window.cancelAnimationFrame(autoScrollFrame);
+      autoScrollFrame = null;
+      document.removeEventListener("pointermove", move, true);
+      document.removeEventListener("pointerup", finish, true);
+      document.removeEventListener("pointercancel", finish, true);
+      item.classList.remove("ce-pointer-dragging");
+      if (moved) onEnd?.();
+    }
+  }
+
   function optionEditor(row) {
     if (!row || row.dataset.optionsEnhanced === "1") return;
     const textarea = row.querySelector("textarea");
@@ -95,7 +176,6 @@
       drag.title = "Drag to reorder option";
       drag.setAttribute("aria-label", "Drag to reorder option");
       drag.textContent = "⋮⋮";
-      drag.draggable = true;
       const marker = document.createElement("span");
       marker.className = "ce-option-marker";
       marker.setAttribute("aria-hidden", "true");
@@ -126,6 +206,7 @@
         option.classList.remove("ce-option-dragging");
         sync();
       });
+      wirePointerSort(drag, option, ".ce-option-row", sync);
       option.append(drag, marker, input, remove);
       list.appendChild(option);
       refreshMarkers();
@@ -199,7 +280,6 @@
     dragHandle.className = "ce-drag-handle";
     dragHandle.title = "Drag to reorder";
     dragHandle.textContent = "⠿";
-    dragHandle.draggable = true;
     card.prepend(dragHandle);
     dragHandle.addEventListener("dragstart", (event) => {
       event.dataTransfer?.setData("text/plain", "question");
@@ -210,6 +290,7 @@
       card.classList.remove("ce-dragging", "ce-structure-dragging");
       updateQuestionPositions();
     });
+    wirePointerSort(dragHandle, card, ".ce-structure-card", updateStructure);
     card.addEventListener("pointerdown", () => activateCard(card));
     ADVANCED_FIELDS.forEach((name) => rowFor(card, name)?.classList.add("ce-builder-hidden"));
 
@@ -280,7 +361,6 @@
     dragHandle.className = "ce-drag-handle ce-section-drag-handle";
     dragHandle.title = "Drag to move section";
     dragHandle.textContent = "⠿";
-    dragHandle.draggable = true;
     card.prepend(label);
     card.prepend(dragHandle);
     dragHandle.addEventListener("dragstart", (event) => {
@@ -292,6 +372,7 @@
       card.classList.remove("ce-structure-dragging");
       updateStructure();
     });
+    wirePointerSort(dragHandle, card, ".ce-structure-card", updateStructure);
     card.addEventListener("pointerdown", () => activateCard(card));
     const actions = document.createElement("div");
     actions.className = "ce-question-actions ce-section-actions";

@@ -70,7 +70,7 @@ body.app-applications.model-formdefinition.change-form #questions-group .inline-
 body.app-applications.model-formdefinition.change-form .inline-related > h3 {
   min-height: 15px; padding: 9px 16px 2px; background: transparent; color: #9aa0a6; font-size: 11px;
 }
-.ce-drag-handle { position: absolute; top: 4px; left: 50%; transform: translateX(-50%); color: #9aa0a6; cursor: grab; font-size: 18px; line-height: 15px; user-select: none; }
+.ce-drag-handle { position: absolute; z-index: 5; top: 4px; left: 50%; transform: translateX(-50%); color: #9aa0a6; cursor: grab; font-size: 18px; line-height: 15px; user-select: none; touch-action: none; }
 .ce-dragging { opacity: .45; box-shadow: 0 8px 24px rgba(60,64,67,.3) !important; }
 body.app-applications.model-formdefinition.change-form .inline-related fieldset { border: 0; box-shadow: none; margin: 0; }
 body.app-applications.model-formdefinition.change-form .form-row { padding: 11px 24px; border: 0; }
@@ -95,11 +95,12 @@ body.app-applications.model-formdefinition.change-form select:focus { border-bot
 .ce-options-editor { max-width: 640px; }
 .ce-option-list { display: grid; gap: 2px; }
 .ce-option-row { display: grid; grid-template-columns: 20px 24px minmax(0,1fr) 34px; align-items: center; gap: 7px; margin: 2px 0; }
-.ce-option-drag { color: #bdc1c6; cursor: grab; font-size: 16px; letter-spacing: -4px; user-select: none; }
+.ce-option-drag { color: #bdc1c6; cursor: grab; font-size: 16px; letter-spacing: -4px; user-select: none; touch-action: none; }
 .ce-option-drag:active { cursor: grabbing; }
 .ce-option-marker { color: #5f6368; font-size: 13px; text-align: right; }
 .ce-multiple-options .ce-option-marker { width: 14px; height: 14px; box-sizing: border-box; border: 2px solid #9aa0a6; border-radius: 2px; color: transparent; }
 .ce-option-dragging { opacity: .45; background: #f1f3f4; }
+.ce-pointer-dragging { opacity: .55; box-shadow: 0 8px 24px rgba(60,64,67,.3) !important; }
 .ce-option-row input { width: 100%; background: transparent !important; }
 .ce-option-remove, .ce-add-option, .ce-question-actions button, .ce-builder-rail button { border: 0; background: transparent; color: #5f6368; cursor: pointer; }
 .ce-option-remove { font-size: 25px; font-weight: 300; }
@@ -131,6 +132,15 @@ body.app-applications.model-formdefinition.change-form select:focus { border-bot
 .ce-logic__remove:hover { background: #e8eaed; }
 .ce-logic__add { margin-top: 10px; padding: 7px 4px; border: 0; background: transparent; color: var(--form-purple); cursor: pointer; font-weight: 600; }
 .ce-logic__empty { margin: 10px 0 0; color: #b06000; font-size: 12px; }
+.ce-end-rules { max-width: 680px; font-family: Arial, sans-serif; }
+.ce-end-rule { position: relative; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; padding: 12px 42px 12px 12px; border: 1px solid #dadce0; border-radius: 6px; background: #fff; }
+.ce-end-rule label { display: grid !important; gap: 5px; color: #5f6368 !important; font-size: 11px !important; }
+.ce-end-rule label:nth-of-type(3) { grid-column: 1 / -1; }
+.ce-end-rule input, .ce-end-rule select, .ce-end-rule textarea { width: 100% !important; background: #f8f9fa !important; }
+.ce-end-rule .ce-logic__remove { position: absolute; top: 7px; right: 7px; }
+#stored_emails-group .inline-related { border-left: 5px solid #4285f4; }
+#stored_emails-group textarea { width: min(100%, 680px); min-height: 130px; }
+#stored_emails-group .field-name input, #stored_emails-group .field-subject input { width: min(100%, 680px); }
 #questions-group { position: relative; }
 .ce-builder-rail {
   position: absolute; top: 4px; right: -58px; z-index: 10; display: grid; gap: 2px; padding: 6px;
@@ -161,4 +171,6 @@ body.app-applications.model-formdefinition.change-form .submit-row input[name="_
   .ce-logic__is { display: none; }
   .ce-logic__row select { grid-column: 1; }
   .ce-logic__remove { grid-column: 2; grid-row: 2 / span 2; }
+  .ce-end-rule { grid-template-columns: 1fr; }
+  .ce-end-rule label:nth-of-type(3) { grid-column: 1; }
 }

@@ -116,6 +116,43 @@
 
   <script>
     (function () {
+      function valuesFor(block) {
+        const values = [];
+        block.querySelectorAll("input, select, textarea").forEach((field) => {
+          if (field.type === "radio" || field.type === "checkbox") {
+            if (field.checked) values.push(String(field.value || "").trim().toLowerCase());
+          } else if (field.tagName === "SELECT" && field.multiple) {
+            Array.from(field.selectedOptions).forEach((option) => values.push(String(option.value || "").trim().toLowerCase()));
+          } else {
+            values.push(String(field.value || "").trim().toLowerCase());
+          }
+        });
+        return values;
+      }
+
+      window.ceSubmitTerminalRule = function (scope) {
+        const form = scope?.closest("form");
+        if (!form) return false;
+        for (const block of scope.querySelectorAll(".form-question[data-end-form-rules]")) {
+          let rules = [];
+          try { rules = JSON.parse(block.dataset.endFormRules || "[]"); } catch (_) {}
+          if (!Array.isArray(rules) || !rules.length) continue;
+          const values = valuesFor(block);
+          if (rules.some((rule) => values.includes(String(rule.value || "").trim().toLowerCase()))) {
+            const marker = document.createElement("input");
+            marker.type = "hidden";
+            marker.name = "_terminal_submission";
+            marker.value = "1";
+            form.appendChild(marker);
+            HTMLFormElement.prototype.submit.call(form);
+            return true;
+          }
+        }
+        return false;
+      };
+    })();
+
+    (function () {
       const root = document.querySelector("[data-application-progress]");
       if (!root) return;
       const fill = root.querySelector("[data-progress-fill]");
@@ -454,6 +491,7 @@
         panel.querySelectorAll("[data-next]").forEach(btn => {
           btn.addEventListener("click", () => {
             if (!validatePanel(panel)) return;
+            if (window.ceSubmitTerminalRule?.(panel)) return;
             setActive(idx + 1, { scroll: true });
           });
         });

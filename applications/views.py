@@ -14,7 +14,7 @@ import json
 from .forms import build_application_form
 from .models import Application, Answer, FormDefinition, Question, Section, scheduled_group_open_state
 from .drive_sync import schedule_group_track_responses_sync
-from .email_templates import build_form_email_context, resolve_form_email_template
+from .email_templates import build_form_email_context, render_email_template, resolve_form_email_template
 from .emprendedora_a1_autograde import (
     autograde_and_email_emprendedora_a1,
     emprendedora_a1_passes,
@@ -900,6 +900,47 @@ def _invite_app_for_a2_token(token: str, target_form_slug: str) -> Application |
     return None
 
 
+def _matching_end_form_rule(post_data, form_defs):
+    for form_def in form_defs:
+        for question in form_def.questions.filter(active=True).order_by("position", "id"):
+            rules = list(getattr(question, "end_form_rules", []) or [])
+            if not rules:
+                continue
+            field_name = f"q_{question.slug}"
+            values = (
+                post_data.getlist(field_name)
+                if hasattr(post_data, "getlist")
+                else [post_data.get(field_name)]
+            )
+            normalized = {str(value or "").strip().lower() for value in values}
+            for rule in rules:
+                expected = str(rule.get("value") or "").strip().lower()
+                if expected and expected in normalized:
+                    return question, rule
+    return None, None
+
+
+def _send_stored_email_for_rule(app, question, rule):
+    email_name = str(rule.get("email_name") or "").strip()
+    recipient = (app.email or "").strip()
+    if not email_name or not recipient:
+        return False
+    template = question.form.stored_emails.filter(name=email_name).first()
+    if not template:
+        return False
+    replacements = build_form_email_context(form_def=question.form)
+    replacements.update({"name": app.name or "", "email": recipient})
+    subject = " ".join(render_email_template(template.subject, replacements).splitlines()).strip()
+    body = render_email_template(template.body, replacements)
+    EmailMultiAlternatives(
+        subject=subject,
+        body=body,
+        from_email=getattr(settings, "DEFAULT_FROM_EMAIL", None),
+        to=[recipient],
+    ).send(fail_silently=False)
+    return True
+
+
 def _handle_application_form(
     request,
     form_slug: str,
@@ -983,12 +1024,19 @@ def _handle_application_form(
                 rendered_description = str(v)
                 break
 
+    submission_form_defs = [form_def] + ([combined_second_def] if combined_second_def else [])
+    terminal_question = None
+    terminal_rule = None
     if request.method == "POST":
         form = ApplicationForm(request.POST)
+        terminal_question, terminal_rule = _matching_end_form_rule(request.POST, submission_form_defs)
     else:
         form = ApplicationForm()
 
     _apply_question_conditions(form)
+    if terminal_rule:
+        for field in form.fields.values():
+            field.required = False
 
     if single_combined_submission:
         sections = _combined_sections(
@@ -1135,6 +1183,21 @@ def _handle_application_form(
                     value=stored_value,
                 )
                 answer_map[q.slug] = stored_value
+
+        if terminal_rule and terminal_question:
+            try:
+                _send_stored_email_for_rule(app, terminal_question, terminal_rule)
+            except Exception:
+                logger.exception("Stored terminal email failed for application %s", app.pk)
+            return render(
+                request,
+                "applications/thanks.html",
+                {
+                    "custom_message_title": str(terminal_rule.get("page_title") or "").strip(),
+                    "custom_message_body": str(terminal_rule.get("page_message") or "").strip(),
+                    "custom_message_variant": "alert",
+                },
+            )
 
         try:
             gnum_raw = _group_num_from_form_def(form_def)

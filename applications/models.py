@@ -284,6 +284,27 @@ class FormDefinition(models.Model):
         return self.name
 
 
+class StoredEmailTemplate(models.Model):
+    form = models.ForeignKey(
+        FormDefinition,
+        on_delete=models.CASCADE,
+        related_name="stored_emails",
+    )
+    name = models.CharField(max_length=120)
+    subject = models.CharField(max_length=255)
+    body = models.TextField(
+        help_text="Plain text only. Line breaks are preserved; HTML is not required.",
+    )
+    position = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ["position", "id"]
+        unique_together = ("form", "name")
+
+    def __str__(self):
+        return self.name
+
+
 class Section(models.Model):
     """
     Logical grouping of questions. Used to paginate forms into steps.
@@ -397,6 +418,13 @@ class Question(models.Model):
         default=list,
         blank=True,
         help_text="Lista de condiciones [{'question_id':..., 'value':...}]. Usa lógica OR (se muestra si cualquiera coincide).",
+    )
+    end_form_rules = models.JSONField(
+        default=list,
+        blank=True,
+        help_text=(
+            "Terminal answer rules. Each rule may show a final page and send a named stored email."
+        ),
     )
 
     section = models.ForeignKey(

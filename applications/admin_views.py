@@ -58,6 +58,7 @@ from applications.models import (
     FormGroup,
     GroupParticipantList,
     Section,
+    StoredEmailTemplate,
     Question,
     GradedFile,
     GradingJob,
@@ -2520,6 +2521,15 @@ def _ensure_test_a2_form(role: str) -> FormDefinition:
         accepting_responses=False,   # prevent real submissions
     )
 
+    for template in master_fd.stored_emails.all().order_by("position", "id"):
+        StoredEmailTemplate.objects.create(
+            form=clone,
+            name=template.name,
+            subject=template.subject,
+            body=template.body,
+            position=template.position,
+        )
+
     # Clone questions + choices
     for q in master_fd.questions.all().order_by("position", "id"):
         q_clone = Question.objects.create(
@@ -2531,6 +2541,7 @@ def _ensure_test_a2_form(role: str) -> FormDefinition:
             position=q.position,
             slug=q.slug,
             active=q.active,
+            end_form_rules=q.end_form_rules,
         )
         for c in q.choices.all().order_by("position", "id"):
             Choice.objects.create(
@@ -2674,6 +2685,21 @@ def _clone_form(master_fd: FormDefinition, group: FormGroup) -> FormDefinition:
         is_public=master_fd.is_public,
     )
 
+    for template in master_fd.stored_emails.all().order_by("position", "id"):
+        StoredEmailTemplate.objects.create(
+            form=clone,
+            name=template.name,
+            subject=_fill_placeholders(
+                template.subject, group_num, start_day, start_month, end_month, year,
+                respond_day=respond_day, respond_month=respond_month,
+            ) or template.subject,
+            body=_fill_placeholders(
+                template.body, group_num, start_day, start_month, end_month, year,
+                respond_day=respond_day, respond_month=respond_month,
+            ) or template.body,
+            position=template.position,
+        )
+
     # Clone sections first so questions can be linked
     section_map: dict[int, Section] = {}
     for s in master_fd.sections.all().order_by("position", "id"):
@@ -2732,6 +2758,7 @@ def _clone_form(master_fd: FormDefinition, group: FormGroup) -> FormDefinition:
             slug=q.slug,  # IMPORTANT: stable
             active=q.active,
             confirm_value=q.confirm_value,
+            end_form_rules=q.end_form_rules,
             section=new_section,
         )
         for c in q.choices.all().order_by("position", "id"):

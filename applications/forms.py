@@ -175,6 +175,8 @@ def build_application_form(form_slug: str, additional_form_slugs: list[str] | tu
                 field.widget.attrs["section_id"] = str(q.section_id or "")
                 field.widget.attrs["source_form_id"] = str(q.form_id)
                 field.widget.attrs["data-base-required"] = "1" if q.required else ""
+                if getattr(q, "end_form_rules", None):
+                    field.widget.attrs["end_form_rules"] = json.dumps(q.end_form_rules)
                 field._ce_base_required = q.required
                 if show_if_q and show_if_value:
                     field.widget.attrs["show_if_question"] = f"q_{show_if_q.slug}"

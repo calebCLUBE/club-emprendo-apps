@@ -2,7 +2,8 @@
 <div class="form-question"
      data-show-if-question="{{ show_q }}"
      data-show-if-value="{{ show_val }}"
-     data-show-if-conditions='{{ field.field.widget.attrs.show_if_conditions|default:""|safe }}'>
+     data-show-if-conditions='{{ field.field.widget.attrs.show_if_conditions|default:""|escape }}'
+     data-end-form-rules='{{ field.field.widget.attrs.end_form_rules|default:""|escape }}'>
 {# Shared renderer for a single form field #}
 
 {# ---------- PRE-TEXT / HR ABOVE ANY QUESTION ---------- #}

@@ -1,0 +1,14 @@
+<div class="ce-end-rules"
+     data-answer-options="{{ widget.answer_options_json|escape }}"
+     data-stored-emails="{{ widget.stored_emails_json|escape }}">
+  <input type="hidden" name="{{ widget.name }}" value="{{ widget.value_json|default:'[]'|escape }}" data-end-rules-input>
+  <label class="ce-logic__toggle">
+    <input type="checkbox" data-end-rules-enabled>
+    <span class="ce-logic__switch" aria-hidden="true"></span>
+    <span>End the application based on this answer</span>
+  </label>
+  <div class="ce-logic__panel" data-end-rules-panel hidden>
+    <div data-end-rules-list></div>
+    <button type="button" class="ce-logic__add" data-add-end-rule>＋ Add another ending</button>
+  </div>
+</div>

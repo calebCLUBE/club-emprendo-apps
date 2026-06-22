@@ -3,6 +3,7 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.contrib.auth import get_user_model
 from django.contrib import admin as django_admin
+from django.core import mail
 from django.core.management import call_command
 from django.utils import timezone
 import json
@@ -41,6 +42,7 @@ from applications.models import (
     ParticipantEmailStatus,
     Question,
     Section,
+    StoredEmailTemplate,
 )
 
 
@@ -256,6 +258,12 @@ class QuestionAdminFormTests(TestCase):
         }
     )
     def test_form_editor_renders_simplified_builder_assets(self):
+        StoredEmailTemplate.objects.create(
+            form=self.form_def,
+            name="Requirements rejection",
+            subject="Your application",
+            body="Thank you for applying.",
+        )
         user = get_user_model().objects.create_superuser(
             email="builder@example.com",
             password="test-password",
@@ -272,6 +280,10 @@ class QuestionAdminFormTests(TestCase):
         self.assertContains(response, "applications/js/form_builder.js")
         self.assertContains(response, "Show this question based on an answer")
         self.assertContains(response, "Dropdown")
+        self.assertContains(response, "Stored emails")
+        self.assertContains(response, "End the application based on this answer")
+        self.assertNotContains(response, "Confirmation messages")
+        self.assertNotContains(response, "Email messages")
         self.assertNotContains(
             response,
             reverse("admin:applications_question_change", args=[self.controller.pk]),
@@ -419,6 +431,78 @@ class SingleCombinedApplicationTests(TestCase):
         self.assertEqual(app.answers.get(question=self.a2_question).value, "A running business")
         mock_a1_grade.assert_called_once()
         mock_a2_email.assert_called_once()
+
+
+class TerminalAnswerRuleTests(TestCase):
+    def test_matching_answer_ends_form_shows_message_and_sends_plain_email(self):
+        form_def = FormDefinition.objects.create(
+            slug="terminal_rule_test",
+            name="Terminal rule test",
+            is_public=True,
+            accepting_responses=True,
+            manual_open_override=True,
+        )
+        Question.objects.create(
+            form=form_def,
+            text="Name",
+            slug="full_name",
+            field_type=Question.SHORT_TEXT,
+            position=1,
+        )
+        Question.objects.create(
+            form=form_def,
+            text="Email",
+            slug="email",
+            field_type=Question.SHORT_TEXT,
+            position=2,
+        )
+        gate = Question.objects.create(
+            form=form_def,
+            text="Do you meet the requirements?",
+            slug="requirements",
+            field_type=Question.CHOICE,
+            position=3,
+            end_form_rules=[{
+                "value": "no",
+                "email_name": "Requirements rejection",
+                "page_title": "Application ended",
+                "page_message": "You do not currently meet the requirements.",
+            }],
+        )
+        Choice.objects.create(question=gate, value="yes", label="Yes", position=1)
+        Choice.objects.create(question=gate, value="no", label="No", position=2)
+        later = Question.objects.create(
+            form=form_def,
+            text="Required later question",
+            slug="later_required",
+            field_type=Question.LONG_TEXT,
+            position=4,
+            required=True,
+        )
+        StoredEmailTemplate.objects.create(
+            form=form_def,
+            name="Requirements rejection",
+            subject="Update for {{ name }}",
+            body="Hello {{ name }},\n\nYou do not meet the requirements.",
+        )
+
+        response = self.client.post(
+            reverse("apply_by_slug", args=[form_def.slug]),
+            {
+                "q_full_name": "Applicant One",
+                "q_email": "applicant@example.com",
+                "q_requirements": "no",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Application ended")
+        self.assertContains(response, "You do not currently meet the requirements.")
+        app = Application.objects.get(form=form_def)
+        self.assertEqual(app.answers.get(question=later).value, "")
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].subject, "Update for Applicant One")
+        self.assertEqual(mail.outbox[0].content_subtype, "plain")
 
 
 class CurrentEmprendedoraApplicationSchemaTests(TestCase):

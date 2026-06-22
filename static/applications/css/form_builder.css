@@ -1,0 +1,135 @@
+body.app-applications.model-formdefinition.change-form #content {
+  max-width: 920px;
+  margin: 0 auto;
+  padding: 28px 20px 120px;
+}
+
+.ce-builder-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 20px;
+}
+.ce-builder-heading h1 { margin: 3px 0 4px; font-size: 30px; }
+.ce-builder-heading p { margin: 0; color: #667085; }
+.ce-builder-eyebrow {
+  color: #5b7350;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+body.app-applications.model-formdefinition.change-form .submit-row {
+  position: sticky;
+  bottom: 16px;
+  z-index: 20;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid #e2e5df;
+  border-radius: 14px;
+  background: rgba(255,255,255,.96);
+  box-shadow: 0 10px 30px rgba(34,52,19,.12);
+}
+body.app-applications.model-formdefinition.change-form .submit-row input {
+  border-radius: 9px;
+  padding: 11px 18px;
+}
+body.app-applications.model-formdefinition.change-form .submit-row input[name="_save"] {
+  order: 10;
+  background: #223413;
+}
+
+body.app-applications.model-formdefinition.change-form fieldset.module,
+body.app-applications.model-formdefinition.change-form .inline-group {
+  border: 1px solid #e4e7e1;
+  border-radius: 14px;
+  background: #fff;
+  overflow: hidden;
+  margin-bottom: 18px;
+  box-shadow: 0 2px 8px rgba(30,45,18,.04);
+}
+body.app-applications.model-formdefinition.change-form fieldset.module > h2,
+body.app-applications.model-formdefinition.change-form .inline-group > h2 {
+  padding: 14px 18px;
+  background: #f7f9f5;
+  color: #223413;
+  font-size: 15px;
+}
+
+body.app-applications.model-formdefinition.change-form .inline-related {
+  position: relative;
+  margin: 14px;
+  border: 1px solid #dfe3dc;
+  border-left: 5px solid #8da57f;
+  border-radius: 12px;
+  background: #fff;
+  overflow: hidden;
+}
+body.app-applications.model-formdefinition.change-form .inline-related > h3 {
+  padding: 11px 14px;
+  background: #fafbf9;
+  color: #4c5946;
+}
+body.app-applications.model-formdefinition.change-form .inline-related fieldset {
+  border: 0;
+  box-shadow: none;
+  margin: 0;
+}
+body.app-applications.model-formdefinition.change-form .form-row {
+  padding: 12px 16px;
+  border-bottom-color: #f0f1ef;
+}
+body.app-applications.model-formdefinition.change-form input[type="text"],
+body.app-applications.model-formdefinition.change-form input[type="url"],
+body.app-applications.model-formdefinition.change-form textarea,
+body.app-applications.model-formdefinition.change-form select {
+  border: 1px solid #ccd2c8;
+  border-radius: 8px;
+  padding: 9px 10px;
+}
+body.app-applications.model-formdefinition.change-form .field-text input {
+  width: min(100%, 680px);
+  font-size: 17px;
+  font-weight: 650;
+}
+body.app-applications.model-formdefinition.change-form .field-answer_options textarea {
+  width: min(100%, 620px);
+  min-height: 92px;
+  line-height: 1.8;
+}
+body.app-applications.model-formdefinition.change-form .field-answer_options.ce-builder-hidden,
+body.app-applications.model-formdefinition.change-form .field-show_if_conditions.ce-builder-hidden,
+body.app-applications.model-formdefinition.change-form .field-confirm_value.ce-builder-hidden,
+body.app-applications.model-formdefinition.change-form .field-pre_hr.ce-builder-hidden,
+body.app-applications.model-formdefinition.change-form .field-pre_text.ce-builder-hidden,
+body.app-applications.model-formdefinition.change-form .field-slug.ce-builder-hidden,
+body.app-applications.model-formdefinition.change-form .field-position.ce-builder-hidden,
+body.app-applications.model-formdefinition.change-form .field-active.ce-builder-hidden {
+  display: none;
+}
+.ce-question-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 10px 14px;
+  border-top: 1px solid #eef0ec;
+}
+.ce-question-actions button {
+  border: 0;
+  background: transparent;
+  color: #4f6842;
+  cursor: pointer;
+  font-weight: 700;
+}
+.ce-cond-widget [data-cond-row] { flex-wrap: wrap; }
+.ce-cond-widget [data-add-cond] { margin-top: 8px; }
+
+@media (max-width: 700px) {
+  body.app-applications.model-formdefinition.change-form #content { padding: 18px 10px 110px; }
+  .ce-builder-heading { flex-direction: column; }
+  body.app-applications.model-formdefinition.change-form .submit-row { bottom: 8px; }
+}

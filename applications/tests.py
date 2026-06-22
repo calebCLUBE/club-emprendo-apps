@@ -1,5 +1,5 @@
 from datetime import date
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.contrib.auth import get_user_model
 from django.utils import timezone
@@ -19,6 +19,7 @@ from applications.views import _thanks_override_payload, _mentor_a1_autograde_an
 from applications.models import (
     Answer,
     Application,
+    Choice,
     DropboxSignWebhookEvent,
     FormDefinition,
     FormGroup,
@@ -197,6 +198,65 @@ class QuestionAdminFormTests(TestCase):
         obj = form.save(commit=False)
         self.assertEqual(obj.show_if_value, "no")
         self.assertEqual(obj.show_if_conditions[0]["value"], "no")
+
+    def test_answer_options_preserve_existing_values_and_add_unique_values(self):
+        question = Question.objects.create(
+            form=self.form_def,
+            text="Pick one",
+            slug="pick_one",
+            field_type=Question.CHOICE,
+            position=5,
+        )
+        Choice.objects.create(
+            question=question,
+            label="Old label",
+            value="stable-grading-value",
+            position=0,
+        )
+        form = QuestionAdminForm(
+            data={
+                "form": str(self.form_def.id),
+                "text": question.text,
+                "slug": question.slug,
+                "field_type": Question.CHOICE,
+                "required": "on",
+                "position": "5",
+                "active": "on",
+                "show_if_conditions": "[]",
+                "answer_options": "Updated label\nUpdated label",
+            },
+            instance=question,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save()
+
+        choices = list(question.choices.order_by("position"))
+        self.assertEqual([c.label for c in choices], ["Updated label", "Updated label"])
+        self.assertEqual(choices[0].value, "stable-grading-value")
+        self.assertEqual(choices[1].value, "updated-label")
+
+    @override_settings(
+        STORAGES={
+            "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+            "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
+        }
+    )
+    def test_form_editor_renders_simplified_builder_assets(self):
+        user = get_user_model().objects.create_superuser(
+            email="builder@example.com",
+            password="test-password",
+        )
+        self.client.force_login(user)
+
+        response = self.client.get(
+            reverse("admin:applications_formdefinition_change", args=[self.form_def.pk])
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Form editor")
+        self.assertContains(response, "applications/css/form_builder.css")
+        self.assertContains(response, "applications/js/form_builder.js")
 
 
 class GroupFormNamingTests(TestCase):
@@ -1981,6 +2041,83 @@ class ParticipantsCapacitacionCheckTests(TestCase):
                 action="check_encuesta_final",
             ).exists()
         )
+
+    @patch("applications.admin_profiles_views._fetch_encuestas_emails_for_group")
+    def test_check_encuesta_uses_posted_current_sheet_before_marking(self, mock_fetch):
+        mock_fetch.return_value = (
+            True,
+            {"new@example.com"},
+            "Encuesta inicial source scanned.",
+        )
+        posted_rows = [
+            ["", "CP", 1, "Unsaved Current", "M9", "new@example.com", "", "", "", False, False, False, False, False, False, False],
+        ]
+
+        response = self.client.post(
+            reverse(
+                "admin_profiles_participants_track_sheet",
+                args=[self.group.number, "mentoras"],
+            ),
+            data={
+                "action": "check_encuestas",
+                "sheet_data": json.dumps(posted_rows),
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.participant_list.refresh_from_db()
+        self.assertEqual(self.participant_list.mentoras_sheet_rows[0][3], "Unsaved Current")
+        self.assertTrue(self.participant_list.mentoras_sheet_rows[0][12])
+        self.assertTrue(
+            ParticipantSheetVersion.objects.filter(
+                group=self.group,
+                track="mentoras",
+                action="pre_check_save",
+            ).exists()
+        )
+        self.assertTrue(
+            ParticipantSheetVersion.objects.filter(
+                group=self.group,
+                track="mentoras",
+                action="check_encuesta_inicial",
+            ).exists()
+        )
+
+    @patch("applications.admin_profiles_views._fetch_encuestas_emails_for_group")
+    def test_combined_check_encuesta_uses_posted_current_tabs(self, mock_fetch):
+        mock_fetch.return_value = (
+            True,
+            {"m-new@example.com", "e-new@example.com"},
+            "Encuesta final source scanned.",
+        )
+        mentoras_rows = [
+            ["", "CP", 1, "Mentora Current", "M9", "m-new@example.com", "", "", "", False, False, False, False, False, False, False],
+        ]
+        emprendedoras_rows = [
+            ["", "CP", 1, "Emprendedora Current", "E9", "e-new@example.com", "", "", "", False, False, False, False, False, False, False],
+        ]
+
+        response = self.client.post(
+            reverse(
+                "admin_profiles_participants_track_sheet",
+                args=[self.group.number, "all"],
+            ),
+            data={
+                "action": "check_encuestas_final",
+                "mentoras_sheet_data": json.dumps(mentoras_rows),
+                "emprendedoras_sheet_data": json.dumps(emprendedoras_rows),
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.participant_list.refresh_from_db()
+        self.assertEqual(self.participant_list.mentoras_sheet_rows[0][3], "Mentora Current")
+        self.assertEqual(
+            self.participant_list.emprendedoras_sheet_rows[0][3],
+            "Emprendedora Current",
+        )
+        self.assertTrue(self.participant_list.mentoras_sheet_rows[0][13])
+        self.assertTrue(self.participant_list.emprendedoras_sheet_rows[0][13])
 
 
 class DropboxSignWebhookActaAutomationTests(TestCase):

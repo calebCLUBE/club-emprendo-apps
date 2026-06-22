@@ -1,0 +1,17 @@
+{% extends "admin/change_form.html" %}
+{% load i18n %}
+
+{% block content_title %}
+  <div class="ce-builder-heading">
+    <div>
+      <span class="ce-builder-eyebrow">Form editor</span>
+      <h1>{% if original %}{{ original.name }}{% else %}New form{% endif %}</h1>
+      <p>Edit the title, sections, and questions below. Changes go live after you save.</p>
+    </div>
+    {% if original %}
+      <a class="button ce-preview-button" href="{{ original.get_absolute_url|default:'#' }}" data-preview-form>Preview form</a>
+    {% endif %}
+  </div>
+{% endblock %}
+
+{% block submit_buttons_top %}{{ block.super }}{% endblock %}

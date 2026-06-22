@@ -133,22 +133,22 @@
     <a class="ce-sheet-btn ce-sheet-btn--ghost" href="{% url 'admin_profiles_participants' %}?group={{ group.number }}">
       Back
     </a>
-    <form method="post">
+    <form method="post" data-ce-check-form>
       {% csrf_token %}
       <input type="hidden" name="action" value="check_dropbox">
       <button class="ce-sheet-btn" type="submit">Check Dropbox</button>
     </form>
-    <form method="post">
+    <form method="post" data-ce-check-form>
       {% csrf_token %}
       <input type="hidden" name="action" value="check_capacitacion">
       <button class="ce-sheet-btn" type="submit">Check Capacitacion</button>
     </form>
-    <form method="post">
+    <form method="post" data-ce-check-form>
       {% csrf_token %}
       <input type="hidden" name="action" value="check_encuestas">
       <button class="ce-sheet-btn" type="submit">Check Encuesta inicial</button>
     </form>
-    <form method="post">
+    <form method="post" data-ce-check-form>
       {% csrf_token %}
       <input type="hidden" name="action" value="check_encuestas_final">
       <button class="ce-sheet-btn" type="submit">Check Encuesta final</button>
@@ -159,10 +159,10 @@
     {% csrf_token %}
     <input type="hidden" name="action" value="save_sheet">
     {% if combined_sheet %}
-      <input type="hidden" id="ce-mentoras-sheet-data" name="mentoras_sheet_data" value="">
-      <input type="hidden" id="ce-emprendedoras-sheet-data" name="emprendedoras_sheet_data" value="">
+      <input type="hidden" id="ce-mentoras-sheet-data" name="mentoras_sheet_data" value="" data-ce-sheet-payload="mentoras">
+      <input type="hidden" id="ce-emprendedoras-sheet-data" name="emprendedoras_sheet_data" value="" data-ce-sheet-payload="emprendedoras">
     {% else %}
-      <input type="hidden" id="ce-sheet-data" name="sheet_data" value="">
+      <input type="hidden" id="ce-sheet-data" name="sheet_data" value="" data-ce-sheet-payload="single">
     {% endif %}
   </form>
 
@@ -186,6 +186,7 @@
 
     let lastSavedPayload = '';
     let saveInFlight = false;
+    let checkSubmitInProgress = false;
 
     function normalizeCellForSave(value) {
       if (value === null || value === undefined) {
@@ -262,6 +263,32 @@
       }
     }
 
+    function ensureHiddenInput(targetForm, name, value) {
+      let input = targetForm.querySelector(`input[type="hidden"][name="${name}"]`);
+      if (!input) {
+        input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = name;
+        targetForm.appendChild(input);
+      }
+      input.value = value;
+      return input;
+    }
+
+    function attachCurrentSheetPayload(targetForm) {
+      const payload = currentRowsPayload();
+      if (payload == null) {
+        return false;
+      }
+      if (IS_COMBINED) {
+        ensureHiddenInput(targetForm, 'mentoras_sheet_data', payload.mentoras);
+        ensureHiddenInput(targetForm, 'emprendedoras_sheet_data', payload.emprendedoras);
+      } else {
+        ensureHiddenInput(targetForm, 'sheet_data', payload);
+      }
+      return true;
+    }
+
     function autosaveTimeLabel() {
       return new Date().toLocaleTimeString([], {
         hour: '2-digit',
@@ -270,7 +297,7 @@
     }
 
     async function saveIfChanged(force) {
-      if (saveInFlight) {
+      if (saveInFlight || checkSubmitInProgress) {
         return;
       }
       const payload = currentRowsPayload();
@@ -329,6 +356,17 @@
         ev.preventDefault();
         saveIfChanged(true);
       }
+    });
+
+    document.querySelectorAll('[data-ce-check-form]').forEach(function (checkForm) {
+      checkForm.addEventListener('submit', function (ev) {
+        if (checkSubmitInProgress) {
+          return;
+        }
+        attachCurrentSheetPayload(checkForm);
+        checkSubmitInProgress = true;
+        setAutosaveStatus('Checking...');
+      });
     });
 
     bootstrapSavedPayloadWhenReady();

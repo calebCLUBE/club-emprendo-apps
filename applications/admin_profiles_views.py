@@ -2171,6 +2171,80 @@ def _create_participant_sheet_version_from_store(
     )
 
 
+def _posted_participant_sheet_rows(
+    request,
+    field_name: str,
+    headers: list[str],
+    bool_cols: list[int],
+) -> tuple[bool, list[list], str]:
+    raw = (request.POST.get(field_name) or "").strip()
+    if not raw:
+        return False, [], ""
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        return True, [], "Could not read current sheet data before running the check."
+    rows = _normalize_sheet_rows(payload, headers)
+    rows = _coerce_bool_columns(rows, bool_cols)
+    return True, rows, ""
+
+
+def _save_posted_participant_sheet_before_check(
+    *,
+    request,
+    group,
+    participant_list,
+    cfg: dict,
+    field_name: str,
+) -> tuple[bool, str]:
+    provided, rows, parse_error = _posted_participant_sheet_rows(
+        request,
+        field_name,
+        cfg["headers"],
+        cfg["bool_cols"],
+    )
+    if not provided:
+        return True, ""
+    if parse_error:
+        return False, parse_error
+
+    rows, _repaired = _repair_progress_defaults_if_legacy(
+        rows,
+        cfg["progress_default_false_cols"],
+    )
+    rows = _apply_contract_signed_to_rows(
+        rows,
+        email_col=cfg["email_col"],
+        acta_col=cfg["acta_col"],
+    )
+    rows = _number_sheet_rows(rows, number_col=2)
+    valid_emails = _emails_from_sheet_rows(rows, cfg["email_col"])
+
+    participant_obj = participant_list
+    if participant_obj is None:
+        participant_obj, _ = GroupParticipantList.objects.get_or_create(group=group)
+
+    updates: list[str] = []
+    next_emails_text = "\n".join(valid_emails)
+    if getattr(participant_obj, cfg["text_field"]) != next_emails_text:
+        setattr(participant_obj, cfg["text_field"], next_emails_text)
+        updates.append(cfg["text_field"])
+    if getattr(participant_obj, cfg["rows_field"]) != rows:
+        setattr(participant_obj, cfg["rows_field"], rows)
+        updates.append(cfg["rows_field"])
+    if updates:
+        participant_obj.save(update_fields=updates + ["updated_at"])
+        if cfg["rows_field"] in updates:
+            _create_participant_sheet_version(
+                group=group,
+                track_slug=cfg["slug"],
+                rows=rows,
+                request=request,
+                action="pre_check_save",
+            )
+    return True, ""
+
+
 def _app_group_number(app: Application) -> int | None:
     gnum = getattr(getattr(app, "form", None), "group_id", None)
     if gnum:
@@ -3646,10 +3720,27 @@ def profiles_participants_track_sheet(request, group_num: int, track: str):
         return redirect(f"{reverse('admin_profiles_participants')}?group={group.number}")
 
     participant_list = GroupParticipantList.objects.filter(group=group).first()
+    track_cfg = _participant_track_sheet_configs()[track_slug]
 
     if request.method == "POST":
         is_async_save = request.headers.get("x-requested-with") == "XMLHttpRequest"
         action = (request.POST.get("action") or "save_sheet").strip()
+        if action in {"check_dropbox", "check_capacitacion", "check_encuestas", "check_encuestas_final"}:
+            saved_current, save_error = _save_posted_participant_sheet_before_check(
+                request=request,
+                group=group,
+                participant_list=participant_list,
+                cfg=track_cfg,
+                field_name="sheet_data",
+            )
+            if not saved_current:
+                messages.error(request, save_error)
+                return redirect(
+                    reverse(
+                        "admin_profiles_participants_track_sheet",
+                        args=[group.number, track_slug],
+                    )
+                )
         if action == "restore_version":
             version_raw = (request.POST.get("version_id") or "").strip()
             if not version_raw.isdigit():
@@ -4044,6 +4135,18 @@ def _profiles_participants_combined_sheet(request, group):
     if request.method == "POST":
         is_async_save = request.headers.get("x-requested-with") == "XMLHttpRequest"
         action = (request.POST.get("action") or "save_sheet").strip()
+        if action in {"check_dropbox", "check_capacitacion", "check_encuestas", "check_encuestas_final"}:
+            for cfg in ordered_configs:
+                saved_current, save_error = _save_posted_participant_sheet_before_check(
+                    request=request,
+                    group=group,
+                    participant_list=participant_list,
+                    cfg=cfg,
+                    field_name=f"{cfg['slug']}_sheet_data",
+                )
+                if not saved_current:
+                    messages.error(request, f"{cfg['label']}: {save_error}")
+                    return redirect(redirect_url)
 
         if action == "restore_version":
             version_token = (request.POST.get("version_id") or "").strip()

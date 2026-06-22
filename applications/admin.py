@@ -2,6 +2,7 @@
 from django.contrib import admin
 from django.urls import reverse
 from django.utils.html import format_html
+from django.utils.text import slugify
 import re
 from django import forms
 import json
@@ -62,7 +63,18 @@ def _pack_help_text(pre_text: str, pre_hr: bool, rest_help_text: str) -> str:
 # =========================
 class QuestionAdminForm(forms.ModelForm):
     class Media:
-        js = ("applications/js/admin_show_if_value.js",)
+        css = {"all": ("applications/css/form_builder.css",)}
+        js = (
+            "applications/js/admin_show_if_value.js",
+            "applications/js/form_builder.js",
+        )
+
+    answer_options = forms.CharField(
+        required=False,
+        label="Answer options",
+        help_text="One option per line. Only used for single- and multiple-choice questions.",
+        widget=forms.Textarea(attrs={"rows": 4, "placeholder": "Option 1\nOption 2"}),
+    )
 
     pre_hr = forms.BooleanField(
         required=False,
@@ -101,6 +113,10 @@ class QuestionAdminForm(forms.ModelForm):
         self.fields["pre_text"].initial = pre_text
         self.fields["pre_hr"].initial = pre_hr
         self.fields["help_text_clean"].initial = rest
+        if getattr(self.instance, "pk", None):
+            self.fields["answer_options"].initial = "\n".join(
+                self.instance.choices.order_by("position", "id").values_list("label", flat=True)
+            )
 
         form_obj = getattr(self.instance, "form", None)
         if not form_obj:
@@ -263,8 +279,47 @@ class QuestionAdminForm(forms.ModelForm):
 
         if commit:
             obj.save()
+            self._save_answer_options(obj)
             self.save_m2m()
         return obj
+
+    def _save_answer_options(self, obj):
+        """Keep choice editing as simple as Google Forms without changing old values."""
+        if "answer_options" not in self.changed_data or not obj.pk:
+            return
+
+        labels = [
+            line.strip()
+            for line in (self.cleaned_data.get("answer_options") or "").splitlines()
+            if line.strip()
+        ]
+        existing = list(obj.choices.order_by("position", "id"))
+        used_values = {choice.value for choice in existing}
+
+        for position, label in enumerate(labels):
+            if position < len(existing):
+                choice = existing[position]
+                choice.label = label
+                choice.position = position
+                choice.save(update_fields=["label", "position"])
+                continue
+
+            base = slugify(label) or f"option-{position + 1}"
+            value = base
+            suffix = 2
+            while value in used_values:
+                value = f"{base}-{suffix}"
+                suffix += 1
+            used_values.add(value)
+            Choice.objects.create(
+                question=obj,
+                label=label,
+                value=value,
+                position=position,
+            )
+
+        if len(existing) > len(labels):
+            Choice.objects.filter(pk__in=[c.pk for c in existing[len(labels):]]).delete()
 
 
 # ---------- Inlines so you can edit questions + choices inside a form ----------
@@ -385,15 +440,14 @@ class QuestionInline(admin.StackedInline):
         "required",
         "slug",
         "text",
+        "field_type",
+        "answer_options",
+        "help_text_clean",
         "section",
-        "show_if_question",
-        "show_if_value",
         "show_if_conditions",
         "confirm_value",
         "pre_hr",
         "pre_text",
-        "help_text_clean",
-        "field_type",
     )
 
 
@@ -461,6 +515,38 @@ class FormDefinitionAdmin(admin.ModelAdmin):
         fields += list(self.link_fields)
         return fields
 
+    def get_fieldsets(self, request, obj=None):
+        fields = self.get_fields(request, obj)
+        basics = [
+            name for name in (
+                "name",
+                "description",
+                "accepting_responses",
+            ) if name in fields
+        ]
+        settings = [
+            name for name in (
+                "slug",
+                "group",
+                "is_public",
+                "is_master",
+                "default_section_title",
+            ) if name in fields
+        ]
+        messages = [name for name in self.thanks_fields if name in fields]
+        emails = [
+            name for name in (self.a1_email_fields + self.a2_email_fields)
+            if name in fields
+        ]
+        links = [name for name in self.link_fields if name in fields]
+        return (
+            (None, {"fields": basics}),
+            ("Form settings", {"fields": settings, "classes": ("collapse",)}),
+            ("Confirmation messages", {"fields": messages, "classes": ("collapse",)}),
+            ("Email messages", {"fields": emails, "classes": ("collapse",)}),
+            ("Preview and responses", {"fields": links, "classes": ("collapse",)}),
+        )
+
     def _should_follow_default(self, request):
         return any(
             key in request.POST
@@ -477,6 +563,7 @@ class FormDefinitionAdmin(admin.ModelAdmin):
             return super().response_add(request, obj, post_url_continue)
         return HttpResponseRedirect(reverse("admin_apps_list"))
     inlines = [SectionInline, QuestionInline]
+    change_form_template = "admin/applications/formdefinition/change_form.html"
     def submission_count(self, obj):
         return obj.applications.count()
     submission_count.short_description = "Submissions"
@@ -534,7 +621,6 @@ class QuestionAdmin(admin.ModelAdmin):
     list_filter = ("active", "required", "field_type", "form")
     search_fields = ("id", "slug", "text", "help_text")
     ordering = ("form", "position", "id")
-    inlines = [ChoiceInline]
 
     # ✅ Show the friendly fields here too
     fields = (
@@ -544,15 +630,14 @@ class QuestionAdmin(admin.ModelAdmin):
         "required",
         "slug",
         "text",
+        "field_type",
+        "answer_options",
+        "help_text_clean",
         "section",
-        "show_if_question",
-        "show_if_value",
         "show_if_conditions",
         "confirm_value",
         "pre_hr",
         "pre_text",
-        "help_text_clean",
-        "field_type",
     )
 
     def _follow_default(self, request):

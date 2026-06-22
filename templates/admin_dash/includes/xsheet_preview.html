@@ -1040,6 +1040,9 @@
       if (cell == null) {
         return '';
       }
+      if (typeof cell === 'boolean') {
+        return cell ? 'TRUE' : 'FALSE';
+      }
       if (typeof cell === 'object') {
         if (typeof cell.checked === 'boolean') {
           return cell.checked ? 'TRUE' : 'FALSE';
@@ -1053,6 +1056,16 @@
         return '';
       }
       return String(cell);
+    }
+
+    function matrixCellText(value) {
+      if (value === null || value === undefined) {
+        return '';
+      }
+      if (typeof value === 'boolean') {
+        return value ? 'TRUE' : 'FALSE';
+      }
+      return String(value);
     }
 
     function normalizeRangeRef(value) {
@@ -3821,7 +3834,7 @@
         .forEach((r) => {
           const out = [];
           for (let i = 0; i < width; i += 1) {
-            out.push(i < r.length ? String(r[i] == null ? '' : r[i]) : '');
+            out.push(i < r.length ? matrixCellText(r[i]) : '');
           }
           matrix.push(out);
         });

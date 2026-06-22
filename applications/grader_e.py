@@ -206,9 +206,11 @@ def _dedupe_scored_rows(df: pd.DataFrame, score_col: str, id_keys: list[str]) ->
 
 def _disqualification_reasons(row: dict) -> list[str]:
     reasons = []
-    if row.get("internet_access") != "yes_ok":
+    internet_ok = row.get("internet_access") == "yes_ok" or yes(row.get("meets_requirements"))
+    commitment_ok = yes(row.get("commit_3_months")) or yes(row.get("available_period"))
+    if not internet_ok:
         reasons.append("internet_access")
-    if not yes(row.get("commit_3_months")):
+    if not commitment_ok:
         reasons.append("commit_3_months")
     if str(row.get("business_age", "")).strip().lower() == "idea":
         reasons.append("business_age=idea")
@@ -448,8 +450,8 @@ def grade_single_row(
     country_residence = _pick_row_value(row, "country_residence")
     country_birth = _pick_row_value(row, "country_birth", "birth_country", "country_of_birth")
     business_age_value = _pick_row_value(row, "business_age")
-    req_interner = _pick_row_value(row, "internet_access", "req_basic_internet_device")
-    weekly_time = _pick_row_value(row, "hours_per_week", "weekly_time", "req_avail_2hrs_week")
+    req_interner = _pick_row_value(row, "internet_access", "req_basic_internet_device", "meets_requirements")
+    weekly_time = _pick_row_value(row, "hours_per_week", "weekly_time", "req_avail_2hrs_week", "available_period")
     participated_before = _pick_row_value(row, "participated_before", "prior_participation")
     business_industry = _pick_row_value(row, "business_industry", "industry", "business_sector")
     business_description = _pick_row_value(row, "business_description")

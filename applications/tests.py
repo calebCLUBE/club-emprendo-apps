@@ -2,9 +2,11 @@ from datetime import date
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.contrib.auth import get_user_model
+from django.core.management import call_command
 from django.utils import timezone
 import json
 import re
+from io import StringIO
 from unittest.mock import Mock, patch
 
 from applications import admin_dashboard_views
@@ -340,6 +342,42 @@ class SingleCombinedApplicationTests(TestCase):
         self.assertEqual(app.answers.get(question=self.a2_question).value, "A running business")
         mock_a1_grade.assert_called_once()
         mock_a2_email.assert_called_once()
+
+
+class CurrentEmprendedoraApplicationSchemaTests(TestCase):
+    def test_command_updates_masters_and_empty_groups_but_preserves_history(self):
+        master_a1 = FormDefinition.objects.create(slug="E_A1", name="Old A1", is_master=True)
+        master_a2 = FormDefinition.objects.create(slug="E_A2", name="Old A2", is_master=True)
+        empty_group = FormGroup.objects.create(
+            number=991, start_day=3, start_month="julio", end_month="octubre", year=2026
+        )
+        empty_a1 = FormDefinition.objects.create(slug="G991_E_A1", name="Old", group=empty_group)
+        empty_a2 = FormDefinition.objects.create(slug="G991_E_A2", name="Old", group=empty_group)
+        historical_group = FormGroup.objects.create(
+            number=992, start_day=1, start_month="enero", end_month="abril", year=2025
+        )
+        historical_a1 = FormDefinition.objects.create(slug="G992_E_A1", name="Historical", group=historical_group)
+        FormDefinition.objects.create(slug="G992_E_A2", name="Historical", group=historical_group)
+        sentinel = Question.objects.create(
+            form=historical_a1,
+            text="Historical question",
+            slug="historical_question",
+            field_type=Question.SHORT_TEXT,
+        )
+        Application.objects.create(form=historical_a1, name="Past", email="past@example.com")
+
+        call_command("apply_emprendedora_application", stdout=StringIO())
+
+        master_a1.refresh_from_db()
+        self.assertEqual(master_a1.name, "Aplicación para emprendedoras")
+        self.assertEqual(master_a1.sections.count() + master_a2.sections.count(), 7)
+        self.assertTrue(master_a1.questions.get(slug="cedula").confirm_value)
+        self.assertTrue(master_a1.questions.get(slug="email").confirm_value)
+        self.assertTrue(master_a1.questions.get(slug="whatsapp").confirm_value)
+        self.assertEqual(empty_a1.sections.count() + empty_a2.sections.count(), 7)
+        empty_a1.refresh_from_db()
+        self.assertIn("julio", empty_a1.description)
+        self.assertTrue(Question.objects.filter(pk=sentinel.pk).exists())
 
 
 class GroupFormNamingTests(TestCase):

@@ -4,6 +4,7 @@ from django.core.management.base import BaseCommand
 from django.db import transaction
 
 from applications.models import FormDefinition, Question, Choice
+from applications.emprendedora_application_schema import apply_emprendedora_schema
 
 
 MASTER_SLUGS = ["E_A1", "E_A2", "M_A1", "M_A2"]
@@ -753,5 +754,12 @@ class Command(BaseCommand):
                 fd = upsert_form("M_A2", "Solicitud para ser MENTORA de Club Emprendo (Aplicación 2)", m_a2_description, is_public=False, is_master=True)
                 rebuild_questions(fd, m_a2_questions)
                 self.stdout.write(self.style.SUCCESS("Built M_A2 master form."))
+
+        if any(slug in {"E_A1", "E_A2"} for slug in forms_to_build):
+            canonical_e_a1 = FormDefinition.objects.filter(slug="E_A1").first()
+            canonical_e_a2 = FormDefinition.objects.filter(slug="E_A2").first()
+            if canonical_e_a1 and canonical_e_a2:
+                apply_emprendedora_schema(canonical_e_a1, canonical_e_a2)
+                self.stdout.write(self.style.SUCCESS("Applied current combined Emprendedoras schema."))
 
         self.stdout.write(self.style.SUCCESS("✅ Done."))

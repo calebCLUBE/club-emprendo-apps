@@ -13,7 +13,12 @@ from applications import admin_dashboard_views
 from applications import admin_profiles_views
 from applications import meta_marketing
 from applications.admin import QuestionAdminForm
-from applications.admin_views import _build_second_stage_reminder_payload, _clone_form, _sync_group_form_names
+from applications.admin_views import (
+    _build_second_stage_reminder_payload,
+    _clone_form,
+    _combined_application_entries,
+    _sync_group_form_names,
+)
 from applications.email_templates import build_form_email_context, resolve_form_email_template
 from applications.forms import build_application_form
 from applications.emprendedora_a1_autograde import autograde_and_email_emprendedora_a1
@@ -437,6 +442,32 @@ class GroupFormNamingTests(TestCase):
         clone_m.refresh_from_db()
         self.assertEqual(clone_e.name, "april_group_e_1")
         self.assertEqual(clone_m.name, "april_group_m_1")
+
+    def test_combined_group_exposes_one_application_per_track(self):
+        group = FormGroup.objects.create(
+            number=813,
+            start_day=1,
+            start_month="abril",
+            end_month="julio",
+            year=2026,
+            use_combined_application=True,
+        )
+        forms = [
+            FormDefinition.objects.create(
+                slug=f"G813_{suffix}", name=suffix, group=group
+            )
+            for suffix in ("E_A1", "E_A2", "M_A1", "M_A2")
+        ]
+
+        entries = _combined_application_entries(forms)
+
+        self.assertEqual(len(entries), 2)
+        self.assertEqual(
+            [entry.combined_display_name for entry in entries],
+            ["Aplicación para emprendedoras", "Aplicación para mentoras"],
+        )
+        self.assertTrue(entries[0].companion_form.slug.endswith("E_A2"))
+        self.assertTrue(entries[1].companion_form.slug.endswith("M_A2"))
 
 
 class ApplicationFormRenderTests(TestCase):

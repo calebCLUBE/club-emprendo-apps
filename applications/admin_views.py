@@ -3469,6 +3469,32 @@ def _looks_like_file_value(value: str) -> bool:
 # ----------------------------
 # Admin "Apps" dashboard
 # ----------------------------
+def _combined_application_entries(forms_for_group):
+    """Expose one application per track while retaining internal A1/A2 records."""
+    forms = list(forms_for_group)
+    by_suffix = {}
+    for form_def in forms:
+        slug = (form_def.slug or "").upper()
+        for suffix in MASTER_SLUGS:
+            if slug.endswith(suffix):
+                by_suffix[suffix] = form_def
+                break
+
+    entries = []
+    for track, label in (("E", "Aplicación para emprendedoras"), ("M", "Aplicación para mentoras")):
+        entry = by_suffix.get(f"{track}_A1")
+        if not entry:
+            continue
+        entry.combined_display_name = label
+        entry.companion_form = by_suffix.get(f"{track}_A2")
+        entries.append(entry)
+    return entries
+
+
+def _combined_master_entries(masters):
+    return _combined_application_entries(masters)
+
+
 @staff_member_required
 def apps_list(request):
     try:
@@ -3492,7 +3518,9 @@ def apps_list(request):
                     ),
                 )
 
-        masters = list(FormDefinition.objects.filter(slug__in=MASTER_SLUGS).order_by("slug"))
+        masters = _combined_master_entries(
+            FormDefinition.objects.filter(slug__in=MASTER_SLUGS).order_by("slug")
+        )
 
         groups = list(FormGroup.objects.order_by("-number"))
         groups_by_number = {int(g.number): g for g in groups}
@@ -3501,7 +3529,12 @@ def apps_list(request):
         for g in groups:
             _sync_group_open_close(g)
             g.display_label = _group_label_for_number(int(g.number), groups_by_number)
-            forms_for_group = list(FormDefinition.objects.filter(group=g).order_by("slug"))
+            all_group_forms = list(FormDefinition.objects.filter(group=g).order_by("slug"))
+            forms_for_group = (
+                _combined_application_entries(all_group_forms)
+                if g.use_combined_application
+                else all_group_forms
+            )
             group_list.append((g, forms_for_group))
 
         return render(
@@ -3523,7 +3556,9 @@ def apps_list(request):
             request,
             "Database migration pending: run `python manage.py migrate` to enable group rename and load groups.",
         )
-        masters = list(FormDefinition.objects.filter(slug__in=MASTER_SLUGS).order_by("slug"))
+        masters = _combined_master_entries(
+            FormDefinition.objects.filter(slug__in=MASTER_SLUGS).order_by("slug")
+        )
         return render(
             request,
             "admin_dash/apps_list.html",
@@ -3542,14 +3577,21 @@ def apps_list(request):
 def create_group(request):
     form = CreateGroupForm(request.POST)
     if not form.is_valid():
-        masters = list(FormDefinition.objects.filter(slug__in=MASTER_SLUGS).order_by("slug"))
+        masters = _combined_master_entries(
+            FormDefinition.objects.filter(slug__in=MASTER_SLUGS).order_by("slug")
+        )
         groups = list(FormGroup.objects.order_by("-number"))
         groups_by_number = {int(g.number): g for g in groups}
         has_combined_groups = FormGroup.objects.filter(use_combined_application=True).exists()
         group_list = []
         for g in groups:
             g.display_label = _group_label_for_number(int(g.number), groups_by_number)
-            forms_for_group = list(FormDefinition.objects.filter(group=g).order_by("slug"))
+            all_group_forms = list(FormDefinition.objects.filter(group=g).order_by("slug"))
+            forms_for_group = (
+                _combined_application_entries(all_group_forms)
+                if g.use_combined_application
+                else all_group_forms
+            )
             group_list.append((g, forms_for_group))
 
         return render(

@@ -58,14 +58,14 @@
 
   {% if has_combined_groups %}
     <details class="ce-dd" open>
-      <summary>Combined application links (new)</summary>
+      <summary>Application links</summary>
       <div class="ce-dd-body">
         <div class="ce-actions">
           <a class="button default" href="{% url 'apply_emprendedora_combined' %}" target="_blank" rel="noopener">
-            Open Emprendedora Combinada (latest new group)
+            Open Emprendedoras application
           </a>
           <a class="button default" href="{% url 'apply_mentora_combined' %}" target="_blank" rel="noopener">
-            Open Mentora Combinada (latest new group)
+            Open Mentoras application
           </a>
         </div>
       </div>
@@ -79,8 +79,8 @@
         {% for fd in masters %}
           <div style="display:flex; flex-direction:column; gap:6px;">
             <a class="ce-admin-tile" href="/admin/applications/formdefinition/{{ fd.id }}/change/">
-              <div class="ce-admin-tile-title">{{ fd.slug }}</div>
-              <div class="ce-admin-tile-sub">{{ fd.name }}</div>
+              <div class="ce-admin-tile-title">{{ fd.combined_display_name|default:fd.name }}</div>
+              <div class="ce-admin-tile-sub">Master application</div>
             </a>
             <div class="ce-actions" style="margin-top:0;">
               {% if fd.slug|slice:":2" == "E_" %}
@@ -209,11 +209,19 @@
               {% for fd in forms %}
                 <details class="ce-form-item">
                   <summary>
-                    <strong>{{ fd.slug }}</strong> - {{ fd.name }}
+                    {% if g.use_combined_application %}
+                      <strong>{{ fd.combined_display_name }}</strong>
+                    {% else %}
+                      <strong>{{ fd.slug }}</strong> - {{ fd.name }}
+                    {% endif %}
                   </summary>
                   <div class="ce-dd-body" style="padding-top:0;">
                     <div>
                       <a href="/admin/applications/formdefinition/{{ fd.id }}/change/">Edit</a>
+                      {% if g.use_combined_application and fd.companion_form %}
+                        &nbsp;|&nbsp;
+                        <a href="/admin/applications/formdefinition/{{ fd.companion_form.id }}/change/">Edit later sections</a>
+                      {% endif %}
                       &nbsp;|&nbsp;
                       {% if "_A1" in fd.slug and g.use_combined_application %}
                         <a href="/apply/{{ fd.slug }}/?combined=1" target="_blank" rel="noopener">Open combined link</a>

@@ -3,15 +3,22 @@
 
 {% block content_title %}
   <div class="ce-builder-heading">
-    <div>
-      <span class="ce-builder-eyebrow">Form editor</span>
+    <div class="ce-builder-brand-dot" aria-hidden="true"></div>
+    <div class="ce-builder-title-wrap">
+      <span class="ce-builder-eyebrow">Club Emprendo Forms</span>
       <h1>{% if original %}{{ original.name }}{% else %}New form{% endif %}</h1>
-      <p>Edit the title, sections, and questions below. Changes go live after you save.</p>
     </div>
     {% if original %}
-      <a class="button ce-preview-button" href="{{ original.get_absolute_url|default:'#' }}" data-preview-form>Preview form</a>
+      <div class="ce-builder-top-actions">
+        <span class="ce-save-status" data-save-status>Saved</span>
+        <a class="button ce-preview-button" href="#" data-preview-form>Preview</a>
+      </div>
     {% endif %}
   </div>
+  <nav class="ce-builder-tabs" aria-label="Form editor views">
+    <a href="#questions-group" class="active">Questions</a>
+    <a href="#" data-responses-link>Responses</a>
+  </nav>
 {% endblock %}
 
 {% block submit_buttons_top %}{{ block.super }}{% endblock %}

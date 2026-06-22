@@ -254,7 +254,7 @@ class QuestionAdminFormTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Form editor")
+        self.assertContains(response, "Club Emprendo Forms")
         self.assertContains(response, "applications/css/form_builder.css")
         self.assertContains(response, "applications/js/form_builder.js")
 

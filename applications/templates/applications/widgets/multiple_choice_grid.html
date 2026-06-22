@@ -1,9 +1,9 @@
 <style>
   .ce-grid-choice { position: relative; display: inline-grid; width: 24px; height: 24px; place-items: center; cursor: pointer; }
   .ce-grid-choice__input { position: absolute; inset: 0; width: 24px !important; height: 24px !important; margin: 0 !important; opacity: 0 !important; cursor: pointer; }
-  .ce-grid-choice__mark { display: grid; width: 20px; height: 20px; place-items: center; border: 2px solid #5f6368; border-radius: 50%; background: #fff; }
-  .ce-grid-choice__mark::after { content: ""; width: 10px; height: 10px; border-radius: 50%; background: #673ab7; transform: scale(0); transition: transform .1s ease-in-out; }
-  .ce-grid-choice__input:checked + .ce-grid-choice__mark { border-color: #673ab7; }
+  .ce-grid-choice__mark { display: grid; width: 22px; height: 22px; place-items: center; border: 2px solid #5f6368; border-radius: 4px; background: #fff; color: #fff; font: 700 16px/1 Arial, sans-serif; }
+  .ce-grid-choice__mark::after { content: "✓"; transform: scale(0); transition: transform .1s ease-in-out; }
+  .ce-grid-choice__input:checked + .ce-grid-choice__mark { border-color: #673ab7 !important; background: #673ab7 !important; }
   .ce-grid-choice__input:checked + .ce-grid-choice__mark::after { transform: scale(1); }
   .ce-grid-choice__input:focus-visible + .ce-grid-choice__mark { outline: 3px solid rgba(103, 58, 183, .22); outline-offset: 2px; }
 </style>
@@ -33,7 +33,9 @@
                          {% if row.selected|stringformat:'s' == column.0|stringformat:'s' %}checked{% endif %}
                          {% if widget.grid_required %}required{% endif %}
                          {% if widget.grid_base_required %}data-base-required="{{ widget.grid_base_required }}"{% endif %}>
-                  <span class="ce-grid-choice__mark" aria-hidden="true"></span>
+                  <span class="ce-grid-choice__mark"
+                        style="display:grid;width:22px;height:22px;place-items:center;border:2px solid #5f6368;border-radius:4px;background:#fff;"
+                        aria-hidden="true"></span>
                 </label>
               </td>
             {% endfor %}

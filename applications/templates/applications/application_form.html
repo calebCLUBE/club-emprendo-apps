@@ -26,6 +26,17 @@
     {% endif %}
   </div>
 
+  <div class="ce-form-progress" data-application-progress role="progressbar"
+       aria-label="Progreso de la aplicación" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+    <div class="ce-form-progress__meta">
+      <span>Progreso</span>
+      <span data-progress-label>0%</span>
+    </div>
+    <div class="ce-form-progress__track">
+      <div class="ce-form-progress__fill" data-progress-fill></div>
+    </div>
+  </div>
+
   {% if second_stage and not combined_flow %}
     <div class="ce-alert">
       ✅ Recuerda hacer clic en “Enviar / Submit” al final para registrar tu respuesta.
@@ -36,7 +47,7 @@
     {% csrf_token %}
 
     {% if sections %}
-      <div id="ce-stepper" style="display:flex; gap:8px; margin-bottom:16px;">
+      <div id="ce-stepper" hidden>
         {% for section in sections %}
           <div data-stepper-item
                title="{{ section.title }}"
@@ -103,6 +114,23 @@
   </form>
 
   <script>
+    (function () {
+      const root = document.querySelector("[data-application-progress]");
+      if (!root) return;
+      const fill = root.querySelector("[data-progress-fill]");
+      const label = root.querySelector("[data-progress-label]");
+      window.ceSetApplicationProgress = function (completed, total, sectionMode) {
+        const safeTotal = Math.max(Number(total) || 0, 1);
+        const safeCompleted = Math.max(0, Math.min(Number(completed) || 0, safeTotal));
+        const percent = Math.round((safeCompleted / safeTotal) * 100);
+        fill.style.width = percent + "%";
+        root.setAttribute("aria-valuenow", String(percent));
+        label.textContent = sectionMode
+          ? `Sección ${safeCompleted} de ${safeTotal} · ${percent}%`
+          : `${percent}%`;
+      };
+    })();
+
     (function () {
       const panels = Array.from(document.querySelectorAll(".ce-section-panel"));
       if (!panels.length) return;
@@ -365,6 +393,7 @@
         const vis = visiblePanels();
         if (!vis.length) return;
         current = Math.max(0, Math.min(idx, vis.length - 1));
+        window.ceSetApplicationProgress?.(current + 1, vis.length, true);
         panels.forEach((p, i) => {
           const show = vis.includes(p);
           p.style.display = show && vis[current] === p ? "" : "none";
@@ -433,6 +462,36 @@
 
       const errorIdx = findErrorSection();
       setActive(errorIdx !== null ? errorIdx : 0, { scroll: false });
+    })();
+
+    (function () {
+      if (document.querySelector(".ce-section-panel")) return;
+      const form = document.querySelector("form[method='post']");
+      if (!form) return;
+
+      function hasValue(block) {
+        const controls = Array.from(block.querySelectorAll("input, select, textarea"))
+          .filter((input) => input.type !== "hidden" && !input.disabled);
+        if (!controls.length) return false;
+        const checks = controls.filter((input) => input.type === "checkbox" || input.type === "radio");
+        if (checks.length) return checks.some((input) => input.checked);
+        return controls.some((input) => {
+          if (input.type === "file") return Boolean(input.files?.length || input.value);
+          if (input.tagName === "SELECT" && input.multiple) return input.selectedOptions.length > 0;
+          return Boolean(String(input.value || "").trim());
+        });
+      }
+
+      function updateProgress() {
+        const questions = Array.from(form.querySelectorAll(".form-question"))
+          .filter((block) => block.style.display !== "none");
+        const completed = questions.filter(hasValue).length;
+        window.ceSetApplicationProgress?.(completed, questions.length, false);
+      }
+
+      form.addEventListener("input", () => setTimeout(updateProgress, 0));
+      form.addEventListener("change", () => setTimeout(updateProgress, 0));
+      setTimeout(updateProgress, 0);
     })();
 
     (function () {

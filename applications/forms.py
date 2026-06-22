@@ -67,24 +67,36 @@ def split_help_text(raw: str):
     return body, pre_hr, rest
 
 
-def build_application_form(form_slug: str):
+def build_application_form(form_slug: str, additional_form_slugs: list[str] | tuple[str, ...] | None = None):
+    form_slugs = [form_slug] + [slug for slug in (additional_form_slugs or []) if slug and slug != form_slug]
+
     class DynamicApplicationForm(forms.Form):
         def __init__(self, *args, **kwargs):
             super().__init__(*args, **kwargs)
 
-            form_def = FormDefinition.objects.get(slug=form_slug)
-            questions = (
-                form_def.questions.filter(active=True)
-                .select_related("show_if_question")
-                .prefetch_related("choices")
-                .order_by("position", "id")
-            )
+            form_defs = list(FormDefinition.objects.filter(slug__in=form_slugs))
+            by_slug = {fd.slug: fd for fd in form_defs}
+            form_defs = [by_slug[slug] for slug in form_slugs if slug in by_slug]
+            questions = []
+            for form_def in form_defs:
+                questions.extend(
+                    form_def.questions.filter(active=True)
+                    .select_related("show_if_question")
+                    .prefetch_related("choices")
+                    .order_by("position", "id")
+                )
             id_to_slug = {q.id: q.slug for q in questions}
 
             self._confirm_pairs: list[tuple[str, str]] = []
+            seen_field_names: set[str] = set()
 
             for q in questions:
                 field_name = f"q_{q.slug}"
+                # Combined A1+A2 forms often repeat identity questions. Ask once and
+                # reuse that answer for both question records at save time.
+                if field_name in seen_field_names:
+                    continue
+                seen_field_names.add(field_name)
 
                 pre_text, pre_hr, remaining_help = split_help_text(q.help_text)
 
@@ -161,6 +173,7 @@ def build_application_form(form_slug: str):
                 field.widget.attrs["pre_text"] = pre_text
                 field.widget.attrs["pre_hr"] = "1" if pre_hr else ""
                 field.widget.attrs["section_id"] = str(q.section_id or "")
+                field.widget.attrs["source_form_id"] = str(q.form_id)
                 field._ce_base_required = q.required
                 if show_if_q and show_if_value:
                     field.widget.attrs["show_if_question"] = f"q_{show_if_q.slug}"
@@ -189,6 +202,7 @@ def build_application_form(form_slug: str):
                         help_text="Ingresa nuevamente para confirmar",
                     )
                     confirm_field.widget.attrs["section_id"] = str(q.section_id or "")
+                    confirm_field.widget.attrs["source_form_id"] = str(q.form_id)
                     confirm_field.widget.attrs["data-confirm-of"] = field_name
                     confirm_field._ce_base_required = q.required
                     if show_if_q and show_if_value:

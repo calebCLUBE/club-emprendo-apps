@@ -258,6 +258,40 @@ label.required::after {
   color: #d14b4b;
 }
 
+/* Application progress */
+.ce-form-progress {
+  margin: 0 0 1.35rem;
+  padding: 0.8rem 1rem;
+  border: 1px solid rgba(34, 52, 19, 0.1);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.ce-form-progress__meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.45rem;
+  color: var(--ce-deep-green);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.ce-form-progress__track {
+  height: 9px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(34, 52, 19, 0.12);
+}
+
+.ce-form-progress__fill {
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--ce-deep-green), #6f8e59);
+  transition: width 220ms ease;
+}
+
 /* ===============================
    Buttons
    =============================== */

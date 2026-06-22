@@ -609,6 +609,9 @@ def _sections_from_model(form_def: FormDefinition, form, default_intro: str = ""
     }
 
     for field in form:
+        source_form_id = field.field.widget.attrs.get("source_form_id") if hasattr(field.field, "widget") else ""
+        if source_form_id and str(source_form_id) != str(form_def.id):
+            continue
         raw = field.field.widget.attrs.get("section_id") if hasattr(field.field, "widget") else ""
         try:
             sid = int(raw)
@@ -829,6 +832,38 @@ def _resolve_a2_slug_from_first_app(first_app: Application, role: str) -> str:
     return form_slug
 
 
+def _combined_second_form(first_form: FormDefinition) -> FormDefinition | None:
+    slug = first_form.slug or ""
+    if slug.endswith("E_A1"):
+        master_slug = "E_A2"
+    elif slug.endswith("M_A1"):
+        master_slug = "M_A2"
+    else:
+        return None
+    second_slug = _group_form_slug_for_master(getattr(first_form, "group", None), master_slug) or master_slug
+    return FormDefinition.objects.filter(slug=second_slug).first()
+
+
+def _combined_sections(first_form, second_form, form, first_intro=""):
+    sections = []
+    for index, (form_def, intro) in enumerate(((first_form, first_intro), (second_form, second_form.description or ""))):
+        part = _sections_from_model(form_def, form, default_intro=intro) or []
+        if not part:
+            fields = [
+                field for field in form
+                if str(field.field.widget.attrs.get("source_form_id") or "") == str(form_def.id)
+            ]
+            if fields:
+                part = [{
+                    "id": f"combined-{form_def.id}",
+                    "title": form_def.default_section_title or f"Parte {index + 1}",
+                    "intro": intro,
+                    "fields": fields,
+                }]
+        sections.extend(part)
+    return sections or None
+
+
 def _invite_app_for_a2_token(token: str, target_form_slug: str) -> Application | None:
     raw_token = (token or "").strip()
     slug = (target_form_slug or "").strip()
@@ -915,7 +950,18 @@ def _handle_application_form(
             status=403,
         )
 
-    ApplicationForm = build_application_form(form_slug)
+    # New combined submissions are one form and one database application. Token-based
+    # requests remain on the legacy continuation path for already-started applications.
+    combined_second_def = (
+        _combined_second_form(form_def)
+        if combined_flow and not reuse_token and _is_a1_form_slug(form_def.slug or "")
+        else None
+    )
+    single_combined_submission = combined_second_def is not None
+    ApplicationForm = build_application_form(
+        form_slug,
+        additional_form_slugs=[combined_second_def.slug] if combined_second_def else None,
+    )
 
     rendered_description = ""
     for attr in ("description", "intro", "intro_text", "public_description"):
@@ -932,7 +978,16 @@ def _handle_application_form(
 
     _apply_question_conditions(form)
 
-    sections = _sections_from_model(form_def, form, default_intro=rendered_description)
+    if single_combined_submission:
+        sections = _combined_sections(
+            form_def,
+            combined_second_def,
+            form,
+            first_intro=rendered_description,
+        )
+        rendered_description = ""
+    else:
+        sections = _sections_from_model(form_def, form, default_intro=rendered_description)
     if sections:
         default_with_fields = next(
             (
@@ -1048,7 +1103,15 @@ def _handle_application_form(
                 )
 
             answer_map: dict[str, str] = {}
-            for q in form_def.questions.filter(active=True).order_by("position", "id"):
+            submission_forms = [form_def]
+            if combined_second_def:
+                submission_forms.append(combined_second_def)
+            submission_questions = []
+            for submission_form in submission_forms:
+                submission_questions.extend(
+                    submission_form.questions.filter(active=True).order_by("position", "id")
+                )
+            for q in submission_questions:
                 field_name = f"q_{q.slug}"
                 value = form.cleaned_data.get(field_name)
                 if isinstance(value, list):
@@ -1080,7 +1143,37 @@ def _handle_application_form(
             else:
                 passed = emprendedora_a1_passes(answer_map)
 
-            if passed:
+            if passed and single_combined_submission:
+                # Preserve A1 grading/email behavior, then promote this same row to the
+                # final form. Its Answer rows retain both A1 and A2 questions.
+                if form_def.slug.endswith("M_A1"):
+                    _mentor_a1_autograde_and_email(request, app)
+                else:
+                    autograde_and_email_emprendedora_a1(request, app)
+                app.refresh_from_db()
+                app.form = combined_second_def
+                app.invited_to_second_stage = True
+                app.second_stage_reminder_due_at = None
+                app.second_stage_reminder_sent_at = timezone.now()
+                app.save(update_fields=[
+                    "form",
+                    "invited_to_second_stage",
+                    "second_stage_reminder_due_at",
+                    "second_stage_reminder_sent_at",
+                ])
+                form_def = combined_second_def
+                a2_disqualified = _is_a2_na_candidate(form_def.slug or "", answer_map)
+                _send_a2_submission_email(app, answer_map)
+                try:
+                    gnum_raw = _group_num_from_form_def(form_def)
+                    if gnum_raw:
+                        schedule_group_track_responses_sync(
+                            int(gnum_raw),
+                            "M" if form_def.slug.endswith("M_A2") else "E",
+                        )
+                except Exception:
+                    logger.exception("Drive response CSV sync trigger failed for combined form %s", form_def.slug)
+            elif passed:
                 app.generate_invite_token()
                 app.invited_to_second_stage = True
                 app.save(update_fields=["invite_token", "invited_to_second_stage"])
@@ -1089,33 +1182,31 @@ def _handle_application_form(
                 continue_url = f"{request.path}?combined=1&token={app.invite_token}"
                 return redirect(continue_url)
 
-            # Reuse the original A1 rejection-email path for combined flow too.
-            if form_def.slug.endswith("M_A1"):
-                _mentor_a1_autograde_and_email(request, app)
-            else:
-                autograde_and_email_emprendedora_a1(request, app)
-            app.refresh_from_db()
-            _schedule_a1_to_a2_reminder(app)
-            thanks_payload = {
-                "kind": "a1",
-                "approved": False,
-                "group_num": _group_num_from_form_def(form_def),
-                "track": _a1_track_from_slug(form_def.slug or ""),
-            }
-            thanks_payload.update(
-                _thanks_override_payload(
-                    form_def=form_def,
-                    kind=str(thanks_payload.get("kind") or ""),
-                    approved=bool(thanks_payload.get("approved")),
-                    disqualified=bool(thanks_payload.get("disqualified")),
-                    group_num=str(thanks_payload.get("group_num") or ""),
-                    track=str(thanks_payload.get("track") or ""),
+            if not passed:
+                # Reuse the original A1 rejection-email path for combined flow too.
+                if form_def.slug.endswith("M_A1"):
+                    _mentor_a1_autograde_and_email(request, app)
+                else:
+                    autograde_and_email_emprendedora_a1(request, app)
+                app.refresh_from_db()
+                _schedule_a1_to_a2_reminder(app)
+                thanks_payload = {
+                    "kind": "a1",
+                    "approved": False,
+                    "group_num": _group_num_from_form_def(form_def),
+                    "track": _a1_track_from_slug(form_def.slug or ""),
+                }
+                thanks_payload.update(
+                    _thanks_override_payload(
+                        form_def=form_def,
+                        kind=str(thanks_payload.get("kind") or ""),
+                        approved=bool(thanks_payload.get("approved")),
+                        disqualified=bool(thanks_payload.get("disqualified")),
+                        group_num=str(thanks_payload.get("group_num") or ""),
+                        track=str(thanks_payload.get("track") or ""),
+                    )
                 )
-            )
-            if combined_flow:
                 return render(request, "applications/thanks.html", thanks_payload)
-            request.session["ce_thanks_payload"] = thanks_payload
-            return redirect("application_thanks")
 
         # A1 autogrades
         if form_def.slug.endswith("M_A1"):

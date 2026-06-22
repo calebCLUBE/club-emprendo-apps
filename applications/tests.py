@@ -259,6 +259,89 @@ class QuestionAdminFormTests(TestCase):
         self.assertContains(response, "applications/js/form_builder.js")
 
 
+class SingleCombinedApplicationTests(TestCase):
+    def setUp(self):
+        self.group = FormGroup.objects.create(
+            number=990,
+            start_day=1,
+            start_month="junio",
+            end_month="junio",
+            year=2026,
+            use_combined_application=True,
+        )
+        self.a1 = FormDefinition.objects.create(
+            slug="G990_E_A1",
+            name="Combined application",
+            group=self.group,
+            is_public=True,
+            accepting_responses=True,
+            manual_open_override=True,
+        )
+        self.a2 = FormDefinition.objects.create(
+            slug="G990_E_A2",
+            name="Combined application details",
+            group=self.group,
+            is_public=True,
+            accepting_responses=True,
+            manual_open_override=True,
+        )
+        for position, slug in enumerate(
+            ("full_name", "email", "meets_requirements", "available_period", "business_active"),
+            start=1,
+        ):
+            Question.objects.create(
+                form=self.a1,
+                text=slug.replace("_", " ").title(),
+                slug=slug,
+                field_type=Question.BOOLEAN if position > 2 else Question.SHORT_TEXT,
+                position=position,
+            )
+        self.a2_question = Question.objects.create(
+            form=self.a2,
+            text="Tell us about the business",
+            slug="business_story",
+            field_type=Question.LONG_TEXT,
+            position=1,
+        )
+
+    def test_combined_get_renders_a1_and_a2_as_one_form(self):
+        response = self.client.get(reverse("apply_by_slug", args=[self.a1.slug]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'name="q_meets_requirements"')
+        self.assertContains(response, 'name="q_business_story"')
+        self.assertContains(response, "data-application-progress")
+        self.assertEqual(response.content.count(b'type="submit"'), 1)
+
+    @patch("applications.views.schedule_group_track_responses_sync")
+    @patch("applications.views._send_a2_submission_email")
+    @patch("applications.views.autograde_and_email_emprendedora_a1")
+    def test_combined_post_creates_one_application_with_all_answers(
+        self, mock_a1_grade, mock_a2_email, mock_sync
+    ):
+        response = self.client.post(
+            reverse("apply_by_slug", args=[self.a1.slug]),
+            {
+                "q_full_name": "One Applicant",
+                "q_email": "one@example.com",
+                "q_meets_requirements": "yes",
+                "q_available_period": "yes",
+                "q_business_active": "yes",
+                "q_business_story": "A running business",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(Application.objects.count(), 1)
+        app = Application.objects.get()
+        self.assertEqual(app.form, self.a2)
+        self.assertTrue(app.invited_to_second_stage)
+        self.assertEqual(app.answers.count(), 6)
+        self.assertEqual(app.answers.get(question=self.a2_question).value, "A running business")
+        mock_a1_grade.assert_called_once()
+        mock_a2_email.assert_called_once()
+
+
 class GroupFormNamingTests(TestCase):
     def setUp(self):
         self.master_e_a1 = FormDefinition.objects.create(

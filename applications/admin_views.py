@@ -2199,6 +2199,8 @@ def _fill_placeholders(
         out = out.replace("#(month)", start_month, 1)
     if "#(month)" in out:
         out = out.replace("#(month)", end_month, 1)
+    while "#(month)" in out:
+        out = out.replace("#(month)", start_month, 1)
 
     out = out.replace("#(year)", str(year))
     out = out.replace("#(respond_day)", str(respond_day or ""))

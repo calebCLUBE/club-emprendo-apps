@@ -59,7 +59,7 @@ def emprendedora_a1_passes(answers: dict[str, str]) -> bool:
     emprendimiento = (
         answers.get("business_active")
         or answers.get("e1_has_running_business")
-        or ""
+        or requisitos
     )
 
     passes_requisitos = _is_yes_value(requisitos)

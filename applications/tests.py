@@ -22,7 +22,10 @@ from applications.admin_views import (
 from applications.email_templates import build_form_email_context, resolve_form_email_template
 from applications.forms import build_application_form
 from applications.mentora_application_schema import apply_mentora_schema
-from applications.emprendedora_a1_autograde import autograde_and_email_emprendedora_a1
+from applications.emprendedora_a1_autograde import (
+    autograde_and_email_emprendedora_a1,
+    emprendedora_a1_passes,
+)
 from applications.views import _thanks_override_payload, _mentor_a1_autograde_and_email, _schedule_a1_to_a2_reminder
 from applications.models import (
     Answer,
@@ -415,8 +418,19 @@ class CurrentEmprendedoraApplicationSchemaTests(TestCase):
         apply_emprendedora_schema(e1, e2)
 
         requirements = e1.questions.get(slug="meets_requirements")
-        self.assertNotIn("reunión de lanzamiento", requirements.help_text)
-        self.assertTrue(all(len(section.show_if_conditions) == 3 for section in e2.sections.all()))
+        requirements_section = e1.sections.get(title="Confirmación de cumplimiento de requisitos")
+        self.assertIn(
+            "Estoy disponible el lunes #(day) de #(month) del #(year) para asistir a la reunión de lanzamiento",
+            requirements_section.description,
+        )
+        self.assertIn("Hablo espanol.", requirements_section.description)
+        self.assertEqual(requirements.help_text, "")
+        self.assertTrue(all(len(section.show_if_conditions) == 2 for section in e2.sections.all()))
+        self.assertFalse(e1.questions.filter(slug="business_active").exists())
+        self.assertTrue(emprendedora_a1_passes({
+            "meets_requirements": "yes",
+            "available_period": "yes",
+        }))
         self.assertTrue(e2.questions.filter(text="¿Tienes empleados?").exists())
         self.assertEqual(
             e2.questions.get(slug="community_contribution").text,

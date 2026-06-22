@@ -41,19 +41,31 @@ SCHEDULE = [
 PRIVACY = """🛡 Aviso de privacidad: Club Emprendo recopila datos personales limitados, como tu nombre y número de documento, con fines administrativos relacionados con el proceso de postulación. Trataremos esta información de forma confidencial, segura y conforme a las leyes de protección de datos aplicables en América Latina. Puedes ejercer tus derechos de acceso, corrección o eliminación escribiéndonos a contacto@clubemprendo.org."""
 
 REQUIREMENTS = """Requisitos básicos:
-• Soy mujer.
-• Hablo español.
-• Tengo acceso a internet y un dispositivo para participar en reuniones virtuales.
-• Estoy dispuesta a firmar un acta de compromiso antes de la fecha límite.
-• Estoy dispuesta a completar la capacitación en línea previa al programa (1 a 2 horas).
-• Estoy dispuesta a completar dos encuestas de retroalimentación durante el programa.
-• Tengo un emprendimiento en funcionamiento; no es solo una idea ni un proyecto detenido.
-• Revisé el PDF de introducción al programa.
+
+Soy mujer.
+
+Hablo espanol.
+
+Tengo acceso a internet y un dispositivo (computadora o celular) para participar en reuniones virtuales.
+
+Estoy dispuesta a firmar un acta de compromiso con el programa precia al programa antes de la fecha limite
+
+Estoy dispuesta a completar el curso de capacitación en línea previa al programa antes de la fecha límite (de 1 a 2 horas de dedicación).
+
+Estoy dispuesta a completar dos encuestas de retroalimentación durante el programa.
+
+Tengo un emprendimiento en funcionamiento (No se considera una idea de negocio o un proyecto detenido hace tiempo).
+
+Revisé el PDF (enlace abajo) que ofrece una breve introducción al programa de mentoría de Club Emprendo.
+📄 Abrir PDF
 
 Requisitos de disponibilidad:
-• Estoy disponible desde #(month) hasta #(month) de #(year).
-• Dedicaré un mínimo de 3 horas semanales durante 14 semanas consecutivas.
-"""
+
+Estoy disponible para participar en el programa de mentorías desde #(month) hasta #(month) de #(year).
+
+Estoy dispuesta a dedicarle mínimo 3 horas a la semana al programa de mentorías durante 14 semanas consecutivas.
+
+Estoy disponible el lunes #(day) de #(month) del #(year) para asistir a la reunión de lanzamiento del programa de 1 hora (por la tarde). """
 
 OPEN_QUESTION_HELP = """💡 Tip importante: En las preguntas abiertas, te recomendamos que seas lo más amplia posible al compartir tu experiencia, motivaciones y visión. 📝✨ Evita responder solo con una o dos frases — ¡queremos conocerte mejor para valorar todo lo que puedes aportar!"""
 
@@ -94,11 +106,10 @@ A1_SECTIONS = [
     },
     {
         "title": "Confirmación de cumplimiento de requisitos",
-        "description": "Lee todos los requisitos antes de responder. Tus respuestas determinan si puedes participar en esta convocatoria.",
+        "description": REQUIREMENTS,
         "questions": [
-            _q("meets_requirements", "¿Cumples todos los requisitos básicos indicados?", "choice", help_text=REQUIREMENTS, choices=(("yes", "Sí, cumplo todos los requisitos"), ("no", "No cumplo uno o más requisitos"))),
-            _q("available_period", "¿Confirmas tu disponibilidad y compromiso de mínimo 3 horas semanales durante las 14 semanas?", "choice", choices=(("yes", "Sí, confirmo mi disponibilidad"), ("no", "No puedo comprometerme en este momento"))),
-            _q("business_active", "¿Actualmente tienes un emprendimiento en funcionamiento?", "choice", help_text="No se considera una idea de negocio o un proyecto detenido hace tiempo.", choices=(("yes", "Sí, mi emprendimiento está funcionando"), ("no", "No, es una idea o no está funcionando actualmente"))),
+            _q("meets_requirements", "¿Cumples todos los requisitos básicos indicados?", "choice", choices=(("yes", "Sí, cumplo todos los requisitos"), ("no", "No cumplo uno o más requisitos"))),
+            _q("available_period", "¿Cumples todos los requisitos de disponibilidad indicados?", "choice", choices=(("yes", "Sí, cumplo todos los requisitos de disponibilidad"), ("no", "No cumplo uno o más requisitos de disponibilidad"))),
         ],
     },
 ]
@@ -210,7 +221,7 @@ def apply_emprendedora_schema(form_a1: FormDefinition, form_a2: FormDefinition, 
         a2_sections=A2_SECTIONS,
         transform=transform,
     )
-    gate_later_sections(form_a1, form_a2, ("meets_requirements", "available_period", "business_active"))
+    gate_later_sections(form_a1, form_a2, ("meets_requirements", "available_period"))
 
 
 def gate_later_sections(form_a1, form_a2, controller_slugs):

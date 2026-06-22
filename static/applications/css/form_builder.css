@@ -54,10 +54,14 @@ body.app-applications.model-formdefinition.change-form .inline-related {
 body.app-applications.model-formdefinition.change-form #questions-group .inline-related:not(.empty-form):focus-within {
   border-left: 6px solid var(--form-purple); box-shadow: 0 2px 8px rgba(60,64,67,.18);
 }
+body.app-applications.model-formdefinition.change-form #questions-group .inline-related.ce-question-active {
+  border-left: 6px solid #4285f4; box-shadow: 0 2px 8px rgba(60,64,67,.2);
+}
+body.app-applications.model-formdefinition.change-form #questions-group .inline-related > h3 { display: none; }
 body.app-applications.model-formdefinition.change-form .inline-related > h3 {
   min-height: 15px; padding: 9px 16px 2px; background: transparent; color: #9aa0a6; font-size: 11px;
 }
-.ce-drag-handle { position: absolute; top: 2px; left: 50%; transform: translateX(-50%); color: #9aa0a6; cursor: grab; font-size: 18px; line-height: 15px; }
+.ce-drag-handle { position: absolute; top: 4px; left: 50%; transform: translateX(-50%); color: #9aa0a6; cursor: grab; font-size: 18px; line-height: 15px; user-select: none; }
 .ce-dragging { opacity: .45; box-shadow: 0 8px 24px rgba(60,64,67,.3) !important; }
 body.app-applications.model-formdefinition.change-form .inline-related fieldset { border: 0; box-shadow: none; margin: 0; }
 body.app-applications.model-formdefinition.change-form .form-row { padding: 11px 24px; border: 0; }
@@ -80,9 +84,13 @@ body.app-applications.model-formdefinition.change-form select:focus { border-bot
 .field-answer_options > div { width: 100%; }
 .ce-options-source { display: none !important; }
 .ce-options-editor { max-width: 640px; }
-.ce-option-row { display: grid; grid-template-columns: 20px minmax(0,1fr) 34px; align-items: center; gap: 9px; margin: 4px 0; }
-.ce-option-marker { width: 14px; height: 14px; box-sizing: border-box; border: 2px solid #9aa0a6; border-radius: 50%; }
-.ce-multiple-options .ce-option-marker { border-radius: 2px; }
+.ce-option-list { display: grid; gap: 2px; }
+.ce-option-row { display: grid; grid-template-columns: 20px 24px minmax(0,1fr) 34px; align-items: center; gap: 7px; margin: 2px 0; }
+.ce-option-drag { color: #bdc1c6; cursor: grab; font-size: 16px; letter-spacing: -4px; user-select: none; }
+.ce-option-drag:active { cursor: grabbing; }
+.ce-option-marker { color: #5f6368; font-size: 13px; text-align: right; }
+.ce-multiple-options .ce-option-marker { width: 14px; height: 14px; box-sizing: border-box; border: 2px solid #9aa0a6; border-radius: 2px; color: transparent; }
+.ce-option-dragging { opacity: .45; background: #f1f3f4; }
 .ce-option-row input { width: 100%; background: transparent !important; }
 .ce-option-remove, .ce-add-option, .ce-question-actions button, .ce-builder-rail button { border: 0; background: transparent; color: #5f6368; cursor: pointer; }
 .ce-option-remove { font-size: 25px; font-weight: 300; }

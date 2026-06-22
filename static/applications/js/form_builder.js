@@ -17,9 +17,18 @@
     const editor = document.createElement("div");
     editor.className = "ce-options-editor";
     const list = document.createElement("div");
+    list.className = "ce-option-list";
     editor.appendChild(list);
 
+    function refreshMarkers() {
+      Array.from(list.querySelectorAll(".ce-option-row")).forEach((option, index) => {
+        const marker = option.querySelector(".ce-option-marker");
+        if (marker) marker.textContent = `${index + 1}.`;
+      });
+    }
+
     function sync() {
+      refreshMarkers();
       textarea.value = Array.from(list.querySelectorAll("input"))
         .map((input) => input.value.trim()).filter(Boolean).join("\n");
       textarea.dispatchEvent(new Event("change", { bubbles: true }));
@@ -28,7 +37,15 @@
     function addOption(value, focus) {
       const option = document.createElement("div");
       option.className = "ce-option-row";
-      option.innerHTML = '<span class="ce-option-marker" aria-hidden="true"></span>';
+      const drag = document.createElement("span");
+      drag.className = "ce-option-drag";
+      drag.title = "Drag to reorder option";
+      drag.setAttribute("aria-label", "Drag to reorder option");
+      drag.textContent = "⋮⋮";
+      drag.draggable = true;
+      const marker = document.createElement("span");
+      marker.className = "ce-option-marker";
+      marker.setAttribute("aria-hidden", "true");
       const input = document.createElement("input");
       input.type = "text";
       input.value = value || "";
@@ -42,11 +59,36 @@
       remove.className = "ce-option-remove";
       remove.setAttribute("aria-label", "Remove option");
       remove.textContent = "×";
-      remove.addEventListener("click", () => { option.remove(); sync(); });
-      option.append(input, remove);
+      remove.addEventListener("click", () => {
+        option.remove();
+        if (!list.children.length) addOption("", true);
+        sync();
+      });
+      drag.addEventListener("dragstart", (event) => {
+        event.dataTransfer?.setData("text/plain", "option");
+        if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
+        option.classList.add("ce-option-dragging");
+      });
+      drag.addEventListener("dragend", () => {
+        option.classList.remove("ce-option-dragging");
+        sync();
+      });
+      option.append(drag, marker, input, remove);
       list.appendChild(option);
+      refreshMarkers();
       if (focus) input.focus();
     }
+
+    list.addEventListener("dragover", (event) => {
+      const dragging = list.querySelector(".ce-option-dragging");
+      if (!dragging) return;
+      event.preventDefault();
+      const options = Array.from(list.querySelectorAll(".ce-option-row:not(.ce-option-dragging)"));
+      const next = options.find((item) => (
+        event.clientY < item.getBoundingClientRect().top + item.offsetHeight / 2
+      ));
+      list.insertBefore(dragging, next || null);
+    });
 
     (textarea.value.split("\n").filter((line) => line.trim()).length
       ? textarea.value.split("\n").filter((line) => line.trim()) : [""]
@@ -59,6 +101,18 @@
     add.addEventListener("click", () => addOption("", true));
     editor.appendChild(add);
     row.appendChild(editor);
+  }
+
+  function updateQuestionPositions() {
+    Array.from(document.querySelectorAll("#questions-group .inline-related:not(.empty-form)"))
+      .filter((item) => !item.hidden && !item.querySelector("input[id$='-DELETE']:checked"))
+      .forEach((item, index) => {
+        const position = item.querySelector("input[id$='-position']");
+        if (position) {
+          position.value = index + 1;
+          position.dispatchEvent(new Event("input", { bubbles: true }));
+        }
+      });
   }
 
   function setOptionsVisibility(card) {
@@ -101,13 +155,19 @@
     dragHandle.textContent = "⠿";
     dragHandle.draggable = true;
     card.prepend(dragHandle);
-    dragHandle.addEventListener("dragstart", () => card.classList.add("ce-dragging"));
+    dragHandle.addEventListener("dragstart", (event) => {
+      event.dataTransfer?.setData("text/plain", "question");
+      if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
+      card.classList.add("ce-dragging");
+    });
     dragHandle.addEventListener("dragend", () => {
       card.classList.remove("ce-dragging");
-      document.querySelectorAll("#questions-group .inline-related:not(.empty-form)").forEach((item, index) => {
-        const position = item.querySelector("input[id$='-position']");
-        if (position) { position.value = index + 1; position.dispatchEvent(new Event("input", { bubbles: true })); }
-      });
+      updateQuestionPositions();
+    });
+    card.addEventListener("pointerdown", () => {
+      document.querySelectorAll("#questions-group .inline-related.ce-question-active")
+        .forEach((item) => item.classList.remove("ce-question-active"));
+      card.classList.add("ce-question-active");
     });
     ADVANCED_FIELDS.forEach((name) => rowFor(card, name)?.classList.add("ce-builder-hidden"));
 
@@ -149,7 +209,19 @@
 
     const required = rowFor(card, "field-required");
     if (required) required.classList.add("ce-required-control");
-    actions.append(advanced, duplicate);
+    const removeQuestion = document.createElement("button");
+    removeQuestion.type = "button";
+    removeQuestion.className = "ce-icon-action ce-delete-question";
+    removeQuestion.title = "Delete question";
+    removeQuestion.textContent = "Delete";
+    removeQuestion.addEventListener("click", () => {
+      const deleteInput = card.querySelector("input[id$='-DELETE']");
+      if (deleteInput) deleteInput.checked = true;
+      card.hidden = true;
+      updateQuestionPositions();
+      card.closest("form")?.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    actions.append(advanced, duplicate, removeQuestion);
     if (required) actions.appendChild(required);
     card.appendChild(actions);
   }
@@ -189,9 +261,15 @@
       event.preventDefault();
       const dragging = group.querySelector(".ce-dragging");
       if (!dragging) return;
-      const cards = Array.from(group.querySelectorAll(".inline-related:not(.empty-form):not(.ce-dragging)"));
+      const container = dragging.parentElement;
+      if (!container) return;
+      const cards = Array.from(container.querySelectorAll(":scope > .inline-related:not(.empty-form):not(.ce-dragging)"));
       const next = cards.find((card) => event.clientY < card.getBoundingClientRect().top + card.offsetHeight / 2);
-      group.insertBefore(dragging, next || group.querySelector(".add-row"));
+      const addRow = Array.from(container.children).find((child) => child.classList?.contains("add-row"));
+      container.insertBefore(dragging, next || addRow || null);
+    });
+    group.addEventListener("drop", (event) => {
+      if (group.querySelector(".ce-dragging")) event.preventDefault();
     });
   }
 

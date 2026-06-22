@@ -127,6 +127,16 @@ class QuestionAdminForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
+        if "field_type" in self.fields:
+            self.fields["field_type"].choices = [
+                (Question.SHORT_TEXT, "Short answer"),
+                (Question.LONG_TEXT, "Paragraph"),
+                (Question.INTEGER, "Number"),
+                (Question.BOOLEAN, "Yes / No"),
+                (Question.CHOICE, "Dropdown"),
+                (Question.MULTI_CHOICE, "Checkboxes"),
+            ]
+
         # Parse existing help_text into admin-friendly pieces
         pre_text, pre_hr, rest = _split_help_text(getattr(self.instance, "help_text", "") or "")
         self.fields["pre_text"].initial = pre_text
@@ -425,7 +435,7 @@ class QuestionInline(admin.StackedInline):
     model = Question
     form = QuestionAdminForm  # ✅ IMPORTANT: make inline use the custom form
     extra = 0
-    show_change_link = True
+    show_change_link = False
     ordering = ("position", "id")
 
     # ✅ Show the new admin-friendly fields instead of raw help_text
@@ -635,6 +645,10 @@ class QuestionAdmin(admin.ModelAdmin):
         "pre_text",
     )
 
+    def has_module_permission(self, request):
+        # Questions are edited directly inside their form cards.
+        return False
+
     def _follow_default(self, request):
         return any(
             key in request.POST
@@ -666,6 +680,10 @@ class ChoiceAdmin(admin.ModelAdmin):
     list_filter = ("question__form",)
     search_fields = ("id", "label", "value")
     ordering = ("question", "position", "id")
+
+    def has_module_permission(self, request):
+        # Options are edited inline in the owning question card.
+        return False
 
 
 # ---------- Application admin ----------

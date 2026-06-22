@@ -269,6 +269,11 @@ class QuestionAdminFormTests(TestCase):
         self.assertContains(response, "applications/css/form_builder.css")
         self.assertContains(response, "applications/js/form_builder.js")
         self.assertContains(response, "Show this question based on an answer")
+        self.assertContains(response, "Dropdown")
+        self.assertNotContains(
+            response,
+            reverse("admin:applications_question_change", args=[self.controller.pk]),
+        )
 
     def test_section_logic_widget_saves_google_style_answer_rule(self):
         section = Section.objects.create(

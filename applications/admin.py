@@ -58,6 +58,25 @@ def _pack_help_text(pre_text: str, pre_hr: bool, rest_help_text: str) -> str:
     return header + (("\n\n" + rest_help_text) if rest_help_text else "")
 
 
+def _condition_questions_json(questions) -> str:
+    return json.dumps([
+        {
+            "id": q.id,
+            "text": q.text or q.slug,
+            "field_type": q.field_type,
+            "choices": (
+                [{"value": c.value, "label": c.label or c.value} for c in q.choices.all()]
+                if q.field_type in (Question.CHOICE, Question.MULTI_CHOICE)
+                else [{"value": "yes", "label": "Sí"}, {"value": "no", "label": "No"}]
+                if q.field_type == Question.BOOLEAN
+                else []
+            ),
+        }
+        for q in questions
+        if q.field_type in (Question.CHOICE, Question.MULTI_CHOICE, Question.BOOLEAN)
+    ])
+
+
 # =========================
 # CUSTOM ADMIN FORM FOR QUESTION
 # =========================
@@ -144,30 +163,13 @@ class QuestionAdminForm(forms.ModelForm):
         self.fields["section"].initial = getattr(self.instance, "section_id", None)
 
         # ----- Multi controlling questions (OR) -----
-        questions_json = json.dumps(
-            [
-                {
-                    "id": q.id,
-                    "text": q.text or q.slug,
-                    "field_type": q.field_type,
-                    "choices": [
-                        {"value": c.value, "label": c.label or c.value}
-                        for c in q.choices.all()
-                    ] if q.field_type in (Question.CHOICE, Question.MULTI_CHOICE) else
-                    [{"value": "yes", "label": "si"}, {"value": "no", "label": "no"}] if q.field_type == Question.BOOLEAN else [],
-                }
-                for q in show_if_qs
-            ]
-        )
+        questions_json = _condition_questions_json(show_if_qs)
 
         self.fields["show_if_conditions"] = forms.JSONField(
             required=False,
             widget=ShowIfConditionsWidget(questions_json=questions_json),
-            label="Reglas para mostrar esta pregunta",
-            help_text=(
-                "Agrega una o más reglas. Esta pregunta se mostrará cuando se cumpla "
-                "al menos una de ellas."
-            ),
+            label="Conditional logic",
+            help_text="Works with multiple-choice, checkbox, and Yes/No questions.",
         )
 
         # initial conditions from stored JSON or legacy single
@@ -333,13 +335,20 @@ class ChoiceInline(admin.TabularInline):
 class ShowIfConditionsWidget(forms.Widget):
     template_name = "admin/widgets/show_if_conditions.html"
 
+    class Media:
+        js = ("applications/js/admin_conditional_logic.js",)
+
     def __init__(self, *args, **kwargs):
         self.questions_json = kwargs.pop("questions_json", "[]")
+        self.target_label = kwargs.pop("target_label", "question")
+        self.conjunction = kwargs.pop("conjunction", "OR")
         super().__init__(*args, **kwargs)
 
     def get_context(self, name, value, attrs):
         ctx = super().get_context(name, value, attrs)
         ctx["widget"]["questions_json"] = self.questions_json
+        ctx["widget"]["target_label"] = self.target_label
+        ctx["widget"]["conjunction"] = self.conjunction
         if isinstance(value, str):
             ctx["widget"]["value_json"] = value
         else:
@@ -356,55 +365,42 @@ class SectionAdminForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         form_obj = getattr(self.instance, "form", None)
         if form_obj:
-            qs = form_obj.questions.all()
+            qs = form_obj.questions.prefetch_related("choices").all()
         else:
             qs = Question.objects.none()
-
-        self.fields["show_if_question"].queryset = qs
-        self.fields["show_if_question"].label = "Mostrar esta sección solo cuando"
-        self.fields["show_if_question"].help_text = (
-            "Elige la pregunta que decide si esta sección se muestra."
+        self.fields["show_if_conditions"] = forms.JSONField(
+            required=False,
+            label="Conditional logic",
+            help_text="Choose the answer that makes this section appear.",
+            widget=ShowIfConditionsWidget(
+                questions_json=_condition_questions_json(qs),
+                target_label="section",
+                conjunction="AND",
+            ),
         )
-        # remove secondary condition fields from the form (we only want one)
-        self.fields.pop("show_if_question_2", None)
-        self.fields.pop("show_if_value_2", None)
-
-        def _choices_for(q: Question | None):
-            if not q:
-                return [("", "— elige una respuesta —")]
-            if q.field_type == Question.BOOLEAN:
-                return [("", "— elige una respuesta —"), ("yes", "si"), ("no", "no")]
-            if q.field_type in (Question.CHOICE, Question.MULTI_CHOICE):
-                opts = [("", "— elige una respuesta —")]
-                opts += [(c.value, c.label or c.value) for c in q.choices.all()]
-                return opts
-            return [("", "— elige una respuesta —")]
-
-        q1 = None
-        if self.data.get("show_if_question"):
-            try:
-                q1 = qs.get(id=self.data.get("show_if_question"))
-            except Exception:
-                pass
-        elif getattr(self.instance, "show_if_question_id", None):
-            q1 = self.instance.show_if_question
-
-        self.fields["show_if_value"].widget = forms.Select(choices=_choices_for(q1))
-        self.fields["show_if_value"].label = "Respuesta esperada"
-        self.fields["show_if_value"].help_text = (
-            "La sección se mostrará cuando la respuesta sea exactamente esta."
-        )
+        if not self.data:
+            conditions = list(getattr(self.instance, "show_if_conditions", []) or [])
+            if not conditions and getattr(self.instance, "show_if_question_id", None) and self.instance.show_if_value:
+                conditions = [{
+                    "question_id": self.instance.show_if_question_id,
+                    "value": self.instance.show_if_value,
+                }]
+            self.fields["show_if_conditions"].initial = conditions
 
     def save(self, commit=True):
         obj = super().save(commit=False)
-        # keep JSON field in sync for compatibility (optional)
-        conds = []
-        if obj.show_if_question_id and obj.show_if_value:
-            conds.append({"question_id": obj.show_if_question_id, "value": obj.show_if_value})
-        # clear secondary fields
+        conds = list(self.cleaned_data.get("show_if_conditions") or [])
+        obj.show_if_conditions = conds
+        obj.show_if_question = None
+        obj.show_if_value = ""
         obj.show_if_question_2 = None
         obj.show_if_value_2 = ""
-        obj.show_if_conditions = conds
+        if conds:
+            obj.show_if_question_id = int(conds[0].get("question_id") or 0) or None
+            obj.show_if_value = conds[0].get("value", "")
+        if len(conds) > 1:
+            obj.show_if_question_2_id = int(conds[1].get("question_id") or 0) or None
+            obj.show_if_value_2 = conds[1].get("value", "")
 
         if commit:
             obj.save()
@@ -412,7 +408,7 @@ class SectionAdminForm(forms.ModelForm):
         return obj
 
 
-class SectionInline(admin.TabularInline):
+class SectionInline(admin.StackedInline):
     model = Section
     extra = 0
     form = SectionAdminForm
@@ -420,8 +416,7 @@ class SectionInline(admin.TabularInline):
         "position",
         "title",
         "description",
-        "show_if_question",
-        "show_if_value",
+        "show_if_conditions",
     )
     ordering = ("position", "id")
 

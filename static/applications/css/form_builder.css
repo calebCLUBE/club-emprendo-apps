@@ -95,6 +95,25 @@ body.app-applications.model-formdefinition.change-form select:focus { border-bot
 .ce-required-control label { margin: 0 !important; }
 .ce-required-control input { accent-color: var(--form-purple); }
 .ce-builder-hidden { display: none !important; }
+.ce-logic { max-width: 680px; font-family: Arial, sans-serif; }
+.ce-logic__toggle { display: inline-flex !important; align-items: center; gap: 10px; cursor: pointer; color: #3c4043 !important; font-size: 14px !important; }
+.ce-logic__toggle > input { position: absolute; opacity: 0; pointer-events: none; }
+.ce-logic__switch { position: relative; width: 34px; height: 18px; border-radius: 999px; background: #bdc1c6; transition: background .15s; }
+.ce-logic__switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.35); transition: transform .15s; }
+.ce-logic__toggle > input:checked + .ce-logic__switch { background: var(--form-purple); }
+.ce-logic__toggle > input:checked + .ce-logic__switch::after { transform: translateX(16px); }
+.ce-logic__toggle > input:focus-visible + .ce-logic__switch { outline: 2px solid #1a73e8; outline-offset: 2px; }
+.ce-logic__panel { margin-top: 12px; padding: 14px; border-radius: 6px; background: #f8f9fa; }
+.ce-logic__sentence { margin-bottom: 10px; color: #5f6368; font-size: 12px; font-weight: 600; }
+.ce-logic__rows { display: grid; gap: 8px; }
+.ce-logic__row { display: grid; grid-template-columns: auto minmax(170px,1fr) auto minmax(150px,1fr) 34px; align-items: center; gap: 8px; }
+.ce-logic__row select { width: 100%; min-width: 0; background: #fff !important; }
+.ce-logic__join { min-width: 34px; color: var(--form-purple); font-size: 11px; font-weight: 700; text-align: center; }
+.ce-logic__is { color: #5f6368; font-size: 13px; }
+.ce-logic__remove { width: 32px; height: 32px; border: 0; border-radius: 50%; background: transparent; color: #5f6368; cursor: pointer; font-size: 23px; line-height: 1; }
+.ce-logic__remove:hover { background: #e8eaed; }
+.ce-logic__add { margin-top: 10px; padding: 7px 4px; border: 0; background: transparent; color: var(--form-purple); cursor: pointer; font-weight: 600; }
+.ce-logic__empty { margin: 10px 0 0; color: #b06000; font-size: 12px; }
 #questions-group { position: relative; }
 .ce-builder-rail {
   position: absolute; top: 4px; right: -58px; z-index: 10; display: grid; gap: 2px; padding: 6px;
@@ -120,4 +139,9 @@ body.app-applications.model-formdefinition.change-form .submit-row input[name="_
   body.app-applications.model-formdefinition.change-form .form-row { padding-left: 16px; padding-right: 16px; }
   .ce-question-actions { margin-left: 16px; margin-right: 16px; flex-wrap: wrap; }
   body.app-applications.model-formdefinition.change-form .submit-row { right: 8px; bottom: 8px; }
+  .ce-logic__row { grid-template-columns: 1fr auto; }
+  .ce-logic__join { grid-column: 1 / -1; text-align: left; }
+  .ce-logic__is { display: none; }
+  .ce-logic__row select { grid-column: 1; }
+  .ce-logic__remove { grid-column: 2; grid-row: 2 / span 2; }
 }

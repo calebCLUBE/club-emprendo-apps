@@ -1,139 +1,18 @@
-<div class="ce-cond-widget" data-questions="{{ widget.questions_json|escape }}">
+<div class="ce-logic" data-questions="{{ widget.questions_json|escape }}"
+     data-target-label="{{ widget.target_label|default:'question' }}"
+     data-conjunction="{{ widget.conjunction|default:'OR' }}">
   <input type="hidden" name="{{ widget.name }}" value="{{ widget.value_json|default:'[]'|escape }}" data-cond-input>
-  <div data-cond-rows></div>
-  <button type="button" class="button" data-add-cond>Add another show if question</button>
+  <label class="ce-logic__toggle">
+    <input type="checkbox" data-logic-enabled>
+    <span class="ce-logic__switch" aria-hidden="true"></span>
+    <span>Show this {{ widget.target_label|default:'question' }} based on an answer</span>
+  </label>
+  <div class="ce-logic__panel" data-logic-panel hidden>
+    <div class="ce-logic__sentence">Show this {{ widget.target_label|default:'question' }} when:</div>
+    <div class="ce-logic__rows" data-cond-rows></div>
+    <button type="button" class="ce-logic__add" data-add-cond>＋ Add another condition</button>
+    <p class="ce-logic__empty" data-no-questions hidden>
+      Add a multiple-choice, checkbox, or Yes/No question first.
+    </p>
+  </div>
 </div>
-
-<script>
-  (function() {
-    const root = document.currentScript?.previousElementSibling;
-    if (!root || root.dataset.inited === "1") return;
-    root.dataset.inited = "1";
-
-    function parseAttrJSON(raw, fallback) {
-      if (!raw) return fallback;
-      try { return JSON.parse(raw); } catch (e) {}
-      try {
-        const normalized = raw
-          .replace(/\\u0022/g, "\"")
-          .replace(/\\u0027/g, "'")
-          .replace(/\\u005C/g, "\\");
-        return JSON.parse(normalized);
-      } catch (e) {}
-      return fallback;
-    }
-
-    const questions = parseAttrJSON(root.getAttribute("data-questions"), []);
-    const input = root.querySelector("[data-cond-input]");
-    const rows = root.querySelector("[data-cond-rows]");
-
-    function buildValueOptions(q, current) {
-      const opts = [];
-      opts.push({ value: "", label: "Selecciona valor" });
-      if (!q) return opts;
-      if (q.field_type === "boolean") {
-        opts.push({ value: "yes", label: "Sí" });
-        opts.push({ value: "no", label: "No" });
-      } else if (q.field_type === "choice" || q.field_type === "multi_choice") {
-        (q.choices || []).forEach(c => opts.push({ value: c.value, label: c.label || c.value }));
-      }
-      return opts;
-    }
-
-    function buildQuestionOptions(currentId) {
-      const opts = [{ value: "", label: "— Siempre —" }];
-      questions.forEach(q => {
-        opts.push({ value: String(q.id), label: q.text });
-      });
-      return opts;
-    }
-
-    function createSelect(options, current) {
-      const sel = document.createElement("select");
-      sel.className = "vTextField";
-      options.forEach(o => {
-        const opt = document.createElement("option");
-        opt.value = o.value;
-        opt.textContent = o.label;
-        if (String(o.value) === String(current || "")) opt.selected = true;
-        sel.appendChild(opt);
-      });
-      return sel;
-    }
-
-    function renderRow(cond) {
-      const row = document.createElement("div");
-      row.setAttribute("data-cond-row", "1");
-      row.style.display = "flex";
-      row.style.gap = "8px";
-      row.style.marginTop = "6px";
-      row.style.alignItems = "center";
-
-      const qSelect = createSelect(buildQuestionOptions(), cond.question_id || "");
-      const valSelect = createSelect(buildValueOptions(null), cond.value || "");
-
-      qSelect.addEventListener("change", () => {
-        const q = questions.find(x => String(x.id) === String(qSelect.value));
-        const opts = buildValueOptions(q);
-        valSelect.innerHTML = "";
-        opts.forEach(o => {
-          const opt = document.createElement("option");
-          opt.value = o.value;
-          opt.textContent = o.label;
-          valSelect.appendChild(opt);
-        });
-        sync();
-      });
-      valSelect.addEventListener("change", sync);
-
-      row.appendChild(qSelect);
-      row.appendChild(valSelect);
-      rows.appendChild(row);
-
-      // initialize values for question
-      if (qSelect.value) {
-        const q = questions.find(x => String(x.id) === String(qSelect.value));
-        const opts = buildValueOptions(q);
-        valSelect.innerHTML = "";
-        opts.forEach(o => {
-          const opt = document.createElement("option");
-          opt.value = o.value;
-          opt.textContent = o.label;
-          if (String(o.value) === String(cond.value || "")) opt.selected = true;
-          valSelect.appendChild(opt);
-        });
-      }
-    }
-
-    function sync() {
-      const data = [];
-      rows.querySelectorAll("[data-cond-row='1']").forEach(r => {
-        const selects = r.querySelectorAll("select");
-        if (selects.length < 2) return;
-        const qid = selects[0].value;
-        const val = selects[1].value;
-        if (qid && val) data.push({ question_id: Number(qid), value: val });
-      });
-      input.value = JSON.stringify(data);
-    }
-
-    function init() {
-      let data = parseAttrJSON(input.value || "[]", []);
-      if (!Array.isArray(data)) data = [];
-      if (!data.length) data = [{ question_id: "", value: "" }];
-      rows.innerHTML = "";
-      data.forEach(renderRow);
-      sync();
-    }
-
-    const addButton = root.querySelector("[data-add-cond]");
-    if (addButton) {
-      addButton.addEventListener("click", () => {
-        renderRow({ question_id: "", value: "" });
-        sync();
-      });
-    }
-
-    init();
-  })();
-</script>

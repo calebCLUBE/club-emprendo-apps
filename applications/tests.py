@@ -12,7 +12,7 @@ from unittest.mock import Mock, patch
 from applications import admin_dashboard_views
 from applications import admin_profiles_views
 from applications import meta_marketing
-from applications.admin import QuestionAdminForm
+from applications.admin import QuestionAdminForm, SectionAdminForm
 from applications.admin_views import (
     _build_second_stage_reminder_payload,
     _clone_form,
@@ -268,6 +268,35 @@ class QuestionAdminFormTests(TestCase):
         self.assertContains(response, "Club Emprendo Forms")
         self.assertContains(response, "applications/css/form_builder.css")
         self.assertContains(response, "applications/js/form_builder.js")
+        self.assertContains(response, "Show this question based on an answer")
+
+    def test_section_logic_widget_saves_google_style_answer_rule(self):
+        section = Section.objects.create(
+            form=self.form_def,
+            title="Conditional section",
+            position=1,
+        )
+        form = SectionAdminForm(
+            data={
+                "form": str(self.form_def.id),
+                "title": section.title,
+                "description": "",
+                "position": "1",
+                "show_if_logic": "AND",
+                "show_if_conditions": json.dumps([
+                    {"question_id": self.controller.id, "value": "yes"}
+                ]),
+            },
+            instance=section,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        saved = form.save()
+        self.assertEqual(saved.show_if_conditions, [
+            {"question_id": self.controller.id, "value": "yes"}
+        ])
+        self.assertEqual(saved.show_if_question, self.controller)
+        self.assertEqual(saved.show_if_value, "yes")
 
 
 class SingleCombinedApplicationTests(TestCase):

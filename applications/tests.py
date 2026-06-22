@@ -535,6 +535,7 @@ class MultipleChoiceGridTests(TestCase):
         self.assertIn("Alto", html)
         self.assertIn('name="q_area_grid__row_0"', html)
         self.assertIn('name="q_area_grid__row_1"', html)
+        self.assertEqual(html.count('class="ce-grid-choice__mark"'), 4)
 
     def test_required_grid_validates_every_row_and_stores_labels(self):
         ApplicationForm = build_application_form(self.form_def.slug)
@@ -574,6 +575,32 @@ class MultipleChoiceGridTests(TestCase):
         self.assertFalse(form.is_valid())
         self.assertIn("grid_rows", form.errors)
         self.assertIn("answer_options", form.errors)
+
+    def test_form_description_is_rendered_only_inside_first_section(self):
+        self.form_def.description = "Description shown only on page one."
+        self.form_def.save(update_fields=["description"])
+        first = Section.objects.create(form=self.form_def, title="First section", position=1)
+        second = Section.objects.create(form=self.form_def, title="Second section", position=2)
+        self.question.section = first
+        self.question.save(update_fields=["section"])
+        Question.objects.create(
+            form=self.form_def,
+            section=second,
+            text="Second-page question",
+            slug="second_page_question",
+            field_type=Question.SHORT_TEXT,
+            position=2,
+        )
+
+        response = self.client.get(reverse("apply_by_slug", args=[self.form_def.slug]))
+        html = response.content.decode()
+        first_panel = html.index('data-section-index="0"')
+        description = html.index("Description shown only on page one.")
+        second_panel = html.index('data-section-index="1"')
+
+        self.assertLess(first_panel, description)
+        self.assertLess(description, second_panel)
+        self.assertEqual(html.count("Description shown only on page one."), 1)
 
 
 class SingleCombinedApplicationTests(TestCase):

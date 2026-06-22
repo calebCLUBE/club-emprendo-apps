@@ -1,3 +1,12 @@
+<style>
+  .ce-grid-choice { position: relative; display: inline-grid; width: 24px; height: 24px; place-items: center; cursor: pointer; }
+  .ce-grid-choice__input { position: absolute; inset: 0; width: 24px !important; height: 24px !important; margin: 0 !important; opacity: 0 !important; cursor: pointer; }
+  .ce-grid-choice__mark { display: grid; width: 20px; height: 20px; place-items: center; border: 2px solid #5f6368; border-radius: 50%; background: #fff; }
+  .ce-grid-choice__mark::after { content: ""; width: 10px; height: 10px; border-radius: 50%; background: #673ab7; transform: scale(0); transition: transform .1s ease-in-out; }
+  .ce-grid-choice__input:checked + .ce-grid-choice__mark { border-color: #673ab7; }
+  .ce-grid-choice__input:checked + .ce-grid-choice__mark::after { transform: scale(1); }
+  .ce-grid-choice__input:focus-visible + .ce-grid-choice__mark { outline: 3px solid rgba(103, 58, 183, .22); outline-offset: 2px; }
+</style>
 <div class="ce-grid-question" role="group" aria-label="{{ widget.attrs.aria_label|default:'Multiple choice grid' }}">
   <div class="ce-grid-question__scroll">
     <table class="ce-grid-question__table">
@@ -15,13 +24,17 @@
             <th scope="row">{{ row.label }}</th>
             {% for column in widget.grid_columns %}
               <td>
-                <input type="radio"
-                       name="{{ widget.name }}__row_{{ row.index }}"
-                       value="{{ column.0 }}"
-                       aria-label="{{ row.label }}: {{ column.1 }}"
-                       {% if row.selected|stringformat:'s' == column.0|stringformat:'s' %}checked{% endif %}
-                       {% if widget.grid_required %}required{% endif %}
-                       {% if widget.grid_base_required %}data-base-required="{{ widget.grid_base_required }}"{% endif %}>
+                <label class="ce-grid-choice">
+                  <input class="ce-grid-choice__input"
+                         type="radio"
+                         name="{{ widget.name }}__row_{{ row.index }}"
+                         value="{{ column.0 }}"
+                         aria-label="{{ row.label }}: {{ column.1 }}"
+                         {% if row.selected|stringformat:'s' == column.0|stringformat:'s' %}checked{% endif %}
+                         {% if widget.grid_required %}required{% endif %}
+                         {% if widget.grid_base_required %}data-base-required="{{ widget.grid_base_required }}"{% endif %}>
+                  <span class="ce-grid-choice__mark" aria-hidden="true"></span>
+                </label>
               </td>
             {% endfor %}
           </tr>

@@ -698,6 +698,13 @@ def _sections_from_model(form_def: FormDefinition, form, default_intro: str = ""
     ordered = [b for b in filtered if b["fields"]]
     if not ordered:
         return None
+    intro = str(default_intro or "").strip()
+    if intro:
+        current_intro = str(ordered[0].get("intro") or "").strip()
+        if intro not in current_intro:
+            ordered[0]["intro"] = "\n\n".join(
+                value for value in (intro, current_intro) if value
+            )
     return ordered
 
 
@@ -1049,16 +1056,14 @@ def _handle_application_form(
     else:
         sections = _sections_from_model(form_def, form, default_intro=rendered_description)
     if sections:
-        default_with_fields = next(
-            (
-                s for s in sections
-                if s.get("id") == "unassigned" and s.get("fields")
-            ),
-            None,
-        )
-        if default_with_fields and (default_with_fields.get("intro") or "").strip():
-            # Keep description with the default section block instead of duplicating it above.
-            rendered_description = ""
+        intro = str(rendered_description or "").strip()
+        first_intro = str(sections[0].get("intro") or "").strip()
+        if intro and intro not in first_intro:
+            sections[0]["intro"] = "\n\n".join(
+                value for value in (intro, first_intro) if value
+            )
+        # The form description belongs to page one, not above every page.
+        rendered_description = ""
     m2_gate_field = None
 
     # Legacy: fallback to heuristic sections for Mentora A2 if no explicit sections exist

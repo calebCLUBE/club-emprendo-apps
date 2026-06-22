@@ -8,6 +8,7 @@
   --ce-soft-pink: #f6dad9;
   --ce-deep-green: #163108;
   --ce-muted-green: #889480;
+  --ce-purple: #673ab7;
   --ce-bg: #fcfbfa;
   --ce-white: #ffffff;
 
@@ -257,9 +258,42 @@ form {
 }
 
 .ce-grid-question__table input[type="radio"] {
-  width: 18px;
-  height: 18px;
-  accent-color: var(--ce-purple);
+  -webkit-appearance: none;
+  appearance: none;
+  display: inline-grid !important;
+  place-content: center;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  border: 2px solid #5f6368;
+  border-radius: 50%;
+  background: #fff;
+  opacity: 1;
+  cursor: pointer;
+  vertical-align: middle;
+}
+
+.ce-grid-question__table input[type="radio"]::before {
+  content: "";
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--ce-purple);
+  transform: scale(0);
+  transition: transform 0.1s ease-in-out;
+}
+
+.ce-grid-question__table input[type="radio"]:checked {
+  border-color: var(--ce-purple);
+}
+
+.ce-grid-question__table input[type="radio"]:checked::before {
+  transform: scale(1);
+}
+
+.ce-grid-question__table input[type="radio"]:focus-visible {
+  outline: 3px solid rgba(103, 58, 183, 0.22);
+  outline-offset: 2px;
 }
 
 input[type="text"],

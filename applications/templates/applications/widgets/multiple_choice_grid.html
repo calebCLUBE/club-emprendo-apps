@@ -1,0 +1,32 @@
+<div class="ce-grid-question" role="group" aria-label="{{ widget.attrs.aria_label|default:'Multiple choice grid' }}">
+  <div class="ce-grid-question__scroll">
+    <table class="ce-grid-question__table">
+      <thead>
+        <tr>
+          <th scope="col"></th>
+          {% for column in widget.grid_columns %}
+            <th scope="col">{{ column.1 }}</th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in widget.grid_rows %}
+          <tr data-grid-row>
+            <th scope="row">{{ row.label }}</th>
+            {% for column in widget.grid_columns %}
+              <td>
+                <input type="radio"
+                       name="{{ widget.name }}__row_{{ row.index }}"
+                       value="{{ column.0 }}"
+                       aria-label="{{ row.label }}: {{ column.1 }}"
+                       {% if row.selected|stringformat:'s' == column.0|stringformat:'s' %}checked{% endif %}
+                       {% if widget.grid_required %}required{% endif %}
+                       {% if widget.grid_base_required %}data-base-required="{{ widget.grid_base_required }}"{% endif %}>
+              </td>
+            {% endfor %}
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>

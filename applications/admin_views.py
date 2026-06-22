@@ -2537,6 +2537,7 @@ def _ensure_test_a2_form(role: str) -> FormDefinition:
             text=q.text,
             help_text=q.help_text,
             field_type=q.field_type,
+            grid_rows=q.grid_rows,
             required=q.required,
             position=q.position,
             slug=q.slug,
@@ -2753,6 +2754,7 @@ def _clone_form(master_fd: FormDefinition, group: FormGroup) -> FormDefinition:
                 respond_month=respond_month,
             ) or q.help_text,
             field_type=q.field_type,
+            grid_rows=q.grid_rows,
             required=q.required,
             position=q.position,
             slug=q.slug,  # IMPORTANT: stable

@@ -67,6 +67,71 @@ def split_help_text(raw: str):
     return body, pre_hr, rest
 
 
+class MultipleChoiceGridWidget(forms.Widget):
+    template_name = "applications/widgets/multiple_choice_grid.html"
+
+    def __init__(self, rows, columns, attrs=None):
+        super().__init__(attrs)
+        self.rows = list(rows)
+        self.columns = list(columns)
+
+    def value_from_datadict(self, data, files, name):
+        return [data.get(f"{name}__row_{index}", "") for index in range(len(self.rows))]
+
+    def get_context(self, name, value, attrs):
+        context = super().get_context(name, value, attrs)
+        selected = list(value) if isinstance(value, (list, tuple)) else []
+        context["widget"]["grid_rows"] = [
+            {
+                "index": index,
+                "label": label,
+                "selected": selected[index] if index < len(selected) else "",
+            }
+            for index, label in enumerate(self.rows)
+        ]
+        context["widget"]["grid_columns"] = self.columns
+        context["widget"]["grid_required"] = bool(attrs and attrs.get("required"))
+        context["widget"]["grid_base_required"] = (attrs or {}).get("data-base-required", "")
+        return context
+
+
+class MultipleChoiceGridField(forms.Field):
+    default_error_messages = {
+        "required": "Selecciona una respuesta para cada fila.",
+        "invalid": "Una de las respuestas de la cuadrícula no es válida.",
+    }
+
+    def __init__(self, *, rows, columns, **kwargs):
+        self.rows = list(rows)
+        self.columns = list(columns)
+        kwargs["widget"] = MultipleChoiceGridWidget(self.rows, self.columns)
+        super().__init__(**kwargs)
+
+    def clean(self, value):
+        values = list(value or [])
+        values += [""] * max(0, len(self.rows) - len(values))
+        values = values[:len(self.rows)]
+        allowed = {str(column[0]) for column in self.columns}
+
+        if self.required and (not self.rows or any(not item for item in values)):
+            raise forms.ValidationError(self.error_messages["required"], code="required")
+        if any(item and str(item) not in allowed for item in values):
+            raise forms.ValidationError(self.error_messages["invalid"], code="invalid")
+        if not any(values):
+            return ""
+
+        labels = {str(value): label for value, label in self.columns}
+        answers = [
+            {
+                "row": row,
+                "value": str(selected or ""),
+                "label": labels.get(str(selected or ""), ""),
+            }
+            for row, selected in zip(self.rows, values)
+        ]
+        return json.dumps(answers, ensure_ascii=False)
+
+
 def build_application_form(form_slug: str, additional_form_slugs: list[str] | tuple[str, ...] | None = None):
     form_slugs = [form_slug] + [slug for slug in (additional_form_slugs or []) if slug and slug != form_slug]
 
@@ -162,6 +227,16 @@ def build_application_form(form_slug: str, additional_form_slugs: list[str] | tu
                     field = forms.MultipleChoiceField(
                         choices=choices,
                         widget=forms.CheckboxSelectMultiple,
+                        initial=[],
+                        **common,
+                    )
+
+                elif field_type == Question.MULTIPLE_CHOICE_GRID:
+                    rows = [line.strip() for line in (q.grid_rows or "").splitlines() if line.strip()]
+                    columns = [(c.value, c.label) for c in q.choices.all().order_by("position", "id")]
+                    field = MultipleChoiceGridField(
+                        rows=rows,
+                        columns=columns,
                         initial=[],
                         **common,
                     )

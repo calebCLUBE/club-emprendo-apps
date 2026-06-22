@@ -504,6 +504,78 @@ class HelpTextFormattingTests(TestCase):
         self.assertNotIn("&lt;a", rendered)
 
 
+class MultipleChoiceGridTests(TestCase):
+    def setUp(self):
+        self.form_def = FormDefinition.objects.create(
+            slug="grid_form",
+            name="Grid form",
+            is_public=True,
+            accepting_responses=True,
+            manual_open_override=True,
+        )
+        self.question = Question.objects.create(
+            form=self.form_def,
+            text="Califica cada área",
+            slug="area_grid",
+            field_type=Question.MULTIPLE_CHOICE_GRID,
+            grid_rows="Ventas\nFinanzas",
+            required=True,
+            position=1,
+        )
+        Choice.objects.create(question=self.question, value="low", label="Bajo", position=1)
+        Choice.objects.create(question=self.question, value="high", label="Alto", position=2)
+
+    def test_grid_renders_rows_columns_and_one_radio_group_per_row(self):
+        form = build_application_form(self.form_def.slug)()
+        html = str(form["q_area_grid"])
+
+        self.assertIn("Ventas", html)
+        self.assertIn("Finanzas", html)
+        self.assertIn("Bajo", html)
+        self.assertIn("Alto", html)
+        self.assertIn('name="q_area_grid__row_0"', html)
+        self.assertIn('name="q_area_grid__row_1"', html)
+
+    def test_required_grid_validates_every_row_and_stores_labels(self):
+        ApplicationForm = build_application_form(self.form_def.slug)
+        incomplete = ApplicationForm({"q_area_grid__row_0": "low"})
+        self.assertFalse(incomplete.is_valid())
+        self.assertIn("q_area_grid", incomplete.errors)
+
+        complete = ApplicationForm({
+            "q_area_grid__row_0": "low",
+            "q_area_grid__row_1": "high",
+        })
+        self.assertTrue(complete.is_valid(), complete.errors)
+        answers = json.loads(complete.cleaned_data["q_area_grid"])
+        self.assertEqual(answers, [
+            {"row": "Ventas", "value": "low", "label": "Bajo"},
+            {"row": "Finanzas", "value": "high", "label": "Alto"},
+        ])
+
+    def test_admin_requires_grid_rows_and_columns(self):
+        form = QuestionAdminForm(
+            data={
+                "form": str(self.form_def.pk),
+                "text": "Grid without configuration",
+                "slug": "grid_without_configuration",
+                "field_type": Question.MULTIPLE_CHOICE_GRID,
+                "grid_rows": "",
+                "answer_options": "",
+                "required": "on",
+                "active": "on",
+                "position": "2",
+                "show_if_conditions": "[]",
+                "end_form_rules": "[]",
+            },
+            instance=Question(),
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("grid_rows", form.errors)
+        self.assertIn("answer_options", form.errors)
+
+
 class SingleCombinedApplicationTests(TestCase):
     def setUp(self):
         self.group = FormGroup.objects.create(

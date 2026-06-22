@@ -1,5 +1,5 @@
 (function () {
-  const QUESTION_TYPES_WITH_OPTIONS = new Set(["choice", "multi_choice"]);
+  const QUESTION_TYPES_WITH_OPTIONS = new Set(["choice", "multi_choice", "choice_grid"]);
   const ADVANCED_FIELDS = [
     "field-show_if_conditions", "field-end_form_rules", "field-confirm_value", "field-pre_hr",
     "field-pre_text", "field-slug", "field-position", "field-active",
@@ -158,8 +158,15 @@
     }
   }
 
-  function optionEditor(row) {
-    if (!row || row.dataset.optionsEnhanced === "1") return;
+  function optionEditor(row, config = {}) {
+    if (!row) return;
+    const itemName = config.itemName || "Option";
+    if (row.dataset.optionsEnhanced === "1") {
+      row.querySelectorAll(".ce-option-row input").forEach((input) => { input.placeholder = itemName; });
+      const add = row.querySelector(".ce-add-option");
+      if (add) add.textContent = `Add ${itemName.toLowerCase()}`;
+      return;
+    }
     const textarea = row.querySelector("textarea");
     if (!textarea) return;
     row.dataset.optionsEnhanced = "1";
@@ -190,8 +197,8 @@
       option.className = "ce-option-row";
       const drag = document.createElement("span");
       drag.className = "ce-option-drag";
-      drag.title = "Drag to reorder option";
-      drag.setAttribute("aria-label", "Drag to reorder option");
+      drag.title = `Drag to reorder ${itemName.toLowerCase()}`;
+      drag.setAttribute("aria-label", drag.title);
       drag.textContent = "⋮⋮";
       const marker = document.createElement("span");
       marker.className = "ce-option-marker";
@@ -199,7 +206,7 @@
       const input = document.createElement("input");
       input.type = "text";
       input.value = value || "";
-      input.placeholder = "Option";
+      input.placeholder = itemName;
       input.addEventListener("input", sync);
       input.addEventListener("keydown", (event) => {
         if (event.key === "Enter") { event.preventDefault(); addOption("", true); }
@@ -248,7 +255,7 @@
     const add = document.createElement("button");
     add.type = "button";
     add.className = "ce-add-option";
-    add.textContent = "Add option";
+    add.textContent = `Add ${itemName.toLowerCase()}`;
     add.addEventListener("click", () => addOption("", true));
     editor.appendChild(add);
     row.appendChild(editor);
@@ -260,11 +267,19 @@
 
   function setOptionsVisibility(card) {
     const type = card.querySelector("select[id$='-field_type']");
-    const row = rowFor(card, "field-answer_options");
-    if (!type || !row) return;
-    row.classList.toggle("ce-builder-hidden", !QUESTION_TYPES_WITH_OPTIONS.has(type.value));
-    if (QUESTION_TYPES_WITH_OPTIONS.has(type.value)) optionEditor(row);
+    const optionRow = rowFor(card, "field-answer_options");
+    const gridRow = rowFor(card, "field-grid_rows");
+    if (!type || !optionRow) return;
+    const hasOptions = QUESTION_TYPES_WITH_OPTIONS.has(type.value);
+    const isGrid = type.value === "choice_grid";
+    optionRow.classList.toggle("ce-builder-hidden", !hasOptions);
+    gridRow?.classList.toggle("ce-builder-hidden", !isGrid);
+    const optionLabel = optionRow.querySelector(":scope > div > label, :scope > label");
+    if (optionLabel) optionLabel.textContent = isGrid ? "Columns" : "Answer options";
+    if (hasOptions) optionEditor(optionRow, { itemName: isGrid ? "Column" : "Option" });
+    if (isGrid) optionEditor(gridRow, { itemName: "Row" });
     card.classList.toggle("ce-multiple-options", type.value === "multi_choice");
+    card.classList.toggle("ce-grid-options", isGrid);
   }
 
   function copyQuestion(source, target) {
@@ -278,15 +293,21 @@
       else targetField.value = field.value;
       targetField.dispatchEvent(new Event("change", { bubbles: true }));
     });
-    const sourceOptions = source.querySelector(".ce-options-source");
-    const targetOptions = target.querySelector(".ce-options-source");
-    if (sourceOptions && targetOptions) {
-      targetOptions.value = sourceOptions.value;
-      target.querySelector(".ce-options-editor")?.remove();
-      const targetRow = targetOptions.closest(".field-answer_options");
-      targetRow.dataset.optionsEnhanced = "0";
-      optionEditor(targetRow);
-    }
+    target.querySelectorAll(".ce-options-source").forEach((targetSource) => {
+      const suffix = targetSource.name?.split("-").pop();
+      const sourceValue = source.querySelector(`[name$="-${suffix}"]`)?.value;
+      if (sourceValue === undefined) return;
+      targetSource.value = sourceValue;
+      const targetRow = targetSource.closest(`.field-${suffix}`);
+      targetRow?.querySelector(".ce-options-editor")?.remove();
+      if (targetRow) {
+        targetRow.dataset.optionsEnhanced = "0";
+        const targetIsGrid = target.querySelector("select[id$='-field_type']")?.value === "choice_grid";
+        optionEditor(targetRow, {
+          itemName: suffix === "grid_rows" ? "Row" : targetIsGrid ? "Column" : "Option",
+        });
+      }
+    });
   }
 
   function enhanceQuestion(card) {

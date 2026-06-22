@@ -527,7 +527,12 @@
         const controls = Array.from(block.querySelectorAll("input, select, textarea"))
           .filter((input) => input.type !== "hidden" && !input.disabled);
         if (!controls.length) return false;
-        const checks = controls.filter((input) => input.type === "checkbox" || input.type === "radio");
+        const radios = controls.filter((input) => input.type === "radio");
+        if (radios.length) {
+          const names = Array.from(new Set(radios.map((input) => input.name)));
+          return names.every((name) => radios.some((input) => input.name === name && input.checked));
+        }
+        const checks = controls.filter((input) => input.type === "checkbox");
         if (checks.length) return checks.some((input) => input.checked);
         return controls.some((input) => {
           if (input.type === "file") return Boolean(input.files?.length || input.value);

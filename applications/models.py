@@ -374,6 +374,7 @@ class Question(models.Model):
     BOOLEAN = "boolean"            # single checkbox
     CHOICE = "choice"              # single choice (radio/dropdown)
     MULTI_CHOICE = "multi_choice"  # multiple choice (checkbox list)
+    MULTIPLE_CHOICE_GRID = "choice_grid"  # one radio-button choice per row
 
     FIELD_TYPES = [
         (SHORT_TEXT, "Short text"),
@@ -382,6 +383,7 @@ class Question(models.Model):
         (BOOLEAN, "Yes/No (checkbox)"),
         (CHOICE, "Single choice"),
         (MULTI_CHOICE, "Multiple choice"),
+        (MULTIPLE_CHOICE_GRID, "Multiple choice grid"),
     ]
 
     form = models.ForeignKey(
@@ -393,6 +395,10 @@ class Question(models.Model):
     text = models.CharField(max_length=255)
     help_text = models.TextField(blank=True)
     field_type = models.CharField(max_length=20, choices=FIELD_TYPES)
+    grid_rows = models.TextField(
+        blank=True,
+        help_text="For multiple choice grids: enter one row label per line.",
+    )
     required = models.BooleanField(default=True)
     position = models.PositiveIntegerField(default=0)
 

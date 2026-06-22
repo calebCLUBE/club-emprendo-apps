@@ -104,8 +104,8 @@ class QuestionAdminForm(forms.ModelForm):
 
     answer_options = forms.CharField(
         required=False,
-        label="Answer options",
-        help_text="One option per line. Only used for single- and multiple-choice questions.",
+        label="Answer options / grid columns",
+        help_text="One option per line. For a multiple choice grid, these are the columns.",
         widget=forms.Textarea(attrs={"rows": 4, "placeholder": "Option 1\nOption 2"}),
     )
     section_token = forms.CharField(required=False, widget=forms.HiddenInput())
@@ -137,6 +137,7 @@ class QuestionAdminForm(forms.ModelForm):
         widgets = {
             # Hide raw storage so admin users don't see [[PRE...]] tags
             "help_text": forms.HiddenInput(),
+            "grid_rows": forms.Textarea(attrs={"rows": 4, "placeholder": "Row 1\nRow 2"}),
         }
 
     def __init__(self, *args, **kwargs):
@@ -155,7 +156,12 @@ class QuestionAdminForm(forms.ModelForm):
                 (Question.BOOLEAN, "Yes / No"),
                 (Question.CHOICE, "Dropdown"),
                 (Question.MULTI_CHOICE, "Checkboxes"),
+                (Question.MULTIPLE_CHOICE_GRID, "Multiple choice grid"),
             ]
+
+        if "grid_rows" in self.fields:
+            self.fields["grid_rows"].label = "Grid rows"
+            self.fields["grid_rows"].help_text = "Enter one row per line. Columns are edited below."
 
         # Parse existing help_text into admin-friendly pieces
         pre_text, pre_hr, rest = _split_help_text(getattr(self.instance, "help_text", "") or "")
@@ -293,26 +299,30 @@ class QuestionAdminForm(forms.ModelForm):
 
     def clean(self):
         cleaned_data = super().clean()
-        if (cleaned_data.get("slug") or "").strip():
-            return cleaned_data
+        if not (cleaned_data.get("slug") or "").strip():
+            text = (cleaned_data.get("text") or "").strip()
+            if text:
+                max_length = Question._meta.get_field("slug").max_length
+                base = (slugify(text).replace("-", "_") or "question")[:max_length]
+                form_obj = getattr(self.instance, "form", None)
+                used = set()
+                if form_obj and getattr(form_obj, "pk", None):
+                    existing = form_obj.questions.all()
+                    if getattr(self.instance, "pk", None):
+                        existing = existing.exclude(pk=self.instance.pk)
+                    used = set(existing.values_list("slug", flat=True))
+                generated = _available_question_slug(base, used, max_length)
+                cleaned_data["slug"] = generated
+                self.instance.slug = generated
+                self._generated_slug_base = base
 
-        text = (cleaned_data.get("text") or "").strip()
-        if not text:
-            return cleaned_data
-
-        max_length = Question._meta.get_field("slug").max_length
-        base = (slugify(text).replace("-", "_") or "question")[:max_length]
-        form_obj = getattr(self.instance, "form", None)
-        used = set()
-        if form_obj and getattr(form_obj, "pk", None):
-            existing = form_obj.questions.all()
-            if getattr(self.instance, "pk", None):
-                existing = existing.exclude(pk=self.instance.pk)
-            used = set(existing.values_list("slug", flat=True))
-        generated = _available_question_slug(base, used, max_length)
-        cleaned_data["slug"] = generated
-        self.instance.slug = generated
-        self._generated_slug_base = base
+        if cleaned_data.get("field_type") == Question.MULTIPLE_CHOICE_GRID:
+            rows = [line.strip() for line in (cleaned_data.get("grid_rows") or "").splitlines() if line.strip()]
+            columns = [line.strip() for line in (cleaned_data.get("answer_options") or "").splitlines() if line.strip()]
+            if not rows:
+                self.add_error("grid_rows", "Add at least one grid row.")
+            if not columns:
+                self.add_error("answer_options", "Add at least one grid column.")
         return cleaned_data
 
     def save(self, commit=True):
@@ -615,6 +625,7 @@ class QuestionInline(admin.StackedInline):
         "slug",
         "text",
         "field_type",
+        "grid_rows",
         "answer_options",
         "help_text_clean",
         "section_token",
@@ -830,6 +841,7 @@ class QuestionAdmin(admin.ModelAdmin):
         "slug",
         "text",
         "field_type",
+        "grid_rows",
         "answer_options",
         "help_text_clean",
         "section",

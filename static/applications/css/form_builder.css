@@ -93,6 +93,10 @@ body.app-applications.model-formdefinition.change-form select:focus { border-bot
 .field-answer_options > div { width: 100%; }
 .ce-options-source { display: none !important; }
 .ce-options-editor { max-width: 640px; }
+.ce-grid-options .field-grid_rows,
+.ce-grid-options .field-answer_options { display: inline-block; vertical-align: top; width: calc(50% - 3px); box-sizing: border-box; }
+.ce-grid-options .field-grid_rows { padding-right: 8px !important; }
+.ce-grid-options .field-answer_options { padding-left: 8px !important; }
 .ce-option-list { display: grid; gap: 2px; }
 .ce-option-row { display: grid; grid-template-columns: 20px 24px minmax(0,1fr) 34px; align-items: center; gap: 7px; margin: 2px 0; }
 .ce-option-drag { color: #bdc1c6; cursor: grab; font-size: 16px; letter-spacing: -4px; user-select: none; touch-action: none; }
@@ -178,4 +182,6 @@ body.app-applications.model-formdefinition.change-form .submit-row input[name="_
   .ce-logic__remove { grid-column: 2; grid-row: 2 / span 2; }
   .ce-end-rule { grid-template-columns: 1fr; }
   .ce-end-rule label:nth-of-type(3) { grid-column: 1; }
+  .ce-grid-options .field-grid_rows,
+  .ce-grid-options .field-answer_options { display: block; width: 100%; padding-left: 16px !important; padding-right: 16px !important; }
 }

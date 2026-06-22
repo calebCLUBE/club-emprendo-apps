@@ -220,6 +220,48 @@ form {
   text-decoration: underline;
 }
 
+.ce-grid-question__scroll {
+  overflow-x: auto;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: var(--ce-radius-md);
+}
+
+.ce-grid-question__table {
+  width: 100%;
+  min-width: 520px;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.ce-grid-question__table th,
+.ce-grid-question__table td {
+  padding: 0.75rem 0.65rem;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  text-align: center;
+}
+
+.ce-grid-question__table thead th {
+  color: var(--ce-deep-green);
+  background: rgba(103, 58, 183, 0.06);
+  font-weight: 600;
+}
+
+.ce-grid-question__table tbody th {
+  min-width: 180px;
+  text-align: left;
+  font-weight: 500;
+}
+
+.ce-grid-question__table tbody tr:nth-child(even) {
+  background: rgba(0, 0, 0, 0.018);
+}
+
+.ce-grid-question__table input[type="radio"] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--ce-purple);
+}
+
 input[type="text"],
 input[type="email"],
 input[type="number"],

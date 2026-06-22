@@ -6,6 +6,59 @@
   ];
 
   const rowFor = (card, name) => card.querySelector("." + name);
+  let pendingSectionAfter = null;
+  let pendingQuestionAfter = null;
+
+  function activateCard(card) {
+    document.querySelectorAll("#questions-group .ce-structure-card.ce-card-active")
+      .forEach((item) => item.classList.remove("ce-card-active"));
+    card?.classList.add("ce-card-active");
+  }
+
+  function questionContainer() {
+    return (
+      document.querySelector("#questions-group .inline-related:not(.empty-form)")?.parentElement
+      || document.querySelector("#questions-group .add-row")?.parentElement
+      || null
+    );
+  }
+
+  function sectionToken(card) {
+    const idInput = card.querySelector("input[id$='-id']");
+    if (idInput?.value) return `id:${idInput.value}`;
+    const title = card.querySelector("input[id$='-title']");
+    return title?.id ? title.id.replace(/^id_/, "").replace(/-title$/, "") : "";
+  }
+
+  function updateStructure() {
+    const container = questionContainer();
+    if (!container) return;
+    let currentSectionToken = "";
+    let questionPosition = 1;
+    let sectionPosition = 1;
+    Array.from(container.children).forEach((card) => {
+      if (card.hidden || !card.classList?.contains("ce-structure-card")) return;
+      if (card.classList.contains("ce-section-card")) {
+        currentSectionToken = sectionToken(card);
+        const position = card.querySelector("input[id$='-position']");
+        const label = card.querySelector(".ce-section-label");
+        if (label) label.textContent = `Section ${sectionPosition}`;
+        if (position) position.value = sectionPosition++;
+        return;
+      }
+      const position = card.querySelector("input[id$='-position']");
+      if (position) position.value = questionPosition++;
+      const token = card.querySelector("input[id$='-section_token']");
+      const section = card.querySelector("select[id$='-section']");
+      if (token) token.value = currentSectionToken;
+      if (section) {
+        section.value = currentSectionToken.startsWith("id:")
+          ? currentSectionToken.slice(3)
+          : "";
+      }
+    });
+    document.querySelector("#content-main form")?.dispatchEvent(new Event("input", { bubbles: true }));
+  }
 
   function optionEditor(row) {
     if (!row || row.dataset.optionsEnhanced === "1") return;
@@ -104,15 +157,7 @@
   }
 
   function updateQuestionPositions() {
-    Array.from(document.querySelectorAll("#questions-group .inline-related:not(.empty-form)"))
-      .filter((item) => !item.hidden && !item.querySelector("input[id$='-DELETE']:checked"))
-      .forEach((item, index) => {
-        const position = item.querySelector("input[id$='-position']");
-        if (position) {
-          position.value = index + 1;
-          position.dispatchEvent(new Event("input", { bubbles: true }));
-        }
-      });
+    updateStructure();
   }
 
   function setOptionsVisibility(card) {
@@ -149,6 +194,7 @@
   function enhanceQuestion(card) {
     if (card.dataset.simpleBuilder === "1" || !card.querySelector("select[id$='-field_type']")) return;
     card.dataset.simpleBuilder = "1";
+    card.classList.add("ce-structure-card", "ce-question-card");
     const dragHandle = document.createElement("div");
     dragHandle.className = "ce-drag-handle";
     dragHandle.title = "Drag to reorder";
@@ -158,17 +204,13 @@
     dragHandle.addEventListener("dragstart", (event) => {
       event.dataTransfer?.setData("text/plain", "question");
       if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
-      card.classList.add("ce-dragging");
+      card.classList.add("ce-dragging", "ce-structure-dragging");
     });
     dragHandle.addEventListener("dragend", () => {
-      card.classList.remove("ce-dragging");
+      card.classList.remove("ce-dragging", "ce-structure-dragging");
       updateQuestionPositions();
     });
-    card.addEventListener("pointerdown", () => {
-      document.querySelectorAll("#questions-group .inline-related.ce-question-active")
-        .forEach((item) => item.classList.remove("ce-question-active"));
-      card.classList.add("ce-question-active");
-    });
+    card.addEventListener("pointerdown", () => activateCard(card));
     ADVANCED_FIELDS.forEach((name) => rowFor(card, name)?.classList.add("ce-builder-hidden"));
 
     const textRow = rowFor(card, "field-text");
@@ -226,8 +268,81 @@
     card.appendChild(actions);
   }
 
+  function enhanceSection(card) {
+    if (!card || card.dataset.sectionBuilder === "1" || card.querySelector("select[id$='-field_type']")) return;
+    if (!card.querySelector("input[id$='-title']")) return;
+    card.dataset.sectionBuilder = "1";
+    card.classList.add("ce-structure-card", "ce-section-card");
+    const label = document.createElement("div");
+    label.className = "ce-section-label";
+    label.textContent = "Section";
+    const dragHandle = document.createElement("div");
+    dragHandle.className = "ce-drag-handle ce-section-drag-handle";
+    dragHandle.title = "Drag to move section";
+    dragHandle.textContent = "⠿";
+    dragHandle.draggable = true;
+    card.prepend(label);
+    card.prepend(dragHandle);
+    dragHandle.addEventListener("dragstart", (event) => {
+      event.dataTransfer?.setData("text/plain", "section");
+      if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
+      card.classList.add("ce-structure-dragging");
+    });
+    dragHandle.addEventListener("dragend", () => {
+      card.classList.remove("ce-structure-dragging");
+      updateStructure();
+    });
+    card.addEventListener("pointerdown", () => activateCard(card));
+    const actions = document.createElement("div");
+    actions.className = "ce-question-actions ce-section-actions";
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.textContent = "Delete section";
+    remove.addEventListener("click", () => {
+      const deleteInput = card.querySelector("input[id$='-DELETE']");
+      if (deleteInput) deleteInput.checked = true;
+      card.hidden = true;
+      updateStructure();
+    });
+    actions.appendChild(remove);
+    card.appendChild(actions);
+  }
+
   function enhanceAll(root) {
-    (root || document).querySelectorAll(".inline-related").forEach(enhanceQuestion);
+    const scope = root || document;
+    const cards = [];
+    if (scope.matches?.(".inline-related")) cards.push(scope);
+    cards.push(...scope.querySelectorAll(".inline-related"));
+    cards.forEach((card) => {
+      enhanceQuestion(card);
+      enhanceSection(card);
+    });
+  }
+
+  function initializeSectionLayout() {
+    const container = questionContainer();
+    const sectionsGroup = document.querySelector("#sections-group");
+    if (!container || !sectionsGroup || sectionsGroup.dataset.interleaved === "1") return;
+    sectionsGroup.dataset.interleaved = "1";
+    const addRow = Array.from(container.children).find((child) => child.classList?.contains("add-row"));
+    const questions = Array.from(container.querySelectorAll(":scope > .ce-question-card"));
+    const sections = Array.from(sectionsGroup.querySelectorAll(".inline-related:not(.empty-form)"));
+    sections.sort((a, b) => {
+      const av = Number(a.querySelector("input[id$='-position']")?.value || 0);
+      const bv = Number(b.querySelector("input[id$='-position']")?.value || 0);
+      return av - bv;
+    });
+    sections.forEach((sectionCard) => {
+      enhanceSection(sectionCard);
+      const token = sectionToken(sectionCard);
+      const id = token.startsWith("id:") ? token.slice(3) : "";
+      const firstAssigned = questions.find((question) => (
+        question.querySelector("input[id$='-section_token']")?.value === `id:${id}`
+      ));
+      container.insertBefore(sectionCard, firstAssigned || addRow || null);
+    });
+    sectionsGroup.classList.add("ce-section-source");
+    updateStructure();
   }
 
   function simplifyAddButtons() {
@@ -246,10 +361,16 @@
     rail.className = "ce-builder-rail";
     const question = document.createElement("button");
     question.type = "button"; question.title = "Add question"; question.textContent = "+";
-    question.addEventListener("click", () => group.querySelector(".add-row a")?.click());
+    question.addEventListener("click", () => {
+      pendingQuestionAfter = group.querySelector(".ce-card-active") || null;
+      group.querySelector(".add-row a")?.click();
+    });
     const section = document.createElement("button");
     section.type = "button"; section.title = "Add section"; section.textContent = "▤";
-    section.addEventListener("click", () => document.querySelector("#sections-group .add-row a")?.click());
+    section.addEventListener("click", () => {
+      pendingSectionAfter = group.querySelector(".ce-card-active") || null;
+      document.querySelector("#sections-group .add-row a")?.click();
+    });
     rail.append(question, section);
     group.appendChild(rail);
   }
@@ -259,18 +380,37 @@
     if (!group) return;
     group.addEventListener("dragover", (event) => {
       event.preventDefault();
-      const dragging = group.querySelector(".ce-dragging");
+      const dragging = group.querySelector(".ce-structure-dragging");
       if (!dragging) return;
       const container = dragging.parentElement;
       if (!container) return;
-      const cards = Array.from(container.querySelectorAll(":scope > .inline-related:not(.empty-form):not(.ce-dragging)"));
+      const cards = Array.from(container.querySelectorAll(":scope > .ce-structure-card:not(.ce-structure-dragging):not([hidden])"));
       const next = cards.find((card) => event.clientY < card.getBoundingClientRect().top + card.offsetHeight / 2);
       const addRow = Array.from(container.children).find((child) => child.classList?.contains("add-row"));
       container.insertBefore(dragging, next || addRow || null);
     });
     group.addEventListener("drop", (event) => {
-      if (group.querySelector(".ce-dragging")) event.preventDefault();
+      if (group.querySelector(".ce-structure-dragging")) event.preventDefault();
     });
+  }
+
+  function placeAddedCard(row) {
+    const card = row?.matches?.(".inline-related") ? row : row?.querySelector?.(".inline-related");
+    if (!card || card.classList.contains("empty-form")) return;
+    enhanceAll(card);
+    const container = questionContainer();
+    if (!container) return;
+    if (card.classList.contains("ce-section-card")) {
+      const reference = pendingSectionAfter;
+      container.insertBefore(card, reference?.parentElement === container ? reference.nextSibling : container.querySelector(".add-row"));
+      pendingSectionAfter = null;
+    } else if (card.classList.contains("ce-question-card") && pendingQuestionAfter) {
+      const reference = pendingQuestionAfter;
+      if (reference.parentElement === container) container.insertBefore(card, reference.nextSibling);
+      pendingQuestionAfter = null;
+    }
+    activateCard(card);
+    updateStructure();
   }
 
   function setHeaderLinks() {
@@ -291,9 +431,15 @@
   }
 
   document.addEventListener("DOMContentLoaded", () => {
-    enhanceAll(document); simplifyAddButtons(); addRail(); enableReordering(); setHeaderLinks(); saveState();
+    enhanceAll(document); initializeSectionLayout(); simplifyAddButtons(); addRail(); enableReordering(); setHeaderLinks(); saveState();
     document.addEventListener("formset:added", (event) => {
-      enhanceAll(event.target); simplifyAddButtons();
+      placeAddedCard(event.target); simplifyAddButtons();
     });
+    if (window.django?.jQuery) {
+      window.django.jQuery(document).on("formset:added", function (_event, row) {
+        placeAddedCard(row?.[0]);
+        simplifyAddButtons();
+      });
+    }
   });
 })();

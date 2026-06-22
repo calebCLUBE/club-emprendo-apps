@@ -2,17 +2,19 @@ from datetime import date
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.contrib.auth import get_user_model
+from django.contrib import admin as django_admin
 from django.core.management import call_command
 from django.utils import timezone
 import json
 import re
 from io import StringIO
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from applications import admin_dashboard_views
 from applications import admin_profiles_views
 from applications import meta_marketing
-from applications.admin import QuestionAdminForm, SectionAdminForm
+from applications.admin import FormDefinitionAdmin, QuestionAdminForm, SectionAdminForm
 from applications.admin_views import (
     _build_second_stage_reminder_payload,
     _clone_form,
@@ -274,6 +276,8 @@ class QuestionAdminFormTests(TestCase):
             response,
             reverse("admin:applications_question_change", args=[self.controller.pk]),
         )
+        self.assertContains(response, 'name="questions-0-section_token"')
+        self.assertNotContains(response, 'name="questions-0-section"')
 
     def test_section_logic_widget_saves_google_style_answer_rule(self):
         section = Section.objects.create(
@@ -302,6 +306,36 @@ class QuestionAdminFormTests(TestCase):
         ])
         self.assertEqual(saved.show_if_question, self.controller)
         self.assertEqual(saved.show_if_value, "yes")
+
+    def test_new_inline_section_token_assigns_question_after_formsets_save(self):
+        section = Section.objects.create(form=self.form_def, title="Inserted section", position=1)
+        question = Question.objects.create(
+            form=self.form_def,
+            text="Question after section",
+            slug="question_after_section",
+            field_type=Question.SHORT_TEXT,
+            position=2,
+        )
+        section_form = SimpleNamespace(
+            cleaned_data={"DELETE": False},
+            instance=section,
+            prefix="sections-0",
+        )
+        question_form = SimpleNamespace(
+            cleaned_data={"DELETE": False, "section_token": "sections-0"},
+            instance=question,
+        )
+        formsets = [
+            SimpleNamespace(model=Section, forms=[section_form]),
+            SimpleNamespace(model=Question, forms=[question_form]),
+        ]
+        model_admin = FormDefinitionAdmin(FormDefinition, django_admin.site)
+
+        with patch("django.contrib.admin.ModelAdmin.save_related"):
+            model_admin.save_related(Mock(), Mock(), formsets, True)
+
+        question.refresh_from_db()
+        self.assertEqual(question.section, section)
 
 
 class SingleCombinedApplicationTests(TestCase):

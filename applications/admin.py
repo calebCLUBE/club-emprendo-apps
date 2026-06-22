@@ -94,6 +94,7 @@ class QuestionAdminForm(forms.ModelForm):
         help_text="One option per line. Only used for single- and multiple-choice questions.",
         widget=forms.Textarea(attrs={"rows": 4, "placeholder": "Option 1\nOption 2"}),
     )
+    section_token = forms.CharField(required=False, widget=forms.HiddenInput())
 
     pre_hr = forms.BooleanField(
         required=False,
@@ -169,8 +170,13 @@ class QuestionAdminForm(forms.ModelForm):
                 .exclude(id=getattr(self.instance, "id", None))
                 .prefetch_related("choices")
             )
-        self.fields["section"].queryset = qs
-        self.fields["section"].initial = getattr(self.instance, "section_id", None)
+        if "section" in self.fields:
+            self.fields["section"].queryset = qs
+            self.fields["section"].initial = getattr(self.instance, "section_id", None)
+        if "section_token" in self.fields:
+            self.fields["section_token"].initial = (
+                f"id:{self.instance.section_id}" if getattr(self.instance, "section_id", None) else ""
+            )
 
         # ----- Multi controlling questions (OR) -----
         questions_json = _condition_questions_json(show_if_qs)
@@ -244,7 +250,11 @@ class QuestionAdminForm(forms.ModelForm):
         pre_text = self.cleaned_data.get("pre_text", "")
         pre_hr = bool(self.cleaned_data.get("pre_hr"))
         rest = self.cleaned_data.get("help_text_clean", "")
-        section = self.cleaned_data.get("section")
+        section = (
+            self.cleaned_data.get("section")
+            if "section" in self.cleaned_data
+            else getattr(self.instance, "section", None)
+        )
 
         obj.help_text = _pack_help_text(pre_text, pre_hr, rest)
         obj.section = section
@@ -447,7 +457,7 @@ class QuestionInline(admin.StackedInline):
         "field_type",
         "answer_options",
         "help_text_clean",
-        "section",
+        "section_token",
         "required",
         "show_if_conditions",
         "confirm_value",
@@ -569,6 +579,37 @@ class FormDefinitionAdmin(admin.ModelAdmin):
         return HttpResponseRedirect(reverse("admin_apps_list"))
     inlines = [SectionInline, QuestionInline]
     change_form_template = "admin/applications/formdefinition/change_form.html"
+
+    def save_related(self, request, form, formsets, change):
+        super().save_related(request, form, formsets, change)
+
+        section_formset = next((fs for fs in formsets if fs.model is Section), None)
+        question_formset = next((fs for fs in formsets if fs.model is Question), None)
+        if not section_formset or not question_formset:
+            return
+
+        section_by_token = {}
+        for section_form in section_formset.forms:
+            if not getattr(section_form, "cleaned_data", None) or section_form.cleaned_data.get("DELETE"):
+                continue
+            section = section_form.instance
+            if not section.pk:
+                continue
+            section_by_token[section_form.prefix] = section
+            section_by_token[f"id:{section.pk}"] = section
+
+        for question_form in question_formset.forms:
+            if not getattr(question_form, "cleaned_data", None) or question_form.cleaned_data.get("DELETE"):
+                continue
+            question = question_form.instance
+            if not question.pk:
+                continue
+            token = (question_form.cleaned_data.get("section_token") or "").strip()
+            section = section_by_token.get(token)
+            section_id = section.pk if section else None
+            if question.section_id != section_id:
+                Question.objects.filter(pk=question.pk).update(section_id=section_id)
+                question.section_id = section_id
     def submission_count(self, obj):
         return obj.applications.count()
     submission_count.short_description = "Submissions"

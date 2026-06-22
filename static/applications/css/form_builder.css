@@ -54,10 +54,19 @@ body.app-applications.model-formdefinition.change-form .inline-related {
 body.app-applications.model-formdefinition.change-form #questions-group .inline-related:not(.empty-form):focus-within {
   border-left: 6px solid var(--form-purple); box-shadow: 0 2px 8px rgba(60,64,67,.18);
 }
-body.app-applications.model-formdefinition.change-form #questions-group .inline-related.ce-question-active {
+body.app-applications.model-formdefinition.change-form #questions-group .inline-related.ce-card-active {
   border-left: 6px solid #4285f4; box-shadow: 0 2px 8px rgba(60,64,67,.2);
 }
 body.app-applications.model-formdefinition.change-form #questions-group .inline-related > h3 { display: none; }
+.ce-question-card .field-section { display: none !important; }
+.ce-question-card .field-section_token { display: none !important; }
+#sections-group.ce-section-source { display: none !important; }
+.ce-section-card { border-top: 8px solid #d7b8b8 !important; margin-top: 26px !important; }
+.ce-section-card > h3 { display: none; }
+.ce-section-label { position: absolute; top: -35px; left: -1px; padding: 7px 14px; border-radius: 7px 7px 0 0; background: #d7b8b8; color: #3c4043; font-size: 12px; font-weight: 600; }
+.ce-section-card .field-title input { width: 100%; font-size: 19px; font-weight: 500; }
+.ce-section-card .field-description textarea { width: 100%; min-height: 72px; }
+.ce-section-card.ce-card-active { border-left: 6px solid #4285f4 !important; }
 body.app-applications.model-formdefinition.change-form .inline-related > h3 {
   min-height: 15px; padding: 9px 16px 2px; background: transparent; color: #9aa0a6; font-size: 11px;
 }

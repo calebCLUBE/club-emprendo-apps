@@ -408,6 +408,10 @@ class QuestionAdminFormTests(TestCase):
         self.assertContains(response, "Show this question based on an answer")
         self.assertContains(response, "Dropdown")
         self.assertContains(response, "Stored emails")
+        self.assertContains(response, "Approval page")
+        self.assertContains(response, "Approval email")
+        self.assertContains(response, 'name="approval_email_name"')
+        self.assertContains(response, "Requirements rejection")
         self.assertContains(response, "End the application based on this answer")
         self.assertNotContains(response, "Confirmation messages")
         self.assertNotContains(response, "Email messages")
@@ -759,6 +763,109 @@ class TerminalAnswerRuleTests(TestCase):
         self.assertEqual(len(mail.outbox), 1)
         self.assertEqual(mail.outbox[0].subject, "Update for Applicant One")
         self.assertEqual(mail.outbox[0].content_subtype, "plain")
+
+    def test_normal_completion_uses_default_approval_page_and_email(self):
+        form_def = FormDefinition.objects.create(
+            slug="default_approval_test",
+            name="Default approval test",
+            is_public=True,
+            accepting_responses=True,
+            manual_open_override=True,
+            thanks_approved_title="Approved for consideration",
+            thanks_approved_message="We received your application.\nWe will review it shortly.",
+            approval_email_name="Application received",
+        )
+        Question.objects.create(
+            form=form_def,
+            text="Name",
+            slug="full_name",
+            field_type=Question.SHORT_TEXT,
+            position=1,
+        )
+        Question.objects.create(
+            form=form_def,
+            text="Email",
+            slug="email",
+            field_type=Question.SHORT_TEXT,
+            position=2,
+        )
+        StoredEmailTemplate.objects.create(
+            form=form_def,
+            name="Application received",
+            subject="Application received for {{ name }}",
+            body="Hello {{ name }},\n\nYour application is under consideration.",
+        )
+
+        response = self.client.post(
+            reverse("apply_by_slug", args=[form_def.slug]),
+            {"q_full_name": "Applicant Two", "q_email": "two@example.com"},
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Approved for consideration")
+        self.assertContains(response, "We received your application.")
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].subject, "Application received for Applicant Two")
+
+    def test_terminal_completion_does_not_send_default_approval_email(self):
+        form_def = FormDefinition.objects.create(
+            slug="terminal_overrides_approval",
+            name="Terminal overrides approval",
+            is_public=True,
+            accepting_responses=True,
+            manual_open_override=True,
+            thanks_approved_message="Approved message",
+            approval_email_name="Approval",
+        )
+        Question.objects.create(
+            form=form_def,
+            text="Name",
+            slug="full_name",
+            field_type=Question.SHORT_TEXT,
+            position=1,
+        )
+        Question.objects.create(
+            form=form_def,
+            text="Email",
+            slug="email",
+            field_type=Question.SHORT_TEXT,
+            position=2,
+        )
+        gate = Question.objects.create(
+            form=form_def,
+            text="Eligible?",
+            slug="eligible",
+            field_type=Question.CHOICE,
+            position=3,
+            end_form_rules=[{
+                "value": "no",
+                "email_name": "Rejection",
+                "page_title": "Not eligible",
+                "page_message": "The application ended.",
+            }],
+        )
+        Choice.objects.create(question=gate, value="no", label="No", position=1)
+        StoredEmailTemplate.objects.create(
+            form=form_def, name="Approval", subject="Approved", body="Approved"
+        )
+        StoredEmailTemplate.objects.create(
+            form=form_def, name="Rejection", subject="Not eligible", body="Not eligible"
+        )
+
+        response = self.client.post(
+            reverse("apply_by_slug", args=[form_def.slug]),
+            {
+                "q_full_name": "Applicant Three",
+                "q_email": "three@example.com",
+                "q_eligible": "no",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Not eligible")
+        self.assertNotContains(response, "Approved message")
+        self.assertEqual([message.subject for message in mail.outbox], ["Not eligible"])
 
 
 class CurrentEmprendedoraApplicationSchemaTests(TestCase):

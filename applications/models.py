@@ -159,6 +159,15 @@ class FormDefinition(models.Model):
             "Supports placeholders like {{ group_num }}, {{ group_label }}, {{ track_label }}, {{ form_name }}."
         ),
     )
+    approval_email_name = models.CharField(
+        max_length=120,
+        blank=True,
+        default="",
+        help_text=(
+            "Stored email sent when an applicant reaches the end and submits without "
+            "triggering an end-application rule."
+        ),
+    )
     thanks_rejected_title = models.CharField(
         max_length=200,
         blank=True,

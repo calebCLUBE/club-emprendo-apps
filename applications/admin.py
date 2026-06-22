@@ -551,6 +551,45 @@ class StoredEmailInline(admin.StackedInline):
     verbose_name_plural = "Stored emails"
 
 
+class FormDefinitionAdminForm(forms.ModelForm):
+    """Expose the normal-completion email as a named stored-email dropdown."""
+
+    class Meta:
+        model = FormDefinition
+        fields = "__all__"
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        form_obj = self.instance if getattr(self.instance, "pk", None) else None
+        names = (
+            list(form_obj.stored_emails.order_by("position", "id").values_list("name", flat=True))
+            if form_obj
+            else []
+        )
+        current = ""
+        if self.is_bound:
+            current = str(self.data.get(self.add_prefix("approval_email_name")) or "").strip()
+        elif form_obj:
+            current = str(form_obj.approval_email_name or "").strip()
+        if current and current not in names:
+            names.append(current)
+        self.fields["approval_email_name"] = forms.ChoiceField(
+            required=False,
+            label="Default approval email",
+            help_text=(
+                "Sent after Send when no answer ends the application early. "
+                "Create and name the message under Stored emails first."
+            ),
+            choices=[("", "— Do not send an approval email —")] + [(name, name) for name in names],
+        )
+
+        self.fields["thanks_approved_title"].label = "Page title"
+        self.fields["thanks_approved_message"].label = "Page message"
+        self.fields["thanks_approved_message"].help_text = (
+            "Shown after Send when no answer ends the application early. Line breaks are preserved."
+        )
+
+
 class QuestionInlineFormSet(BaseInlineFormSet):
     """Resolve duplicate auto-generated slugs across questions added in one save."""
 
@@ -652,6 +691,7 @@ class FormDefinitionAdmin(admin.ModelAdmin):
     """
     list_display = ("__str__", "slug", "submission_count", "preview_link", "survey_public_link", "survey_data_link")
     search_fields = ("slug", "name")
+    form = FormDefinitionAdminForm
     readonly_fields = ("preview_link", "survey_public_link", "survey_data_link")
     base_fields = (
         "slug",
@@ -723,6 +763,16 @@ class FormDefinitionAdmin(admin.ModelAdmin):
         links = [name for name in self.link_fields if name in fields]
         return (
             (None, {"fields": basics}),
+            ("Approval page", {
+                "fields": ("thanks_approved_title", "thanks_approved_message"),
+                "classes": ("collapse",),
+                "description": "Default page shown after a completed application is sent.",
+            }),
+            ("Approval email", {
+                "fields": ("approval_email_name",),
+                "classes": ("collapse",),
+                "description": "Default stored email sent when no end-application answer is triggered.",
+            }),
             ("Form settings", {"fields": settings, "classes": ("collapse",)}),
             ("Preview and responses", {"fields": links, "classes": ("collapse",)}),
         )

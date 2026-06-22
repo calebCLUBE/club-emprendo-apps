@@ -948,6 +948,28 @@ def _send_stored_email_for_rule(app, question, rule):
     return True
 
 
+def _send_default_approval_email(app, form_def):
+    """Send the named stored email for a normal, non-terminal completion."""
+    email_name = str(getattr(form_def, "approval_email_name", "") or "").strip()
+    recipient = (app.email or "").strip()
+    if not email_name or not recipient:
+        return False
+    template = form_def.stored_emails.filter(name=email_name).first()
+    if not template:
+        return False
+    replacements = build_form_email_context(form_def=form_def)
+    replacements.update({"name": app.name or "", "email": recipient})
+    subject = " ".join(render_email_template(template.subject, replacements).splitlines()).strip()
+    body = render_email_template(template.body, replacements)
+    EmailMultiAlternatives(
+        subject=subject,
+        body=body,
+        from_email=getattr(settings, "DEFAULT_FROM_EMAIL", None),
+        to=[recipient],
+    ).send(fail_silently=False)
+    return True
+
+
 def _handle_application_form(
     request,
     form_slug: str,
@@ -957,6 +979,7 @@ def _handle_application_form(
 ):
     _maybe_run_due_a1_to_a2_reminders()
     form_def = get_object_or_404(FormDefinition, slug=form_slug)
+    completion_form_def = form_def
     reuse_token = (invite_token or request.GET.get("token") or "").strip()
     invite_source_app = _invite_app_for_a2_token(reuse_token, form_def.slug)
     has_invite_access = invite_source_app is not None
@@ -1018,6 +1041,10 @@ def _handle_application_form(
         else None
     )
     single_combined_submission = combined_second_def is not None
+    default_completion_configured = bool(
+        str(getattr(completion_form_def, "approval_email_name", "") or "").strip()
+        or str(getattr(completion_form_def, "thanks_approved_message", "") or "").strip()
+    )
     ApplicationForm = build_application_form(
         form_slug,
         additional_form_slugs=[combined_second_def.slug] if combined_second_def else None,
@@ -1226,11 +1253,14 @@ def _handle_application_form(
 
         a2_disqualified = False
         if form_def.slug.endswith("E_A2") or form_def.slug.endswith("M_A2"):
-            a2_disqualified = _is_a2_na_candidate(form_def.slug or "", answer_map)
-            _send_a2_submission_email(app, answer_map)
+            if not default_completion_configured:
+                a2_disqualified = _is_a2_na_candidate(form_def.slug or "", answer_map)
+                _send_a2_submission_email(app, answer_map)
 
         if combined_flow and (form_def.slug.endswith("M_A1") or form_def.slug.endswith("E_A1")):
-            if form_def.slug.endswith("M_A1"):
+            if default_completion_configured:
+                passed = True
+            elif form_def.slug.endswith("M_A1"):
                 passed = _mentor_a1_is_eligible(answer_map)
             else:
                 passed = emprendedora_a1_passes(answer_map)
@@ -1238,10 +1268,11 @@ def _handle_application_form(
             if passed and single_combined_submission:
                 # Preserve A1 grading/email behavior, then promote this same row to the
                 # final form. Its Answer rows retain both A1 and A2 questions.
-                if form_def.slug.endswith("M_A1"):
-                    _mentor_a1_autograde_and_email(request, app)
-                else:
-                    autograde_and_email_emprendedora_a1(request, app)
+                if not default_completion_configured:
+                    if form_def.slug.endswith("M_A1"):
+                        _mentor_a1_autograde_and_email(request, app)
+                    else:
+                        autograde_and_email_emprendedora_a1(request, app)
                 app.refresh_from_db()
                 app.form = combined_second_def
                 app.invited_to_second_stage = True
@@ -1254,8 +1285,9 @@ def _handle_application_form(
                     "second_stage_reminder_sent_at",
                 ])
                 form_def = combined_second_def
-                a2_disqualified = _is_a2_na_candidate(form_def.slug or "", answer_map)
-                _send_a2_submission_email(app, answer_map)
+                if not default_completion_configured:
+                    a2_disqualified = _is_a2_na_candidate(form_def.slug or "", answer_map)
+                    _send_a2_submission_email(app, answer_map)
                 try:
                     gnum_raw = _group_num_from_form_def(form_def)
                     if gnum_raw:
@@ -1332,21 +1364,29 @@ def _handle_application_form(
         else:
             thanks_payload = {
                 "kind": "a1",
-                "approved": bool(app.invited_to_second_stage),
+                "approved": True if default_completion_configured else bool(app.invited_to_second_stage),
                 "group_num": group_num,
                 "track": track,
             }
 
         thanks_payload.update(
             _thanks_override_payload(
-                form_def=form_def,
+                form_def=completion_form_def if default_completion_configured else form_def,
                 kind=str(thanks_payload.get("kind") or ""),
-                approved=bool(thanks_payload.get("approved")),
-                disqualified=bool(thanks_payload.get("disqualified")),
+                approved=True if default_completion_configured else bool(thanks_payload.get("approved")),
+                disqualified=False if default_completion_configured else bool(thanks_payload.get("disqualified")),
                 group_num=str(thanks_payload.get("group_num") or ""),
                 track=str(thanks_payload.get("track") or ""),
             )
         )
+
+        if default_completion_configured:
+            thanks_payload["approved"] = True
+            thanks_payload["disqualified"] = False
+            try:
+                _send_default_approval_email(app, completion_form_def)
+            except Exception:
+                logger.exception("Default approval email failed for application %s", app.pk)
 
         if combined_flow:
             return render(request, "applications/thanks.html", thanks_payload)

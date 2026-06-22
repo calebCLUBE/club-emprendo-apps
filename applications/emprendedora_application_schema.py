@@ -53,9 +53,9 @@ REQUIREMENTS = """Requisitos básicos:
 Requisitos de disponibilidad:
 • Estoy disponible desde #(month) hasta #(month) de #(year).
 • Dedicaré un mínimo de 3 horas semanales durante 14 semanas consecutivas.
-• Estoy disponible el lunes #(day) de #(month) de #(year) para la reunión de lanzamiento de una hora por la tarde."""
+"""
 
-OPEN_QUESTION_HELP = """💡 Comparte una respuesta amplia y concreta. Estas respuestas nos ayudan a detectar alertas, comprender tus necesidades, valorar tu postulación y buscar una mentora adecuada. Evita responder solo con una o dos frases."""
+OPEN_QUESTION_HELP = """💡 Tip importante: En las preguntas abiertas, te recomendamos que seas lo más amplia posible al compartir tu experiencia, motivaciones y visión. 📝✨ Evita responder solo con una o dos frases — ¡queremos conocerte mejor para valorar todo lo que puedes aportar!"""
 
 SELECTION_PROCESS = """1. Seré notificada por correo electrónico si fui seleccionada el #(respond_day) de #(respond_month).
 2. Si soy seleccionada, firmaré el Acta de Compromiso antes de la fecha límite.
@@ -65,10 +65,14 @@ SELECTION_PROCESS = """1. Seré notificada por correo electrónico si fui selecc
 Los próximos pasos llegarán desde contacto@clubemprendo.org o por WhatsApp. Si Club Emprendo me escribe por WhatsApp, agregaré el contacto y responderé para poder recibir información importante."""
 
 
-def _q(slug, text, field_type="short_text", *, required=True, help_text="", choices=(), confirm=False):
+def _q(
+    slug, text, field_type="short_text", *, required=True, help_text="", choices=(),
+    confirm=False, show_if_slug="", show_if_value="",
+):
     return {
         "slug": slug, "text": text, "field_type": field_type, "required": required,
         "help_text": help_text, "choices": choices, "confirm_value": confirm,
+        "show_if_slug": show_if_slug, "show_if_value": show_if_value,
     }
 
 
@@ -118,7 +122,7 @@ A2_SECTIONS = [
             _q("growth_how", "¿Cómo crees que este programa puede ayudarte a crecer como emprendedora?", "long_text", help_text=OPEN_QUESTION_HELP),
             _q("business_goal", "¿Qué estás tratando de lograr con tu emprendimiento y cómo crees que la mentoría de Club Emprendo te ayudará a llegar ahí?", "long_text", help_text=OPEN_QUESTION_HELP),
             _q("biggest_challenge", "¿Cuál es tu mayor desafío actualmente como emprendedora y cómo lo estás abordando?", "long_text", help_text=OPEN_QUESTION_HELP),
-            _q("community_contribution", "¿Qué experiencia, perspectiva o fortaleza te gustaría compartir con la comunidad de emprendedoras si eres aceptada?", "long_text", help_text="Esta respuesta nos ayuda a conocerte y orientar el emparejamiento; no determina por sí sola si eres seleccionada."),
+            _q("community_contribution", "¿Qué crees que aportarás de manera única a la comunidad de emprendedoras si eres aceptada?", "long_text", help_text=OPEN_QUESTION_HELP),
         ],
     },
     {
@@ -140,15 +144,19 @@ A2_SECTIONS = [
 
 
 @transaction.atomic
-def apply_emprendedora_schema(form_a1: FormDefinition, form_a2: FormDefinition, transform=None):
+def apply_two_part_application_schema(
+    form_a1, form_a2, *, name, intro, a1_sections, a2_sections, transform=None,
+):
     render = transform or (lambda value: value)
-    for form_def, sections, description in ((form_a1, A1_SECTIONS, INTRO), (form_a2, A2_SECTIONS, "")):
-        form_def.name = "Aplicación para emprendedoras"
+    for form_def, sections, description in ((form_a1, a1_sections, intro), (form_a2, a2_sections, "")):
+        form_def.name = name
         form_def.description = render(description)
         form_def.save(update_fields=["name", "description"])
         form_def.questions.all().delete()
         form_def.sections.all().delete()
         position = 1
+        created_questions = {}
+        pending_conditions = []
         for section_position, section_spec in enumerate(sections, start=1):
             section = Section.objects.create(
                 form=form_def,
@@ -169,6 +177,9 @@ def apply_emprendedora_schema(form_a1: FormDefinition, form_a2: FormDefinition, 
                     help_text=render(question_spec["help_text"]),
                     confirm_value=question_spec["confirm_value"],
                 )
+                created_questions[question.slug] = question
+                if question_spec.get("show_if_slug") and question_spec.get("show_if_value"):
+                    pending_conditions.append((question, question_spec))
                 for choice_position, (value, label) in enumerate(question_spec["choices"], start=1):
                     Choice.objects.create(
                         question=question,
@@ -177,3 +188,49 @@ def apply_emprendedora_schema(form_a1: FormDefinition, form_a2: FormDefinition, 
                         position=choice_position,
                     )
                 position += 1
+        for question, question_spec in pending_conditions:
+            controller = created_questions.get(question_spec["show_if_slug"])
+            if controller:
+                question.show_if_question = controller
+                question.show_if_value = question_spec["show_if_value"]
+                question.show_if_conditions = [{
+                    "question_id": controller.id,
+                    "value": question_spec["show_if_value"],
+                }]
+                question.save(update_fields=["show_if_question", "show_if_value", "show_if_conditions"])
+
+
+def apply_emprendedora_schema(form_a1: FormDefinition, form_a2: FormDefinition, transform=None):
+    apply_two_part_application_schema(
+        form_a1,
+        form_a2,
+        name="Aplicación para emprendedoras",
+        intro=INTRO,
+        a1_sections=A1_SECTIONS,
+        a2_sections=A2_SECTIONS,
+        transform=transform,
+    )
+    gate_later_sections(form_a1, form_a2, ("meets_requirements", "available_period", "business_active"))
+
+
+def gate_later_sections(form_a1, form_a2, controller_slugs):
+    controllers = {
+        question.slug: question
+        for question in form_a1.questions.filter(slug__in=controller_slugs)
+    }
+    conditions = [
+        {"question_id": controllers[slug].id, "value": "yes"}
+        for slug in controller_slugs
+        if slug in controllers
+    ]
+    if not conditions:
+        return
+    first = controllers.get(controller_slugs[0])
+    for section in form_a2.sections.all():
+        section.show_if_conditions = conditions
+        section.show_if_logic = Section.LOGIC_AND
+        section.show_if_question = first
+        section.show_if_value = "yes"
+        section.save(update_fields=[
+            "show_if_conditions", "show_if_logic", "show_if_question", "show_if_value",
+        ])

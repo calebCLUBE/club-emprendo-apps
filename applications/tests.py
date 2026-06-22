@@ -21,6 +21,7 @@ from applications.admin_views import (
 )
 from applications.email_templates import build_form_email_context, resolve_form_email_template
 from applications.forms import build_application_form
+from applications.mentora_application_schema import apply_mentora_schema
 from applications.emprendedora_a1_autograde import autograde_and_email_emprendedora_a1
 from applications.views import _thanks_override_payload, _mentor_a1_autograde_and_email, _schedule_a1_to_a2_reminder
 from applications.models import (
@@ -383,6 +384,44 @@ class CurrentEmprendedoraApplicationSchemaTests(TestCase):
         empty_a1.refresh_from_db()
         self.assertIn("julio", empty_a1.description)
         self.assertTrue(Question.objects.filter(pk=sentinel.pk).exists())
+
+    def test_docx_mentor_schema_uses_conditional_business_questions(self):
+        m1 = FormDefinition.objects.create(slug="M_A1", name="Old M1", is_master=True)
+        m2 = FormDefinition.objects.create(slug="M_A2", name="Old M2", is_master=True)
+
+        apply_mentora_schema(m1, m2)
+
+        self.assertEqual(m1.sections.count() + m2.sections.count(), 7)
+        requirements = m1.questions.get(slug="meets_requirements")
+        self.assertIn("mínimo de 2 horas", requirements.help_text)
+        self.assertNotIn("reunión de lanzamiento", requirements.help_text)
+        self.assertTrue(all(section.show_if_logic == "AND" for section in m2.sections.all()))
+        self.assertTrue(all(len(section.show_if_conditions) == 2 for section in m2.sections.all()))
+        controller = m2.questions.get(slug="owned_business")
+        for slug in ("business_name", "industry", "business_description", "business_age", "has_employees"):
+            question = m2.questions.get(slug=slug)
+            self.assertEqual(question.show_if_question, controller)
+            self.assertEqual(question.show_if_value, "yes")
+        self.assertEqual(
+            m2.questions.get(slug="professional_expertise").text,
+            "¿Cuál es tu área de experiencia profesional más relevante para la mentoría de mujeres microempresarias? (Ej. Marketing, Finanzas, etc.)",
+        )
+
+    def test_docx_emprendedora_schema_keeps_exact_commented_questions(self):
+        e1 = FormDefinition.objects.create(slug="E_A1", name="Old E1", is_master=True)
+        e2 = FormDefinition.objects.create(slug="E_A2", name="Old E2", is_master=True)
+
+        from applications.emprendedora_application_schema import apply_emprendedora_schema
+        apply_emprendedora_schema(e1, e2)
+
+        requirements = e1.questions.get(slug="meets_requirements")
+        self.assertNotIn("reunión de lanzamiento", requirements.help_text)
+        self.assertTrue(all(len(section.show_if_conditions) == 3 for section in e2.sections.all()))
+        self.assertTrue(e2.questions.filter(text="¿Tienes empleados?").exists())
+        self.assertEqual(
+            e2.questions.get(slug="community_contribution").text,
+            "¿Qué crees que aportarás de manera única a la comunidad de emprendedoras si eres aceptada?",
+        )
 
 
 class GroupFormNamingTests(TestCase):

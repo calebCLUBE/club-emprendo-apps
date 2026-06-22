@@ -174,6 +174,7 @@ def build_application_form(form_slug: str, additional_form_slugs: list[str] | tu
                 field.widget.attrs["pre_hr"] = "1" if pre_hr else ""
                 field.widget.attrs["section_id"] = str(q.section_id or "")
                 field.widget.attrs["source_form_id"] = str(q.form_id)
+                field.widget.attrs["data-base-required"] = "1" if q.required else ""
                 field._ce_base_required = q.required
                 if show_if_q and show_if_value:
                     field.widget.attrs["show_if_question"] = f"q_{show_if_q.slug}"
@@ -203,6 +204,7 @@ def build_application_form(form_slug: str, additional_form_slugs: list[str] | tu
                     )
                     confirm_field.widget.attrs["section_id"] = str(q.section_id or "")
                     confirm_field.widget.attrs["source_form_id"] = str(q.form_id)
+                    confirm_field.widget.attrs["data-base-required"] = "1" if q.required else ""
                     confirm_field.widget.attrs["data-confirm-of"] = field_name
                     confirm_field._ce_base_required = q.required
                     if show_if_q and show_if_value:
@@ -223,7 +225,15 @@ def build_application_form(form_slug: str, additional_form_slugs: list[str] | tu
                     source_field_name=original,
                 )
                 if (v1 or v2) and v1 != v2:
-                    msg = "Los valores no coinciden."
+                    key = original.lower()
+                    if "email" in key or "correo" in key:
+                        msg = "Los correos no coinciden."
+                    elif "whatsapp" in key or "telefono" in key or "celular" in key:
+                        msg = "Los números de WhatsApp no coinciden."
+                    elif "cedula" in key or "document" in key:
+                        msg = "Los números de documento no coinciden."
+                    else:
+                        msg = "Los valores no coinciden."
                     self.add_error(confirm, msg)
                     self.add_error(original, msg)
             return data

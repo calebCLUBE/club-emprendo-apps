@@ -94,6 +94,7 @@
               <div>
                 {% if not forloop.last %}
                   <button type="button" class="ce-button-primary" data-next>Siguiente</button>
+                  <button type="button" class="ce-button-primary" data-conditional-submit style="display:none;">Enviar</button>
                 {% else %}
                   <button type="submit" class="ce-button-primary">Enviar</button>
                 {% endif %}
@@ -144,14 +145,14 @@
         if (err) err.remove();
       }
 
-      function showConfirmError(input) {
+      function showConfirmError(input, message) {
         input.style.borderColor = "#d14b4b";
         let err = input.parentElement.querySelector(".confirm-error");
         if (!err) {
           err = document.createElement("span");
           err.className = "form-help confirm-error";
           err.style.color = "#d14b4b";
-          err.textContent = "Los valores deben coincidir.";
+          err.textContent = message || "Los valores deben coincidir.";
           input.parentElement.appendChild(err);
         }
       }
@@ -182,6 +183,14 @@
           return text.toLowerCase().replace(/\s+/g, "").replace(/[^0-9+]/g, "");
         }
         return text;
+      }
+
+      function confirmErrorMessage(sourceName) {
+        const key = (sourceName || "").toLowerCase();
+        if (key.includes("email") || key.includes("correo")) return "Los correos no coinciden.";
+        if (key.includes("whatsapp") || key.includes("telefono") || key.includes("celular")) return "Los números de WhatsApp no coinciden.";
+        if (key.includes("cedula") || key.includes("document")) return "Los números de documento no coinciden.";
+        return "Los valores no coinciden.";
       }
 
       function rowForInput(input) {
@@ -291,8 +300,9 @@
           const v2 = normalizeConfirmValue(ci.value || "", sourceName);
           if (v1 || v2) {
             if (v1 !== v2) {
-              showConfirmError(ci);
-              showConfirmError(source);
+              const message = confirmErrorMessage(sourceName);
+              showConfirmError(ci, message);
+              showConfirmError(source, message);
               if (!firstInvalidRow) firstInvalidRow = rowForInput(ci);
               ok = false;
             } else {
@@ -410,13 +420,19 @@
         const lastVisible = vis[vis.length - 1];
         panels.forEach((p) => {
           const nextBtn = p.querySelector("[data-next]");
-          const submitBtn = p.querySelector("button[type=\"submit\"]");
+          const submitBtn = p.querySelector("button[type=\"submit\"], [data-conditional-submit]");
           if (p === lastVisible) {
             if (nextBtn) nextBtn.style.display = "none";
-            if (submitBtn) submitBtn.style.display = "";
+            if (submitBtn) {
+              submitBtn.style.display = "";
+              if (submitBtn.hasAttribute("data-conditional-submit")) submitBtn.type = "submit";
+            }
           } else {
             if (nextBtn) nextBtn.style.display = "";
-            if (submitBtn) submitBtn.style.display = "none";
+            if (submitBtn) {
+              submitBtn.style.display = "none";
+              if (submitBtn.hasAttribute("data-conditional-submit")) submitBtn.type = "button";
+            }
           }
         });
 
@@ -562,10 +578,14 @@
         if (show) {
           block.style.display = "";
           inputs.forEach(inp => {
-            if (inp.dataset.wasRequired === "1") {
+            if (inp.dataset.wasRequired === "1" || inp.dataset.baseRequired === "1") {
               inp.required = true;
             }
           });
+          block.querySelector(".form-row > label")?.classList.toggle(
+            "required",
+            Array.from(inputs).some(inp => inp.required)
+          );
         } else {
           block.style.display = "none";
           inputs.forEach(inp => {
@@ -574,6 +594,7 @@
             }
             inp.required = false;
           });
+          block.querySelector(".form-row > label")?.classList.remove("required");
         }
       }
 

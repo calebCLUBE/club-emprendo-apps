@@ -5,6 +5,7 @@ from django.db import transaction
 
 from applications.models import FormDefinition, Question, Choice
 from applications.emprendedora_application_schema import apply_emprendedora_schema
+from applications.mentora_application_schema import apply_mentora_schema
 
 
 MASTER_SLUGS = ["E_A1", "E_A2", "M_A1", "M_A2"]
@@ -761,5 +762,12 @@ class Command(BaseCommand):
             if canonical_e_a1 and canonical_e_a2:
                 apply_emprendedora_schema(canonical_e_a1, canonical_e_a2)
                 self.stdout.write(self.style.SUCCESS("Applied current combined Emprendedoras schema."))
+
+        if any(slug in {"M_A1", "M_A2"} for slug in forms_to_build):
+            canonical_m_a1 = FormDefinition.objects.filter(slug="M_A1").first()
+            canonical_m_a2 = FormDefinition.objects.filter(slug="M_A2").first()
+            if canonical_m_a1 and canonical_m_a2:
+                apply_mentora_schema(canonical_m_a1, canonical_m_a2)
+                self.stdout.write(self.style.SUCCESS("Applied current combined Mentoras schema."))
 
         self.stdout.write(self.style.SUCCESS("✅ Done."))

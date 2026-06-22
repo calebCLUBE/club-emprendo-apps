@@ -559,6 +559,18 @@ def _sections_from_model(form_def: FormDefinition, form, default_intro: str = ""
         return None
 
     q_by_id = {q.id: q for q in form_def.questions.all()}
+    referenced_question_ids = set()
+    for section in sections_qs:
+        referenced_question_ids.update(
+            int(c.get("question_id"))
+            for c in (getattr(section, "show_if_conditions", None) or [])
+            if c.get("question_id")
+        )
+        referenced_question_ids.update(
+            qid for qid in (section.show_if_question_id, section.show_if_question_2_id) if qid
+        )
+    if referenced_question_ids:
+        q_by_id.update({q.id: q for q in Question.objects.filter(id__in=referenced_question_ids)})
 
     section_map = {}
     for s in sections_qs:

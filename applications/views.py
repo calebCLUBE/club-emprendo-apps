@@ -1050,20 +1050,10 @@ def _handle_application_form(
             form_def,
             combined_second_def,
             form,
-            first_intro=rendered_description,
+            first_intro="",
         )
-        rendered_description = ""
     else:
-        sections = _sections_from_model(form_def, form, default_intro=rendered_description)
-    if sections:
-        intro = str(rendered_description or "").strip()
-        first_intro = str(sections[0].get("intro") or "").strip()
-        if intro and intro not in first_intro:
-            sections[0]["intro"] = "\n\n".join(
-                value for value in (intro, first_intro) if value
-            )
-        # The form description belongs to page one, not above every page.
-        rendered_description = ""
+        sections = _sections_from_model(form_def, form, default_intro="")
     m2_gate_field = None
 
     # Legacy: fallback to heuristic sections for Mentora A2 if no explicit sections exist
@@ -1085,6 +1075,28 @@ def _handle_application_form(
                     "show_if_field": s["show_if_field"],
                     "fields": bound,
                 })
+
+    intro = str(rendered_description or "").strip()
+    if intro:
+        if not sections:
+            question_fields = list(form)
+            if question_fields:
+                sections = [{
+                    "id": "questions",
+                    "title": form_def.default_section_title or "Preguntas",
+                    "intro": "",
+                    "fields": question_fields,
+                }]
+        if sections:
+            sections.insert(0, {
+                "id": "form-intro",
+                "title": "Antes de comenzar",
+                "intro": intro,
+                "fields": [],
+                "conditions_json": "[]",
+                "is_intro": True,
+            })
+            rendered_description = ""
 
     if request.method == "POST" and form.is_valid():
 

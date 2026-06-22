@@ -576,7 +576,7 @@ class MultipleChoiceGridTests(TestCase):
         self.assertIn("grid_rows", form.errors)
         self.assertIn("answer_options", form.errors)
 
-    def test_form_description_is_rendered_only_inside_first_section(self):
+    def test_form_description_is_a_question_free_intro_page(self):
         self.form_def.description = "Description shown only on page one."
         self.form_def.save(update_fields=["description"])
         first = Section.objects.create(form=self.form_def, title="First section", position=1)
@@ -597,10 +597,13 @@ class MultipleChoiceGridTests(TestCase):
         first_panel = html.index('data-section-index="0"')
         description = html.index("Description shown only on page one.")
         second_panel = html.index('data-section-index="1"')
+        first_question = html.index('name="q_area_grid__row_0"')
 
         self.assertLess(first_panel, description)
         self.assertLess(description, second_panel)
+        self.assertLess(second_panel, first_question)
         self.assertEqual(html.count("Description shown only on page one."), 1)
+        self.assertContains(response, "Antes de comenzar")
 
 
 class SingleCombinedApplicationTests(TestCase):

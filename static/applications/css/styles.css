@@ -296,6 +296,22 @@ form {
   outline-offset: 2px;
 }
 
+.ce-intro-panel {
+  padding: 1.25rem 1.1rem;
+  border: 1px solid rgba(34, 52, 19, 0.1);
+  border-radius: var(--ce-radius-md);
+  background: #fff;
+}
+
+.ce-intro-panel .ce-section-intro {
+  font-size: 0.95rem;
+  line-height: 1.65;
+}
+
+.ce-intro-panel .ce-section-intro p:last-child {
+  margin-bottom: 0;
+}
+
 input[type="text"],
 input[type="email"],
 input[type="number"],

@@ -83,15 +83,9 @@
               <div class="ce-admin-tile-sub">Master application</div>
             </a>
             <div class="ce-actions" style="margin-top:0;">
-              {% if fd.slug|slice:":2" == "E_" %}
-                <a class="button default" href="{% url 'apply_emprendedora_combined' %}" target="_blank" rel="noopener">
-                  Preview combined
-                </a>
-              {% elif fd.slug|slice:":2" == "M_" %}
-                <a class="button default" href="{% url 'apply_mentora_combined' %}" target="_blank" rel="noopener">
-                  Preview combined
-                </a>
-              {% endif %}
+              <a class="button default" href="{% url 'apply_by_slug' form_slug=fd.slug %}?preview=1&amp;combined=1" target="_blank" rel="noopener">
+                Preview
+              </a>
             </div>
           </div>
         {% empty %}

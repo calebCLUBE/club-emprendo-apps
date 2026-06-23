@@ -1,5 +1,6 @@
 {# applications/templates/applications/thanks.html #}
 {% extends "applications/base.html" %}
+{% load app_extras %}
 
 {% block title %}Gracias · Club Emprendo{% endblock %}
 
@@ -12,7 +13,7 @@
       </div>
     {% endif %}
     <div class="{% if custom_message_variant == 'alert' %}ce-alert{% else %}form-intro{% endif %}" style="margin-top:12px;">
-      {{ custom_message_body|linebreaks }}
+      {{ custom_message_body|format_rich_text }}
     </div>
 
   {% elif kind == "mentor_final" %}

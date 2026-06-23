@@ -14,7 +14,7 @@
 
 {% if field.field.widget.attrs.pre_text %}
   <div style="margin:0 0 10px 0; color:#555; line-height:1.45;">
-    {{ field.field.widget.attrs.pre_text|linebreaks }}
+    {{ field.field.widget.attrs.pre_text|format_rich_text }}
   </div>
 {% endif %}
 

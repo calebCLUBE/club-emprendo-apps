@@ -6,6 +6,8 @@ from django.template.defaultfilters import linebreaks, urlize
 from django.utils.html import strip_tags
 from django.utils.safestring import mark_safe
 
+from applications.rich_text import is_rich_text, render_rich_text
+
 register = template.Library()
 
 LEGACY_ANCHOR_RE = re.compile(
@@ -23,6 +25,8 @@ def split(value, sep=","):
 @register.filter(needs_autoescape=True)
 def format_help_text(value, autoescape=True):
     """Render editor help text as paragraphs and safe automatic links."""
+    if is_rich_text(value):
+        return mark_safe(render_rich_text(value))
     text = str(value or "").replace("\r\n", "\n").replace("\r", "\n")
 
     # Preserve the two legacy help texts that used hand-written anchor tags,
@@ -39,3 +43,9 @@ def format_help_text(value, autoescape=True):
         ' target="_blank" rel="nofollow noopener noreferrer"',
     )
     return mark_safe(rendered)
+
+
+@register.filter(needs_autoescape=True)
+def format_rich_text(value, autoescape=True):
+    """Render toolbar-formatted content, with the plain-text behavior as fallback."""
+    return format_help_text(value, autoescape=autoescape)

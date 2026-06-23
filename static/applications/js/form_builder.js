@@ -261,6 +261,138 @@
     row.appendChild(editor);
   }
 
+  function enhanceRichTextarea(textarea) {
+    if (!textarea || textarea.dataset.richEditor === "1") return;
+    const fieldName = String(textarea.name || "");
+    if (
+      fieldName.endsWith("-answer_options")
+      || fieldName.endsWith("-grid_rows")
+      || fieldName.endsWith("-show_if_conditions")
+      || fieldName.endsWith("-end_form_rules")
+    ) return;
+
+    textarea.dataset.richEditor = "1";
+    textarea.classList.add("ce-rich-source");
+    const shell = document.createElement("div");
+    shell.className = "ce-rich-editor";
+    const toolbar = document.createElement("div");
+    toolbar.className = "ce-rich-toolbar";
+    toolbar.setAttribute("role", "toolbar");
+    toolbar.setAttribute("aria-label", "Text formatting");
+    const editor = document.createElement("div");
+    editor.className = "ce-rich-content";
+    editor.contentEditable = "true";
+    editor.setAttribute("role", "textbox");
+    editor.setAttribute("aria-multiline", "true");
+
+    const marker = /^\s*<div\s+data-ce-rich-text=["']1["']\s*>([\s\S]*)<\/div>\s*$/i;
+    const match = String(textarea.value || "").match(marker);
+    if (match) {
+      const template = document.createElement("template");
+      template.innerHTML = match[1];
+      template.content.querySelectorAll("script,style,iframe,object,embed,img,video,audio").forEach((node) => node.remove());
+      template.content.querySelectorAll("*").forEach((node) => {
+        Array.from(node.attributes).forEach((attr) => {
+          if (attr.name.toLowerCase().startsWith("on")) node.removeAttribute(attr.name);
+        });
+      });
+      editor.appendChild(template.content.cloneNode(true));
+    } else {
+      editor.textContent = textarea.value || "";
+      editor.innerHTML = editor.innerHTML.replace(/\r?\n/g, "<br>");
+    }
+
+    let savedRange = null;
+    function rememberSelection() {
+      const selection = window.getSelection();
+      if (selection?.rangeCount && editor.contains(selection.anchorNode)) {
+        savedRange = selection.getRangeAt(0).cloneRange();
+      }
+    }
+    function restoreSelection() {
+      if (!savedRange) {
+        editor.focus();
+        return;
+      }
+      const selection = window.getSelection();
+      selection.removeAllRanges();
+      selection.addRange(savedRange);
+    }
+    function sync() {
+      const fontSizes = { "1": "0.75em", "2": "0.875em", "3": "1em", "4": "1.25em", "5": "1.5em", "6": "2em", "7": "3em" };
+      editor.querySelectorAll("font[size]").forEach((font) => {
+        const span = document.createElement("span");
+        span.style.fontSize = fontSizes[font.getAttribute("size")] || "1em";
+        while (font.firstChild) span.appendChild(font.firstChild);
+        font.replaceWith(span);
+      });
+      textarea.value = `<div data-ce-rich-text="1">${editor.innerHTML}</div>`;
+      textarea.dispatchEvent(new Event("change", { bubbles: true }));
+      rememberSelection();
+    }
+    function command(name, value = null) {
+      restoreSelection();
+      document.execCommand(name, false, value);
+      sync();
+      editor.focus();
+    }
+
+    const bold = document.createElement("button");
+    bold.type = "button";
+    bold.className = "ce-rich-bold";
+    bold.innerHTML = "<strong>B</strong>";
+    bold.title = "Bold";
+    bold.addEventListener("mousedown", (event) => event.preventDefault());
+    bold.addEventListener("click", () => command("bold"));
+
+    const size = document.createElement("select");
+    size.title = "Font size";
+    [["3", "Normal"], ["2", "Small"], ["4", "Large"], ["5", "Extra large"]].forEach(([value, label]) => {
+      const option = document.createElement("option");
+      option.value = value; option.textContent = label; size.appendChild(option);
+    });
+    size.addEventListener("mousedown", rememberSelection);
+    size.addEventListener("change", () => { command("fontSize", size.value); size.value = "3"; });
+
+    const spacing = document.createElement("select");
+    spacing.title = "Line spacing";
+    [["", "Line spacing"], ["1", "Single"], ["1.5", "1.5"], ["2", "Double"]].forEach(([value, label]) => {
+      const option = document.createElement("option");
+      option.value = value; option.textContent = label; spacing.appendChild(option);
+    });
+    spacing.addEventListener("mousedown", rememberSelection);
+    spacing.addEventListener("change", () => {
+      if (!spacing.value) return;
+      restoreSelection();
+      document.execCommand("formatBlock", false, "div");
+      const selection = window.getSelection();
+      let node = selection?.anchorNode;
+      if (node?.nodeType === Node.TEXT_NODE) node = node.parentElement;
+      const block = node?.closest?.("div,p") || editor;
+      if (editor.contains(block) || block === editor) block.style.lineHeight = spacing.value;
+      spacing.value = "";
+      sync();
+      editor.focus();
+    });
+
+    toolbar.append(size, bold, spacing);
+    shell.append(toolbar, editor);
+    textarea.insertAdjacentElement("afterend", shell);
+    editor.addEventListener("input", sync);
+    editor.addEventListener("keyup", rememberSelection);
+    editor.addEventListener("mouseup", rememberSelection);
+    editor.addEventListener("paste", (event) => {
+      event.preventDefault();
+      document.execCommand("insertText", false, event.clipboardData?.getData("text/plain") || "");
+    });
+  }
+
+  function enhanceRichTextareas(root) {
+    const scope = root || document;
+    if (scope.matches?.("textarea")) enhanceRichTextarea(scope);
+    scope.querySelectorAll?.("textarea").forEach(enhanceRichTextarea);
+  }
+
   function updateQuestionPositions() {
     updateStructure();
   }
@@ -574,15 +706,15 @@
   }
 
   document.addEventListener("DOMContentLoaded", () => {
-    enhanceAll(document); initializeSectionLayout(); simplifyAddButtons(); addRail(); enableReordering(); setHeaderLinks(); saveState();
+    enhanceAll(document); enhanceRichTextareas(document); initializeSectionLayout(); simplifyAddButtons(); addRail(); enableReordering(); setHeaderLinks(); saveState();
     const firstInvalid = document.querySelector("#questions-group .ce-card-invalid");
     if (firstInvalid) window.requestAnimationFrame(() => firstInvalid.scrollIntoView({ block: "center" }));
     document.addEventListener("formset:added", (event) => {
-      placeAddedCard(event.target); simplifyAddButtons();
+      placeAddedCard(event.target); enhanceRichTextareas(event.target); simplifyAddButtons();
     });
     if (window.django?.jQuery) {
       window.django.jQuery(document).on("formset:added", function (_event, row) {
-        placeAddedCard(row?.[0]);
+        placeAddedCard(row?.[0]); enhanceRichTextareas(row?.[0]);
         simplifyAddButtons();
       });
     }

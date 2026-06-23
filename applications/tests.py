@@ -24,7 +24,7 @@ from applications.admin_views import (
 )
 from applications.email_templates import build_form_email_context, resolve_form_email_template
 from applications.forms import build_application_form
-from applications.templatetags.app_extras import format_help_text
+from applications.templatetags.app_extras import format_help_text, format_rich_text
 from applications.mentora_application_schema import apply_mentora_schema
 from applications.emprendedora_a1_autograde import (
     autograde_and_email_emprendedora_a1,
@@ -410,9 +410,12 @@ class QuestionAdminFormTests(TestCase):
         self.assertContains(response, "Stored emails")
         self.assertContains(response, "Approval page")
         self.assertContains(response, "Approval email")
+        self.assertContains(response, "Rejection page")
         self.assertContains(response, 'name="approval_email_name"')
         self.assertContains(response, "Requirements rejection")
         self.assertContains(response, "End the application based on this answer")
+        self.assertContains(response, "Uses the shared Rejection page configured at the top of the editor.")
+        self.assertNotContains(response, "Final page message")
         self.assertNotContains(response, "Confirmation messages")
         self.assertNotContains(response, "Email messages")
         self.assertNotContains(
@@ -421,6 +424,7 @@ class QuestionAdminFormTests(TestCase):
         )
         self.assertContains(response, 'name="questions-0-section_token"')
         self.assertNotContains(response, 'name="questions-0-section"')
+
 
     def test_section_logic_widget_saves_google_style_answer_rule(self):
         section = Section.objects.create(
@@ -481,6 +485,37 @@ class QuestionAdminFormTests(TestCase):
         self.assertEqual(question.section, section)
 
 
+class ApplicationsDashboardPreviewTests(TestCase):
+    def test_master_preview_uses_current_master_combined_forms(self):
+        a1 = FormDefinition.objects.create(slug="E_A1", name="Current E A1", is_master=True)
+        a2 = FormDefinition.objects.create(slug="E_A2", name="Current E A2", is_master=True)
+        Question.objects.create(
+            form=a1, text="Current master first question", slug="current_first",
+            field_type=Question.SHORT_TEXT, position=1,
+        )
+        Question.objects.create(
+            form=a2, text="Current master second question", slug="current_second",
+            field_type=Question.SHORT_TEXT, position=1,
+        )
+        user = get_user_model().objects.create_superuser(
+            email="preview-master@example.com",
+            password="test-password",
+        )
+        self.client.force_login(user)
+
+        response = self.client.get(reverse("admin_apps_list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "/apply/E_A1/?preview=1&amp;combined=1")
+        self.assertContains(response, ">\n                Preview\n              </a>", html=False)
+        self.assertNotContains(response, "Preview combined")
+
+        preview = self.client.get("/apply/E_A1/?preview=1&combined=1")
+        self.assertEqual(preview.status_code, 200)
+        self.assertContains(preview, "Current master first question")
+        self.assertContains(preview, "Current master second question")
+
+
 class HelpTextFormattingTests(TestCase):
     def test_pasted_help_text_keeps_paragraphs_and_auto_links_url(self):
         rendered = str(format_help_text(
@@ -506,6 +541,37 @@ class HelpTextFormattingTests(TestCase):
         self.assertIn("📄 Abrir PDF", rendered)
         self.assertIn('href="https://example.com/file"', rendered)
         self.assertNotIn("&lt;a", rendered)
+
+    def test_toolbar_rich_text_keeps_safe_formatting_and_removes_scripts(self):
+        rendered = str(format_rich_text(
+            '<div data-ce-rich-text="1"><div style="line-height: 1.5">'
+            '<font size="5"><strong>Important</strong></font>'
+            '<script>alert(1)</script></div></div>'
+        ))
+
+        self.assertIn('style="line-height: 1.5;"', rendered)
+        self.assertIn('<span style="font-size: 1.5em;"><strong>Important</strong></span>', rendered)
+        self.assertNotIn("<script", rendered)
+
+
+class ApplicationEmailValidationTests(TestCase):
+    def test_email_and_correo_questions_reject_random_text(self):
+        form_def = FormDefinition.objects.create(slug="email_validation", name="Email validation")
+        Question.objects.create(
+            form=form_def,
+            text="Correo electrónico",
+            slug="correo_electronico",
+            field_type=Question.SHORT_TEXT,
+            position=1,
+        )
+        ApplicationForm = build_application_form(form_def.slug)
+
+        invalid = ApplicationForm({"q_correo_electronico": "random characters"})
+        self.assertFalse(invalid.is_valid())
+        self.assertIn("correo electrónico válida", str(invalid.errors))
+
+        valid = ApplicationForm({"q_correo_electronico": "person@example.com"})
+        self.assertTrue(valid.is_valid(), valid.errors)
 
 
 class MultipleChoiceGridTests(TestCase):
@@ -797,7 +863,11 @@ class TerminalAnswerRuleTests(TestCase):
             form=form_def,
             name="Application received",
             subject="Application received for {{ name }}",
-            body="Hello {{ name }},\n\nYour application is under consideration.",
+            body=(
+                '<div data-ce-rich-text="1"><div style="line-height: 1.5">'
+                '<strong>Hello {{ name }}</strong><br>Your application is under consideration.'
+                '</div></div>'
+            ),
         )
 
         response = self.client.post(
@@ -811,6 +881,9 @@ class TerminalAnswerRuleTests(TestCase):
         self.assertContains(response, "We received your application.")
         self.assertEqual(len(mail.outbox), 1)
         self.assertEqual(mail.outbox[0].subject, "Application received for Applicant Two")
+        self.assertIn("Hello Applicant Two", mail.outbox[0].body)
+        self.assertEqual(len(mail.outbox[0].alternatives), 1)
+        self.assertIn("<strong>Hello Applicant Two</strong>", mail.outbox[0].alternatives[0].content)
 
     def test_terminal_completion_does_not_send_default_approval_email(self):
         form_def = FormDefinition.objects.create(
@@ -820,6 +893,8 @@ class TerminalAnswerRuleTests(TestCase):
             accepting_responses=True,
             manual_open_override=True,
             thanks_approved_message="Approved message",
+            thanks_rejected_title="Shared rejection",
+            thanks_rejected_message="This shared page is used for every rejection rule.",
             approval_email_name="Approval",
         )
         Question.objects.create(
@@ -867,7 +942,9 @@ class TerminalAnswerRuleTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Not eligible")
+        self.assertContains(response, "Shared rejection")
+        self.assertContains(response, "This shared page is used for every rejection rule.")
+        self.assertNotContains(response, "The application ended.")
         self.assertNotContains(response, "Approved message")
         self.assertEqual([message.subject for message in mail.outbox], ["Not eligible"])
 

@@ -211,7 +211,15 @@ def build_application_form(form_slug: str, additional_form_slugs: list[str] | tu
                     conds = [{"question_id": show_if_q.id, "value": show_if_value}]
 
                 if field_type == Question.SHORT_TEXT:
-                    field = forms.CharField(initial="", **common)
+                    question_key = f"{q.slug} {q.text}".lower()
+                    if "email" in question_key or "correo" in question_key:
+                        field = forms.EmailField(
+                            initial="",
+                            error_messages={"invalid": "Ingresa una dirección de correo electrónico válida."},
+                            **common,
+                        )
+                    else:
+                        field = forms.CharField(initial="", **common)
 
                 elif field_type == Question.LONG_TEXT:
                     field = forms.CharField(

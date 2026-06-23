@@ -56,9 +56,7 @@
       const rules = enabled.checked ? Array.from(list.querySelectorAll("[data-end-rule]")).map((row) => ({
         value: row.querySelector("[data-rule-answer]").value,
         email_name: row.querySelector("[data-rule-email]").value,
-        page_title: row.querySelector("[data-rule-title]").value.trim(),
-        page_message: row.querySelector("[data-rule-message]").value.trim(),
-      })).filter((rule) => rule.value && rule.page_message) : [];
+      })).filter((rule) => rule.value) : [];
       input.value = JSON.stringify(rules);
       input.dispatchEvent(new Event("change", { bubbles: true }));
     }
@@ -70,12 +68,6 @@
       const answer = document.createElement("select");
       answer.dataset.ruleAnswer = "1";
       fillSelect(answer, answerOptions(), "If answer is…", rule.value);
-      const title = document.createElement("input");
-      title.type = "text"; title.placeholder = "Final page title";
-      title.value = rule.page_title || ""; title.dataset.ruleTitle = "1";
-      const message = document.createElement("textarea");
-      message.rows = 3; message.placeholder = "Rejection message shown on the final page";
-      message.value = rule.page_message || ""; message.dataset.ruleMessage = "1";
       const email = document.createElement("select");
       email.dataset.ruleEmail = "1";
       fillSelect(email, emailNames(), "Do not send an email", rule.email_name);
@@ -83,7 +75,7 @@
       const remove = document.createElement("button");
       remove.type = "button"; remove.className = "ce-logic__remove";
       remove.title = "Remove ending"; remove.textContent = "×";
-      [answer, title, message, email].forEach((field) => {
+      [answer, email].forEach((field) => {
         field.addEventListener("input", sync); field.addEventListener("change", sync);
       });
       remove.addEventListener("click", () => {
@@ -93,13 +85,9 @@
       });
       const answerWrap = document.createElement("label");
       answerWrap.innerHTML = "<span>Trigger answer</span>"; answerWrap.appendChild(answer);
-      const titleWrap = document.createElement("label");
-      titleWrap.innerHTML = "<span>Final page title</span>"; titleWrap.appendChild(title);
-      const messageWrap = document.createElement("label");
-      messageWrap.innerHTML = "<span>Final page message</span>"; messageWrap.appendChild(message);
       const emailWrap = document.createElement("label");
       emailWrap.innerHTML = "<span>Stored email to send</span>"; emailWrap.appendChild(email);
-      row.append(answerWrap, titleWrap, messageWrap, emailWrap, remove);
+      row.append(answerWrap, emailWrap, remove);
       list.appendChild(row);
     }
 

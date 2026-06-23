@@ -588,6 +588,11 @@ class FormDefinitionAdminForm(forms.ModelForm):
         self.fields["thanks_approved_message"].help_text = (
             "Shown after Send when no answer ends the application early. Line breaks are preserved."
         )
+        self.fields["thanks_rejected_title"].label = "Page title"
+        self.fields["thanks_rejected_message"].label = "Page message"
+        self.fields["thanks_rejected_message"].help_text = (
+            "Shared by every answer rule that ends this application. Line breaks are preserved."
+        )
 
 
 class QuestionInlineFormSet(BaseInlineFormSet):
@@ -772,6 +777,13 @@ class FormDefinitionAdmin(admin.ModelAdmin):
                 "fields": ("approval_email_name",),
                 "classes": ("collapse",),
                 "description": "Default stored email sent when no end-application answer is triggered.",
+            }),
+            ("Rejection page", {
+                "fields": ("thanks_rejected_title", "thanks_rejected_message"),
+                "classes": ("collapse",),
+                "description": (
+                    "Shared final page used whenever a question's answer ends the application."
+                ),
             }),
             ("Form settings", {"fields": settings, "classes": ("collapse",)}),
             ("Preview and responses", {"fields": links, "classes": ("collapse",)}),

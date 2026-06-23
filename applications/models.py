@@ -302,7 +302,7 @@ class StoredEmailTemplate(models.Model):
     name = models.CharField(max_length=120)
     subject = models.CharField(max_length=255)
     body = models.TextField(
-        help_text="Plain text only. Line breaks are preserved; HTML is not required.",
+        help_text="Use the formatting toolbar; HTML knowledge is not required.",
     )
     position = models.PositiveIntegerField(default=0)
 

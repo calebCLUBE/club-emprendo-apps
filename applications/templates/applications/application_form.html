@@ -1,5 +1,6 @@
 {# applications/templates/applications/application_form.html #}
 {% extends "applications/base.html" %}
+{% load app_extras %}
 
 {% block title %}{{ form_def.name }} · Club Emprendo{% endblock %}
 
@@ -7,7 +8,7 @@
 
   {% if rendered_description %}
     <div class="form-intro">
-      {{ rendered_description|linebreaks }}
+      {{ rendered_description|format_rich_text }}
     </div>
   {% endif %}
 
@@ -22,7 +23,7 @@
 
     <h1 class="ce-form-title ce-heading">{{ display_form_name|default:form_def.name }}</h1>
     {% if form_def.description and not combined_flow and not rendered_description and not sections %}
-      <p class="ce-form-subtitle">{{ form_def.description|linebreaks }}</p>
+      <div class="ce-form-subtitle">{{ form_def.description|format_rich_text }}</div>
     {% endif %}
   </div>
 
@@ -77,7 +78,7 @@
             <div style="margin-bottom:14px;">
               <h2 class="ce-heading" style="margin:0 0 6px 0;">{{ section.title }}</h2>
               {% if section.intro %}
-                <div class="ce-muted ce-section-intro" style="margin:0;">{{ section.intro|linebreaks }}</div>
+                <div class="ce-muted ce-section-intro" style="margin:0;">{{ section.intro|format_rich_text }}</div>
               {% endif %}
             </div>
 

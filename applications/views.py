@@ -15,6 +15,7 @@ from .forms import build_application_form
 from .models import Application, Answer, FormDefinition, Question, Section, scheduled_group_open_state
 from .drive_sync import schedule_group_track_responses_sync
 from .email_templates import build_form_email_context, render_email_template, resolve_form_email_template
+from .rich_text import is_rich_text, render_rich_text, rich_text_to_plain
 from .emprendedora_a1_autograde import (
     autograde_and_email_emprendedora_a1,
     emprendedora_a1_passes,
@@ -939,12 +940,15 @@ def _send_stored_email_for_rule(app, question, rule):
     replacements.update({"name": app.name or "", "email": recipient})
     subject = " ".join(render_email_template(template.subject, replacements).splitlines()).strip()
     body = render_email_template(template.body, replacements)
-    EmailMultiAlternatives(
+    message = EmailMultiAlternatives(
         subject=subject,
-        body=body,
+        body=rich_text_to_plain(body) if is_rich_text(body) else body,
         from_email=getattr(settings, "DEFAULT_FROM_EMAIL", None),
         to=[recipient],
-    ).send(fail_silently=False)
+    )
+    if is_rich_text(body):
+        message.attach_alternative(render_rich_text(body), "text/html")
+    message.send(fail_silently=False)
     return True
 
 
@@ -961,12 +965,15 @@ def _send_default_approval_email(app, form_def):
     replacements.update({"name": app.name or "", "email": recipient})
     subject = " ".join(render_email_template(template.subject, replacements).splitlines()).strip()
     body = render_email_template(template.body, replacements)
-    EmailMultiAlternatives(
+    message = EmailMultiAlternatives(
         subject=subject,
-        body=body,
+        body=rich_text_to_plain(body) if is_rich_text(body) else body,
         from_email=getattr(settings, "DEFAULT_FROM_EMAIL", None),
         to=[recipient],
-    ).send(fail_silently=False)
+    )
+    if is_rich_text(body):
+        message.attach_alternative(render_rich_text(body), "text/html")
+    message.send(fail_silently=False)
     return True
 
 
@@ -1233,10 +1240,21 @@ def _handle_application_form(
                 _send_stored_email_for_rule(app, terminal_question, terminal_rule)
             except Exception:
                 logger.exception("Stored terminal email failed for application %s", app.pk)
+            rejection_form_def = completion_form_def
+            if not str(getattr(rejection_form_def, "thanks_rejected_message", "") or "").strip():
+                rejection_form_def = terminal_question.form
+            shared_rejection = _thanks_override_payload(
+                form_def=rejection_form_def,
+                kind="a1",
+                approved=False,
+                disqualified=True,
+                group_num=_group_num_from_form_def(rejection_form_def),
+                track=_track_from_slug(rejection_form_def.slug or ""),
+            )
             return render(
                 request,
                 "applications/thanks.html",
-                {
+                shared_rejection or {
                     "custom_message_title": str(terminal_rule.get("page_title") or "").strip(),
                     "custom_message_body": str(terminal_rule.get("page_message") or "").strip(),
                     "custom_message_variant": "alert",

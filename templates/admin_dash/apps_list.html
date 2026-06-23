@@ -83,7 +83,7 @@
               <div class="ce-admin-tile-sub">Master application</div>
             </a>
             <div class="ce-actions" style="margin-top:0;">
-              <a class="button default" href="{% url 'apply_by_slug' form_slug=fd.slug %}?preview=1&amp;combined=1" target="_blank" rel="noopener">
+              <a class="button default" href="{% url 'apply_by_slug' form_slug=fd.slug %}?preview=1" target="_blank" rel="noopener">
                 Preview
               </a>
             </div>
@@ -212,16 +212,8 @@
                   <div class="ce-dd-body" style="padding-top:0;">
                     <div>
                       <a href="/admin/applications/formdefinition/{{ fd.id }}/change/">Edit</a>
-                      {% if g.use_combined_application and fd.companion_form %}
-                        &nbsp;|&nbsp;
-                        <a href="/admin/applications/formdefinition/{{ fd.companion_form.id }}/change/">Edit later sections</a>
-                      {% endif %}
                       &nbsp;|&nbsp;
-                      {% if "_A1" in fd.slug and g.use_combined_application %}
-                        <a href="/apply/{{ fd.slug }}/?combined=1" target="_blank" rel="noopener">Open combined link</a>
-                      {% else %}
-                        <a href="/apply/{{ fd.slug }}/" target="_blank" rel="noopener">Open link</a>
-                      {% endif %}
+                      <a href="/apply/{{ fd.slug }}/" target="_blank" rel="noopener">Open link</a>
                     </div>
 
                     <div class="ce-actions">

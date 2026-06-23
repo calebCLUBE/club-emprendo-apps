@@ -486,7 +486,7 @@ class QuestionAdminFormTests(TestCase):
 
 
 class ApplicationsDashboardPreviewTests(TestCase):
-    def test_master_preview_uses_current_master_combined_forms(self):
+    def test_master_preview_uses_current_master_a1_form_only(self):
         a1 = FormDefinition.objects.create(slug="E_A1", name="Current E A1", is_master=True)
         a2 = FormDefinition.objects.create(slug="E_A2", name="Current E A2", is_master=True)
         Question.objects.create(
@@ -506,14 +506,14 @@ class ApplicationsDashboardPreviewTests(TestCase):
         response = self.client.get(reverse("admin_apps_list"))
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "/apply/E_A1/?preview=1&amp;combined=1")
+        self.assertContains(response, "/apply/E_A1/?preview=1")
         self.assertContains(response, ">\n                Preview\n              </a>", html=False)
         self.assertNotContains(response, "Preview combined")
 
-        preview = self.client.get("/apply/E_A1/?preview=1&combined=1")
+        preview = self.client.get("/apply/E_A1/?preview=1")
         self.assertEqual(preview.status_code, 200)
         self.assertContains(preview, "Current master first question")
-        self.assertContains(preview, "Current master second question")
+        self.assertNotContains(preview, "Current master second question")
 
 
 class HelpTextFormattingTests(TestCase):
@@ -725,19 +725,19 @@ class SingleCombinedApplicationTests(TestCase):
             position=1,
         )
 
-    def test_combined_get_renders_a1_and_a2_as_one_form(self):
+    def test_current_group_get_renders_a1_only_even_when_a2_exists(self):
         response = self.client.get(reverse("apply_by_slug", args=[self.a1.slug]))
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'name="q_meets_requirements"')
-        self.assertContains(response, 'name="q_business_story"')
+        self.assertNotContains(response, 'name="q_business_story"')
         self.assertContains(response, "data-application-progress")
         self.assertEqual(response.content.count(b'type="submit"'), 1)
 
     @patch("applications.views.schedule_group_track_responses_sync")
     @patch("applications.views._send_a2_submission_email")
     @patch("applications.views.autograde_and_email_emprendedora_a1")
-    def test_combined_post_creates_one_application_with_all_answers(
+    def test_current_group_post_creates_one_a1_application_without_a2_answers(
         self, mock_a1_grade, mock_a2_email, mock_sync
     ):
         response = self.client.post(
@@ -755,12 +755,12 @@ class SingleCombinedApplicationTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(Application.objects.count(), 1)
         app = Application.objects.get()
-        self.assertEqual(app.form, self.a2)
-        self.assertTrue(app.invited_to_second_stage)
-        self.assertEqual(app.answers.count(), 6)
-        self.assertEqual(app.answers.get(question=self.a2_question).value, "A running business")
+        self.assertEqual(app.form, self.a1)
+        self.assertFalse(app.invited_to_second_stage)
+        self.assertEqual(app.answers.count(), 5)
+        self.assertFalse(app.answers.filter(question=self.a2_question).exists())
         mock_a1_grade.assert_called_once()
-        mock_a2_email.assert_called_once()
+        mock_a2_email.assert_not_called()
 
 
 class TerminalAnswerRuleTests(TestCase):
@@ -1051,6 +1051,32 @@ class GroupFormNamingTests(TestCase):
             accepting_responses=True,
         )
 
+    @patch("applications.admin_views.ensure_group_drive_tree")
+    def test_create_group_clones_only_current_single_app_masters(self, mock_drive):
+        FormDefinition.objects.create(slug="E_A2", name="Retired E A2", is_master=True)
+        FormDefinition.objects.create(slug="M_A2", name="Retired M A2", is_master=True)
+        user = get_user_model().objects.create_superuser(
+            email="create-group@example.com",
+            password="test-password",
+        )
+        self.client.force_login(user)
+
+        response = self.client.post(
+            reverse("admin_create_group"),
+            {
+                "group_name": "June Group",
+                "start_day": "1",
+                "start_month": "junio",
+                "end_month": "agosto",
+                "year": "2026",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        group = FormGroup.objects.get(custom_name="June Group")
+        slugs = set(FormDefinition.objects.filter(group=group).values_list("slug", flat=True))
+        self.assertEqual(slugs, {"june_group_E_A1", "june_group_M_A1"})
+
     def test_clone_form_uses_custom_group_name_token_for_form_name(self):
         group = FormGroup.objects.create(
             number=811,
@@ -1115,8 +1141,8 @@ class GroupFormNamingTests(TestCase):
             [entry.combined_display_name for entry in entries],
             ["Aplicación para emprendedoras", "Aplicación para mentoras"],
         )
-        self.assertTrue(entries[0].companion_form.slug.endswith("E_A2"))
-        self.assertTrue(entries[1].companion_form.slug.endswith("M_A2"))
+        self.assertIsNone(entries[0].companion_form)
+        self.assertIsNone(entries[1].companion_form)
 
 
 class ApplicationFormRenderTests(TestCase):

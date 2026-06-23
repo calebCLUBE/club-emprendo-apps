@@ -853,15 +853,12 @@ def _resolve_a2_slug_from_first_app(first_app: Application, role: str) -> str:
 
 
 def _combined_second_form(first_form: FormDefinition) -> FormDefinition | None:
-    slug = first_form.slug or ""
-    if slug.endswith("E_A1"):
-        master_slug = "E_A2"
-    elif slug.endswith("M_A1"):
-        master_slug = "M_A2"
-    else:
-        return None
-    second_slug = _group_form_slug_for_master(getattr(first_form, "group", None), master_slug) or master_slug
-    return FormDefinition.objects.filter(slug=second_slug).first()
+    # A2 used to be appended to A1 in the "combined" application flow. The
+    # current product has one Emprendedora application and one Mentora
+    # application, both edited from their A1 masters. Keep this helper as the
+    # compatibility boundary so old A2 records can remain in the database
+    # without being tacked onto new/current group links.
+    return None
 
 
 def _combined_sections(first_form, second_form, form, first_intro=""):
@@ -1315,7 +1312,7 @@ def _handle_application_form(
                         )
                 except Exception:
                     logger.exception("Drive response CSV sync trigger failed for combined form %s", form_def.slug)
-            elif passed:
+            elif passed and combined_second_def:
                 app.generate_invite_token()
                 app.invited_to_second_stage = True
                 app.save(update_fields=["invite_token", "invited_to_second_stage"])

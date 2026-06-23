@@ -69,6 +69,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 MASTER_SLUGS = ["E_A1", "E_A2", "M_A1", "M_A2"]
+ACTIVE_GROUP_MASTER_SLUGS = ["E_A1", "M_A1"]
 GROUP_SLUG_RE = re.compile(r"^(?:G(?P<num>\d+)|[A-Za-z0-9_]+)_(?P<master>E_A1|E_A2|M_A1|M_A2)$")
 GRADED_GROUP_RE = re.compile(r"^G(?P<num>\d+)_")
 EMAIL_EXTRACT_RE = re.compile(r"[A-Z0-9._%+\-']+@[A-Z0-9.\-]+\.[A-Z]{2,}", re.IGNORECASE)
@@ -3503,7 +3504,11 @@ def _looks_like_file_value(value: str) -> bool:
 # Admin "Apps" dashboard
 # ----------------------------
 def _combined_application_entries(forms_for_group):
-    """Expose one application per track while retaining internal A1/A2 records."""
+    """Expose one current application per track.
+
+    A2 forms may still exist for older submissions/history, but they are retired
+    from the group application flow and must not be appended to A1.
+    """
     forms = list(forms_for_group)
     by_suffix = {}
     for form_def in forms:
@@ -3519,7 +3524,7 @@ def _combined_application_entries(forms_for_group):
         if not entry:
             continue
         entry.combined_display_name = label
-        entry.companion_form = by_suffix.get(f"{track}_A2")
+        entry.companion_form = None
         entries.append(entry)
     return entries
 
@@ -3683,7 +3688,7 @@ def create_group(request):
         if update_fields:
             group.save(update_fields=list(dict.fromkeys(update_fields)))
 
-        masters = FormDefinition.objects.filter(slug__in=MASTER_SLUGS).order_by("slug")
+        masters = FormDefinition.objects.filter(slug__in=ACTIVE_GROUP_MASTER_SLUGS).order_by("slug")
         for master_fd in masters:
             _clone_form(master_fd, group)
 
@@ -4504,7 +4509,7 @@ def database_create_assigned_group(request):
                 update_fields.append("use_combined_application")
             target_group.save(update_fields=list(dict.fromkeys(update_fields)))
 
-            required_master_slugs = [f"{selected_track}_A1", f"{selected_track}_A2"]
+            required_master_slugs = [f"{selected_track}_A1"]
             for master_slug in required_master_slugs:
                 if master_slug not in MASTER_SLUGS:
                     continue

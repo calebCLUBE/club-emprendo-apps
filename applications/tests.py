@@ -30,7 +30,12 @@ from applications.emprendedora_a1_autograde import (
     autograde_and_email_emprendedora_a1,
     emprendedora_a1_passes,
 )
-from applications.views import _thanks_override_payload, _mentor_a1_autograde_and_email, _schedule_a1_to_a2_reminder
+from applications.views import (
+    _mentor_a1_autograde_and_email,
+    _mentor_a1_is_eligible,
+    _schedule_a1_to_a2_reminder,
+    _thanks_override_payload,
+)
 from applications.models import (
     Answer,
     Application,
@@ -1490,6 +1495,44 @@ class A1EmailBehaviorTests(TestCase):
         self.assertTrue(app.invited_to_second_stage)
         self.assertIsNotNone(app.invite_token)
         mocked_send.assert_not_called()
+
+    def test_mentora_a1_individual_requirements_are_eligible(self):
+        answers = {
+            "req_basic_woman": "yes",
+            "req_basic_latam": "yes",
+            "req_basic_business_exp": "yes",
+            "req_basic_punctual": "yes",
+            "req_basic_internet_device": "yes",
+            "req_basic_training": "yes",
+            "req_basic_surveys": "yes",
+            "req_avail_period": "yes",
+            "req_avail_2hrs_week": "yes",
+            "req_avail_kickoff": "yes",
+        }
+
+        self.assertTrue(_mentor_a1_is_eligible(answers))
+        answers["req_avail_2hrs_week"] = "no"
+        self.assertFalse(_mentor_a1_is_eligible(answers))
+
+    def test_emprendedora_a1_individual_requirements_are_eligible(self):
+        answers = {
+            "req_basic_woman": "yes",
+            "req_basic_latam": "yes",
+            "req_basic_business_active": "yes",
+            "req_basic_internet_device": "yes",
+            "req_avail_period": "yes",
+            "req_avail_3hrs_week": "yes",
+        }
+
+        self.assertTrue(emprendedora_a1_passes(answers))
+        answers["req_basic_business_active"] = "no"
+        self.assertFalse(emprendedora_a1_passes(answers))
+
+    def test_a1_unknown_question_layout_does_not_send_false_rejection(self):
+        answers = {"full_name": "Configuración nueva", "email": "test@example.com"}
+
+        self.assertTrue(_mentor_a1_is_eligible(answers))
+        self.assertTrue(emprendedora_a1_passes(answers))
 
     def test_schedule_a1_reminder_clears_existing_values(self):
         form_def = FormDefinition.objects.create(

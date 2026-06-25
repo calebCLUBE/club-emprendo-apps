@@ -1,11 +1,10 @@
 # applications/emprendedora_a1_autograde.py
 from __future__ import annotations
 
-import unicodedata
-
 from django.conf import settings
 from django.core.mail import EmailMultiAlternatives
 
+from .a1_eligibility import entrepreneur_a1_passes
 from .email_templates import build_form_email_context, resolve_form_email_template
 from .models import Application
 
@@ -21,51 +20,8 @@ def _send_html_email(to_email: str, subject: str, html_body: str):
     msg.send(fail_silently=False)
 
 
-def yesish(v) -> bool:
-    """
-    Treat 'sí' or 'si' as yes; handle null/undefined safely.
-    Accent-insensitive, substring match.
-    """
-    t = ((v or "") + "")
-    t = unicodedata.normalize("NFD", t)
-    t = "".join(ch for ch in t if unicodedata.category(ch) != "Mn")
-    t = t.lower().strip()
-    return "si" in t
-
-
-def _is_yes_value(v: str) -> bool:
-    """
-    Your DB stores choice values like 'yes'/'no' for most of these.
-    Also supports yesish() for older free-text variants.
-    """
-    vv = (v or "").strip().lower()
-    return vv == "yes" or yesish(v)
-
-
 def emprendedora_a1_passes(answers: dict[str, str]) -> bool:
-    requisitos = (
-        answers.get("meets_requirements")
-        or answers.get("e1_meet_requirements")
-        or ""
-    )
-
-    disponibilidad = (
-        answers.get("available_period")
-        or answers.get("e1_available_period")
-        or answers.get("availability_ok")
-        or ""
-    )
-
-    emprendimiento = (
-        answers.get("business_active")
-        or answers.get("e1_has_running_business")
-        or requisitos
-    )
-
-    passes_requisitos = _is_yes_value(requisitos)
-    passes_disponibilidad = _is_yes_value(disponibilidad)
-    has_emprendimiento = _is_yes_value(emprendimiento)
-    return passes_requisitos and passes_disponibilidad and has_emprendimiento
+    return entrepreneur_a1_passes(answers or {})
 
 
 def autograde_and_email_emprendedora_a1(request, app: Application):

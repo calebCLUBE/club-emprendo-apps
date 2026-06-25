@@ -16,6 +16,7 @@ from .models import Application, Answer, FormDefinition, Question, Section, sche
 from .drive_sync import schedule_group_track_responses_sync
 from .email_templates import build_form_email_context, render_email_template, resolve_form_email_template
 from .rich_text import is_rich_text, render_rich_text, rich_text_to_plain
+from .a1_eligibility import mentor_a1_passes
 from .emprendedora_a1_autograde import (
     autograde_and_email_emprendedora_a1,
     emprendedora_a1_passes,
@@ -379,32 +380,7 @@ def _mentor_a1_autograde_and_email(request, app: Application):
 
 
 def _mentor_a1_is_eligible(answers: dict[str, str]) -> bool:
-    answers = {
-        k: (v or "")
-        for k, v in (answers or {}).items()
-    }
-
-    def yesish(v: str) -> bool:
-        t = (v or "").strip().lower()
-        return ("si" in t) or ("sí" in t) or ("yes" in t) or (t == "true") or (t == "1") or (t == "yes")
-
-    requisitos = (
-        answers.get("meets_requirements")
-        or answers.get("m1_meet_requirements")
-        or answers.get("m1_meets_requirements")
-        or answers.get("m1_requirements_ok")
-        or ""
-    )
-    disponibilidad = (
-        answers.get("available_period")
-        or answers.get("availability_ok")
-        or answers.get("m1_availability_ok")
-        or answers.get("m1_available_period")
-        or answers.get("m1_available")
-        or ""
-    )
-
-    return yesish(requisitos) and yesish(disponibilidad)
+    return mentor_a1_passes(answers or {})
 
 
 def _m2_sections(form_def: FormDefinition):

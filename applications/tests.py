@@ -890,6 +890,122 @@ class TerminalAnswerRuleTests(TestCase):
         self.assertEqual(len(mail.outbox[0].alternatives), 1)
         self.assertIn("<strong>Hello Applicant Two</strong>", mail.outbox[0].alternatives[0].content)
 
+    def test_a1_success_sends_nothing_when_approval_email_is_disabled(self):
+        form_def = FormDefinition.objects.create(
+            slug="G991_E_A1",
+            name="Configured entrepreneur application",
+            is_public=True,
+            accepting_responses=True,
+            manual_open_override=True,
+            approval_email_name="",
+        )
+        Question.objects.create(
+            form=form_def,
+            text="Name",
+            slug="full_name",
+            field_type=Question.SHORT_TEXT,
+            position=1,
+        )
+        Question.objects.create(
+            form=form_def,
+            text="Email",
+            slug="email",
+            field_type=Question.SHORT_TEXT,
+            position=2,
+        )
+        gate = Question.objects.create(
+            form=form_def,
+            text="Do you meet the requirements?",
+            slug="meets_requirements",
+            field_type=Question.CHOICE,
+            position=3,
+            end_form_rules=[{
+                "value": "no",
+                "email_name": "Rechazo E",
+                "page_title": "Not eligible",
+                "page_message": "The application ended.",
+            }],
+        )
+        Choice.objects.create(question=gate, value="yes", label="Yes", position=1)
+        Choice.objects.create(question=gate, value="no", label="No", position=2)
+        StoredEmailTemplate.objects.create(
+            form=form_def,
+            name="Rechazo E",
+            subject="Not eligible",
+            body="Not eligible",
+        )
+
+        response = self.client.post(
+            reverse("apply_by_slug", args=[form_def.slug]),
+            {
+                "q_full_name": "Successful Applicant",
+                "q_email": "success@example.com",
+                "q_meets_requirements": "yes",
+            },
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_a1_rejection_rule_still_sends_its_selected_email(self):
+        form_def = FormDefinition.objects.create(
+            slug="G992_E_A1",
+            name="Configured entrepreneur rejection",
+            is_public=True,
+            accepting_responses=True,
+            manual_open_override=True,
+            approval_email_name="",
+        )
+        Question.objects.create(
+            form=form_def,
+            text="Name",
+            slug="full_name",
+            field_type=Question.SHORT_TEXT,
+            position=1,
+        )
+        Question.objects.create(
+            form=form_def,
+            text="Email",
+            slug="email",
+            field_type=Question.SHORT_TEXT,
+            position=2,
+        )
+        gate = Question.objects.create(
+            form=form_def,
+            text="Do you meet the requirements?",
+            slug="meets_requirements",
+            field_type=Question.CHOICE,
+            position=3,
+            end_form_rules=[{
+                "value": "no",
+                "email_name": "Rechazo E",
+                "page_title": "Not eligible",
+                "page_message": "The application ended.",
+            }],
+        )
+        Choice.objects.create(question=gate, value="yes", label="Yes", position=1)
+        Choice.objects.create(question=gate, value="no", label="No", position=2)
+        StoredEmailTemplate.objects.create(
+            form=form_def,
+            name="Rechazo E",
+            subject="Not eligible",
+            body="Not eligible",
+        )
+
+        response = self.client.post(
+            reverse("apply_by_slug", args=[form_def.slug]),
+            {
+                "q_full_name": "Rejected Applicant",
+                "q_email": "rejected@example.com",
+                "q_meets_requirements": "no",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Not eligible")
+        self.assertEqual([message.subject for message in mail.outbox], ["Not eligible"])
+
     def test_terminal_completion_does_not_send_default_approval_email(self):
         form_def = FormDefinition.objects.create(
             slug="terminal_overrides_approval",

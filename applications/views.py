@@ -950,6 +950,31 @@ def _send_default_approval_email(app, form_def):
     return True
 
 
+def _uses_managed_completion(form_def: FormDefinition | None) -> bool:
+    """
+    Whether the form uses configurable stored emails/end-answer rules.
+
+    An empty approval_email_name means "do not send" and must not cause the
+    request to fall back to legacy automatic grading emails.
+    """
+    if not form_def:
+        return False
+    if any(
+        str(getattr(form_def, field_name, "") or "").strip()
+        for field_name in (
+            "approval_email_name",
+            "thanks_approved_title",
+            "thanks_approved_message",
+            "thanks_rejected_title",
+            "thanks_rejected_message",
+        )
+    ):
+        return True
+    if form_def.stored_emails.exists():
+        return True
+    return form_def.questions.filter(active=True).exclude(end_form_rules=[]).exists()
+
+
 def _handle_application_form(
     request,
     form_slug: str,
@@ -1021,10 +1046,7 @@ def _handle_application_form(
         else None
     )
     single_combined_submission = combined_second_def is not None
-    default_completion_configured = bool(
-        str(getattr(completion_form_def, "approval_email_name", "") or "").strip()
-        or str(getattr(completion_form_def, "thanks_approved_message", "") or "").strip()
-    )
+    managed_completion = _uses_managed_completion(completion_form_def)
     ApplicationForm = build_application_form(
         form_slug,
         additional_form_slugs=[combined_second_def.slug] if combined_second_def else None,
@@ -1244,12 +1266,12 @@ def _handle_application_form(
 
         a2_disqualified = False
         if form_def.slug.endswith("E_A2") or form_def.slug.endswith("M_A2"):
-            if not default_completion_configured:
+            if not managed_completion:
                 a2_disqualified = _is_a2_na_candidate(form_def.slug or "", answer_map)
                 _send_a2_submission_email(app, answer_map)
 
         if combined_flow and (form_def.slug.endswith("M_A1") or form_def.slug.endswith("E_A1")):
-            if default_completion_configured:
+            if managed_completion:
                 passed = True
             elif form_def.slug.endswith("M_A1"):
                 passed = _mentor_a1_is_eligible(answer_map)
@@ -1259,7 +1281,7 @@ def _handle_application_form(
             if passed and single_combined_submission:
                 # Preserve A1 grading/email behavior, then promote this same row to the
                 # final form. Its Answer rows retain both A1 and A2 questions.
-                if not default_completion_configured:
+                if not managed_completion:
                     if form_def.slug.endswith("M_A1"):
                         _mentor_a1_autograde_and_email(request, app)
                     else:
@@ -1276,7 +1298,7 @@ def _handle_application_form(
                     "second_stage_reminder_sent_at",
                 ])
                 form_def = combined_second_def
-                if not default_completion_configured:
+                if not managed_completion:
                     a2_disqualified = _is_a2_na_candidate(form_def.slug or "", answer_map)
                     _send_a2_submission_email(app, answer_map)
                 try:
@@ -1324,12 +1346,12 @@ def _handle_application_form(
                 return render(request, "applications/thanks.html", thanks_payload)
 
         # A1 autogrades
-        if form_def.slug.endswith("M_A1"):
+        if not managed_completion and form_def.slug.endswith("M_A1"):
             _mentor_a1_autograde_and_email(request, app)
             app.refresh_from_db()
             _schedule_a1_to_a2_reminder(app)
 
-        if form_def.slug.endswith("E_A1"):
+        if not managed_completion and form_def.slug.endswith("E_A1"):
             autograde_and_email_emprendedora_a1(request, app)
             app.refresh_from_db()
             _schedule_a1_to_a2_reminder(app)
@@ -1355,23 +1377,23 @@ def _handle_application_form(
         else:
             thanks_payload = {
                 "kind": "a1",
-                "approved": True if default_completion_configured else bool(app.invited_to_second_stage),
+                "approved": True if managed_completion else bool(app.invited_to_second_stage),
                 "group_num": group_num,
                 "track": track,
             }
 
         thanks_payload.update(
             _thanks_override_payload(
-                form_def=completion_form_def if default_completion_configured else form_def,
+                form_def=completion_form_def if managed_completion else form_def,
                 kind=str(thanks_payload.get("kind") or ""),
-                approved=True if default_completion_configured else bool(thanks_payload.get("approved")),
-                disqualified=False if default_completion_configured else bool(thanks_payload.get("disqualified")),
+                approved=True if managed_completion else bool(thanks_payload.get("approved")),
+                disqualified=False if managed_completion else bool(thanks_payload.get("disqualified")),
                 group_num=str(thanks_payload.get("group_num") or ""),
                 track=str(thanks_payload.get("track") or ""),
             )
         )
 
-        if default_completion_configured:
+        if managed_completion:
             thanks_payload["approved"] = True
             thanks_payload["disqualified"] = False
             try:

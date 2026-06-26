@@ -3560,14 +3560,14 @@ def apps_list(request):
             FormDefinition.objects.filter(slug__in=MASTER_SLUGS).order_by("slug")
         )
 
-        groups = list(FormGroup.objects.order_by("-number"))
+        groups = list(FormGroup.objects.order_by("-created_at", "-id"))
         groups_by_number = {int(g.number): g for g in groups}
         has_combined_groups = FormGroup.objects.filter(use_combined_application=True).exists()
         group_list = []
         for g in groups:
             _sync_group_open_close(g)
             g.display_label = _group_label_for_number(int(g.number), groups_by_number)
-            all_group_forms = list(FormDefinition.objects.filter(group=g).order_by("slug"))
+            all_group_forms = list(FormDefinition.objects.filter(group=g).order_by("-id"))
             forms_for_group = (
                 _combined_application_entries(all_group_forms)
                 if g.use_combined_application
@@ -3618,13 +3618,13 @@ def create_group(request):
         masters = _combined_master_entries(
             FormDefinition.objects.filter(slug__in=MASTER_SLUGS).order_by("slug")
         )
-        groups = list(FormGroup.objects.order_by("-number"))
+        groups = list(FormGroup.objects.order_by("-created_at", "-id"))
         groups_by_number = {int(g.number): g for g in groups}
         has_combined_groups = FormGroup.objects.filter(use_combined_application=True).exists()
         group_list = []
         for g in groups:
             g.display_label = _group_label_for_number(int(g.number), groups_by_number)
-            all_group_forms = list(FormDefinition.objects.filter(group=g).order_by("slug"))
+            all_group_forms = list(FormDefinition.objects.filter(group=g).order_by("-id"))
             forms_for_group = (
                 _combined_application_entries(all_group_forms)
                 if g.use_combined_application

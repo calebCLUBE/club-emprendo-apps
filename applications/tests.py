@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime, timezone as dt_timezone
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.contrib.auth import get_user_model
@@ -491,6 +491,50 @@ class QuestionAdminFormTests(TestCase):
 
 
 class ApplicationsDashboardPreviewTests(TestCase):
+    def test_apps_list_orders_groups_and_forms_by_newest_created(self):
+        older_group = FormGroup.objects.create(
+            number=901,
+            start_day=1,
+            start_month="enero",
+            end_month="abril",
+            year=2026,
+        )
+        newer_group = FormGroup.objects.create(
+            number=902,
+            start_day=1,
+            start_month="mayo",
+            end_month="agosto",
+            year=2026,
+        )
+        FormDefinition.objects.create(slug="G902_E_A1", name="Older form", group=newer_group)
+        FormDefinition.objects.create(slug="G902_M_A1", name="Newer form", group=newer_group)
+        FormDefinition.objects.create(slug="G901_E_A1", name="Old group form", group=older_group)
+
+        FormGroup.objects.filter(pk=older_group.pk).update(
+            created_at=datetime(2026, 1, 1, tzinfo=dt_timezone.utc)
+        )
+        FormGroup.objects.filter(pk=newer_group.pk).update(
+            created_at=datetime(2026, 2, 1, tzinfo=dt_timezone.utc)
+        )
+
+        user = get_user_model().objects.create_superuser(
+            email="apps-order@example.com",
+            password="test-password",
+        )
+        self.client.force_login(user)
+
+        response = self.client.get(reverse("admin_apps_list"))
+
+        self.assertEqual(response.status_code, 200)
+        target_groups = [
+            (group, forms)
+            for group, forms in response.context["group_list"]
+            if group.number in {901, 902}
+        ]
+        self.assertEqual([group.number for group, _forms in target_groups], [902, 901])
+        newest_group_forms = target_groups[0][1]
+        self.assertEqual([form.slug for form in newest_group_forms[:2]], ["G902_M_A1", "G902_E_A1"])
+
     def test_master_preview_uses_current_master_a1_form_only(self):
         a1 = FormDefinition.objects.create(slug="E_A1", name="Current E A1", is_master=True)
         a2 = FormDefinition.objects.create(slug="E_A2", name="Current E A2", is_master=True)

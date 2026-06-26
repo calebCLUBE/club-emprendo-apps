@@ -180,8 +180,8 @@ def _score_rank(value) -> float:
         return float("-inf")
 
 
-def _format_total_percentage(total_score: float) -> str:
-    pct = (float(total_score) / MAX_TOTAL_SCORE) * 100 if MAX_TOTAL_SCORE else 0.0
+def _format_total_percentage(total_score: float, max_total_score: float = MAX_TOTAL_SCORE) -> str:
+    pct = (float(total_score) / float(max_total_score)) * 100 if max_total_score else 0.0
     return f"{pct:.2f}%"
 
 
@@ -331,11 +331,21 @@ def detect_red_flags(client: OpenAI, *texts):
 # OpenAI grading (unstructured)
 # ==================================================
 
-def grade_unstructured(client: OpenAI, text, criterion):
+def _render_prompt_template(template: str, *, criterion: str, response: str) -> str:
+    return (
+        (template or "")
+        .replace("{{ criterion }}", criterion or "")
+        .replace("{{ response }}", response or "")
+    )
+
+
+def grade_unstructured(client: OpenAI, text, criterion, prompt_template: str = "", model_name: str = ""):
     if not isinstance(text, str) or not text.strip():
         return 0, "Blank or insufficient response."
 
-    prompt = f"""
+    prompt = _render_prompt_template(prompt_template, criterion=criterion, response=text)
+    if not prompt.strip():
+        prompt = f"""
 Criterion: {criterion}
 
 Rules:
@@ -352,7 +362,7 @@ Explanation: <2–3 sentences justifying the score>
 """
 
     r = client.chat.completions.create(
-        model=MODEL,
+        model=(model_name or MODEL),
         messages=[{"role": "user", "content": prompt}],
         temperature=0,
         timeout=TIMEOUT,
@@ -412,7 +422,14 @@ def grade_single_row(
     priority_emails: set[str] | None = None,
     active_participant_emails: set[str] | None = None,
     previous_application_ids: set[int] | None = None,
+    grading_config=None,
 ) -> list:
+    weights = getattr(grading_config, "weights", None) or W
+    max_total_score = float(getattr(grading_config, "max_total_score", MAX_TOTAL_SCORE) or MAX_TOTAL_SCORE)
+    model_name = getattr(grading_config, "model_name", "") or ""
+    prompt_for = getattr(grading_config, "prompt", lambda _key: "")
+    rubric_note = getattr(grading_config, "rubric_note", "") or ""
+
     disqual_reasons = _disqualification_reasons(row)
     application_id = _row_application_id(row)
     has_previous_application = bool(
@@ -430,9 +447,9 @@ def grade_single_row(
     elif _is_priority_email(row, priority_emails):
         status = PRIORITY_STATUS
 
-    prior_pt = prior_mentoring_pts(row.get("prior_mentoring"))
-    business_age_pt = business_age_pts(row.get("business_age"))
-    employees_pt = has_employees_pts(row.get("has_employees"))
+    prior_pt = (1 if yes(row.get("prior_mentoring")) else 0) * float(weights.get("prior_mentoring", 2))
+    business_age_pt = (business_age_pts(row.get("business_age")) / 5) * float(weights.get("business_age", 5))
+    employees_pt = (1 if yes(row.get("has_employees")) else 0) * float(weights.get("has_employees", 2))
 
     red_flags = detect_red_flags(
         client,
@@ -499,16 +516,34 @@ def grade_single_row(
 
     score_exp_lines = []
 
-    bd_raw, bd_exp = grade_unstructured(client, row.get("business_description"), "business_description")
-    bd_pt = bd_raw * W["business_description"]
+    bd_raw, bd_exp = grade_unstructured(
+        client,
+        row.get("business_description"),
+        "business_description",
+        prompt_template=prompt_for("business_description"),
+        model_name=model_name,
+    )
+    bd_pt = bd_raw * float(weights.get("business_description", W["business_description"]))
     score_exp_lines.append(f"business_description - {bd_exp}")
 
-    gh_raw, gh_exp = grade_unstructured(client, row.get("growth_how"), "growth_how")
-    gh_pt = gh_raw * W["growth_how"]
+    gh_raw, gh_exp = grade_unstructured(
+        client,
+        row.get("growth_how"),
+        "growth_how",
+        prompt_template=prompt_for("growth_how"),
+        model_name=model_name,
+    )
+    gh_pt = gh_raw * float(weights.get("growth_how", W["growth_how"]))
     score_exp_lines.append(f"growth_how - {gh_exp}")
 
-    bc_raw, bc_exp = grade_unstructured(client, row.get("biggest_challenge"), "biggest_challenge")
-    bc_pt = bc_raw * W["biggest_challenge"]
+    bc_raw, bc_exp = grade_unstructured(
+        client,
+        row.get("biggest_challenge"),
+        "biggest_challenge",
+        prompt_template=prompt_for("biggest_challenge"),
+        model_name=model_name,
+    )
+    bc_pt = bc_raw * float(weights.get("biggest_challenge", W["biggest_challenge"]))
     score_exp_lines.append(f"biggest_challenge - {bc_exp}")
 
     total_score = sum([
@@ -519,8 +554,8 @@ def grade_single_row(
         gh_pt,
         bc_pt,
     ])
-    total_score_pct = _format_total_percentage(total_score)
-    score_exp_lines.append(f"total_score - {total_score}/{MAX_TOTAL_SCORE} ({total_score_pct})")
+    total_score_pct = _format_total_percentage(total_score, max_total_score)
+    score_exp_lines.append(f"total_score - {total_score}/{max_total_score} ({total_score_pct})")
 
     return [
         status,
@@ -546,7 +581,7 @@ def grade_single_row(
         biggest_challenge,
         additional_comments,
         availability_grid,
-        "Applicants must meet all tablestakes; structured fields are deterministic; unstructured responses scored 1–5 and weighted. Total score shown as percentage.",
+        rubric_note or "Applicants must meet all tablestakes; structured fields are deterministic; unstructured responses scored 1–5 and weighted. Total score shown as percentage.",
     ]
 
 
@@ -561,6 +596,7 @@ def grade_from_dataframe(
     priority_emails: set[str] | list[str] | tuple[str, ...] | None = None,
     active_participant_emails: set[str] | list[str] | tuple[str, ...] | None = None,
     previous_application_ids: set[int] | list[int] | tuple[int, ...] | None = None,
+    grading_config=None,
 ) -> pd.DataFrame:
     rows = []
     total = len(df)
@@ -586,6 +622,7 @@ def grade_from_dataframe(
             priority_emails=normalized_priority_emails,
             active_participant_emails=normalized_active_participant_emails,
             previous_application_ids=normalized_previous_application_ids,
+            grading_config=grading_config,
         )
         rows.append(out)
 

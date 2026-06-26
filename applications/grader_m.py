@@ -120,8 +120,8 @@ def _score_rank(value) -> float:
         return float("-inf")
 
 
-def _format_total_percentage(total_score: float) -> str:
-    pct = (float(total_score) / MAX_TOTAL_SCORE) * 100 if MAX_TOTAL_SCORE else 0.0
+def _format_total_percentage(total_score: float, max_total_score: float = MAX_TOTAL_SCORE) -> str:
+    pct = (float(total_score) / float(max_total_score)) * 100 if max_total_score else 0.0
     return f"{pct:.2f}%"
 
 
@@ -265,12 +265,29 @@ def detect_red_flags(client: OpenAI, *texts):
 # OpenAI grading
 # -----------------------
 
-def grade_unstructured(client: OpenAI, text, criterion, negative_allowed=False):
+def _render_prompt_template(template: str, *, criterion: str, response: str) -> str:
+    return (
+        (template or "")
+        .replace("{{ criterion }}", criterion or "")
+        .replace("{{ response }}", response or "")
+    )
+
+
+def grade_unstructured(
+    client: OpenAI,
+    text,
+    criterion,
+    negative_allowed=False,
+    prompt_template: str = "",
+    model_name: str = "",
+):
     if not isinstance(text, str) or not text.strip():
         score = -1 if negative_allowed else 0
         return score, "Blank or insufficient response."
 
-    prompt = f"""
+    prompt = _render_prompt_template(prompt_template, criterion=criterion, response=text)
+    if not prompt.strip():
+        prompt = f"""
 Criterion: {criterion}
 
 Rules:
@@ -287,7 +304,7 @@ Explanation: <2–3 sentences justifying the score>
 """
 
     r = client.chat.completions.create(
-        model=MODEL,
+        model=(model_name or MODEL),
         messages=[{"role": "user", "content": prompt}],
         temperature=0,
         timeout=TIMEOUT,
@@ -349,7 +366,15 @@ def grade_single_row(
     previous_application_ids: set[int] | None = None,
     dual_applicant_emails: set[str] | None = None,
     dual_applicant_doc_ids: set[str] | None = None,
+    grading_config=None,
 ) -> dict:
+    weights = getattr(grading_config, "weights", None) or W
+    max_total_score = float(getattr(grading_config, "max_total_score", MAX_TOTAL_SCORE) or MAX_TOTAL_SCORE)
+    model_name = getattr(grading_config, "model_name", "") or ""
+    prompt_for = getattr(grading_config, "prompt", lambda _key: "")
+    allows_negative = getattr(grading_config, "allows_negative", lambda _key, fallback=False: fallback)
+    rubric_note = getattr(grading_config, "rubric_note", "") or ""
+
     disqual_reasons = _disqualification_reasons(row)
     meets_all = not disqual_reasons
     application_id = _row_application_id(row)
@@ -370,17 +395,17 @@ def grade_single_row(
     elif _is_priority_email(row, priority_emails):
         status = PRIORITY_STATUS
 
-    owned_pt = yes(row.get("owned_business")) * W["owned_business"]
-    years_pt = business_years_pts(row.get("business_years"), row.get("owned_business"))
-    emp_pt = yes(row.get("has_employees")) * W["has_employees"]
-    mentor_pt = yes(row.get("mentoring_exp_as_mentor")) * W["mentoring_exp_as_mentor"]
-    student_pt = yes(row.get("mentoring_exp_as_student")) * W["mentoring_exp_as_student"]
+    owned_pt = yes(row.get("owned_business")) * float(weights.get("owned_business", W["owned_business"]))
+    years_pt = (business_years_pts(row.get("business_years"), row.get("owned_business")) / 4) * float(weights.get("business_years", W["business_years"]))
+    emp_pt = yes(row.get("has_employees")) * float(weights.get("has_employees", W["has_employees"]))
+    mentor_pt = yes(row.get("mentoring_exp_as_mentor")) * float(weights.get("mentoring_exp_as_mentor", W["mentoring_exp_as_mentor"]))
+    student_pt = yes(row.get("mentoring_exp_as_student")) * float(weights.get("mentoring_exp_as_student", W["mentoring_exp_as_student"]))
 
     prof_struct_pt = (
         1 if isinstance(row.get("professional_expertise"), str)
         and row.get("professional_expertise").strip()
         else 0
-    ) * W["professional_expertise_struct"]
+    ) * float(weights.get("professional_expertise_struct", W["professional_expertise_struct"]))
 
     red_flags = detect_red_flags(
         client,
@@ -448,10 +473,35 @@ def grade_single_row(
 
     score_exp = []
 
-    bd_raw, bd_exp = grade_unstructured(client, row.get("business_description"), "business_description")
-    med_raw, med_exp = grade_unstructured(client, row.get("mentoring_exp_detail"), "mentoring_exp_detail")
-    mot_raw, mot_exp = grade_unstructured(client, row.get("motivation"), "motivation", negative_allowed=True)
-    prof_raw, prof_exp = grade_unstructured(client, row.get("professional_expertise"), "professional_expertise")
+    bd_raw, bd_exp = grade_unstructured(
+        client,
+        row.get("business_description"),
+        "business_description",
+        prompt_template=prompt_for("business_description"),
+        model_name=model_name,
+    )
+    med_raw, med_exp = grade_unstructured(
+        client,
+        row.get("mentoring_exp_detail"),
+        "mentoring_exp_detail",
+        prompt_template=prompt_for("mentoring_exp_detail"),
+        model_name=model_name,
+    )
+    mot_raw, mot_exp = grade_unstructured(
+        client,
+        row.get("motivation"),
+        "motivation",
+        negative_allowed=allows_negative("motivation", fallback=True),
+        prompt_template=prompt_for("motivation"),
+        model_name=model_name,
+    )
+    prof_raw, prof_exp = grade_unstructured(
+        client,
+        row.get("professional_expertise"),
+        "professional_expertise",
+        prompt_template=prompt_for("professional_expertise"),
+        model_name=model_name,
+    )
 
     score_exp.extend([
         f"business_description - {bd_exp}",
@@ -463,13 +513,13 @@ def grade_single_row(
     total_pts = sum([
         owned_pt, years_pt, emp_pt,
         prof_struct_pt, mentor_pt, student_pt,
-        bd_raw * W["business_description"],
-        med_raw * W["mentoring_exp_detail"],
-        mot_raw * W["motivation"],
-        prof_raw * W["professional_expertise"],
+        bd_raw * float(weights.get("business_description", W["business_description"])),
+        med_raw * float(weights.get("mentoring_exp_detail", W["mentoring_exp_detail"])),
+        mot_raw * float(weights.get("motivation", W["motivation"])),
+        prof_raw * float(weights.get("professional_expertise", W["professional_expertise"])),
     ])
-    total_pts_pct = _format_total_percentage(total_pts)
-    score_exp.append(f"total_score - {total_pts}/{MAX_TOTAL_SCORE} ({total_pts_pct})")
+    total_pts_pct = _format_total_percentage(total_pts, max_total_score)
+    score_exp.append(f"total_score - {total_pts}/{max_total_score} ({total_pts_pct})")
 
     return [
         status,
@@ -496,7 +546,7 @@ def grade_single_row(
         why_good_mentor,
         additional_comments,
         availability_grid,
-        "Weighted rubric applied; unstructured responses scored 1–5. Total score shown as percentage.",
+        rubric_note or "Weighted rubric applied; unstructured responses scored 1–5. Total score shown as percentage.",
     ]
 
 # -----------------------
@@ -512,6 +562,7 @@ def grade_from_dataframe(
     previous_application_ids: set[int] | list[int] | tuple[int, ...] | None = None,
     dual_applicant_emails: set[str] | list[str] | tuple[str, ...] | None = None,
     dual_applicant_doc_ids: set[str] | list[str] | tuple[str, ...] | None = None,
+    grading_config=None,
 ) -> pd.DataFrame:
     out = []
     total = len(df)
@@ -550,6 +601,7 @@ def grade_from_dataframe(
                 previous_application_ids=normalized_previous_application_ids,
                 dual_applicant_emails=normalized_dual_applicant_emails,
                 dual_applicant_doc_ids=normalized_dual_applicant_doc_ids,
+                grading_config=grading_config,
             )
         )
 

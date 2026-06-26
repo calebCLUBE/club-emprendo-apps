@@ -671,6 +671,144 @@ class PairingJob(models.Model):
         self.save(update_fields=["log_text", "updated_at"])
 
 
+class ApplicationGradingConfig(models.Model):
+    form = models.OneToOneField(
+        FormDefinition,
+        on_delete=models.CASCADE,
+        related_name="grading_config",
+    )
+    model_name = models.CharField(max_length=80, blank=True, default="")
+    max_total_score = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True)
+    rubric_note = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["form__slug"]
+
+    def __str__(self):
+        return f"Grading config: {self.form.slug}"
+
+
+class GradingCriterion(models.Model):
+    TYPE_STRUCTURED = "structured"
+    TYPE_AI_TEXT = "ai_text"
+    TYPE_CHOICES = [
+        (TYPE_STRUCTURED, "Structured / deterministic"),
+        (TYPE_AI_TEXT, "AI paragraph score"),
+    ]
+
+    config = models.ForeignKey(
+        ApplicationGradingConfig,
+        on_delete=models.CASCADE,
+        related_name="criteria",
+    )
+    question_slug = models.SlugField(max_length=80)
+    label = models.CharField(max_length=160, blank=True, default="")
+    criterion_type = models.CharField(max_length=20, choices=TYPE_CHOICES, default=TYPE_STRUCTURED)
+    weight = models.DecimalField(max_digits=8, decimal_places=2, default=1)
+    prompt = models.TextField(
+        blank=True,
+        default="",
+        help_text=(
+            "Optional AI prompt for paragraph questions. Use {{ criterion }} and {{ response }}. "
+            "The response must still ask for 'Score:' and 'Explanation:' lines."
+        ),
+    )
+    negative_allowed = models.BooleanField(default=False)
+    active = models.BooleanField(default=True)
+    position = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["position", "id"]
+        unique_together = [("config", "question_slug")]
+
+    def __str__(self):
+        return f"{self.config.form.slug}: {self.question_slug}"
+
+
+class PairingConfig(models.Model):
+    group = models.OneToOneField(
+        FormGroup,
+        on_delete=models.CASCADE,
+        related_name="pairing_config",
+    )
+    model_name = models.CharField(max_length=80, blank=True, default="")
+    top_k_for_ai = models.PositiveIntegerField(default=3)
+    availability_required = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-group__number"]
+
+    def __str__(self):
+        return f"Pairing config: Group {self.group.number}"
+
+
+class PairingPriorityRule(models.Model):
+    COMPARE_EXACT = "exact"
+    COMPARE_AVAILABILITY = "availability_overlap"
+    COMPARE_BUSINESS_AGE = "business_age"
+    COMPARE_CHOICES = [
+        (COMPARE_EXACT, "Exact answer match"),
+        (COMPARE_AVAILABILITY, "Availability overlap"),
+        (COMPARE_BUSINESS_AGE, "Mentor experience covers business age"),
+    ]
+
+    config = models.ForeignKey(
+        PairingConfig,
+        on_delete=models.CASCADE,
+        related_name="priority_rules",
+    )
+    label = models.CharField(max_length=160)
+    emprendedora_question_slug = models.SlugField(max_length=80)
+    mentora_question_slug = models.SlugField(max_length=80)
+    comparison_type = models.CharField(max_length=30, choices=COMPARE_CHOICES, default=COMPARE_EXACT)
+    weight = models.DecimalField(max_digits=8, decimal_places=2, default=1)
+    required = models.BooleanField(default=False)
+    output_key = models.SlugField(max_length=80, blank=True, default="")
+    active = models.BooleanField(default=True)
+    position = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ["position", "id"]
+
+    def __str__(self):
+        return f"{self.config.group.number}: {self.label}"
+
+
+class PairingAIComparison(models.Model):
+    config = models.ForeignKey(
+        PairingConfig,
+        on_delete=models.CASCADE,
+        related_name="ai_comparisons",
+    )
+    label = models.CharField(max_length=160)
+    emprendedora_question_slug = models.SlugField(max_length=80)
+    mentora_question_slug = models.SlugField(max_length=80)
+    weight = models.DecimalField(max_digits=8, decimal_places=2, default=6)
+    prompt = models.TextField(
+        blank=True,
+        default="",
+        help_text=(
+            "Optional AI prompt. Use {{ label }}, {{ mentor_text }}, {{ entrepreneur_text }}. "
+            "The response must include 'Score:' and 'Reasoning:' lines."
+        ),
+    )
+    output_key = models.SlugField(max_length=80, blank=True, default="")
+    active = models.BooleanField(default=True)
+    position = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ["position", "id"]
+
+    def __str__(self):
+        return f"{self.config.group.number}: {self.label}"
+
+
 class TaskType(models.Model):
     name = models.CharField(max_length=120)
     slug = models.SlugField(unique=True)

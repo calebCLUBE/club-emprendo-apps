@@ -48,6 +48,12 @@ from applications.drive_sync import (
 )
 from applications.emprendedora_a1_autograde import emprendedora_a1_passes
 from applications.email_templates import build_form_email_context, resolve_form_email_template
+from applications.grading_config import (
+    ensure_grading_config_for_form,
+    ensure_pairing_config_for_group,
+    runtime_grading_config_for_form_slug,
+    runtime_pairing_config_for_group,
+)
 import math
 from django.db import connection
 from applications.models import (
@@ -738,6 +744,10 @@ def _run_grade_job(job_id: int):
         master_df = pd.DataFrame(rows, columns=headers)
 
         _job_log(job, "🤖 Running grader on full dataset")
+        grading_config = runtime_grading_config_for_form_slug(job.form_slug)
+        configured_criteria = len(getattr(grading_config, "weights", {}) or {})
+        if configured_criteria:
+            _job_log(job, f"⚙️ Grading config loaded with {configured_criteria} weighted criteria.")
 
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
@@ -757,6 +767,7 @@ def _run_grade_job(job_id: int):
                 priority_emails=priority_emails,
                 active_participant_emails=active_participant_emails,
                 previous_application_ids=previous_application_ids,
+                grading_config=grading_config,
             )
 
         else:  # M_A2
@@ -770,6 +781,7 @@ def _run_grade_job(job_id: int):
                 previous_application_ids=previous_application_ids,
                 dual_applicant_emails=dual_applicant_emails,
                 dual_applicant_doc_ids=dual_applicant_doc_ids,
+                grading_config=grading_config,
             )
 
         if graded_df is None or graded_df.empty:
@@ -1271,14 +1283,37 @@ def _safe_lower(x):
     return (x or "").strip().lower()
 
 
-def _llm_fit_score(client: OpenAI, mentor_text: str, emp_text: str, label: str) -> tuple[int, str]:
+def _render_pairing_prompt(template: str, *, label: str, mentor_text: str, entrepreneur_text: str) -> str:
+    return (
+        (template or "")
+        .replace("{{ label }}", label or "")
+        .replace("{{ mentor_text }}", mentor_text or "")
+        .replace("{{ entrepreneur_text }}", entrepreneur_text or "")
+    )
+
+
+def _llm_fit_score(
+    client: OpenAI,
+    mentor_text: str,
+    emp_text: str,
+    label: str,
+    prompt_template: str = "",
+    model_name: str = "",
+) -> tuple[int, str]:
     mentor_text = mentor_text or ""
     emp_text = emp_text or ""
 
     if not mentor_text.strip() or not emp_text.strip():
         return 0, "none"
 
-    prompt = f"""
+    prompt = _render_pairing_prompt(
+        prompt_template,
+        label=label,
+        mentor_text=mentor_text,
+        entrepreneur_text=emp_text,
+    )
+    if not prompt.strip():
+        prompt = f"""
 You are matching a mentor with an entrepreneur for a program.
 Task: Rate how well the mentor’s text can help the entrepreneur’s needs.
 
@@ -1303,7 +1338,7 @@ Reasoning: <2-3 sentences, concise, in English>
     for attempt in range(1, MAX_TRIES + 1):
         try:
             r = client.chat.completions.create(
-                model="gpt-5.2",
+                model=(model_name or "gpt-5.2"),
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0,
                 timeout=REQUEST_TIMEOUT,
@@ -1431,9 +1466,15 @@ def _pair_one_group(
         raise Http404(f"Could not resolve A2 forms for group {group_num}.")
     emp_slug = emp_fd.slug
     mentor_slug = mentor_fd.slug
+    pairing_config = runtime_pairing_config_for_group(group_num)
 
     if log_fn:
         log_fn(f"📥 Loading DB master data for {emp_slug} and {mentor_slug}")
+        log_fn(
+            "⚙️ Pairing config loaded: "
+            f"{len(pairing_config.priority_rules)} priority rule(s), "
+            f"{len(pairing_config.ai_comparisons)} AI comparison(s)."
+        )
 
     emp_df = _build_master_df_for_form(emp_fd)
     mentor_df = _build_master_df_for_form(mentor_fd)
@@ -1445,7 +1486,11 @@ def _pair_one_group(
 
     emp_suffix_headers = [f"{c}_emprendedora" for c in emp_question_cols]
     mentor_suffix_headers = [f"{c}_mentora" for c in mentor_question_cols]
-    base_headers = PAIR_HEADERS
+    extra_ai_headers = [
+        f"ai_{item.get('output_key') or item.get('label')}"
+        for item in pairing_config.ai_comparisons[2:]
+    ]
+    base_headers = PAIR_HEADERS + extra_ai_headers
     full_headers = base_headers + emp_suffix_headers + mentor_suffix_headers
 
     # normalize incoming email lists once
@@ -1545,7 +1590,7 @@ def _pair_one_group(
     # Cache LLM results so we never re-call for the same pair
     llm_cache = {}  # key: (mentor_email, emp_email, label) -> (score, reasoning)
 
-    TOP_K_FOR_LLM = 3  # only run LLM on top K candidates per emprendedora
+    TOP_K_FOR_LLM = max(1, int(pairing_config.top_k_for_ai or 3))  # only run LLM on top K candidates per emprendedora
 
     def score_pair_base(emp_row, mentor_row):
         """
@@ -1556,48 +1601,58 @@ def _pair_one_group(
         mentor_email = str(_row_get(mentor_row, "email", "")).strip().lower()
 
         overlap = sorted(emp_av.get(emp_email, set()).intersection(mentor_av.get(mentor_email, set())))
-        if not overlap:
+        if pairing_config.availability_required and not overlap:
             return -10_000, {"availability": []}
 
         score = 0
-        matches = {}
+        matches = {
+            "availability": overlap,
+            "emp_industry_val": _row_get(emp_row, "industry", "") or "",
+            "mentor_industry_val": _row_get(mentor_row, "business_industry", "") or "",
+            "industry": "none",
+            "country": "none",
+            "biz_age": "none",
+        }
 
-        # availability required: reward more overlaps
-        score += 100 + 10 * len(overlap)
-        matches["availability"] = overlap
+        for rule in pairing_config.priority_rules:
+            comparison_type = rule.get("comparison_type")
+            emp_slug = rule.get("emprendedora_question_slug") or ""
+            mentor_slug = rule.get("mentora_question_slug") or ""
+            output_key = rule.get("output_key") or rule.get("label") or comparison_type
+            weight = float(rule.get("weight") or 0)
+            required = bool(rule.get("required"))
+            matched = False
+            matched_value = "none"
 
-        # industry
-        emp_ind = _safe_lower(_row_get(emp_row, "industry", ""))
-        mentor_ind = _safe_lower(_row_get(mentor_row, "business_industry", ""))
-        matches["emp_industry_val"] = _row_get(emp_row, "industry", "") or ""
-        matches["mentor_industry_val"] = _row_get(mentor_row, "business_industry", "") or ""
-        if emp_ind and mentor_ind and emp_ind == mentor_ind:
-            score += 30
-            matches["industry"] = emp_ind
-        else:
-            matches["industry"] = "none"
-
-        # same country only if emp says yes
-        same_country = _safe_lower(_row_get(emp_row, "same_country", ""))
-        if same_country == "yes":
-            emp_country = _safe_lower(_row_get(emp_row, "country_residence", ""))
-            mentor_country = _safe_lower(_row_get(mentor_row, "country_residence", ""))
-            if emp_country and mentor_country and emp_country == mentor_country:
-                score += 20
-                matches["country"] = emp_country
+            if comparison_type == "availability_overlap":
+                matched = bool(overlap)
+                matched_value = overlap if matched else "none"
+                if matched:
+                    score += 100 + weight * len(overlap)
+            elif comparison_type == "business_age":
+                emp_min = _business_age_bucket_to_min_years(_row_get(emp_row, emp_slug, ""))
+                mentor_max = _mentor_years_to_max_years(_row_get(mentor_row, mentor_slug, ""))
+                matched = mentor_max >= emp_min
+                if matched:
+                    score += weight
+                    matched_value = f"mentor_max={mentor_max} >= emp_min={emp_min}"
             else:
-                matches["country"] = "none"
-        else:
-            matches["country"] = "none"
+                emp_value = _safe_lower(_row_get(emp_row, emp_slug, ""))
+                mentor_value = _safe_lower(_row_get(mentor_row, mentor_slug, ""))
 
-        # business years: mentor >= emp (rough bucket compare)
-        emp_min = _business_age_bucket_to_min_years(_row_get(emp_row, "business_age", ""))
-        mentor_max = _mentor_years_to_max_years(_row_get(mentor_row, "business_years", ""))
-        if mentor_max >= emp_min:
-            score += 10
-            matches["biz_age"] = f"mentor_max={mentor_max} >= emp_min={emp_min}"
-        else:
-            matches["biz_age"] = "none"
+                # Preserve the previous country preference behavior for the default country rule.
+                if output_key == "country" and _safe_lower(_row_get(emp_row, "same_country", "")) != "yes":
+                    matched = False
+                else:
+                    matched = bool(emp_value and mentor_value and emp_value == mentor_value)
+
+                if matched:
+                    score += weight
+                    matched_value = emp_value
+
+            if required and not matched:
+                return -10_000, matches
+            matches[output_key] = matched_value
 
         return score, matches
 
@@ -1609,36 +1664,41 @@ def _pair_one_group(
         emp_email = str(_row_get(emp_row, "email", "")).strip().lower()
         mentor_email = str(_row_get(mentor_row, "email", "")).strip().lower()
 
-        # LLM 1
-        key1 = (mentor_email, emp_email, "expertise_vs_growth")
-        if key1 in llm_cache:
-            s1, expl1 = llm_cache[key1]
-        else:
-            s1, expl1 = _llm_fit_score(
-                client,
-                mentor_text=_row_get(mentor_row, "professional_expertise", ""),
-                emp_text=_row_get(emp_row, "growth_how", ""),
-                label="expertise vs growth plan",
-            )
-            llm_cache[key1] = (s1, expl1)
+        for index, item in enumerate(pairing_config.ai_comparisons, start=1):
+            output_key = item.get("output_key") or f"llm{index}"
+            label = item.get("label") or output_key
+            cache_key = (mentor_email, emp_email, output_key)
+            if cache_key in llm_cache:
+                ai_score, explanation = llm_cache[cache_key]
+            else:
+                ai_score, explanation = _llm_fit_score(
+                    client,
+                    mentor_text=_row_get(mentor_row, item.get("mentora_question_slug") or "", ""),
+                    emp_text=_row_get(emp_row, item.get("emprendedora_question_slug") or "", ""),
+                    label=label,
+                    prompt_template=item.get("prompt") or "",
+                    model_name=pairing_config.model_name,
+                )
+                llm_cache[cache_key] = (ai_score, explanation)
 
-        # LLM 2
-        key2 = (mentor_email, emp_email, "motivation_vs_challenge")
-        if key2 in llm_cache:
-            s2, expl2 = llm_cache[key2]
-        else:
-            s2, expl2 = _llm_fit_score(
-                client,
-                mentor_text=_row_get(mentor_row, "motivation", ""),
-                emp_text=_row_get(emp_row, "biggest_challenge", ""),
-                label="motivation vs challenge",
-            )
-            llm_cache[key2] = (s2, expl2)
+            score += float(item.get("weight") or 0) * ai_score
+            matches[output_key] = explanation if ai_score > 0 else "none"
 
-        score += 6 * s1 + 6 * s2
-        matches["llm1"] = expl1 if s1 > 0 else "none"
-        matches["llm2"] = expl2 if s2 > 0 else "none"
+            if index == 1:
+                matches["llm1"] = matches[output_key]
+            elif index == 2:
+                matches["llm2"] = matches[output_key]
+
+        matches.setdefault("llm1", "none")
+        matches.setdefault("llm2", "none")
         return score, matches
+
+    def _extra_ai_values(matches: dict | None) -> list[str]:
+        matches = matches or {}
+        return [
+            matches.get(item.get("output_key") or item.get("label"), "none") or "none"
+            for item in pairing_config.ai_comparisons[2:]
+        ]
 
     pairs = []
     unmatched_emps = []
@@ -1665,6 +1725,7 @@ def _pair_one_group(
                 "none",
                 "none",
             ]
+            row_vals.extend(_extra_ai_values(None))
             row_vals.extend([_row_get(e, col, "") or "" for col in emp_question_cols])
             row_vals.extend(["" for _ in mentor_question_cols])
             pairs.append(row_vals)
@@ -1700,6 +1761,7 @@ def _pair_one_group(
                     "none",  # llm1
                     "none",  # llm2
                 ]
+                row_vals.extend(_extra_ai_values(None))
                 row_vals.extend([_row_get(e, col, "") or "" for col in emp_question_cols])
                 row_vals.extend(["" for _ in mentor_question_cols])
                 pairs.append(row_vals)
@@ -1756,6 +1818,7 @@ def _pair_one_group(
                     "none",  # llm1
                     "none",  # llm2
                 ]
+                row_vals.extend(_extra_ai_values(None))
                 row_vals.extend([_row_get(e, col, "") or "" for col in emp_question_cols])
                 row_vals.extend(["" for _ in mentor_question_cols])
                 pairs.append(row_vals)
@@ -1793,6 +1856,7 @@ def _pair_one_group(
             best_matches.get("llm1", "none") or "none",
             best_matches.get("llm2", "none") or "none",
         ]
+        row_vals.extend(_extra_ai_values(best_matches))
         row_vals.extend([_row_get(e, col, "") or "" for col in emp_question_cols])
         row_vals.extend([_row_get(best_m, col, "") or "" for col in mentor_question_cols])
         pairs.append(row_vals)
@@ -5955,6 +6019,20 @@ def grading_home(request):
             "forms": rows,
         },
     )
+
+
+@staff_member_required
+def grading_config_editor(request, form_slug: str):
+    form = get_object_or_404(FormDefinition, slug=form_slug)
+    config = ensure_grading_config_for_form(form)
+    return redirect(f"/admin/applications/applicationgradingconfig/{config.id}/change/")
+
+
+@staff_member_required
+def pairing_config_editor(request, group_num: int):
+    group = get_object_or_404(FormGroup, number=group_num)
+    config = ensure_pairing_config_for_group(group)
+    return redirect(f"/admin/applications/pairingconfig/{config.id}/change/")
 
 
 @staff_member_required

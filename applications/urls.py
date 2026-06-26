@@ -73,6 +73,7 @@ urlpatterns = [
     # ADMIN: GRADING (BATCH)
     # ============================
     path("admin/grading/", admin_views.grading_home, name="admin_grading_home"),
+    path("admin/grading/config/<slug:form_slug>/", admin_views.grading_config_editor, name="admin_grading_config_editor"),
 
     # batch grade an entire form (ex: G6_E_A2)
     path(

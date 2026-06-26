@@ -15,7 +15,12 @@ from .models import (
     Choice,
     DropboxSignWebhookEvent,
     FormDefinition,
+    ApplicationGradingConfig,
+    GradingCriterion,
     GroupParticipantList,
+    PairingAIComparison,
+    PairingConfig,
+    PairingPriorityRule,
     ParticipantSheetVersion,
     ParticipantEmailStatus,
     Question,
@@ -1039,3 +1044,90 @@ class ParticipantSheetVersionAdmin(admin.ModelAdmin):
     search_fields = ("group__number", "saved_by__email")
     ordering = ("-created_at", "-id")
     readonly_fields = ("created_at",)
+
+
+class GradingCriterionInline(admin.TabularInline):
+    model = GradingCriterion
+    extra = 0
+    fields = (
+        "position",
+        "active",
+        "question_slug",
+        "label",
+        "criterion_type",
+        "weight",
+        "negative_allowed",
+        "prompt",
+    )
+
+
+@admin.register(ApplicationGradingConfig)
+class ApplicationGradingConfigAdmin(admin.ModelAdmin):
+    list_display = ("form", "model_name", "max_total_score", "updated_at")
+    search_fields = ("form__slug", "form__name")
+    autocomplete_fields = ("form",)
+    inlines = (GradingCriterionInline,)
+    fieldsets = (
+        (None, {
+            "fields": ("form", "model_name", "max_total_score", "rubric_note")
+        }),
+        ("Prompt placeholders", {
+            "fields": (),
+            "description": (
+                "For AI paragraph criteria, prompts can use {{ criterion }} and {{ response }}. "
+                "Keep output format as lines beginning with Score: and Explanation:."
+            ),
+        }),
+    )
+
+
+class PairingPriorityRuleInline(admin.TabularInline):
+    model = PairingPriorityRule
+    extra = 0
+    fields = (
+        "position",
+        "active",
+        "required",
+        "label",
+        "comparison_type",
+        "emprendedora_question_slug",
+        "mentora_question_slug",
+        "weight",
+        "output_key",
+    )
+
+
+class PairingAIComparisonInline(admin.TabularInline):
+    model = PairingAIComparison
+    extra = 0
+    fields = (
+        "position",
+        "active",
+        "label",
+        "emprendedora_question_slug",
+        "mentora_question_slug",
+        "weight",
+        "output_key",
+        "prompt",
+    )
+
+
+@admin.register(PairingConfig)
+class PairingConfigAdmin(admin.ModelAdmin):
+    list_display = ("group", "top_k_for_ai", "availability_required", "model_name", "updated_at")
+    search_fields = ("group__number", "group__custom_name")
+    raw_id_fields = ("group",)
+    inlines = (PairingPriorityRuleInline, PairingAIComparisonInline)
+    fieldsets = (
+        (None, {
+            "fields": ("group", "model_name", "top_k_for_ai", "availability_required")
+        }),
+        ("AI prompt placeholders", {
+            "fields": (),
+            "description": (
+                "For AI comparisons, prompts can use {{ label }}, {{ mentor_text }}, "
+                "and {{ entrepreneur_text }}. Keep output format as lines beginning "
+                "with Score: and Reasoning:."
+            ),
+        }),
+    )

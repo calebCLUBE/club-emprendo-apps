@@ -159,6 +159,7 @@ urlpatterns = [
     # ============================
     path("admin/emparejamiento/", admin_views.emparejamiento_home, name="admin_emparejamiento_home"),
     path("admin/emparejamiento/pair/<int:group_num>/", admin_views.run_emparejamiento, name="admin_emparejamiento_run"),
+    path("admin/emparejamiento/config/<int:group_num>/", admin_views.pairing_config_editor, name="admin_pairing_config_editor"),
 
     # ============================
     # GRADING
@@ -170,6 +171,7 @@ urlpatterns = [
     path("admin/grading/grade-one/e/<int:app_id>/", admin_views.grade_one_emprendedora, name="admin_grade_one_emprendedora"),
     path("admin/grading/job/<int:job_id>/", admin_views.grading_job_status, name="admin_grading_job_status"),
     path("admin/grading/start-job/<slug:form_slug>/", admin_views.start_grading_job, name="admin_start_grading_job"),
+    path("admin/grading/config/<slug:form_slug>/", admin_views.grading_config_editor, name="admin_grading_config_editor"),
     path("admin/grading/sheet/<slug:form_slug>/", admin_views.grading_live_sheet, name="admin_grading_live_sheet"),
     path("admin/grading/download/<int:graded_file_id>/", admin_views.download_graded_csv, name="admin_grading_download_csv"),
     path("admin/grading/download-excel/<int:graded_file_id>/", admin_views.download_graded_excel, name="admin_grading_download_excel"),

@@ -43,7 +43,12 @@ from applications.models import (
     DropboxSignWebhookEvent,
     FormDefinition,
     FormGroup,
+    ApplicationGradingConfig,
+    GradingCriterion,
     GroupParticipantList,
+    PairingAIComparison,
+    PairingConfig,
+    PairingPriorityRule,
     ParticipantSheetVersion,
     ParticipantEmailStatus,
     Question,
@@ -563,6 +568,56 @@ class ApplicationsDashboardPreviewTests(TestCase):
         self.assertEqual(preview.status_code, 200)
         self.assertContains(preview, "Current master first question")
         self.assertNotContains(preview, "Current master second question")
+
+
+class GradingAndPairingConfigEditorTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_superuser(
+            email="config-editor@example.com",
+            password="test-password",
+        )
+        self.client.force_login(self.user)
+
+    def test_grading_config_editor_creates_default_criteria_for_form(self):
+        form = FormDefinition.objects.create(slug="G901_E_A2", name="E A2")
+
+        response = self.client.get(reverse("admin_grading_config_editor", args=[form.slug]))
+
+        self.assertEqual(response.status_code, 302)
+        config = ApplicationGradingConfig.objects.get(form=form)
+        self.assertIn(f"/admin/applications/applicationgradingconfig/{config.id}/change/", response["Location"])
+        self.assertEqual(config.max_total_score, 64)
+        self.assertTrue(GradingCriterion.objects.filter(config=config, question_slug="growth_how").exists())
+        self.assertTrue(GradingCriterion.objects.filter(config=config, question_slug="business_age", weight=5).exists())
+
+    def test_pairing_config_editor_creates_default_priority_and_ai_rules(self):
+        group = FormGroup.objects.create(
+            number=901,
+            start_day=1,
+            start_month="enero",
+            end_month="abril",
+            year=2026,
+        )
+
+        response = self.client.get(reverse("admin_pairing_config_editor", args=[group.number]))
+
+        self.assertEqual(response.status_code, 302)
+        config = PairingConfig.objects.get(group=group)
+        self.assertIn(f"/admin/applications/pairingconfig/{config.id}/change/", response["Location"])
+        self.assertTrue(
+            PairingPriorityRule.objects.filter(
+                config=config,
+                comparison_type="availability_overlap",
+                required=True,
+            ).exists()
+        )
+        self.assertTrue(
+            PairingAIComparison.objects.filter(
+                config=config,
+                emprendedora_question_slug="growth_how",
+                mentora_question_slug="professional_expertise",
+            ).exists()
+        )
 
 
 class HelpTextFormattingTests(TestCase):

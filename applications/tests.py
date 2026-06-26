@@ -24,6 +24,7 @@ from applications.admin_views import (
 )
 from applications.email_templates import build_form_email_context, resolve_form_email_template
 from applications.forms import build_application_form
+from applications.grading_config import runtime_grading_config_for_form_slug
 from applications.templatetags.app_extras import format_help_text, format_rich_text
 from applications.mentora_application_schema import apply_mentora_schema
 from applications.emprendedora_a1_autograde import (
@@ -45,6 +46,7 @@ from applications.models import (
     FormGroup,
     ApplicationGradingConfig,
     GradingCriterion,
+    GradingResponseWeight,
     GroupParticipantList,
     PairingAIComparison,
     PairingConfig,
@@ -589,6 +591,46 @@ class GradingAndPairingConfigEditorTests(TestCase):
         self.assertEqual(config.max_total_score, 64)
         self.assertTrue(GradingCriterion.objects.filter(config=config, question_slug="growth_how").exists())
         self.assertTrue(GradingCriterion.objects.filter(config=config, question_slug="business_age", weight=5).exists())
+
+    def test_grading_config_editor_creates_response_weights_for_dropdown_choices(self):
+        form = FormDefinition.objects.create(slug="G902_E_A2", name="E A2")
+        Question.objects.create(
+            form=form,
+            text="Business description",
+            slug="business_description",
+            field_type=Question.LONG_TEXT,
+            position=1,
+        )
+        business_age = Question.objects.create(
+            form=form,
+            text="Business age",
+            slug="business_age",
+            field_type=Question.CHOICE,
+            position=2,
+        )
+        Choice.objects.create(question=business_age, label="Idea", value="idea", position=1)
+        selected_choice = Choice.objects.create(question=business_age, label="1-3 years", value="1_3y", position=2)
+
+        response = self.client.get(reverse("admin_grading_config_editor", args=[form.slug]))
+
+        self.assertEqual(response.status_code, 302)
+        config = ApplicationGradingConfig.objects.get(form=form)
+        self.assertTrue(
+            GradingCriterion.objects.filter(
+                config=config,
+                question_slug="business_description",
+                criterion_type=GradingCriterion.TYPE_AI_TEXT,
+            ).exists()
+        )
+        self.assertEqual(
+            GradingResponseWeight.objects.filter(config=config, question=business_age).count(),
+            2,
+        )
+
+        GradingResponseWeight.objects.filter(config=config, choice=selected_choice).update(weight=7.5)
+        runtime_config = runtime_grading_config_for_form_slug(form.slug)
+        self.assertEqual(runtime_config.response_score("business_age", "1_3y"), 7.5)
+        self.assertEqual(runtime_config.response_score("business_age", "idea"), 0.0)
 
     def test_pairing_config_editor_creates_default_priority_and_ai_rules(self):
         group = FormGroup.objects.create(

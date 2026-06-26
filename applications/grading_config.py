@@ -3,12 +3,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any
+import json
 
 from .models import (
     ApplicationGradingConfig,
     FormDefinition,
     FormGroup,
     PairingConfig,
+    Question,
 )
 
 
@@ -129,6 +131,7 @@ def default_max_total_for_track(track: str) -> float:
 class RuntimeGradingConfig:
     form_slug: str
     weights: dict[str, float]
+    response_weights: dict[str, dict[str, float]]
     prompts: dict[str, str]
     negative_allowed: set[str]
     max_total_score: float
@@ -144,12 +147,56 @@ class RuntimeGradingConfig:
     def allows_negative(self, key: str, fallback: bool = False) -> bool:
         return key in self.negative_allowed or fallback
 
+    def has_response_weights(self, question_slug: str) -> bool:
+        return bool(self.response_weights.get(question_slug))
+
+    def response_score(self, question_slug: str, raw_value: Any, default: float | None = None) -> float | None:
+        choices = self.response_weights.get(question_slug)
+        if not choices:
+            return default
+        values = _answer_values(raw_value)
+        if not values:
+            return 0.0
+        return sum(choices.get(value, 0.0) for value in values)
+
+
+def _answer_values(raw_value: Any) -> list[str]:
+    if raw_value is None:
+        return []
+    if isinstance(raw_value, (list, tuple, set)):
+        return [str(v).strip() for v in raw_value if str(v).strip()]
+
+    text = str(raw_value or "").strip()
+    if not text:
+        return []
+
+    if text.startswith("[") or text.startswith("{"):
+        try:
+            parsed = json.loads(text)
+        except Exception:
+            parsed = None
+        if isinstance(parsed, list):
+            return [str(v).strip() for v in parsed if str(v).strip()]
+        if isinstance(parsed, dict):
+            return [
+                str(key).strip()
+                for key, selected in parsed.items()
+                if selected and str(key).strip()
+            ]
+
+    for separator in (";", ","):
+        if separator in text:
+            return [part.strip() for part in text.split(separator) if part.strip()]
+
+    return [text]
+
 
 def runtime_grading_config_for_form_slug(form_slug: str) -> RuntimeGradingConfig:
     track = _track_from_form_slug(form_slug)
     weights = default_weights_for_track(track)
     max_total = default_max_total_for_track(track)
     prompts: dict[str, str] = {}
+    response_weights: dict[str, dict[str, float]] = {}
     negative_allowed: set[str] = set()
     model_name = ""
     rubric_note = ""
@@ -157,7 +204,7 @@ def runtime_grading_config_for_form_slug(form_slug: str) -> RuntimeGradingConfig
     config = (
         ApplicationGradingConfig.objects
         .filter(form__slug=form_slug)
-        .prefetch_related("criteria")
+        .prefetch_related("criteria", "response_weights__question", "response_weights__choice")
         .first()
     )
     if config:
@@ -176,10 +223,19 @@ def runtime_grading_config_for_form_slug(form_slug: str) -> RuntimeGradingConfig
                 prompts[key] = criterion.prompt
             if criterion.negative_allowed:
                 negative_allowed.add(key)
+        for item in config.response_weights.all():
+            if not item.active:
+                continue
+            question_slug = getattr(getattr(item, "question", None), "slug", "") or ""
+            choice_value = getattr(getattr(item, "choice", None), "value", "") or ""
+            if not question_slug or not choice_value:
+                continue
+            response_weights.setdefault(question_slug, {})[choice_value] = _to_float(item.weight, 0.0)
 
     return RuntimeGradingConfig(
         form_slug=form_slug,
         weights=weights,
+        response_weights=response_weights,
         prompts=prompts,
         negative_allowed=negative_allowed,
         max_total_score=max_total,
@@ -266,6 +322,10 @@ def ensure_grading_config_for_form(form: FormDefinition) -> ApplicationGradingCo
         config.save(update_fields=["max_total_score", "updated_at"])
 
     existing = set(config.criteria.values_list("question_slug", flat=True))
+    question_by_slug = {
+        q.slug: q
+        for q in form.questions.filter(active=True).only("id", "slug", "field_type")
+    }
     ai_defaults = {
         "business_description",
         "growth_how",
@@ -281,12 +341,32 @@ def ensure_grading_config_for_form(form: FormDefinition) -> ApplicationGradingCo
         config.criteria.create(
             question_slug=slug,
             label=slug.replace("_", " ").title(),
-            criterion_type="ai_text" if slug in ai_defaults else "structured",
+            criterion_type=(
+                "ai_text"
+                if getattr(question_by_slug.get(slug), "field_type", None) == Question.LONG_TEXT
+                or (slug in ai_defaults and slug not in question_by_slug)
+                else "structured"
+            ),
             weight=Decimal(str(weight)),
             negative_allowed=(slug == "motivation" and track == "M"),
             position=position,
         )
         position += 10
+
+    weighted_questions = set(config.response_weights.values_list("question_id", flat=True))
+    for question in form.questions.filter(
+        active=True,
+        field_type__in=[Question.CHOICE, Question.MULTI_CHOICE, Question.MULTIPLE_CHOICE_GRID],
+    ).prefetch_related("choices"):
+        if question.id in weighted_questions:
+            continue
+        for choice in question.choices.all():
+            config.response_weights.create(
+                question=question,
+                choice=choice,
+                weight=Decimal("0"),
+                position=(question.position * 100) + choice.position,
+            )
     return config
 
 

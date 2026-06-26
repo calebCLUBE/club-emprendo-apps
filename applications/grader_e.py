@@ -447,9 +447,22 @@ def grade_single_row(
     elif _is_priority_email(row, priority_emails):
         status = PRIORITY_STATUS
 
-    prior_pt = (1 if yes(row.get("prior_mentoring")) else 0) * float(weights.get("prior_mentoring", 2))
-    business_age_pt = (business_age_pts(row.get("business_age")) / 5) * float(weights.get("business_age", 5))
-    employees_pt = (1 if yes(row.get("has_employees")) else 0) * float(weights.get("has_employees", 2))
+    response_score = getattr(grading_config, "response_score", lambda _slug, _value, default=None: default)
+    prior_pt = response_score(
+        "prior_mentoring",
+        row.get("prior_mentoring"),
+        (1 if yes(row.get("prior_mentoring")) else 0) * float(weights.get("prior_mentoring", 2)),
+    )
+    business_age_pt = response_score(
+        "business_age",
+        row.get("business_age"),
+        (business_age_pts(row.get("business_age")) / 5) * float(weights.get("business_age", 5)),
+    )
+    employees_pt = response_score(
+        "has_employees",
+        row.get("has_employees"),
+        (1 if yes(row.get("has_employees")) else 0) * float(weights.get("has_employees", 2)),
+    )
 
     red_flags = detect_red_flags(
         client,

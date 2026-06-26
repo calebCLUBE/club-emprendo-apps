@@ -17,6 +17,7 @@ from .models import (
     FormDefinition,
     ApplicationGradingConfig,
     GradingCriterion,
+    GradingResponseWeight,
     GroupParticipantList,
     PairingAIComparison,
     PairingConfig,
@@ -1046,19 +1047,94 @@ class ParticipantSheetVersionAdmin(admin.ModelAdmin):
     readonly_fields = ("created_at",)
 
 
-class GradingCriterionInline(admin.TabularInline):
+class FixedCriterionTypeInlineFormSet(BaseInlineFormSet):
+    criterion_type = GradingCriterion.TYPE_STRUCTURED
+
+    def save_new(self, form, commit=True):
+        obj = super().save_new(form, commit=False)
+        obj.criterion_type = self.criterion_type
+        if commit:
+            obj.save()
+            form.save_m2m()
+        return obj
+
+    def save_existing(self, form, instance, commit=True):
+        instance.criterion_type = self.criterion_type
+        return super().save_existing(form, instance, commit=commit)
+
+
+class StructuredCriterionInlineFormSet(FixedCriterionTypeInlineFormSet):
+    criterion_type = GradingCriterion.TYPE_STRUCTURED
+
+
+class ParagraphCriterionInlineFormSet(FixedCriterionTypeInlineFormSet):
+    criterion_type = GradingCriterion.TYPE_AI_TEXT
+
+
+class StructuredGradingCriterionInline(admin.TabularInline):
     model = GradingCriterion
+    formset = StructuredCriterionInlineFormSet
     extra = 0
+    verbose_name = "Structured criterion"
+    verbose_name_plural = "Structured criteria / numeric weights"
     fields = (
         "position",
         "active",
         "question_slug",
         "label",
-        "criterion_type",
+        "weight",
+        "negative_allowed",
+    )
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).filter(criterion_type=GradingCriterion.TYPE_STRUCTURED)
+
+
+class ParagraphGradingCriterionInline(admin.TabularInline):
+    model = GradingCriterion
+    formset = ParagraphCriterionInlineFormSet
+    extra = 0
+    verbose_name = "Paragraph AI criterion"
+    verbose_name_plural = "Paragraph AI criteria / prompts"
+    fields = (
+        "position",
+        "active",
+        "question_slug",
+        "label",
         "weight",
         "negative_allowed",
         "prompt",
     )
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).filter(criterion_type=GradingCriterion.TYPE_AI_TEXT)
+
+
+class GradingResponseWeightInline(admin.TabularInline):
+    model = GradingResponseWeight
+    extra = 0
+    verbose_name = "Dropdown response weight"
+    verbose_name_plural = "Dropdown / checkbox response weights"
+    fields = ("position", "active", "question", "choice", "weight")
+
+    def get_formset(self, request, obj=None, **kwargs):
+        request._grading_config_parent = obj
+        return super().get_formset(request, obj, **kwargs)
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        config = getattr(request, "_grading_config_parent", None)
+        form = getattr(config, "form", None)
+        if form and db_field.name == "question":
+            kwargs["queryset"] = Question.objects.filter(
+                form=form,
+                field_type__in=[Question.CHOICE, Question.MULTI_CHOICE, Question.MULTIPLE_CHOICE_GRID],
+            ).order_by("position", "id")
+        elif form and db_field.name == "choice":
+            kwargs["queryset"] = Choice.objects.filter(
+                question__form=form,
+                question__field_type__in=[Question.CHOICE, Question.MULTI_CHOICE, Question.MULTIPLE_CHOICE_GRID],
+            ).select_related("question").order_by("question__position", "position", "id")
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
 
 @admin.register(ApplicationGradingConfig)
@@ -1066,16 +1142,17 @@ class ApplicationGradingConfigAdmin(admin.ModelAdmin):
     list_display = ("form", "model_name", "max_total_score", "updated_at")
     search_fields = ("form__slug", "form__name")
     autocomplete_fields = ("form",)
-    inlines = (GradingCriterionInline,)
+    inlines = (StructuredGradingCriterionInline, ParagraphGradingCriterionInline, GradingResponseWeightInline)
     fieldsets = (
         (None, {
             "fields": ("form", "model_name", "max_total_score", "rubric_note")
         }),
-        ("Prompt placeholders", {
+        ("Editor notes", {
             "fields": (),
             "description": (
-                "For AI paragraph criteria, prompts can use {{ criterion }} and {{ response }}. "
-                "Keep output format as lines beginning with Score: and Explanation:."
+                "Prompts are only available in Paragraph AI criteria. "
+                "Dropdown and checkbox scoring is controlled in Dropdown / checkbox response weights, "
+                "where each row points to one predefined choice."
             ),
         }),
     )

@@ -395,11 +395,32 @@ def grade_single_row(
     elif _is_priority_email(row, priority_emails):
         status = PRIORITY_STATUS
 
-    owned_pt = yes(row.get("owned_business")) * float(weights.get("owned_business", W["owned_business"]))
-    years_pt = (business_years_pts(row.get("business_years"), row.get("owned_business")) / 4) * float(weights.get("business_years", W["business_years"]))
-    emp_pt = yes(row.get("has_employees")) * float(weights.get("has_employees", W["has_employees"]))
-    mentor_pt = yes(row.get("mentoring_exp_as_mentor")) * float(weights.get("mentoring_exp_as_mentor", W["mentoring_exp_as_mentor"]))
-    student_pt = yes(row.get("mentoring_exp_as_student")) * float(weights.get("mentoring_exp_as_student", W["mentoring_exp_as_student"]))
+    response_score = getattr(grading_config, "response_score", lambda _slug, _value, default=None: default)
+    owned_pt = response_score(
+        "owned_business",
+        row.get("owned_business"),
+        yes(row.get("owned_business")) * float(weights.get("owned_business", W["owned_business"])),
+    )
+    years_pt = response_score(
+        "business_years",
+        row.get("business_years"),
+        (business_years_pts(row.get("business_years"), row.get("owned_business")) / 4) * float(weights.get("business_years", W["business_years"])),
+    )
+    emp_pt = response_score(
+        "has_employees",
+        row.get("has_employees"),
+        yes(row.get("has_employees")) * float(weights.get("has_employees", W["has_employees"])),
+    )
+    mentor_pt = response_score(
+        "mentoring_exp_as_mentor",
+        row.get("mentoring_exp_as_mentor"),
+        yes(row.get("mentoring_exp_as_mentor")) * float(weights.get("mentoring_exp_as_mentor", W["mentoring_exp_as_mentor"])),
+    )
+    student_pt = response_score(
+        "mentoring_exp_as_student",
+        row.get("mentoring_exp_as_student"),
+        yes(row.get("mentoring_exp_as_student")) * float(weights.get("mentoring_exp_as_student", W["mentoring_exp_as_student"])),
+    )
 
     prof_struct_pt = (
         1 if isinstance(row.get("professional_expertise"), str)

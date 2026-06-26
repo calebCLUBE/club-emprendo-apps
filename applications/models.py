@@ -1,5 +1,6 @@
 # applications/models.py
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils import timezone
 import uuid
@@ -727,6 +728,45 @@ class GradingCriterion(models.Model):
 
     def __str__(self):
         return f"{self.config.form.slug}: {self.question_slug}"
+
+
+class GradingResponseWeight(models.Model):
+    config = models.ForeignKey(
+        ApplicationGradingConfig,
+        on_delete=models.CASCADE,
+        related_name="response_weights",
+    )
+    question = models.ForeignKey(
+        Question,
+        on_delete=models.CASCADE,
+        related_name="grading_response_weights",
+        help_text="Dropdown/checkbox question whose stored answer should receive this weight.",
+    )
+    choice = models.ForeignKey(
+        Choice,
+        on_delete=models.CASCADE,
+        related_name="grading_response_weights",
+        help_text="One of the predefined choices for the selected question.",
+    )
+    weight = models.DecimalField(max_digits=8, decimal_places=2, default=0)
+    active = models.BooleanField(default=True)
+    position = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["position", "id"]
+        unique_together = [("config", "question", "choice")]
+
+    def __str__(self):
+        return f"{self.config.form.slug}: {self.question.slug}={self.choice.value} → {self.weight}"
+
+    def clean(self):
+        super().clean()
+        if self.choice_id and self.question_id and self.choice.question_id != self.question_id:
+            raise ValidationError({"choice": "Choice must belong to the selected question."})
+        if self.config_id and self.question_id and self.question.form_id != self.config.form_id:
+            raise ValidationError({"question": "Question must belong to this grading config's application."})
 
 
 class PairingConfig(models.Model):

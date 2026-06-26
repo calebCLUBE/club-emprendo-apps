@@ -585,9 +585,11 @@ class GradingAndPairingConfigEditorTests(TestCase):
 
         response = self.client.get(reverse("admin_grading_config_editor", args=[form.slug]))
 
-        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.status_code, 200)
         config = ApplicationGradingConfig.objects.get(form=form)
-        self.assertIn(f"/admin/applications/applicationgradingconfig/{config.id}/change/", response["Location"])
+        self.assertContains(response, "Grading rules")
+        self.assertContains(response, "Paragraph questions with AI prompts")
+        self.assertContains(response, "Dropdown / checkbox response weights")
         self.assertEqual(config.max_total_score, 64)
         self.assertTrue(GradingCriterion.objects.filter(config=config, question_slug="growth_how").exists())
         self.assertTrue(GradingCriterion.objects.filter(config=config, question_slug="business_age", weight=5).exists())
@@ -613,8 +615,12 @@ class GradingAndPairingConfigEditorTests(TestCase):
 
         response = self.client.get(reverse("admin_grading_config_editor", args=[form.slug]))
 
-        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.status_code, 200)
         config = ApplicationGradingConfig.objects.get(form=form)
+        self.assertContains(response, "Business age")
+        self.assertContains(response, "Question option")
+        self.assertContains(response, "1-3 years")
+        self.assertNotContains(response, "business_age=1_3y")
         self.assertTrue(
             GradingCriterion.objects.filter(
                 config=config,
@@ -631,6 +637,51 @@ class GradingAndPairingConfigEditorTests(TestCase):
         runtime_config = runtime_grading_config_for_form_slug(form.slug)
         self.assertEqual(runtime_config.response_score("business_age", "1_3y"), 7.5)
         self.assertEqual(runtime_config.response_score("business_age", "idea"), 0.0)
+
+    def test_grading_config_editor_saves_prompt_and_grouped_response_weights(self):
+        form = FormDefinition.objects.create(slug="G903_E_A2", name="E A2")
+        Question.objects.create(
+            form=form,
+            text="Growth plan",
+            slug="growth_how",
+            field_type=Question.LONG_TEXT,
+            position=1,
+        )
+        stage = Question.objects.create(
+            form=form,
+            text="Stage",
+            slug="business_age",
+            field_type=Question.CHOICE,
+            position=2,
+        )
+        choice = Choice.objects.create(question=stage, label="1-3 years", value="1_3y", position=1)
+        self.client.get(reverse("admin_grading_config_editor", args=[form.slug]))
+        config = ApplicationGradingConfig.objects.get(form=form)
+        paragraph = GradingCriterion.objects.get(config=config, question_slug="growth_how")
+        response_weight = GradingResponseWeight.objects.get(config=config, question=stage, choice=choice)
+
+        response = self.client.post(
+            reverse("admin_grading_config_editor", args=[form.slug]),
+            {
+                "model_name": "gpt-test",
+                "max_total_score": "42",
+                "rubric_note": "Custom rubric",
+                f"criterion_{paragraph.id}_active": "on",
+                f"criterion_{paragraph.id}_weight": "8",
+                f"criterion_{paragraph.id}_prompt": "Score {{ response }}",
+                f"response_weight_{response_weight.id}_active": "on",
+                f"response_weight_{response_weight.id}_weight": "9.5",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        config.refresh_from_db()
+        paragraph.refresh_from_db()
+        response_weight.refresh_from_db()
+        self.assertEqual(config.model_name, "gpt-test")
+        self.assertEqual(config.rubric_note, "Custom rubric")
+        self.assertEqual(paragraph.prompt, "Score {{ response }}")
+        self.assertEqual(str(response_weight.weight), "9.50")
 
     def test_pairing_config_editor_creates_default_priority_and_ai_rules(self):
         group = FormGroup.objects.create(

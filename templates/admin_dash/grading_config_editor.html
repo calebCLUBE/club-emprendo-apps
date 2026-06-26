@@ -1,0 +1,338 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+<div class="ce-admin-wrap">
+  <style>
+    .ce-config-shell {
+      max-width: 1180px;
+      display: grid;
+      gap: 14px;
+    }
+    .ce-config-card {
+      background: #fff;
+      border: 1px solid #ddd;
+      border-radius: 12px;
+      padding: 14px;
+    }
+    .ce-config-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: flex-start;
+      flex-wrap: wrap;
+    }
+    .ce-config-title {
+      margin: 0;
+      font-size: 24px;
+      line-height: 1.2;
+    }
+    .ce-config-sub {
+      margin: 5px 0 0;
+      color: #666;
+      font-size: 13px;
+    }
+    .ce-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 36px;
+      padding: 0 12px;
+      border: 1px solid #d0d0d0;
+      border-radius: 8px;
+      background: #fff;
+      color: #111 !important;
+      font-weight: 600;
+      text-decoration: none;
+      cursor: pointer;
+      box-sizing: border-box;
+    }
+    .ce-btn-primary {
+      background: #2563eb;
+      border-color: #2563eb;
+      color: #fff !important;
+    }
+    .ce-section-title {
+      margin: 0 0 8px;
+      font-size: 18px;
+    }
+    .ce-section-note {
+      margin: 0 0 12px;
+      color: #666;
+      font-size: 13px;
+    }
+    .ce-grid {
+      display: grid;
+      gap: 10px;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    }
+    .ce-field label {
+      display: block;
+      font-weight: 700;
+      font-size: 12px;
+      margin-bottom: 5px;
+      color: #444;
+    }
+    .ce-field input,
+    .ce-field textarea {
+      width: 100%;
+      box-sizing: border-box;
+      border: 1px solid #cfcfcf;
+      border-radius: 8px;
+      padding: 9px 10px;
+      background: #fff;
+      font-family: inherit;
+    }
+    .ce-field textarea {
+      min-height: 80px;
+      resize: vertical;
+    }
+    .ce-rule {
+      border: 1px solid #e5e7eb;
+      border-radius: 12px;
+      background: #fafafa;
+      padding: 12px;
+      display: grid;
+      gap: 10px;
+    }
+    .ce-rule-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+      align-items: flex-start;
+    }
+    .ce-rule-title {
+      font-weight: 800;
+      color: #111827;
+    }
+    .ce-rule-meta {
+      color: #667085;
+      font-size: 12px;
+      margin-top: 2px;
+    }
+    .ce-inline-check {
+      display: inline-flex;
+      gap: 6px;
+      align-items: center;
+      font-size: 12px;
+      color: #444;
+      font-weight: 700;
+    }
+    .ce-weight-input {
+      max-width: 140px;
+    }
+    .ce-response-box {
+      border: 1px solid #e5e7eb;
+      border-radius: 12px;
+      background: #fff;
+      overflow: hidden;
+    }
+    .ce-response-box-head {
+      padding: 12px;
+      background: #f8fafc;
+      border-bottom: 1px solid #e5e7eb;
+    }
+    .ce-response-title {
+      font-weight: 800;
+    }
+    .ce-response-meta {
+      margin-top: 2px;
+      color: #667085;
+      font-size: 12px;
+    }
+    .ce-response-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    .ce-response-table th,
+    .ce-response-table td {
+      padding: 10px 12px;
+      border-bottom: 1px solid #f0f2f5;
+      text-align: left;
+      vertical-align: middle;
+    }
+    .ce-response-table th {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      color: #667085;
+      background: #fff;
+    }
+    .ce-response-table tr:last-child td {
+      border-bottom: 0;
+    }
+    .ce-option-label {
+      font-weight: 700;
+    }
+    .ce-option-value {
+      color: #667085;
+      font-size: 12px;
+      margin-top: 2px;
+    }
+    .ce-sticky-actions {
+      position: sticky;
+      bottom: 0;
+      border: 1px solid #ddd;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.96);
+      padding: 12px;
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      box-shadow: 0 -4px 16px rgba(16, 24, 40, 0.08);
+    }
+  </style>
+
+  <form method="post" class="ce-config-shell">
+    {% csrf_token %}
+
+    <div class="ce-config-card ce-config-head">
+      <div>
+        <h1 class="ce-config-title">Grading rules</h1>
+        <p class="ce-config-sub">{{ form_def.slug }} — {{ form_def.name }}</p>
+      </div>
+      <div>
+        <a class="ce-btn" href="{{ back_url }}">Back to grading</a>
+      </div>
+    </div>
+
+    <div class="ce-config-card">
+      <h2 class="ce-section-title">General settings</h2>
+      <div class="ce-grid">
+        <div class="ce-field">
+          <label for="model_name">AI model override</label>
+          <input id="model_name" name="model_name" value="{{ config.model_name }}" placeholder="Leave blank for default">
+        </div>
+        <div class="ce-field">
+          <label for="max_total_score">Max total score</label>
+          <input id="max_total_score" name="max_total_score" type="number" step="0.01" value="{{ config.max_total_score|default_if_none:'' }}">
+        </div>
+      </div>
+      <div class="ce-field" style="margin-top:10px;">
+        <label for="rubric_note">Rubric note shown in output</label>
+        <textarea id="rubric_note" name="rubric_note">{{ config.rubric_note }}</textarea>
+      </div>
+    </div>
+
+    <div class="ce-config-card">
+      <h2 class="ce-section-title">Paragraph questions with AI prompts</h2>
+      <p class="ce-section-note">Only paragraph AI criteria have prompt boxes. Prompts can use {% templatetag openvariable %} criterion {% templatetag closevariable %} and {% templatetag openvariable %} response {% templatetag closevariable %}.</p>
+      <div class="ce-grid">
+        {% for criterion in paragraph_criteria %}
+          <div class="ce-rule">
+            <div class="ce-rule-head">
+              <div>
+                <div class="ce-rule-title">{{ criterion.question_obj.text|default:criterion.label|default:criterion.question_slug }}</div>
+                <div class="ce-rule-meta">{{ criterion.question_slug }}</div>
+              </div>
+              <label class="ce-inline-check">
+                <input type="checkbox" name="criterion_{{ criterion.id }}_active" {% if criterion.active %}checked{% endif %}>
+                Active
+              </label>
+            </div>
+            <div class="ce-grid">
+              <div class="ce-field">
+                <label>Weight</label>
+                <input class="ce-weight-input" type="number" step="0.01" name="criterion_{{ criterion.id }}_weight" value="{{ criterion.weight }}">
+              </div>
+              <label class="ce-inline-check" style="align-self:end; padding-bottom:10px;">
+                <input type="checkbox" name="criterion_{{ criterion.id }}_negative_allowed" {% if criterion.negative_allowed %}checked{% endif %}>
+                Negative allowed
+              </label>
+            </div>
+            <div class="ce-field">
+              <label>Prompt</label>
+              <textarea name="criterion_{{ criterion.id }}_prompt">{{ criterion.prompt }}</textarea>
+            </div>
+          </div>
+        {% empty %}
+          <p class="ce-section-note">No paragraph AI criteria configured for this application.</p>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="ce-config-card">
+      <h2 class="ce-section-title">Structured numeric criteria</h2>
+      <p class="ce-section-note">These criteria use numeric weights and do not have prompts.</p>
+      <div class="ce-grid">
+        {% for criterion in structured_criteria %}
+          <div class="ce-rule">
+            <div class="ce-rule-head">
+              <div>
+                <div class="ce-rule-title">{{ criterion.question_obj.text|default:criterion.label|default:criterion.question_slug }}</div>
+                <div class="ce-rule-meta">{{ criterion.question_slug }}</div>
+              </div>
+              <label class="ce-inline-check">
+                <input type="checkbox" name="criterion_{{ criterion.id }}_active" {% if criterion.active %}checked{% endif %}>
+                Active
+              </label>
+            </div>
+            <div class="ce-grid">
+              <div class="ce-field">
+                <label>Weight</label>
+                <input class="ce-weight-input" type="number" step="0.01" name="criterion_{{ criterion.id }}_weight" value="{{ criterion.weight }}">
+              </div>
+              <label class="ce-inline-check" style="align-self:end; padding-bottom:10px;">
+                <input type="checkbox" name="criterion_{{ criterion.id }}_negative_allowed" {% if criterion.negative_allowed %}checked{% endif %}>
+                Negative allowed
+              </label>
+            </div>
+          </div>
+        {% empty %}
+          <p class="ce-section-note">No structured criteria configured for this application.</p>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="ce-config-card">
+      <h2 class="ce-section-title">Dropdown / checkbox response weights</h2>
+      <p class="ce-section-note">Each question is one box. Set the score for each predefined option.</p>
+      <div style="display:grid; gap:12px;">
+        {% for group in response_groups %}
+          <div class="ce-response-box">
+            <div class="ce-response-box-head">
+              <div class="ce-response-title">{{ group.question.text }}</div>
+              <div class="ce-response-meta">{{ group.question.slug }}</div>
+            </div>
+            <table class="ce-response-table">
+              <thead>
+                <tr>
+                  <th>Question option</th>
+                  <th style="width:170px;">Weight</th>
+                  <th style="width:100px;">Active</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for item in group.items %}
+                  <tr>
+                    <td>
+                      <div class="ce-option-label">{{ item.choice.label }}</div>
+                      <div class="ce-option-value">{{ item.choice.value }}</div>
+                    </td>
+                    <td>
+                      <input class="ce-weight-input" type="number" step="0.01" name="response_weight_{{ item.id }}_weight" value="{{ item.weight }}">
+                    </td>
+                    <td>
+                      <label class="ce-inline-check">
+                        <input type="checkbox" name="response_weight_{{ item.id }}_active" {% if item.active %}checked{% endif %}>
+                        Active
+                      </label>
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% empty %}
+          <p class="ce-section-note">No dropdown or checkbox questions found for this application.</p>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="ce-sticky-actions">
+      <a class="ce-btn" href="{{ back_url }}">Cancel</a>
+      <button class="ce-btn ce-btn-primary" type="submit">Save grading rules</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

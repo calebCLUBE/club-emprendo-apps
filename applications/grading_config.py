@@ -353,14 +353,16 @@ def ensure_grading_config_for_form(form: FormDefinition) -> ApplicationGradingCo
         )
         position += 10
 
-    weighted_questions = set(config.response_weights.values_list("question_id", flat=True))
+    existing_response_pairs = set(
+        config.response_weights.values_list("question_id", "choice_id")
+    )
     for question in form.questions.filter(
         active=True,
         field_type__in=[Question.CHOICE, Question.MULTI_CHOICE, Question.MULTIPLE_CHOICE_GRID],
     ).prefetch_related("choices"):
-        if question.id in weighted_questions:
-            continue
         for choice in question.choices.all():
+            if (question.id, choice.id) in existing_response_pairs:
+                continue
             config.response_weights.create(
                 question=question,
                 choice=choice,

@@ -6025,7 +6025,79 @@ def grading_home(request):
 def grading_config_editor(request, form_slug: str):
     form = get_object_or_404(FormDefinition, slug=form_slug)
     config = ensure_grading_config_for_form(form)
-    return redirect(f"/admin/applications/applicationgradingconfig/{config.id}/change/")
+
+    if request.method == "POST":
+        config.model_name = (request.POST.get("model_name") or "").strip()
+        config.rubric_note = (request.POST.get("rubric_note") or "").strip()
+        max_total_raw = (request.POST.get("max_total_score") or "").strip()
+        if max_total_raw:
+            try:
+                config.max_total_score = max_total_raw
+            except Exception:
+                messages.error(request, "Max total score must be a valid number.")
+                return redirect(request.path)
+        else:
+            config.max_total_score = None
+        config.save(update_fields=["model_name", "rubric_note", "max_total_score", "updated_at"])
+
+        for criterion in config.criteria.all():
+            prefix = f"criterion_{criterion.id}"
+            criterion.active = request.POST.get(f"{prefix}_active") == "on"
+            criterion.weight = (request.POST.get(f"{prefix}_weight") or "0").strip() or "0"
+            criterion.negative_allowed = request.POST.get(f"{prefix}_negative_allowed") == "on"
+            if criterion.criterion_type == criterion.TYPE_AI_TEXT:
+                criterion.prompt = request.POST.get(f"{prefix}_prompt") or ""
+            else:
+                criterion.prompt = ""
+            criterion.save(update_fields=["active", "weight", "negative_allowed", "prompt", "updated_at"])
+
+        for response_weight in config.response_weights.all():
+            prefix = f"response_weight_{response_weight.id}"
+            response_weight.active = request.POST.get(f"{prefix}_active") == "on"
+            response_weight.weight = (request.POST.get(f"{prefix}_weight") or "0").strip() or "0"
+            response_weight.save(update_fields=["active", "weight", "updated_at"])
+
+        messages.success(request, f"Saved grading rules for {form.slug}.")
+        return redirect(request.path)
+
+    questions_by_slug = {
+        q.slug: q
+        for q in form.questions.filter(active=True).order_by("position", "id")
+    }
+    criteria = list(config.criteria.all().order_by("position", "id"))
+    for criterion in criteria:
+        criterion.question_obj = questions_by_slug.get(criterion.question_slug)
+    paragraph_criteria = [c for c in criteria if c.criterion_type == c.TYPE_AI_TEXT]
+    structured_criteria = [c for c in criteria if c.criterion_type == c.TYPE_STRUCTURED]
+
+    response_groups_by_question: dict[int, dict] = {}
+    for item in (
+        config.response_weights
+        .select_related("question", "choice")
+        .order_by("question__position", "choice__position", "id")
+    ):
+        question = item.question
+        group = response_groups_by_question.setdefault(
+            question.id,
+            {
+                "question": question,
+                "items": [],
+            },
+        )
+        group["items"].append(item)
+
+    return render(
+        request,
+        "admin_dash/grading_config_editor.html",
+        {
+            "form_def": form,
+            "config": config,
+            "paragraph_criteria": paragraph_criteria,
+            "structured_criteria": structured_criteria,
+            "response_groups": list(response_groups_by_question.values()),
+            "back_url": reverse("admin_grading_home"),
+        },
+    )
 
 
 @staff_member_required

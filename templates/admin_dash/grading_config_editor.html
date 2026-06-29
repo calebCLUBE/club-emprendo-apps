@@ -3,12 +3,21 @@
 {% block content %}
 <div class="ce-admin-wrap">
   <style>
+    .ce-admin-wrap {
+      width: 100%;
+      max-width: none;
+      box-sizing: border-box;
+    }
     .ce-config-shell {
-      max-width: 1180px;
+      width: 100%;
+      max-width: none;
       display: grid;
       gap: 14px;
     }
     .ce-config-card {
+      width: 100%;
+      min-width: 0;
+      box-sizing: border-box;
       background: #fff;
       border: 1px solid #ddd;
       border-radius: 12px;
@@ -246,6 +255,9 @@
       color: #067647;
     }
     .ce-response-box {
+      width: 100%;
+      min-width: 0;
+      box-sizing: border-box;
       border: 1px solid #e5e7eb;
       border-radius: 12px;
       background: #fff;
@@ -463,33 +475,37 @@ Explanation: &lt;2–3 sentences justifying the score&gt;</pre>
       <p class="ce-section-note">Each structured question is shown once with its overall setting and its option scores together.</p>
       <div style="display:grid; gap:12px;">
         {% for group in structured_groups %}
-          <div class="ce-response-box">
-            <div class="ce-response-box-head">
-            <div class="ce-rule-head">
-              <div>
-                  <div class="ce-response-title">{{ group.question.text|default:group.criterion.label|default:group.criterion.question_slug }}</div>
-                  <div class="ce-response-meta">{{ group.question.slug|default:group.criterion.question_slug }}</div>
-              </div>
-                {% if group.criterion %}
-              <label class="ce-inline-check">
+          <details class="ce-response-box ce-paragraph-rule">
+            <summary class="ce-paragraph-summary">
+              <span>
+                <span class="ce-response-title">{{ group.question.text|default:group.criterion.label|default:group.criterion.question_slug }}</span>
+                <span class="ce-response-meta" style="display:block;">{{ group.question.slug|default:group.criterion.question_slug }}</span>
+              </span>
+              {% if group.criterion %}
+                <span class="ce-status-pill {% if group.criterion.active %}is-active{% endif %}">{% if group.criterion.active %}Active{% else %}Inactive{% endif %}</span>
+              {% endif %}
+            </summary>
+            <div class="ce-paragraph-body" style="padding:0; gap:0;">
+              {% if group.criterion %}
+                <div style="padding:12px; border-bottom:1px solid #e5e7eb;">
+                  <label class="ce-inline-check">
                     <input type="checkbox" name="criterion_{{ group.criterion.id }}_active" {% if group.criterion.active %}checked{% endif %}>
-                Active
-              </label>
-                {% endif %}
-            </div>
+                    Include this question in grading
+                  </label>
+                </div>
+              {% endif %}
               {% if group.criterion and not group.items %}
               <div class="ce-grid" style="margin-top:10px;">
-              <div class="ce-field">
+                <div class="ce-field" style="padding:0 12px;">
                     <label>Question weight</label>
                     <input class="ce-weight-input" type="number" step="0.01" name="criterion_{{ group.criterion.id }}_weight" value="{{ group.criterion.weight }}">
-              </div>
-              <label class="ce-inline-check" style="align-self:end; padding-bottom:10px;">
+                </div>
+                <label class="ce-inline-check" style="align-self:end; padding:0 12px 10px;">
                     <input type="checkbox" name="criterion_{{ group.criterion.id }}_negative_allowed" {% if group.criterion.negative_allowed %}checked{% endif %}>
-                Negative allowed
-              </label>
-            </div>
+                  Negative allowed
+                </label>
+              </div>
               {% endif %}
-            </div>
             {% if group.items %}
             <table class="ce-response-table">
               <thead>
@@ -522,7 +538,8 @@ Explanation: &lt;2–3 sentences justifying the score&gt;</pre>
             {% else %}
               <div class="ce-disclosure-body ce-section-note" style="margin:0;">This question has no predefined answer options.</div>
             {% endif %}
-          </div>
+            </div>
+          </details>
         {% empty %}
           <p class="ce-section-note">No structured questions found for this application.</p>
         {% endfor %}

@@ -15,6 +15,12 @@ MODERATION_FIELDS = (
     "growth_how",
     "biggest_challenge",
 )
+DEFAULT_AI_FIELDS = ("business_description", "growth_how", "biggest_challenge")
+DEFAULT_GRADING_INSTRUCTIONS = (
+    "Score from 1 to 5 based on clarity, relevance, and insight.\n"
+    "Give 0 to a bad, nonsensical, or irrelevant answer.\n"
+    "Be strict but fair."
+)
 logger = logging.getLogger(__name__)
 PRIORITY_STATUS = "Priority"
 ACTIVE_PARTICIPANT_STATUS = "participante activa"
@@ -347,16 +353,15 @@ def _render_prompt_template(template: str, *, criterion: str, response: str) -> 
 
 
 def build_grading_prompt(text: str, criterion: str, prompt_template: str = "") -> str:
-    prompt = _render_prompt_template(prompt_template, criterion=criterion, response=text)
-    if prompt.strip():
-        return prompt
+    template = prompt_template or ""
+    if "{{ response }}" in template or "{{ criterion }}" in template:
+        return _render_prompt_template(template, criterion=criterion, response=text)
+    instructions = template.strip() or DEFAULT_GRADING_INSTRUCTIONS
     return f"""
 Criterion: {criterion}
 
-Rules:
-- Score from 1–5 based on clarity, relevance, and insight
-- Bad, nonsensical, or irrelevant → 0
-- Be strict but fair
+Instructions:
+{instructions}
 
 Response:
 \"\"\"{text}\"\"\"
@@ -475,6 +480,11 @@ def grade_single_row(
         row.get("has_employees"),
         (1 if yes(row.get("has_employees")) else 0) * float(weights.get("has_employees", 2)),
     )
+    extra_structured_total = sum(
+        response_score(slug, row.get(slug), 0.0) or 0.0
+        for slug in (getattr(grading_config, "structured_criteria", ()) or ())
+        if slug not in {"prior_mentoring", "business_age", "has_employees"}
+    )
 
     red_flags = detect_red_flags(
         client,
@@ -540,44 +550,27 @@ def grade_single_row(
         ]
 
     score_exp_lines = []
-
-    bd_raw, bd_exp = grade_unstructured(
-        client,
-        row.get("business_description"),
-        "business_description",
-        prompt_template=prompt_for("business_description"),
-        model_name=model_name,
-    )
-    bd_pt = bd_raw * float(weights.get("business_description", W["business_description"]))
-    score_exp_lines.append(f"business_description - {bd_exp}")
-
-    gh_raw, gh_exp = grade_unstructured(
-        client,
-        row.get("growth_how"),
-        "growth_how",
-        prompt_template=prompt_for("growth_how"),
-        model_name=model_name,
-    )
-    gh_pt = gh_raw * float(weights.get("growth_how", W["growth_how"]))
-    score_exp_lines.append(f"growth_how - {gh_exp}")
-
-    bc_raw, bc_exp = grade_unstructured(
-        client,
-        row.get("biggest_challenge"),
-        "biggest_challenge",
-        prompt_template=prompt_for("biggest_challenge"),
-        model_name=model_name,
-    )
-    bc_pt = bc_raw * float(weights.get("biggest_challenge", W["biggest_challenge"]))
-    score_exp_lines.append(f"biggest_challenge - {bc_exp}")
+    ai_total = 0.0
+    ai_fields = getattr(grading_config, "ai_criteria", None)
+    if ai_fields is None:
+        ai_fields = DEFAULT_AI_FIELDS
+    for slug in ai_fields:
+        raw_score, explanation = grade_unstructured(
+            client,
+            row.get(slug),
+            slug,
+            prompt_template=prompt_for(slug),
+            model_name=model_name,
+        )
+        ai_total += raw_score * float(weights.get(slug, 1))
+        score_exp_lines.append(f"{slug} - {explanation}")
 
     total_score = sum([
         prior_pt,
         business_age_pt,
         employees_pt,
-        bd_pt,
-        gh_pt,
-        bc_pt,
+        extra_structured_total,
+        ai_total,
     ])
     total_score_pct = _format_total_percentage(total_score, max_total_score)
     score_exp_lines.append(f"total_score - {total_score}/{max_total_score} ({total_score_pct})")

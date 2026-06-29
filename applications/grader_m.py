@@ -12,6 +12,17 @@ MODERATION_FIELDS = (
     "motivation",
     "professional_expertise",
 )
+DEFAULT_AI_FIELDS = (
+    "business_description",
+    "mentoring_exp_detail",
+    "motivation",
+    "professional_expertise",
+)
+DEFAULT_GRADING_INSTRUCTIONS = (
+    "Score from 1 to 5 based on clarity, relevance, and depth.\n"
+    "Give 0 to a bad or nonsensical answer.\n"
+    "Use a negative score only when it is justified."
+)
 logger = logging.getLogger(__name__)
 PRIORITY_STATUS = "Priority"
 ACTIVE_PARTICIPANT_STATUS = "participante activa"
@@ -282,16 +293,15 @@ def _render_prompt_template(template: str, *, criterion: str, response: str) -> 
 
 
 def build_grading_prompt(text: str, criterion: str, prompt_template: str = "") -> str:
-    prompt = _render_prompt_template(prompt_template, criterion=criterion, response=text)
-    if prompt.strip():
-        return prompt
+    template = prompt_template or ""
+    if "{{ response }}" in template or "{{ criterion }}" in template:
+        return _render_prompt_template(template, criterion=criterion, response=text)
+    instructions = template.strip() or DEFAULT_GRADING_INSTRUCTIONS
     return f"""
 Criterion: {criterion}
 
-Rules:
-- Score 1–5 based on clarity, relevance, and depth
-- Bad or nonsensical → 0
-- Negative allowed only if justified
+Instructions:
+{instructions}
 
 Response:
 \"\"\"{text}\"\"\"
@@ -434,6 +444,18 @@ def grade_single_row(
         row.get("mentoring_exp_as_student"),
         yes(row.get("mentoring_exp_as_student")) * float(weights.get("mentoring_exp_as_student", W["mentoring_exp_as_student"])),
     )
+    extra_structured_total = sum(
+        response_score(slug, row.get(slug), 0.0) or 0.0
+        for slug in (getattr(grading_config, "structured_criteria", ()) or ())
+        if slug not in {
+            "owned_business",
+            "business_years",
+            "has_employees",
+            "professional_expertise_struct",
+            "mentoring_exp_as_mentor",
+            "mentoring_exp_as_student",
+        }
+    )
 
     prof_struct_pt = (
         1 if isinstance(row.get("professional_expertise"), str)
@@ -506,51 +528,27 @@ def grade_single_row(
         ]
 
     score_exp = []
-
-    bd_raw, bd_exp = grade_unstructured(
-        client,
-        row.get("business_description"),
-        "business_description",
-        prompt_template=prompt_for("business_description"),
-        model_name=model_name,
-    )
-    med_raw, med_exp = grade_unstructured(
-        client,
-        row.get("mentoring_exp_detail"),
-        "mentoring_exp_detail",
-        prompt_template=prompt_for("mentoring_exp_detail"),
-        model_name=model_name,
-    )
-    mot_raw, mot_exp = grade_unstructured(
-        client,
-        row.get("motivation"),
-        "motivation",
-        negative_allowed=allows_negative("motivation", fallback=True),
-        prompt_template=prompt_for("motivation"),
-        model_name=model_name,
-    )
-    prof_raw, prof_exp = grade_unstructured(
-        client,
-        row.get("professional_expertise"),
-        "professional_expertise",
-        prompt_template=prompt_for("professional_expertise"),
-        model_name=model_name,
-    )
-
-    score_exp.extend([
-        f"business_description - {bd_exp}",
-        f"mentoring_exp_detail - {med_exp}",
-        f"motivation - {mot_exp}",
-        f"professional_expertise - {prof_exp}",
-    ])
+    ai_total = 0.0
+    ai_fields = getattr(grading_config, "ai_criteria", None)
+    if ai_fields is None:
+        ai_fields = DEFAULT_AI_FIELDS
+    for slug in ai_fields:
+        raw_score, explanation = grade_unstructured(
+            client,
+            row.get(slug),
+            slug,
+            negative_allowed=allows_negative(slug, fallback=(slug == "motivation")),
+            prompt_template=prompt_for(slug),
+            model_name=model_name,
+        )
+        ai_total += raw_score * float(weights.get(slug, 1))
+        score_exp.append(f"{slug} - {explanation}")
 
     total_pts = sum([
         owned_pt, years_pt, emp_pt,
         prof_struct_pt, mentor_pt, student_pt,
-        bd_raw * float(weights.get("business_description", W["business_description"])),
-        med_raw * float(weights.get("mentoring_exp_detail", W["mentoring_exp_detail"])),
-        mot_raw * float(weights.get("motivation", W["motivation"])),
-        prof_raw * float(weights.get("professional_expertise", W["professional_expertise"])),
+        extra_structured_total,
+        ai_total,
     ])
     total_pts_pct = _format_total_percentage(total_pts, max_total_score)
     score_exp.append(f"total_score - {total_pts}/{max_total_score} ({total_pts_pct})")

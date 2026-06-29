@@ -137,6 +137,8 @@ class RuntimeGradingConfig:
     max_total_score: float
     model_name: str
     rubric_note: str
+    ai_criteria: tuple[str, ...]
+    structured_criteria: tuple[str, ...]
 
     def weight(self, key: str, default: float = 0.0) -> float:
         return _to_float(self.weights.get(key), default)
@@ -200,6 +202,8 @@ def runtime_grading_config_for_form_slug(form_slug: str) -> RuntimeGradingConfig
     negative_allowed: set[str] = set()
     model_name = ""
     rubric_note = ""
+    ai_criteria: list[str] = []
+    structured_criteria: list[str] = []
 
     config = (
         ApplicationGradingConfig.objects
@@ -219,6 +223,10 @@ def runtime_grading_config_for_form_slug(form_slug: str) -> RuntimeGradingConfig
             if not key:
                 continue
             weights[key] = _to_float(criterion.weight, weights.get(key, 0.0))
+            if criterion.criterion_type == "ai_text":
+                ai_criteria.append(key)
+            else:
+                structured_criteria.append(key)
             if criterion.prompt:
                 prompts[key] = criterion.prompt
             if criterion.negative_allowed:
@@ -241,6 +249,8 @@ def runtime_grading_config_for_form_slug(form_slug: str) -> RuntimeGradingConfig
         max_total_score=max_total,
         model_name=model_name,
         rubric_note=rubric_note,
+        ai_criteria=tuple(ai_criteria),
+        structured_criteria=tuple(structured_criteria),
     )
 
 
@@ -352,6 +362,32 @@ def ensure_grading_config_for_form(form: FormDefinition) -> ApplicationGradingCo
             position=position,
         )
         position += 10
+
+    existing = set(config.criteria.values_list("question_slug", flat=True))
+    next_position = max(
+        [position, *config.criteria.values_list("position", flat=True)],
+        default=position,
+    ) + 10
+    configurable_types = {
+        Question.LONG_TEXT,
+        Question.CHOICE,
+        Question.MULTI_CHOICE,
+        Question.MULTIPLE_CHOICE_GRID,
+    }
+    for question in form.questions.filter(active=True).order_by("position", "id"):
+        if question.slug in existing or question.field_type not in configurable_types:
+            continue
+        is_paragraph = question.field_type == Question.LONG_TEXT
+        config.criteria.create(
+            question_slug=question.slug,
+            label=question.text[:160],
+            criterion_type="ai_text" if is_paragraph else "structured",
+            weight=Decimal("1"),
+            active=False,
+            position=next_position,
+        )
+        existing.add(question.slug)
+        next_position += 10
 
     existing_response_pairs = set(
         config.response_weights.values_list("question_id", "choice_id")

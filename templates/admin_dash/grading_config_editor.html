@@ -284,7 +284,9 @@
       </div>
     </div>
 
-    <div class="ce-config-card">
+    <details class="ce-config-card">
+      <summary class="ce-section-title" style="cursor:pointer; margin:0;">Technical OpenAI request details (optional)</summary>
+      <div style="margin-top:12px;">
       <h2 class="ce-section-title">Existing grading flow and OpenAI requests</h2>
       <p class="ce-section-note">This is the current runtime behavior for this application. Applicant values replace the placeholders shown below.</p>
 
@@ -328,7 +330,7 @@
       <details class="ce-disclosure" open>
         <summary>3. OpenAI chat-completion requests (up to {{ openai_flow.ai_requests|length }} per eligible application)</summary>
         <div class="ce-disclosure-body">
-          <p class="ce-section-note">A blank answer is not sent to chat completion and receives the grader's local blank-response score. The calls below are hard-coded into the grading flow; turning an editor criterion off restores its default prompt/weight but does not remove the call.</p>
+          <p class="ce-section-note">A blank answer is not sent to chat completion and receives the grader's local blank-response score. Only paragraph questions marked Active are sent for AI scoring.</p>
           {% for item in openai_flow.ai_requests %}
             <details class="ce-disclosure" {% if forloop.first %}open{% endif %}>
               <summary>{{ forloop.counter }}. {{ item.question.text|default:item.slug }} — {{ item.slug }}{% if item.uses_custom_prompt %} (custom prompt){% else %} (default prompt){% endif %}</summary>
@@ -353,14 +355,15 @@ PROMPT_BELOW:
         <div class="ce-disclosure-body">
           <pre class="ce-code">Score: &lt;int&gt;
 Explanation: &lt;2–3 sentences justifying the score&gt;</pre>
-          <p class="ce-section-note" style="margin-top:8px; margin-bottom:0;">The parser reads only lines beginning exactly with <code>Score:</code> or <code>Explanation:</code>. Everything else is ignored. No applicant identity, email, structured answer, total score, weight, or rubric note is added to a chat request. The applicant's paragraph answer is inserted automatically between the two editable instruction boxes below.</p>
+          <p class="ce-section-note" style="margin-top:8px; margin-bottom:0;">The parser reads only lines beginning exactly with <code>Score:</code> or <code>Explanation:</code>. Everything else is ignored. No applicant identity, email, structured answer, total score, weight, or rubric note is added to a chat request. The applicant's paragraph answer and required output format are added automatically.</p>
         </div>
       </details>
-    </div>
+      </div>
+    </details>
 
     <div class="ce-config-card">
-      <h2 class="ce-section-title">Paragraph questions with AI prompts</h2>
-      <p class="ce-section-note">Write normal instructions—no code or placeholders are needed. OpenAI reads the first box, then the applicant's answer, then the second box.</p>
+      <h2 class="ce-section-title">Paragraph questions scored by AI</h2>
+      <p class="ce-section-note">Describe what a strong or weak answer looks like in ordinary language. The applicant's answer and the required result format are added automatically.</p>
       <div class="ce-grid">
         {% for criterion in paragraph_criteria %}
           <div class="ce-rule">
@@ -385,17 +388,9 @@ Explanation: &lt;2–3 sentences justifying the score&gt;</pre>
               </label>
             </div>
             <div class="ce-field">
-              <label>Instructions before the applicant's answer</label>
-              <textarea name="criterion_{{ criterion.id }}_prompt_before" style="min-height:180px;">{{ criterion.prompt_before }}</textarea>
-            </div>
-            <div class="ce-answer-insert">
-              Applicant's answer is inserted here automatically
-              <small>This answer changes for each application and is always sent between these two instruction boxes.</small>
-            </div>
-            <div class="ce-field">
-              <label>Instructions after the applicant's answer</label>
-              <textarea name="criterion_{{ criterion.id }}_prompt_after" style="min-height:140px;">{{ criterion.prompt_after }}</textarea>
-              <div class="ce-rule-meta">Keep <strong>Score:</strong> and <strong>Explanation:</strong> in the requested response so the grading result can be read correctly.</div>
+              <label>What should OpenAI consider when scoring this answer?</label>
+              <textarea name="criterion_{{ criterion.id }}_instructions" style="min-height:130px;">{{ criterion.editor_instructions }}</textarea>
+              <div class="ce-rule-meta">No code, placeholders, response labels, or special formatting are needed.</div>
             </div>
           </div>
         {% empty %}
@@ -405,48 +400,38 @@ Explanation: &lt;2–3 sentences justifying the score&gt;</pre>
     </div>
 
     <div class="ce-config-card">
-      <h2 class="ce-section-title">Structured numeric criteria</h2>
-      <p class="ce-section-note">These criteria use numeric weights and do not have prompts.</p>
-      <div class="ce-grid">
-        {% for criterion in structured_criteria %}
-          <div class="ce-rule">
+      <h2 class="ce-section-title">Dropdown, checkbox, and structured question scores</h2>
+      <p class="ce-section-note">Each structured question is shown once with its overall setting and its option scores together.</p>
+      <div style="display:grid; gap:12px;">
+        {% for group in structured_groups %}
+          <div class="ce-response-box">
+            <div class="ce-response-box-head">
             <div class="ce-rule-head">
               <div>
-                <div class="ce-rule-title">{{ criterion.question_obj.text|default:criterion.label|default:criterion.question_slug }}</div>
-                <div class="ce-rule-meta">{{ criterion.question_slug }}</div>
+                  <div class="ce-response-title">{{ group.question.text|default:group.criterion.label|default:group.criterion.question_slug }}</div>
+                  <div class="ce-response-meta">{{ group.question.slug|default:group.criterion.question_slug }}</div>
               </div>
+                {% if group.criterion %}
               <label class="ce-inline-check">
-                <input type="checkbox" name="criterion_{{ criterion.id }}_active" {% if criterion.active %}checked{% endif %}>
+                    <input type="checkbox" name="criterion_{{ group.criterion.id }}_active" {% if group.criterion.active %}checked{% endif %}>
                 Active
               </label>
+                {% endif %}
             </div>
-            <div class="ce-grid">
+              {% if group.criterion and not group.items %}
+              <div class="ce-grid" style="margin-top:10px;">
               <div class="ce-field">
-                <label>Weight</label>
-                <input class="ce-weight-input" type="number" step="0.01" name="criterion_{{ criterion.id }}_weight" value="{{ criterion.weight }}">
+                    <label>Question weight</label>
+                    <input class="ce-weight-input" type="number" step="0.01" name="criterion_{{ group.criterion.id }}_weight" value="{{ group.criterion.weight }}">
               </div>
               <label class="ce-inline-check" style="align-self:end; padding-bottom:10px;">
-                <input type="checkbox" name="criterion_{{ criterion.id }}_negative_allowed" {% if criterion.negative_allowed %}checked{% endif %}>
+                    <input type="checkbox" name="criterion_{{ group.criterion.id }}_negative_allowed" {% if group.criterion.negative_allowed %}checked{% endif %}>
                 Negative allowed
               </label>
             </div>
-          </div>
-        {% empty %}
-          <p class="ce-section-note">No structured criteria configured for this application.</p>
-        {% endfor %}
-      </div>
-    </div>
-
-    <div class="ce-config-card">
-      <h2 class="ce-section-title">Dropdown / checkbox response weights</h2>
-      <p class="ce-section-note">Each question is one box. Set the score for each predefined option.</p>
-      <div style="display:grid; gap:12px;">
-        {% for group in response_groups %}
-          <div class="ce-response-box">
-            <div class="ce-response-box-head">
-              <div class="ce-response-title">{{ group.question.text }}</div>
-              <div class="ce-response-meta">{{ group.question.slug }}</div>
+              {% endif %}
             </div>
+            {% if group.items %}
             <table class="ce-response-table">
               <thead>
                 <tr>
@@ -475,9 +460,12 @@ Explanation: &lt;2–3 sentences justifying the score&gt;</pre>
                 {% endfor %}
               </tbody>
             </table>
+            {% else %}
+              <div class="ce-disclosure-body ce-section-note" style="margin:0;">This question has no predefined answer options.</div>
+            {% endif %}
           </div>
         {% empty %}
-          <p class="ce-section-note">No dropdown or checkbox questions found for this application.</p>
+          <p class="ce-section-note">No structured questions found for this application.</p>
         {% endfor %}
       </div>
     </div>

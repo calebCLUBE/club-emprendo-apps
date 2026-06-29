@@ -6044,12 +6044,17 @@ def grading_config_editor(request, form_slug: str):
         for criterion in config.criteria.all():
             prefix = f"criterion_{criterion.id}"
             criterion.active = request.POST.get(f"{prefix}_active") == "on"
-            criterion.weight = (request.POST.get(f"{prefix}_weight") or "0").strip() or "0"
+            weight_key = f"{prefix}_weight"
+            if weight_key in request.POST:
+                criterion.weight = (request.POST.get(weight_key) or "0").strip() or "0"
             criterion.negative_allowed = request.POST.get(f"{prefix}_negative_allowed") == "on"
             if criterion.criterion_type == criterion.TYPE_AI_TEXT:
+                instructions_key = f"{prefix}_instructions"
                 before_key = f"{prefix}_prompt_before"
                 after_key = f"{prefix}_prompt_after"
-                if before_key in request.POST or after_key in request.POST:
+                if instructions_key in request.POST:
+                    criterion.prompt = request.POST.get(instructions_key) or ""
+                elif before_key in request.POST or after_key in request.POST:
                     prompt_before = request.POST.get(before_key) or ""
                     prompt_after = request.POST.get(after_key) or ""
                     criterion.prompt = f"{prompt_before}{{{{ response }}}}{prompt_after}"
@@ -6080,16 +6085,10 @@ def grading_config_editor(request, form_slug: str):
     structured_criteria = [c for c in criteria if c.criterion_type == c.TYPE_STRUCTURED]
 
     criteria_by_slug = {criterion.question_slug: criterion for criterion in paragraph_criteria}
-    is_mentor = form_slug.upper().endswith("M_A1")
+    is_mentor = form_slug.upper().endswith(("M_A1", "M_A2"))
     if is_mentor:
         from applications import grader_m as grader
 
-        ai_field_slugs = [
-            "business_description",
-            "mentoring_exp_detail",
-            "motivation",
-            "professional_expertise",
-        ]
         disqualification_rules = [
             "Every required field below must equal exactly 'yes':",
             *grader.REQ_FIELDS,
@@ -6097,17 +6096,13 @@ def grading_config_editor(request, form_slug: str):
     else:
         from applications import grader_e as grader
 
-        ai_field_slugs = [
-            "business_description",
-            "growth_how",
-            "biggest_challenge",
-        ]
         disqualification_rules = [
             "Internet passes when internet_access = 'yes_ok' OR meets_requirements = 'yes'.",
             "Commitment passes when commit_3_months = 'yes' OR available_period = 'yes'.",
             "business_age = 'idea' disqualifies the application.",
         ]
 
+    ai_field_slugs = [criterion.question_slug for criterion in paragraph_criteria if criterion.active]
     ai_request_previews = []
     for slug in ai_field_slugs:
         criterion = criteria_by_slug.get(slug)
@@ -6125,22 +6120,20 @@ def grading_config_editor(request, form_slug: str):
             ),
         })
 
-    editor_response_marker = "__CE_APPLICANT_RESPONSE_INSERTED_HERE__"
     for criterion in paragraph_criteria:
-        editable_prompt = grader.build_grading_prompt(
-            editor_response_marker,
-            criterion.question_slug,
-            criterion.prompt,
-        )
-        if editor_response_marker not in editable_prompt:
-            editable_prompt = (
-                f"{editable_prompt.rstrip()}\n\nApplicant response:\n\"\"\""
-                f"{editor_response_marker}\"\"\"\n"
-            )
-        criterion.prompt_before, criterion.prompt_after = editable_prompt.split(
-            editor_response_marker,
-            1,
-        )
+        raw_prompt = (criterion.prompt or "").strip()
+        if not raw_prompt:
+            criterion.editor_instructions = grader.DEFAULT_GRADING_INSTRUCTIONS
+            continue
+        if "{{ response }}" not in raw_prompt and "{{ criterion }}" not in raw_prompt:
+            criterion.editor_instructions = raw_prompt
+            continue
+        before = raw_prompt.split("{{ response }}", 1)[0]
+        question_label = getattr(criterion.question_obj, "text", "") or criterion.label or criterion.question_slug
+        before = before.replace("{{ criterion }}", question_label)
+        before = re.sub(r"^\s*Criterion:.*?\n\s*(?:Rules|Instructions):\s*", "", before, flags=re.DOTALL)
+        before = re.sub(r"\s*(?:Response|Answer):\s*(?:\"\"\")?\s*$", "", before, flags=re.IGNORECASE)
+        criterion.editor_instructions = before.strip() or grader.DEFAULT_GRADING_INSTRUCTIONS
 
     effective_model = (config.model_name or "").strip() or grader.MODEL
     openai_flow = {
@@ -6171,6 +6164,22 @@ def grading_config_editor(request, form_slug: str):
         )
         group["items"].append(item)
 
+    structured_by_slug = {criterion.question_slug: criterion for criterion in structured_criteria}
+    structured_groups = list(response_groups_by_question.values())
+    grouped_slugs = set()
+    for group in structured_groups:
+        slug = group["question"].slug
+        group["criterion"] = structured_by_slug.get(slug)
+        grouped_slugs.add(slug)
+    for criterion in structured_criteria:
+        if criterion.question_slug in grouped_slugs:
+            continue
+        structured_groups.append({
+            "question": criterion.question_obj,
+            "criterion": criterion,
+            "items": [],
+        })
+
     return render(
         request,
         "admin_dash/grading_config_editor.html",
@@ -6178,8 +6187,7 @@ def grading_config_editor(request, form_slug: str):
             "form_def": form,
             "config": config,
             "paragraph_criteria": paragraph_criteria,
-            "structured_criteria": structured_criteria,
-            "response_groups": list(response_groups_by_question.values()),
+            "structured_groups": structured_groups,
             "openai_flow": openai_flow,
             "back_url": reverse("admin_grading_home"),
         },

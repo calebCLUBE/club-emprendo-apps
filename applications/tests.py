@@ -603,8 +603,8 @@ class GradingAndPairingConfigEditorTests(TestCase):
         self.assertEqual(response.status_code, 200)
         config = ApplicationGradingConfig.objects.get(form=form)
         self.assertContains(response, "Grading rules")
-        self.assertContains(response, "Paragraph questions with AI prompts")
-        self.assertContains(response, "Dropdown / checkbox response weights")
+        self.assertContains(response, "Paragraph questions scored by AI")
+        self.assertContains(response, "Dropdown, checkbox, and structured question scores")
         self.assertContains(response, "Existing grading flow and OpenAI requests")
         self.assertContains(response, "One user message; no system message")
         flow = response.context["openai_flow"]
@@ -633,6 +633,13 @@ class GradingAndPairingConfigEditorTests(TestCase):
             field_type=Question.LONG_TEXT,
             position=1,
         )
+        Question.objects.create(
+            form=form,
+            text="Tell us your business story",
+            slug="business_story",
+            field_type=Question.LONG_TEXT,
+            position=2,
+        )
         business_age = Question.objects.create(
             form=form,
             text="Business age",
@@ -648,8 +655,10 @@ class GradingAndPairingConfigEditorTests(TestCase):
         self.assertEqual(response.status_code, 200)
         config = ApplicationGradingConfig.objects.get(form=form)
         self.assertContains(response, "Business age")
+        self.assertEqual(response.content.decode().count("Business age"), 1)
         self.assertContains(response, "Question option")
         self.assertContains(response, "1-3 years")
+        self.assertContains(response, "Tell us your business story")
         self.assertNotContains(response, "business_age=1_3y")
         self.assertTrue(
             GradingCriterion.objects.filter(
@@ -658,6 +667,14 @@ class GradingAndPairingConfigEditorTests(TestCase):
                 criterion_type=GradingCriterion.TYPE_AI_TEXT,
             ).exists()
         )
+        extra_paragraph = GradingCriterion.objects.get(config=config, question_slug="business_story")
+        self.assertEqual(extra_paragraph.criterion_type, GradingCriterion.TYPE_AI_TEXT)
+        self.assertFalse(extra_paragraph.active)
+        structured_group = next(
+            group for group in response.context["structured_groups"]
+            if group["question"].slug == "business_age"
+        )
+        self.assertEqual(structured_group["criterion"].question_slug, "business_age")
         self.assertEqual(
             GradingResponseWeight.objects.filter(config=config, question=business_age).count(),
             2,
@@ -733,8 +750,7 @@ class GradingAndPairingConfigEditorTests(TestCase):
                 "max_total_score": "64",
                 f"criterion_{criterion.id}_active": "on",
                 f"criterion_{criterion.id}_weight": "4",
-                f"criterion_{criterion.id}_prompt_before": "Evaluate the growth plan.\n\nAnswer:\n",
-                f"criterion_{criterion.id}_prompt_after": "\n\nReturn Score: and Explanation:.",
+                f"criterion_{criterion.id}_instructions": "Evaluate whether the growth plan is specific and realistic.",
             },
         )
 
@@ -742,20 +758,22 @@ class GradingAndPairingConfigEditorTests(TestCase):
         criterion.refresh_from_db()
         self.assertEqual(
             criterion.prompt,
-            "Evaluate the growth plan.\n\nAnswer:\n{{ response }}\n\nReturn Score: and Explanation:.",
+            "Evaluate whether the growth plan is specific and realistic.",
         )
 
         editor = self.client.get(reverse("admin_grading_config_editor", args=[form.slug]))
-        self.assertContains(editor, "Applicant's answer is inserted here automatically")
-        self.assertContains(editor, "Write normal instructions—no code or placeholders are needed.")
+        self.assertContains(editor, "No code, placeholders, response labels, or special formatting are needed.")
         saved = next(
             item for item in editor.context["openai_flow"]["ai_requests"]
             if item["slug"] == "growth_how"
         )
         self.assertEqual(
             saved["prompt"],
-            "Evaluate the growth plan.\n\nAnswer:\n<applicant response for growth_how>"
-            "\n\nReturn Score: and Explanation:.",
+            "\nCriterion: growth_how\n\nInstructions:\n"
+            "Evaluate whether the growth plan is specific and realistic.\n\n"
+            "Response:\n\"\"\"<applicant response for growth_how>\"\"\"\n\n"
+            "Output EXACTLY:\nScore: <int>\n"
+            "Explanation: <2–3 sentences justifying the score>\n",
         )
 
     def test_mentor_grading_editor_shows_exact_openai_fields_and_requirements(self):
@@ -776,7 +794,44 @@ class GradingAndPairingConfigEditorTests(TestCase):
         )
         self.assertEqual(len(flow["ai_requests"]), 4)
         self.assertIn("req_basic_woman", flow["disqualification_rules"])
-        self.assertIn("Negative allowed only if justified", flow["ai_requests"][0]["prompt"])
+        self.assertIn("Use a negative score only when it is justified", flow["ai_requests"][0]["prompt"])
+
+    def test_enabled_additional_paragraph_is_used_by_runtime_grader(self):
+        from applications import grader_e
+
+        client = Mock()
+        client.chat.completions.create.return_value = SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(
+                content="Score: 4\nExplanation: Strong and specific story."
+            ))]
+        )
+        config = SimpleNamespace(
+            weights={**grader_e.W, "business_story": 2},
+            max_total_score=100,
+            model_name="",
+            rubric_note="",
+            ai_criteria=("business_story",),
+            structured_criteria=(),
+            prompt=lambda slug: "Evaluate how specific and credible the story is." if slug == "business_story" else "",
+            response_score=lambda _slug, _value, default=None: default,
+        )
+
+        result = grader_e.grade_single_row(
+            {
+                "internet_access": "yes_ok",
+                "commit_3_months": "yes",
+                "business_age": "lt_1",
+                "business_story": "I started selling products locally two years ago.",
+            },
+            client,
+            grading_config=config,
+        )
+
+        self.assertEqual(result[1], "8.60%")
+        self.assertIn("business_story - Strong and specific story.", result[2])
+        request = client.chat.completions.create.call_args.kwargs
+        self.assertIn("Evaluate how specific and credible the story is.", request["messages"][0]["content"])
+        self.assertIn("I started selling products locally two years ago.", request["messages"][0]["content"])
 
     def test_pairing_config_editor_creates_default_priority_and_ai_rules(self):
         group = FormGroup.objects.create(

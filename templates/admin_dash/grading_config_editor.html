@@ -191,6 +191,60 @@
       color: #667085;
       font-weight: 500;
     }
+    .ce-paragraph-list {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 10px;
+      width: 100%;
+    }
+    .ce-paragraph-rule {
+      padding: 0;
+      width: 100%;
+      box-sizing: border-box;
+      overflow: hidden;
+    }
+    .ce-paragraph-summary {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 14px;
+      cursor: pointer;
+      list-style: none;
+      background: #f8fafc;
+    }
+    .ce-paragraph-summary::-webkit-details-marker {
+      display: none;
+    }
+    .ce-paragraph-summary::after {
+      content: "▾";
+      color: #667085;
+      font-size: 16px;
+      transition: transform 0.15s ease;
+    }
+    .ce-paragraph-rule[open] > .ce-paragraph-summary::after {
+      transform: rotate(180deg);
+    }
+    .ce-paragraph-body {
+      display: grid;
+      gap: 12px;
+      padding: 14px;
+      border-top: 1px solid #e5e7eb;
+      background: #fff;
+    }
+    .ce-status-pill {
+      margin-left: auto;
+      padding: 3px 8px;
+      border-radius: 999px;
+      background: #eaecf0;
+      color: #475467;
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .ce-status-pill.is-active {
+      background: #dcfae6;
+      color: #067647;
+    }
     .ce-response-box {
       border: 1px solid #e5e7eb;
       border-radius: 12px;
@@ -364,17 +418,21 @@ Explanation: &lt;2–3 sentences justifying the score&gt;</pre>
     <div class="ce-config-card">
       <h2 class="ce-section-title">Paragraph questions scored by AI</h2>
       <p class="ce-section-note">Describe what a strong or weak answer looks like in ordinary language. The applicant's answer and the required result format are added automatically.</p>
-      <div class="ce-grid">
+      <div class="ce-paragraph-list">
         {% for criterion in paragraph_criteria %}
-          <div class="ce-rule">
+          <details class="ce-rule ce-paragraph-rule">
+            <summary class="ce-paragraph-summary">
+              <span>
+                <span class="ce-rule-title">{{ criterion.question_obj.text|default:criterion.label|default:criterion.question_slug }}</span>
+                <span class="ce-rule-meta" style="display:block;">{{ criterion.question_slug }}</span>
+              </span>
+              <span class="ce-status-pill {% if criterion.active %}is-active{% endif %}">{% if criterion.active %}Active{% else %}Inactive{% endif %}</span>
+            </summary>
+            <div class="ce-paragraph-body">
             <div class="ce-rule-head">
-              <div>
-                <div class="ce-rule-title">{{ criterion.question_obj.text|default:criterion.label|default:criterion.question_slug }}</div>
-                <div class="ce-rule-meta">{{ criterion.question_slug }}</div>
-              </div>
               <label class="ce-inline-check">
                 <input type="checkbox" name="criterion_{{ criterion.id }}_active" {% if criterion.active %}checked{% endif %}>
-                Active
+                Include this question in AI grading
               </label>
             </div>
             <div class="ce-grid">
@@ -392,7 +450,8 @@ Explanation: &lt;2–3 sentences justifying the score&gt;</pre>
               <textarea name="criterion_{{ criterion.id }}_instructions" style="min-height:130px;">{{ criterion.editor_instructions }}</textarea>
               <div class="ce-rule-meta">No code, placeholders, response labels, or special formatting are needed.</div>
             </div>
-          </div>
+            </div>
+          </details>
         {% empty %}
           <p class="ce-section-note">No paragraph AI criteria configured for this application.</p>
         {% endfor %}

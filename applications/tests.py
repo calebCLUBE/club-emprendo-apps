@@ -590,6 +590,21 @@ class GradingAndPairingConfigEditorTests(TestCase):
         self.assertContains(response, "Grading rules")
         self.assertContains(response, "Paragraph questions with AI prompts")
         self.assertContains(response, "Dropdown / checkbox response weights")
+        self.assertContains(response, "Existing grading flow and OpenAI requests")
+        self.assertContains(response, "One user message; no system message")
+        flow = response.context["openai_flow"]
+        self.assertEqual(flow["model"], "gpt-5.2")
+        self.assertEqual(flow["moderation_model"], "omni-moderation-latest")
+        self.assertEqual(
+            flow["moderation_fields"],
+            ["business_description", "growth_how", "biggest_challenge"],
+        )
+        self.assertEqual(len(flow["ai_requests"]), 3)
+        self.assertIn("Be strict but fair", flow["ai_requests"][0]["prompt"])
+        self.assertIn(
+            "<applicant response for business_description>",
+            flow["ai_requests"][0]["prompt"],
+        )
         self.assertEqual(config.max_total_score, 64)
         self.assertTrue(GradingCriterion.objects.filter(config=config, question_slug="growth_how").exists())
         self.assertTrue(GradingCriterion.objects.filter(config=config, question_slug="business_age", weight=5).exists())
@@ -682,6 +697,34 @@ class GradingAndPairingConfigEditorTests(TestCase):
         self.assertEqual(config.rubric_note, "Custom rubric")
         self.assertEqual(paragraph.prompt, "Score {{ response }}")
         self.assertEqual(str(response_weight.weight), "9.50")
+
+        preview_response = self.client.get(reverse("admin_grading_config_editor", args=[form.slug]))
+        flow = preview_response.context["openai_flow"]
+        growth_preview = next(item for item in flow["ai_requests"] if item["slug"] == "growth_how")
+        self.assertEqual(flow["model"], "gpt-test")
+        self.assertTrue(flow["using_override"])
+        self.assertTrue(growth_preview["uses_custom_prompt"])
+        self.assertEqual(growth_preview["prompt"], "Score <applicant response for growth_how>")
+
+    def test_mentor_grading_editor_shows_exact_openai_fields_and_requirements(self):
+        form = FormDefinition.objects.create(slug="G904_M_A2", name="M A2")
+
+        response = self.client.get(reverse("admin_grading_config_editor", args=[form.slug]))
+
+        self.assertEqual(response.status_code, 200)
+        flow = response.context["openai_flow"]
+        self.assertEqual(
+            flow["moderation_fields"],
+            [
+                "business_description",
+                "mentoring_exp_detail",
+                "motivation",
+                "professional_expertise",
+            ],
+        )
+        self.assertEqual(len(flow["ai_requests"]), 4)
+        self.assertIn("req_basic_woman", flow["disqualification_rules"])
+        self.assertIn("Negative allowed only if justified", flow["ai_requests"][0]["prompt"])
 
     def test_pairing_config_editor_creates_default_priority_and_ai_rules(self):
         group = FormGroup.objects.create(

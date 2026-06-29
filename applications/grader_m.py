@@ -4,6 +4,14 @@ import logging
 
 MODEL = "gpt-5.2"
 TIMEOUT = 60
+MODERATION_MODEL = "omni-moderation-latest"
+MODERATION_INPUT_LIMIT = 15000
+MODERATION_FIELDS = (
+    "business_description",
+    "mentoring_exp_detail",
+    "motivation",
+    "professional_expertise",
+)
 logger = logging.getLogger(__name__)
 PRIORITY_STATUS = "Priority"
 ACTIVE_PARTICIPANT_STATUS = "participante activa"
@@ -242,8 +250,8 @@ def detect_red_flags(client: OpenAI, *texts):
 
     try:
         moderation = client.moderations.create(
-            model="omni-moderation-latest",
-            input=combined[:15000],
+            model=MODERATION_MODEL,
+            input=combined[:MODERATION_INPUT_LIMIT],
         )
         result = moderation.results[0] if moderation.results else None
         data = _categories_to_dict(getattr(result, "categories", None))
@@ -273,21 +281,11 @@ def _render_prompt_template(template: str, *, criterion: str, response: str) -> 
     )
 
 
-def grade_unstructured(
-    client: OpenAI,
-    text,
-    criterion,
-    negative_allowed=False,
-    prompt_template: str = "",
-    model_name: str = "",
-):
-    if not isinstance(text, str) or not text.strip():
-        score = -1 if negative_allowed else 0
-        return score, "Blank or insufficient response."
-
+def build_grading_prompt(text: str, criterion: str, prompt_template: str = "") -> str:
     prompt = _render_prompt_template(prompt_template, criterion=criterion, response=text)
-    if not prompt.strip():
-        prompt = f"""
+    if prompt.strip():
+        return prompt
+    return f"""
 Criterion: {criterion}
 
 Rules:
@@ -302,6 +300,21 @@ Output EXACTLY:
 Score: <int>
 Explanation: <2–3 sentences justifying the score>
 """
+
+
+def grade_unstructured(
+    client: OpenAI,
+    text,
+    criterion,
+    negative_allowed=False,
+    prompt_template: str = "",
+    model_name: str = "",
+):
+    if not isinstance(text, str) or not text.strip():
+        score = -1 if negative_allowed else 0
+        return score, "Blank or insufficient response."
+
+    prompt = build_grading_prompt(text, criterion, prompt_template)
 
     r = client.chat.completions.create(
         model=(model_name or MODEL),

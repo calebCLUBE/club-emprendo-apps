@@ -121,6 +121,61 @@
     .ce-weight-input {
       max-width: 140px;
     }
+    .ce-flow-list {
+      margin: 0;
+      padding-left: 22px;
+      display: grid;
+      gap: 8px;
+      color: #344054;
+    }
+    .ce-code {
+      margin: 8px 0 0;
+      padding: 12px;
+      border: 1px solid #d0d5dd;
+      border-radius: 8px;
+      background: #101828;
+      color: #f2f4f7;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+    .ce-disclosure {
+      border: 1px solid #e5e7eb;
+      border-radius: 10px;
+      background: #fff;
+      overflow: hidden;
+    }
+    .ce-disclosure + .ce-disclosure {
+      margin-top: 10px;
+    }
+    .ce-disclosure summary {
+      padding: 12px;
+      cursor: pointer;
+      font-weight: 800;
+      background: #f8fafc;
+    }
+    .ce-disclosure-body {
+      padding: 12px;
+      border-top: 1px solid #e5e7eb;
+    }
+    .ce-fact-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .ce-fact {
+      padding: 9px 10px;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      background: #f9fafb;
+      font-size: 12px;
+    }
+    .ce-fact strong {
+      display: block;
+      color: #344054;
+      margin-bottom: 2px;
+    }
     .ce-response-box {
       border: 1px solid #e5e7eb;
       border-radius: 12px;
@@ -212,6 +267,80 @@
         <label for="rubric_note">Rubric note shown in output</label>
         <textarea id="rubric_note" name="rubric_note">{{ config.rubric_note }}</textarea>
       </div>
+    </div>
+
+    <div class="ce-config-card">
+      <h2 class="ce-section-title">Existing grading flow and OpenAI requests</h2>
+      <p class="ce-section-note">This is the current runtime behavior for this application. Applicant values replace the placeholders shown below.</p>
+
+      <ol class="ce-flow-list">
+        <li>Load every application answer and calculate local status, requirement, and structured-option rules.</li>
+        <li>Send the listed non-empty paragraph answers to OpenAI Moderation as one newline-separated input. This happens even when the application is disqualified.</li>
+        <li>If requirements fail, stop before AI scoring and return an <strong>NA</strong> score. Otherwise, make one separate chat-completion request for each non-empty AI field.</li>
+        <li>Parse case-sensitive <code>Score:</code> and <code>Explanation:</code> lines, multiply scores by local weights, add structured scores, and convert the total to a percentage.</li>
+        <li>Write the output and de-duplicate applicants. Local status and override logic does not send additional data to OpenAI.</li>
+      </ol>
+
+      <div class="ce-fact-grid" style="margin-top:14px;">
+        <div class="ce-fact"><strong>Chat model</strong>{{ openai_flow.model }}{% if openai_flow.using_override %} (override){% else %} (default){% endif %}</div>
+        <div class="ce-fact"><strong>Messages</strong>One user message; no system message</div>
+        <div class="ce-fact"><strong>Temperature</strong>{{ openai_flow.temperature }}</div>
+        <div class="ce-fact"><strong>Request timeout</strong>{{ openai_flow.timeout }} seconds</div>
+      </div>
+
+      <details class="ce-disclosure" open>
+        <summary>1. Local disqualification rules</summary>
+        <div class="ce-disclosure-body">
+          <ul class="ce-flow-list">
+            {% for rule in openai_flow.disqualification_rules %}<li><code>{{ rule }}</code></li>{% endfor %}
+          </ul>
+        </div>
+      </details>
+
+      <details class="ce-disclosure" open>
+        <summary>2. OpenAI moderation request</summary>
+        <div class="ce-disclosure-body">
+          <p class="ce-section-note">Only non-empty string answers are included, in this order, joined with a newline. The combined input is truncated to {{ openai_flow.moderation_limit }} characters. Only the sexual and illicit category booleans affect the local red flag.</p>
+          <pre class="ce-code">client.moderations.create(
+  model="{{ openai_flow.moderation_model }}",
+  input=(
+{% for field in openai_flow.moderation_fields %}    "&lt;applicant response for {{ field }}&gt;\n"
+{% endfor %}  )[:{{ openai_flow.moderation_limit }}]
+)</pre>
+        </div>
+      </details>
+
+      <details class="ce-disclosure" open>
+        <summary>3. OpenAI chat-completion requests (up to {{ openai_flow.ai_requests|length }} per eligible application)</summary>
+        <div class="ce-disclosure-body">
+          <p class="ce-section-note">A blank answer is not sent to chat completion and receives the grader's local blank-response score. The calls below are hard-coded into the grading flow; turning an editor criterion off restores its default prompt/weight but does not remove the call.</p>
+          {% for item in openai_flow.ai_requests %}
+            <details class="ce-disclosure" {% if forloop.first %}open{% endif %}>
+              <summary>{{ forloop.counter }}. {{ item.question.text|default:item.slug }} — {{ item.slug }}{% if item.uses_custom_prompt %} (custom prompt){% else %} (default prompt){% endif %}</summary>
+              <div class="ce-disclosure-body">
+                <pre class="ce-code">client.chat.completions.create(
+  model="{{ openai_flow.model }}",
+  messages=[{"role": "user", "content": PROMPT_BELOW}],
+  temperature={{ openai_flow.temperature }},
+  timeout={{ openai_flow.timeout }}
+)
+
+PROMPT_BELOW:
+{{ item.prompt }}</pre>
+              </div>
+            </details>
+          {% endfor %}
+        </div>
+      </details>
+
+      <details class="ce-disclosure">
+        <summary>4. What OpenAI returns and what the code reads</summary>
+        <div class="ce-disclosure-body">
+          <pre class="ce-code">Score: &lt;int&gt;
+Explanation: &lt;2–3 sentences justifying the score&gt;</pre>
+          <p class="ce-section-note" style="margin-top:8px; margin-bottom:0;">The parser reads only lines beginning exactly with <code>Score:</code> or <code>Explanation:</code>. Everything else is ignored. No applicant identity, email, structured answer, total score, weight, or rubric note is added to a chat request unless a custom prompt explicitly includes it (the editor currently exposes only criterion and response placeholders).</p>
+        </div>
+      </details>
     </div>
 
     <div class="ce-config-card">

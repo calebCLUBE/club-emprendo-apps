@@ -6070,6 +6070,65 @@ def grading_config_editor(request, form_slug: str):
     paragraph_criteria = [c for c in criteria if c.criterion_type == c.TYPE_AI_TEXT]
     structured_criteria = [c for c in criteria if c.criterion_type == c.TYPE_STRUCTURED]
 
+    criteria_by_slug = {criterion.question_slug: criterion for criterion in paragraph_criteria}
+    is_mentor = form_slug.upper().endswith("M_A2")
+    if is_mentor:
+        from applications import grader_m as grader
+
+        ai_field_slugs = [
+            "business_description",
+            "mentoring_exp_detail",
+            "motivation",
+            "professional_expertise",
+        ]
+        disqualification_rules = [
+            "Every required field below must equal exactly 'yes':",
+            *grader.REQ_FIELDS,
+        ]
+    else:
+        from applications import grader_e as grader
+
+        ai_field_slugs = [
+            "business_description",
+            "growth_how",
+            "biggest_challenge",
+        ]
+        disqualification_rules = [
+            "Internet passes when internet_access = 'yes_ok' OR meets_requirements = 'yes'.",
+            "Commitment passes when commit_3_months = 'yes' OR available_period = 'yes'.",
+            "business_age = 'idea' disqualifies the application.",
+        ]
+
+    ai_request_previews = []
+    for slug in ai_field_slugs:
+        criterion = criteria_by_slug.get(slug)
+        prompt_template = criterion.prompt if criterion and criterion.active else ""
+        response_placeholder = f"<applicant response for {slug}>"
+        ai_request_previews.append({
+            "slug": slug,
+            "question": questions_by_slug.get(slug),
+            "active": bool(criterion and criterion.active),
+            "uses_custom_prompt": bool(prompt_template.strip()),
+            "prompt": grader.build_grading_prompt(
+                response_placeholder,
+                slug,
+                prompt_template,
+            ),
+        })
+
+    effective_model = (config.model_name or "").strip() or grader.MODEL
+    openai_flow = {
+        "model": effective_model,
+        "using_override": bool((config.model_name or "").strip()),
+        "temperature": 0,
+        "timeout": grader.TIMEOUT,
+        "moderation_model": grader.MODERATION_MODEL,
+        "moderation_limit": grader.MODERATION_INPUT_LIMIT,
+        "moderation_fields": list(grader.MODERATION_FIELDS),
+        "ai_requests": ai_request_previews,
+        "disqualification_rules": disqualification_rules,
+    }
+
     response_groups_by_question: dict[int, dict] = {}
     for item in (
         config.response_weights
@@ -6095,6 +6154,7 @@ def grading_config_editor(request, form_slug: str):
             "paragraph_criteria": paragraph_criteria,
             "structured_criteria": structured_criteria,
             "response_groups": list(response_groups_by_question.values()),
+            "openai_flow": openai_flow,
             "back_url": reverse("admin_grading_home"),
         },
     )

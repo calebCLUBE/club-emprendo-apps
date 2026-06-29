@@ -176,6 +176,21 @@
       color: #344054;
       margin-bottom: 2px;
     }
+    .ce-answer-insert {
+      padding: 12px;
+      border: 2px dashed #98a2b3;
+      border-radius: 8px;
+      background: #f2f4f7;
+      color: #344054;
+      text-align: center;
+      font-weight: 800;
+    }
+    .ce-answer-insert small {
+      display: block;
+      margin-top: 3px;
+      color: #667085;
+      font-weight: 500;
+    }
     .ce-response-box {
       border: 1px solid #e5e7eb;
       border-radius: 12px;
@@ -338,14 +353,14 @@ PROMPT_BELOW:
         <div class="ce-disclosure-body">
           <pre class="ce-code">Score: &lt;int&gt;
 Explanation: &lt;2–3 sentences justifying the score&gt;</pre>
-          <p class="ce-section-note" style="margin-top:8px; margin-bottom:0;">The parser reads only lines beginning exactly with <code>Score:</code> or <code>Explanation:</code>. Everything else is ignored. No applicant identity, email, structured answer, total score, weight, or rubric note is added to a chat request unless a custom prompt explicitly includes it (the editor currently exposes only criterion and response placeholders).</p>
+          <p class="ce-section-note" style="margin-top:8px; margin-bottom:0;">The parser reads only lines beginning exactly with <code>Score:</code> or <code>Explanation:</code>. Everything else is ignored. No applicant identity, email, structured answer, total score, weight, or rubric note is added to a chat request. The applicant's paragraph answer is inserted automatically between the two editable instruction boxes below.</p>
         </div>
       </details>
     </div>
 
     <div class="ce-config-card">
       <h2 class="ce-section-title">Paragraph questions with AI prompts</h2>
-      <p class="ce-section-note">Only paragraph AI criteria have prompt boxes. Prompts can use {% templatetag openvariable %} criterion {% templatetag closevariable %} and {% templatetag openvariable %} response {% templatetag closevariable %}.</p>
+      <p class="ce-section-note">Write normal instructions—no code or placeholders are needed. OpenAI reads the first box, then the applicant's answer, then the second box.</p>
       <div class="ce-grid">
         {% for criterion in paragraph_criteria %}
           <div class="ce-rule">
@@ -370,8 +385,17 @@ Explanation: &lt;2–3 sentences justifying the score&gt;</pre>
               </label>
             </div>
             <div class="ce-field">
-              <label>Prompt</label>
-              <textarea name="criterion_{{ criterion.id }}_prompt">{{ criterion.prompt }}</textarea>
+              <label>Instructions before the applicant's answer</label>
+              <textarea name="criterion_{{ criterion.id }}_prompt_before" style="min-height:180px;">{{ criterion.prompt_before }}</textarea>
+            </div>
+            <div class="ce-answer-insert">
+              Applicant's answer is inserted here automatically
+              <small>This answer changes for each application and is always sent between these two instruction boxes.</small>
+            </div>
+            <div class="ce-field">
+              <label>Instructions after the applicant's answer</label>
+              <textarea name="criterion_{{ criterion.id }}_prompt_after" style="min-height:140px;">{{ criterion.prompt_after }}</textarea>
+              <div class="ce-rule-meta">Keep <strong>Score:</strong> and <strong>Explanation:</strong> in the requested response so the grading result can be read correctly.</div>
             </div>
           </div>
         {% empty %}

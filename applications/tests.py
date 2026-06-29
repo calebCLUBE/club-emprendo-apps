@@ -706,6 +706,43 @@ class GradingAndPairingConfigEditorTests(TestCase):
         self.assertTrue(growth_preview["uses_custom_prompt"])
         self.assertEqual(growth_preview["prompt"], "Score <applicant response for growth_how>")
 
+    def test_grading_config_editor_saves_no_code_prompt_around_automatic_answer(self):
+        form = FormDefinition.objects.create(slug="G905_E_A2", name="E A2")
+        self.client.get(reverse("admin_grading_config_editor", args=[form.slug]))
+        config = ApplicationGradingConfig.objects.get(form=form)
+        criterion = GradingCriterion.objects.get(config=config, question_slug="growth_how")
+
+        response = self.client.post(
+            reverse("admin_grading_config_editor", args=[form.slug]),
+            {
+                "max_total_score": "64",
+                f"criterion_{criterion.id}_active": "on",
+                f"criterion_{criterion.id}_weight": "4",
+                f"criterion_{criterion.id}_prompt_before": "Evaluate the growth plan.\n\nAnswer:\n",
+                f"criterion_{criterion.id}_prompt_after": "\n\nReturn Score: and Explanation:.",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        criterion.refresh_from_db()
+        self.assertEqual(
+            criterion.prompt,
+            "Evaluate the growth plan.\n\nAnswer:\n{{ response }}\n\nReturn Score: and Explanation:.",
+        )
+
+        editor = self.client.get(reverse("admin_grading_config_editor", args=[form.slug]))
+        self.assertContains(editor, "Applicant's answer is inserted here automatically")
+        self.assertContains(editor, "Write normal instructions—no code or placeholders are needed.")
+        saved = next(
+            item for item in editor.context["openai_flow"]["ai_requests"]
+            if item["slug"] == "growth_how"
+        )
+        self.assertEqual(
+            saved["prompt"],
+            "Evaluate the growth plan.\n\nAnswer:\n<applicant response for growth_how>"
+            "\n\nReturn Score: and Explanation:.",
+        )
+
     def test_mentor_grading_editor_shows_exact_openai_fields_and_requirements(self):
         form = FormDefinition.objects.create(slug="G904_M_A2", name="M A2")
 

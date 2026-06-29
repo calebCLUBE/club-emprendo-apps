@@ -6046,7 +6046,15 @@ def grading_config_editor(request, form_slug: str):
             criterion.weight = (request.POST.get(f"{prefix}_weight") or "0").strip() or "0"
             criterion.negative_allowed = request.POST.get(f"{prefix}_negative_allowed") == "on"
             if criterion.criterion_type == criterion.TYPE_AI_TEXT:
-                criterion.prompt = request.POST.get(f"{prefix}_prompt") or ""
+                before_key = f"{prefix}_prompt_before"
+                after_key = f"{prefix}_prompt_after"
+                if before_key in request.POST or after_key in request.POST:
+                    prompt_before = request.POST.get(before_key) or ""
+                    prompt_after = request.POST.get(after_key) or ""
+                    criterion.prompt = f"{prompt_before}{{{{ response }}}}{prompt_after}"
+                else:
+                    # Backwards-compatible with older clients and saved forms.
+                    criterion.prompt = request.POST.get(f"{prefix}_prompt") or ""
             else:
                 criterion.prompt = ""
             criterion.save(update_fields=["active", "weight", "negative_allowed", "prompt", "updated_at"])
@@ -6115,6 +6123,23 @@ def grading_config_editor(request, form_slug: str):
                 prompt_template,
             ),
         })
+
+    editor_response_marker = "__CE_APPLICANT_RESPONSE_INSERTED_HERE__"
+    for criterion in paragraph_criteria:
+        editable_prompt = grader.build_grading_prompt(
+            editor_response_marker,
+            criterion.question_slug,
+            criterion.prompt,
+        )
+        if editor_response_marker not in editable_prompt:
+            editable_prompt = (
+                f"{editable_prompt.rstrip()}\n\nApplicant response:\n\"\"\""
+                f"{editor_response_marker}\"\"\"\n"
+            )
+        criterion.prompt_before, criterion.prompt_after = editable_prompt.split(
+            editor_response_marker,
+            1,
+        )
 
     effective_model = (config.model_name or "").strip() or grader.MODEL
     openai_flow = {

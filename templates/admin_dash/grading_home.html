@@ -174,8 +174,8 @@
 
   <div class="ce-grade-shell">
     <div class="ce-grade-card">
-      <h1 class="ce-grade-title">Grading - Application 2</h1>
-      <p class="ce-grade-sub">Run live grading jobs for A2 forms.</p>
+      <h1 class="ce-grade-title">Grading - Current Application</h1>
+      <p class="ce-grade-sub">Run live grading jobs for the E_A1 and M_A1 applications.</p>
     </div>
 
     <div class="ce-grade-card">
@@ -209,8 +209,8 @@
             {% csrf_token %}
             <label style="font-weight:600;">Role</label>
             <select name="role" class="ce-grade-select">
-              <option value="E">Emprendedora (TEST_E_A2)</option>
-              <option value="M">Mentora (TEST_M_A2)</option>
+              <option value="E">Emprendedora (TEST_E_A1)</option>
+              <option value="M">Mentora (TEST_M_A1)</option>
             </select>
             <input type="file" name="csv_file" accept=".csv" class="ce-grade-file" />
             <button class="ce-btn" type="submit">Upload CSV</button>
@@ -274,7 +274,7 @@
             </tr>
           {% empty %}
             <tr>
-              <td colspan="4" style="text-align:center; color:#666;">No A2 forms found.</td>
+              <td colspan="4" style="text-align:center; color:#666;">No E_A1 or M_A1 forms found.</td>
             </tr>
           {% endfor %}
         </tbody>

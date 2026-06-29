@@ -80,8 +80,9 @@ GROUP_SLUG_RE = re.compile(r"^(?:G(?P<num>\d+)|[A-Za-z0-9_]+)_(?P<master>E_A1|E_
 GRADED_GROUP_RE = re.compile(r"^G(?P<num>\d+)_")
 EMAIL_EXTRACT_RE = re.compile(r"[A-Z0-9._%+\-']+@[A-Z0-9.\-]+\.[A-Z]{2,}", re.IGNORECASE)
 EMAIL_TOKEN_SPLIT_RE = re.compile(r"[\s,;,]+")
-TEST_E_A2_SLUG = "TEST_E_A2"
-TEST_M_A2_SLUG = "TEST_M_A2"
+TEST_E_A1_SLUG = "TEST_E_A1"
+TEST_M_A1_SLUG = "TEST_M_A1"
+CURRENT_GRADING_FORM_RE = re.compile(r"^(?:[A-Za-z0-9_]+_)?(?:E_A1|M_A1)$")
 A2_FORM_RE = re.compile(r"^(?:[A-Za-z0-9_]+_)?(?:E_A2|M_A2)$")
 TEST_A2_FORM_RE = re.compile(r"^TEST_(E_A2|M_A2)$")
 REMINDER_LOCK_TTL_SECONDS = 60 * 60
@@ -234,14 +235,14 @@ def download_graded_csv(request, graded_file_id: int):
 @require_POST
 def grading_upload_test_csv(request):
     """
-    Upload CSV into sandbox A2 forms only:
-      - role=E -> TEST_E_A2
-      - role=M -> TEST_M_A2
+    Upload CSV into current sandbox forms only:
+      - role=E -> TEST_E_A1
+      - role=M -> TEST_M_A1
 
     This is independent from real group applications.
     """
     role = (request.POST.get("role") or "E").strip().upper()
-    sandbox_slug = "TEST_E_A2" if role == "E" else "TEST_M_A2"
+    sandbox_slug = "TEST_E_A1" if role == "E" else "TEST_M_A1"
 
     fd = FormDefinition.objects.filter(slug=sandbox_slug).first()
     if not fd:
@@ -309,9 +310,9 @@ def _job_log(job: GradingJob, line: str):
 
 def _track_from_form_slug(form_slug: str) -> str | None:
     slug = (form_slug or "").strip().upper()
-    if slug.endswith("E_A2"):
+    if slug.endswith("E_A1"):
         return "E"
-    if slug.endswith("M_A2"):
+    if slug.endswith("M_A1"):
         return "M"
     return None
 
@@ -477,7 +478,7 @@ def _mentor_dual_applicant_identifiers(
     mentor_form_slug: str,
     mentor_form: FormDefinition | None = None,
 ) -> tuple[set[str], set[str]]:
-    if not (mentor_form_slug or "").strip().upper().endswith("M_A2"):
+    if not (mentor_form_slug or "").strip().upper().endswith("M_A1"):
         return set(), set()
 
     group_obj = getattr(mentor_form, "group", None)
@@ -489,7 +490,7 @@ def _mentor_dual_applicant_identifiers(
         if not group_obj:
             return set(), set()
 
-    empr_form = _group_form_for_master(group_obj, "E_A2")
+    empr_form = _group_form_for_master(group_obj, "E_A1")
     if not empr_form:
         return set(), set()
 
@@ -666,13 +667,13 @@ def _run_grade_job(job_id: int):
         # ----------------------------------
         # Validate form type
         # ----------------------------------
-        if not (job.form_slug.endswith("E_A2") or job.form_slug.endswith("M_A2")):
+        if not CURRENT_GRADING_FORM_RE.match(job.form_slug):
             raise RuntimeError(f"Unsupported form type: {job.form_slug}")
 
         fd = FormDefinition.objects.get(slug=job.form_slug)
         dual_applicant_emails: set[str] = set()
         dual_applicant_doc_ids: set[str] = set()
-        if job.form_slug.endswith("M_A2"):
+        if job.form_slug.endswith("M_A1"):
             dual_applicant_emails, dual_applicant_doc_ids = _mentor_dual_applicant_identifiers(
                 mentor_form_slug=job.form_slug,
                 mentor_form=fd,
@@ -699,7 +700,7 @@ def _run_grade_job(job_id: int):
 
         app_list = list(apps)
         previous_application_ids = _prior_application_ids_for_track(
-            "E" if job.form_slug.endswith("E_A2") else "M",
+            "E" if job.form_slug.endswith("E_A1") else "M",
             app_list,
         )
         if previous_application_ids:
@@ -758,7 +759,7 @@ def _run_grade_job(job_id: int):
         # ----------------------------------
         # Run correct grader
         # ----------------------------------
-        if job.form_slug.endswith("E_A2"):
+        if job.form_slug.endswith("E_A1"):
             from applications.grader_e import grade_from_dataframe
             graded_df = grade_from_dataframe(
                 master_df,
@@ -770,7 +771,7 @@ def _run_grade_job(job_id: int):
                 grading_config=grading_config,
             )
 
-        else:  # M_A2
+        else:  # M_A1
             from applications.grader_m import grade_from_dataframe
             graded_df = grade_from_dataframe(
                 master_df,
@@ -2558,16 +2559,16 @@ def _sync_group_open_close(group: FormGroup):
         accepting_responses=desired_open,
     )
 
-def _ensure_test_a2_form(role: str) -> FormDefinition:
+def _ensure_test_grading_form(role: str) -> FormDefinition:
     """
     role: "E" or "M"
-    Creates TEST_E_A2 or TEST_M_A2 if missing by cloning from the master E_A2 / M_A2.
+    Creates TEST_E_A1 or TEST_M_A1 if missing by cloning from the current master E_A1 / M_A1.
     """
     if role not in ("E", "M"):
         raise ValueError("role must be 'E' or 'M'")
 
-    test_slug = TEST_E_A2_SLUG if role == "E" else TEST_M_A2_SLUG
-    master_slug = "E_A2" if role == "E" else "M_A2"
+    test_slug = TEST_E_A1_SLUG if role == "E" else TEST_M_A1_SLUG
+    master_slug = "E_A1" if role == "E" else "M_A1"
 
     existing = FormDefinition.objects.filter(slug=test_slug).first()
     if existing:
@@ -5966,7 +5967,7 @@ def _redirect_back_to_grading(request):
 def grading_home(request):
     group = (request.GET.get("group") or "").strip()
 
-    fds = FormDefinition.objects.filter(slug__regex=r"^(?:[A-Za-z0-9_]+_)?(?:E_A2|M_A2)$").order_by("slug")
+    fds = FormDefinition.objects.filter(slug__regex=CURRENT_GRADING_FORM_RE.pattern).order_by("slug")
     if group:
         fds = fds.filter(group__number=group)
 
@@ -6079,7 +6080,7 @@ def grading_config_editor(request, form_slug: str):
     structured_criteria = [c for c in criteria if c.criterion_type == c.TYPE_STRUCTURED]
 
     criteria_by_slug = {criterion.question_slug: criterion for criterion in paragraph_criteria}
-    is_mentor = form_slug.upper().endswith("M_A2")
+    is_mentor = form_slug.upper().endswith("M_A1")
     if is_mentor:
         from applications import grader_m as grader
 
@@ -6406,14 +6407,14 @@ def grade_form_batch(request, form_slug: str):
 def grading_upload_test_csv(request):
     """
     Upload CSV for testing only.
-    Creates/imports into TEST_E_A2 or TEST_M_A2 based on POST 'role' = 'E' or 'M'.
+    Creates/imports into TEST_E_A1 or TEST_M_A1 based on POST 'role' = 'E' or 'M'.
     """
     role = (request.POST.get("role") or "").strip().upper()
     if role not in ("E", "M"):
         messages.error(request, "Select role (E or M) for the test upload.")
         return _redirect_back_to_grading(request)
 
-    fd = _ensure_test_a2_form(role)
+    fd = _ensure_test_grading_form(role)
 
     f = request.FILES.get("csv_file")
     if not f:
@@ -7079,9 +7080,9 @@ def grade_one_emprendedora(request, app_id: int):
         id=app_id,
     )
 
-    # only allow E_A2 forms
-    if not app.form.slug.endswith("E_A2"):
-        messages.error(request, "This grading button is only for Emprendedoras (E_A2).")
+    # only allow the current Emprendedora application
+    if not app.form.slug.endswith("E_A1"):
+        messages.error(request, "This grading button is only for Emprendedoras (E_A1).")
         return redirect("admin_grading_home")
 
     # convert answers -> dict matching your CSV column names

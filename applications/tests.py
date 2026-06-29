@@ -580,8 +580,23 @@ class GradingAndPairingConfigEditorTests(TestCase):
         )
         self.client.force_login(self.user)
 
+    def test_grading_home_lists_current_a1_forms_and_hides_retired_a2_forms(self):
+        FormDefinition.objects.create(slug="E_A1", name="Current entrepreneur application")
+        FormDefinition.objects.create(slug="M_A1", name="Current mentor application")
+        FormDefinition.objects.create(slug="E_A2", name="Retired entrepreneur application")
+        FormDefinition.objects.create(slug="M_A2", name="Retired mentor application")
+
+        response = self.client.get(reverse("admin_grading_home"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Grading - Current Application")
+        self.assertContains(response, "E_A1")
+        self.assertContains(response, "M_A1")
+        self.assertNotContains(response, "E_A2")
+        self.assertNotContains(response, "M_A2")
+
     def test_grading_config_editor_creates_default_criteria_for_form(self):
-        form = FormDefinition.objects.create(slug="G901_E_A2", name="E A2")
+        form = FormDefinition.objects.create(slug="G901_E_A1", name="E A1")
 
         response = self.client.get(reverse("admin_grading_config_editor", args=[form.slug]))
 
@@ -610,7 +625,7 @@ class GradingAndPairingConfigEditorTests(TestCase):
         self.assertTrue(GradingCriterion.objects.filter(config=config, question_slug="business_age", weight=5).exists())
 
     def test_grading_config_editor_creates_response_weights_for_dropdown_choices(self):
-        form = FormDefinition.objects.create(slug="G902_E_A2", name="E A2")
+        form = FormDefinition.objects.create(slug="G902_E_A1", name="E A1")
         Question.objects.create(
             form=form,
             text="Business description",
@@ -654,7 +669,7 @@ class GradingAndPairingConfigEditorTests(TestCase):
         self.assertEqual(runtime_config.response_score("business_age", "idea"), 0.0)
 
     def test_grading_config_editor_saves_prompt_and_grouped_response_weights(self):
-        form = FormDefinition.objects.create(slug="G903_E_A2", name="E A2")
+        form = FormDefinition.objects.create(slug="G903_E_A1", name="E A1")
         Question.objects.create(
             form=form,
             text="Growth plan",
@@ -707,7 +722,7 @@ class GradingAndPairingConfigEditorTests(TestCase):
         self.assertEqual(growth_preview["prompt"], "Score <applicant response for growth_how>")
 
     def test_grading_config_editor_saves_no_code_prompt_around_automatic_answer(self):
-        form = FormDefinition.objects.create(slug="G905_E_A2", name="E A2")
+        form = FormDefinition.objects.create(slug="G905_E_A1", name="E A1")
         self.client.get(reverse("admin_grading_config_editor", args=[form.slug]))
         config = ApplicationGradingConfig.objects.get(form=form)
         criterion = GradingCriterion.objects.get(config=config, question_slug="growth_how")
@@ -744,7 +759,7 @@ class GradingAndPairingConfigEditorTests(TestCase):
         )
 
     def test_mentor_grading_editor_shows_exact_openai_fields_and_requirements(self):
-        form = FormDefinition.objects.create(slug="G904_M_A2", name="M A2")
+        form = FormDefinition.objects.create(slug="G904_M_A1", name="M A1")
 
         response = self.client.get(reverse("admin_grading_config_editor", args=[form.slug]))
 

@@ -2933,6 +2933,44 @@ class MarketingDashboardTests(TestCase):
         self.assertEqual(summary["followers_gained"], 12)
         self.assertEqual(summary["clicks"], 7)
 
+    def test_zernio_posting_analytics_matches_dashboard_metrics(self):
+        summary = meta_marketing.summarize_zernio_posting_analytics(
+            daily_data={
+                "dailyData": [
+                    {
+                        "date": "2026-06-02",
+                        "postCount": 2,
+                        "metrics": {"reach": 1000, "likes": 9, "comments": 1, "shares": 0, "saves": 0},
+                    },
+                    {
+                        "date": "2026-06-09",
+                        "postCount": 3,
+                        "metrics": {"reach": 2000, "likes": 21, "comments": 2, "shares": 1, "saves": 1},
+                    },
+                ],
+                "platformBreakdown": [
+                    {"platform": "facebook", "postCount": 5, "reach": 3000, "likes": 30},
+                ],
+            },
+            follower_data={"accounts": [{"currentFollowers": 582, "growth": 79}]},
+            best_post_data={
+                "overview": {"engagementRate": 0.9, "totalReach": 4800, "totalPosts": 11},
+                "posts": [{
+                    "content": "Best post",
+                    "platformPostUrl": "https://example.com/post",
+                    "analytics": {"likes": 7, "comments": 2},
+                }],
+            },
+        )
+
+        self.assertEqual(summary["post_count"], 11)
+        self.assertEqual(summary["reach"], 4800)
+        self.assertEqual(summary["followers"], 582)
+        self.assertEqual(summary["follower_growth"], 79)
+        self.assertEqual(summary["engagement_rate"], 0.9)
+        self.assertEqual(summary["best_post"]["engagements"], 9)
+        self.assertEqual(summary["platforms"][0]["post_width"], 100.0)
+
     @patch.dict(
         "os.environ",
         {
@@ -2976,24 +3014,27 @@ class MarketingDashboardTests(TestCase):
     @patch("applications.admin_dashboard_views.ZernioMarketingClient")
     def test_marketing_dashboard_prefers_zernio_when_configured(self, mock_client_cls):
         mock_client = mock_client_cls.return_value
-        mock_client.ad_insights.return_value = [
-            {
-                "campaign_name": "Zernio Campaign",
-                "spend": "30",
-                "impressions": "3000",
-                "reach": "2100",
-                "clicks": "60",
-            }
-        ]
-        mock_client.instagram_user_insights.return_value = []
         mock_client.accounts.return_value = []
-        mock_client.account_analytics.return_value = {}
+        mock_client.posting_analytics.return_value = {
+            "engagement_rate": 0.9,
+            "reach": 4800,
+            "followers": 582,
+            "follower_growth": 79,
+            "post_count": 11,
+            "platforms": [],
+            "daily": [],
+            "best_post": {},
+        }
 
         response = self.client.get(reverse("admin_marketing_dashboard"))
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Zernio Campaign")
-        mock_client.ad_insights.assert_called_once()
+        self.assertContains(response, "Posting performance from Zernio Analytics")
+        self.assertContains(response, "4800")
+        self.assertContains(response, "582")
+        self.assertContains(response, "11")
+        mock_client.posting_analytics.assert_called_once()
+        mock_client.ad_insights.assert_not_called()
 
 
 class ParticipantsPageSafetyTests(TestCase):

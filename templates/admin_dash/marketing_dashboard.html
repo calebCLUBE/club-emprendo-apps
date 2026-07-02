@@ -134,8 +134,52 @@
       .ce-muted {
         color: #64748b;
       }
+      .ce-analytics-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 16px;
+      }
+      .ce-chart-card {
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        padding: 16px;
+        background: #fff;
+      }
+      .ce-bar-row {
+        display: grid;
+        grid-template-columns: minmax(90px, 130px) minmax(120px, 1fr) 56px;
+        gap: 10px;
+        align-items: center;
+        margin-top: 10px;
+        font-size: 12px;
+      }
+      .ce-bar-track {
+        height: 18px;
+        border-radius: 4px;
+        background: #eef2f7;
+        overflow: hidden;
+      }
+      .ce-bar-fill {
+        height: 100%;
+        min-width: 2px;
+        background: #3b82f6;
+      }
+      .ce-best-post {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+      }
+      .ce-best-post img {
+        width: 52px;
+        height: 52px;
+        border-radius: 6px;
+        object-fit: cover;
+      }
       @media (max-width: 760px) {
         .ce-filter-grid {
+          grid-template-columns: 1fr;
+        }
+        .ce-analytics-grid {
           grid-template-columns: 1fr;
         }
       }
@@ -144,7 +188,7 @@
     <div class="ce-marketing-head">
       <div>
         <h1 class="ce-marketing-title">Marketing Dashboard</h1>
-        <div class="ce-marketing-sub">Facebook and Instagram marketing data from Meta APIs.</div>
+        <div class="ce-marketing-sub">Posting performance from Zernio Analytics.</div>
       </div>
       <a class="button" href="{% url 'admin_dashboards_home' %}">Dashboards</a>
     </div>
@@ -163,8 +207,8 @@
         <div class="ce-status-v">{{ zernio_account_id|default:"Auto-detect" }}</div>
       </div>
       <div class="ce-status-item">
-        <div class="ce-status-k">Rows Loaded</div>
-        <div class="ce-status-v">{{ ad_row_count|default:0 }}</div>
+        <div class="ce-status-k">Posts This Period</div>
+        <div class="ce-status-v">{{ posting_analytics_summary.post_count|default:0 }}</div>
       </div>
     </div>
 
@@ -177,18 +221,11 @@
         <label for="date_to">To</label>
         <input id="date_to" type="date" name="date_to" value="{{ date_to }}">
       </div>
-      <div>
-        <label for="level">Breakdown</label>
-        <select id="level" name="level">
-          <option value="campaign" {% if level == "campaign" %}selected{% endif %}>Campaign</option>
-          <option value="adset" {% if level == "adset" %}selected{% endif %}>Ad set</option>
-          <option value="ad" {% if level == "ad" %}selected{% endif %}>Ad</option>
-        </select>
-      </div>
       {% if provider == "zernio" and zernio_account_options %}
         <div>
           <label for="zernio_account_id">Zernio Account</label>
           <select id="zernio_account_id" name="zernio_account_id">
+            <option value="">All connected accounts</option>
             {% for account in zernio_account_options %}
               <option value="{{ account.id }}" {% if account.id == zernio_account_id %}selected{% endif %}>
                 {{ account.label }}
@@ -207,11 +244,54 @@
     {% if not configured %}
       <div class="ce-alert">
         Add <strong>ZERNIO_API_KEY</strong> to connect through Zernio.
-        If the dashboard cannot find the connected account automatically, also add
-        <strong>ZERNIO_META_ADS_ACCOUNT_ID</strong>.
+        The dashboard reads Zernio Posting Analytics for all connected accounts.
       </div>
     {% endif %}
 
+    {% if provider == "zernio" %}
+    <div class="ce-card-grid">
+      <div class="ce-card"><div class="ce-card-k">Engagement Rate</div><div class="ce-card-v">{{ posting_analytics_summary.engagement_rate|default:0 }}%</div></div>
+      <div class="ce-card"><div class="ce-card-k">Total Reach</div><div class="ce-card-v">{{ posting_analytics_summary.reach|default:0 }}</div></div>
+      <div class="ce-card"><div class="ce-card-k">Total Followers</div><div class="ce-card-v">{{ posting_analytics_summary.followers|default:0 }}</div><div class="ce-muted">{% if posting_analytics_summary.follower_growth >= 0 %}+{% endif %}{{ posting_analytics_summary.follower_growth|default:0 }} this period</div></div>
+      <div class="ce-card"><div class="ce-card-k">Posts This Period</div><div class="ce-card-v">{{ posting_analytics_summary.post_count|default:0 }}</div></div>
+      <div class="ce-card">
+        <div class="ce-card-k">Best Post</div>
+        {% if posting_analytics_summary.best_post %}
+          <div class="ce-best-post">
+            {% if posting_analytics_summary.best_post.thumbnail_url %}<img src="{{ posting_analytics_summary.best_post.thumbnail_url }}" alt="">{% endif %}
+            <div><strong>{{ posting_analytics_summary.best_post.engagements }}</strong> engagements<br>{% if posting_analytics_summary.best_post.url %}<a href="{{ posting_analytics_summary.best_post.url }}" target="_blank" rel="noopener">View post</a>{% endif %}</div>
+          </div>
+        {% else %}<div class="ce-muted">No post available</div>{% endif %}
+      </div>
+    </div>
+
+    <div class="ce-analytics-grid">
+      <div class="ce-chart-card">
+        <h2 class="ce-section-title" style="margin-top:0;">Posts per platform</h2>
+        {% for row in posting_analytics_summary.platforms %}
+          <div class="ce-bar-row"><span>{{ row.platform }}</span><div class="ce-bar-track"><div class="ce-bar-fill" style="width:{{ row.post_width }}%;"></div></div><strong>{{ row.post_count }}</strong></div>
+        {% empty %}<div class="ce-muted">No platform data for this period.</div>{% endfor %}
+      </div>
+      <div class="ce-chart-card">
+        <h2 class="ce-section-title" style="margin-top:0;">Posts over time</h2>
+        {% for row in posting_analytics_summary.daily %}
+          <div class="ce-bar-row"><span>{{ row.date }}</span><div class="ce-bar-track"><div class="ce-bar-fill" style="width:{{ row.post_width }}%;"></div></div><strong>{{ row.post_count }}</strong></div>
+        {% empty %}<div class="ce-muted">No daily post data for this period.</div>{% endfor %}
+      </div>
+      <div class="ce-chart-card">
+        <h2 class="ce-section-title" style="margin-top:0;">Likes per platform</h2>
+        {% for row in posting_analytics_summary.platforms %}
+          <div class="ce-bar-row"><span>{{ row.platform }}</span><div class="ce-bar-track"><div class="ce-bar-fill" style="width:{{ row.likes_width }}%;"></div></div><strong>{{ row.likes }}</strong></div>
+        {% empty %}<div class="ce-muted">No platform like data for this period.</div>{% endfor %}
+      </div>
+      <div class="ce-chart-card">
+        <h2 class="ce-section-title" style="margin-top:0;">Likes over time</h2>
+        {% for row in posting_analytics_summary.daily %}
+          <div class="ce-bar-row"><span>{{ row.date }}</span><div class="ce-bar-track"><div class="ce-bar-fill" style="width:{{ row.likes_width }}%;"></div></div><strong>{{ row.likes }}</strong></div>
+        {% empty %}<div class="ce-muted">No daily like data for this period.</div>{% endfor %}
+      </div>
+    </div>
+    {% else %}
     <div class="ce-card-grid">
       <div class="ce-card"><div class="ce-card-k">Spend</div><div class="ce-card-v">${{ summary.spend }}</div></div>
       <div class="ce-card"><div class="ce-card-k">Impressions</div><div class="ce-card-v">{{ summary.impressions }}</div></div>
@@ -272,6 +352,7 @@
       <div class="ce-card"><div class="ce-card-k">Profile Views</div><div class="ce-card-v">{{ organic_summary.profile_views|default:0 }}</div></div>
       <div class="ce-card"><div class="ce-card-k">Website Clicks</div><div class="ce-card-v">{{ organic_summary.website_clicks|default:0 }}</div></div>
     </div>
+    {% endif %}
   </div>
 </div>
 {% endblock %}

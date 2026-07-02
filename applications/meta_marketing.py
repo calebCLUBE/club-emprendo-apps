@@ -328,6 +328,50 @@ class ZernioMarketingClient:
     ) -> list[dict]:
         return []
 
+    def posting_analytics(
+        self,
+        *,
+        date_from: date,
+        date_to: date,
+        account_id: str = "",
+    ) -> dict:
+        selected_id = (account_id or "").strip()
+        common_params: dict[str, Any] = {
+            "fromDate": date_from.isoformat(),
+            "toDate": date_to.isoformat(),
+            "source": "all",
+        }
+        if selected_id:
+            common_params["accountId"] = selected_id
+
+        daily_data = self._get(
+            "analytics/daily-metrics",
+            {**common_params, "attribution": "publish"},
+        )
+        follower_params: dict[str, Any] = {
+            "fromDate": date_from.isoformat(),
+            "toDate": date_to.isoformat(),
+            "granularity": "daily",
+        }
+        if selected_id:
+            follower_params["accountIds"] = selected_id
+        follower_data = self._get("accounts/follower-stats", follower_params)
+        best_post_data = self._get(
+            "analytics",
+            {
+                **common_params,
+                "sortBy": "engagement",
+                "order": "desc",
+                "page": 1,
+                "limit": 1,
+            },
+        )
+        return summarize_zernio_posting_analytics(
+            daily_data=daily_data,
+            follower_data=follower_data,
+            best_post_data=best_post_data,
+        )
+
 
 def _metric_value(row: dict, name: str) -> Any:
     for key in ("metrics", "insights", "summary"):
@@ -375,6 +419,139 @@ def summarize_zernio_account_analytics(rows: list[dict]) -> dict:
         "saves": int(totals["saves"]),
         "clicks": int(totals["profile_links_taps"]),
     }
+
+
+def summarize_zernio_posting_analytics(
+    *,
+    daily_data: dict,
+    follower_data: dict,
+    best_post_data: dict,
+) -> dict:
+    daily_rows = daily_data.get("dailyData") or []
+    platform_rows = daily_data.get("platformBreakdown") or []
+    if not isinstance(daily_rows, list):
+        daily_rows = []
+    if not isinstance(platform_rows, list):
+        platform_rows = []
+
+    metric_names = ("impressions", "reach", "likes", "comments", "shares", "saves", "clicks", "views")
+    totals = {name: 0 for name in metric_names}
+    post_count = 0
+    normalized_daily: list[dict] = []
+    for row in daily_rows:
+        if not isinstance(row, dict):
+            continue
+        metrics = row.get("metrics") if isinstance(row.get("metrics"), dict) else {}
+        count = _to_int(row.get("postCount"))
+        post_count += count
+        for name in metric_names:
+            totals[name] += _to_int(metrics.get(name))
+        normalized_daily.append({
+            "date": str(row.get("date") or ""),
+            "post_count": count,
+            **{name: _to_int(metrics.get(name)) for name in metric_names},
+        })
+
+    normalized_platforms: list[dict] = []
+    for row in platform_rows:
+        if not isinstance(row, dict):
+            continue
+        normalized_platforms.append({
+            "platform": str(row.get("platform") or "Unknown").title(),
+            "post_count": _to_int(row.get("postCount")),
+            **{name: _to_int(row.get(name)) for name in metric_names},
+        })
+
+    max_daily_posts = max((row["post_count"] for row in normalized_daily), default=0)
+    max_daily_likes = max((row["likes"] for row in normalized_daily), default=0)
+    for row in normalized_daily:
+        row["post_width"] = round((row["post_count"] / max_daily_posts) * 100, 1) if max_daily_posts else 0
+        row["likes_width"] = round((row["likes"] / max_daily_likes) * 100, 1) if max_daily_likes else 0
+    max_platform_posts = max((row["post_count"] for row in normalized_platforms), default=0)
+    max_platform_likes = max((row["likes"] for row in normalized_platforms), default=0)
+    for row in normalized_platforms:
+        row["post_width"] = round((row["post_count"] / max_platform_posts) * 100, 1) if max_platform_posts else 0
+        row["likes_width"] = round((row["likes"] / max_platform_likes) * 100, 1) if max_platform_likes else 0
+
+    follower_accounts = follower_data.get("accounts") or []
+    if not isinstance(follower_accounts, list):
+        follower_accounts = []
+    total_followers = sum(_to_int(row.get("currentFollowers")) for row in follower_accounts if isinstance(row, dict))
+    follower_growth = sum(_to_int(row.get("growth")) for row in follower_accounts if isinstance(row, dict))
+
+    overview = (
+        best_post_data.get("overview")
+        or best_post_data.get("summary")
+        or best_post_data.get("stats")
+        or {}
+    )
+    if not isinstance(overview, dict):
+        overview = {}
+    overview_posts = _first_present_number(overview, "totalPosts", "postCount", "posts")
+    overview_reach = _first_present_number(overview, "totalReach", "reach")
+    overview_engagement_rate = _first_present_number(
+        overview,
+        "engagementRate",
+        "averageEngagementRate",
+        "avgEngagementRate",
+    )
+    if overview_posts is not None:
+        post_count = int(overview_posts)
+    if overview_reach is not None:
+        totals["reach"] = int(overview_reach)
+
+    engagements = totals["likes"] + totals["comments"] + totals["shares"] + totals["saves"]
+    engagement_base = totals["reach"] or totals["impressions"]
+    engagement_rate = (
+        round(float(overview_engagement_rate), 2)
+        if overview_engagement_rate is not None
+        else (round((engagements / engagement_base) * 100, 2) if engagement_base else 0)
+    )
+    best_posts = _extract_zernio_post_rows(best_post_data)
+    best_post = best_posts[0] if best_posts else {}
+    best_metrics = best_post.get("analytics") if isinstance(best_post.get("analytics"), dict) else {}
+    best_engagements = sum(_to_int(best_metrics.get(name)) for name in ("likes", "comments", "shares", "saves"))
+
+    return {
+        "engagement_rate": engagement_rate,
+        "reach": totals["reach"],
+        "followers": total_followers,
+        "follower_growth": follower_growth,
+        "post_count": post_count,
+        "totals": totals,
+        "daily": normalized_daily,
+        "platforms": normalized_platforms,
+        "best_post": {
+            "content": str(best_post.get("content") or best_post.get("message") or ""),
+            "thumbnail_url": str(best_post.get("thumbnailUrl") or ""),
+            "url": str(best_post.get("platformPostUrl") or ""),
+            "engagements": best_engagements,
+        } if best_post else {},
+    }
+
+
+def _extract_zernio_post_rows(data: dict) -> list[dict]:
+    for key in ("posts", "items", "results", "data"):
+        value = data.get(key)
+        if isinstance(value, list):
+            return [row for row in value if isinstance(row, dict)]
+        if isinstance(value, dict):
+            nested = _extract_zernio_post_rows(value)
+            if nested:
+                return nested
+    return []
+
+
+def _first_present_number(source: dict, *keys: str) -> float | None:
+    for key in keys:
+        value = source.get(key)
+        if value is None or value == "":
+            continue
+        try:
+            return float(str(value).strip().rstrip("%"))
+        except (TypeError, ValueError):
+            continue
+    return None
 
 
 def _extract_zernio_campaign_nodes(data: dict) -> list[dict]:

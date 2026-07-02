@@ -237,19 +237,31 @@ class ZernioMarketingClient:
         level: str = "campaign",
     ) -> list[dict]:
         account_id = self.resolve_account_id()
-        data = self._get(
-            "ads/tree",
-            {
-                "accountId": account_id,
-                "fromDate": date_from.isoformat(),
-                "toDate": date_to.isoformat(),
-                "level": level,
-                "source": "all",
-            },
-        )
+        params = {
+            "accountId": account_id,
+            "fromDate": date_from.isoformat(),
+            "toDate": date_to.isoformat(),
+            "source": "all",
+        }
+        if level == "campaign":
+            campaign_rows: list[dict] = []
+            page = 1
+            while page <= 100:
+                data = self._get(
+                    "ads/campaigns",
+                    {**params, "page": page, "limit": 100},
+                )
+                page_rows = _extract_zernio_campaign_nodes(data)
+                campaign_rows.extend(page_rows)
+                if len(page_rows) < 100 or not _zernio_has_next_page(data, page):
+                    break
+                page += 1
+        else:
+            data = self._get("ads/tree", {**params, "level": level})
+            campaign_rows = _extract_zernio_campaign_nodes(data)
         return [
             _normalize_zernio_campaign(row)
-            for row in _extract_zernio_campaign_nodes(data)
+            for row in campaign_rows
             if isinstance(row, dict)
         ]
 
@@ -367,6 +379,24 @@ def summarize_zernio_account_analytics(rows: list[dict]) -> dict:
 
 def _extract_zernio_campaign_nodes(data: dict) -> list[dict]:
     return _find_zernio_rows_by_key(data, {"campaigns", "items", "results", "data"})
+
+
+def _zernio_has_next_page(data: dict, current_page: int) -> bool:
+    pagination = data.get("pagination") or data.get("meta") or {}
+    nested_data = data.get("data")
+    if not pagination and isinstance(nested_data, dict):
+        pagination = nested_data.get("pagination") or nested_data.get("meta") or {}
+    if not isinstance(pagination, dict):
+        return False
+    if pagination.get("hasNextPage") is not None:
+        return bool(pagination.get("hasNextPage"))
+    if pagination.get("has_next") is not None:
+        return bool(pagination.get("has_next"))
+    total_pages = pagination.get("totalPages") or pagination.get("total_pages")
+    try:
+        return int(current_page) < int(total_pages)
+    except (TypeError, ValueError):
+        return False
 
 
 def _coerce_zernio_rows(value: Any) -> list[dict]:

@@ -2843,8 +2843,35 @@ class MarketingDashboardTests(TestCase):
         self.assertEqual(rows[0]["campaign_name"], "Zernio Campaign")
         self.assertEqual(rows[0]["spend"], "30")
         client._get.assert_called_once()
-        self.assertEqual(client._get.call_args.args[0], "ads/tree")
+        self.assertEqual(client._get.call_args.args[0], "ads/campaigns")
         self.assertEqual(client._get.call_args.args[1]["accountId"], "ads_1")
+        self.assertEqual(client._get.call_args.args[1]["source"], "all")
+        self.assertEqual(client._get.call_args.args[1]["fromDate"], "2026-01-01")
+        self.assertEqual(client._get.call_args.args[1]["toDate"], "2026-01-31")
+
+    def test_zernio_campaign_reporting_follows_pagination(self):
+        config = meta_marketing.ZernioMarketingConfig(api_key="test-key", account_id="fb_1")
+        client = meta_marketing.ZernioMarketingClient(config)
+        first_page = [
+            {"name": f"Campaign {idx}", "metrics": {"spend": 1}}
+            for idx in range(100)
+        ]
+        client._get = Mock(side_effect=[
+            {"data": first_page, "pagination": {"hasNextPage": True}},
+            {
+                "data": [{"name": "Last Campaign", "metrics": {"spend": 2}}],
+                "pagination": {"hasNextPage": False},
+            },
+        ])
+
+        rows = client.ad_insights(
+            date_from=date(2026, 1, 1),
+            date_to=date(2026, 1, 31),
+        )
+
+        self.assertEqual(len(rows), 101)
+        self.assertEqual(rows[-1]["campaign_name"], "Last Campaign")
+        self.assertEqual(client._get.call_args_list[1].args[1]["page"], 2)
 
     def test_zernio_extracts_nested_campaign_tree(self):
         rows = meta_marketing._extract_zernio_campaign_nodes(

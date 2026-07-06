@@ -46,6 +46,9 @@
 
   <form method="post" novalidate>
     {% csrf_token %}
+    <p class="ce-muted" style="font-size:12px; margin:0 0 12px;">
+      Guardamos temporalmente tu progreso para entender dónde se interrumpen las aplicaciones incompletas.
+    </p>
 
     {% if sections %}
       <div id="ce-stepper" hidden>
@@ -850,6 +853,126 @@
         const sel = reqRow.querySelector("select");
         if (sel) sel.addEventListener("change", update);
       }
+    })();
+  </script>
+
+  <script>
+    (function () {
+      const form = document.querySelector('form[method="post"]');
+      if (!form || new URLSearchParams(window.location.search).get("preview")) return;
+      const storageKey = "ce-application-draft:{{ form_def.slug|escapejs }}";
+      let token = window.localStorage.getItem(storageKey) ||
+        (window.crypto?.randomUUID ? window.crypto.randomUUID() : "");
+      if (token) window.localStorage.setItem(storageKey, token);
+      let timer = null;
+      let saving = false;
+      let pending = false;
+      const endpoint = "{% url 'application_draft_autosave' form_def.slug %}";
+      const csrf = form.querySelector('[name="csrfmiddlewaretoken"]')?.value || "";
+
+      const hiddenToken = document.createElement("input");
+      hiddenToken.type = "hidden";
+      hiddenToken.name = "_draft_token";
+      hiddenToken.value = token;
+      form.appendChild(hiddenToken);
+
+      function hasValue(field) {
+        if (field.type === "checkbox" || field.type === "radio") return field.checked;
+        if (field.type === "file") return field.files && field.files.length > 0;
+        return String(field.value || "").trim() !== "";
+      }
+
+      function payload() {
+        const answers = {};
+        const questionBlocks = Array.from(form.querySelectorAll(".form-question"))
+          .filter(block => block.style.display !== "none");
+        let answered = 0;
+        let lastQuestionSlug = "";
+        questionBlocks.forEach(block => {
+          const fields = Array.from(block.querySelectorAll('[name^="q_"]'));
+          const valuesByName = {};
+          fields.forEach(field => {
+            if (field.type === "file" || !hasValue(field)) return;
+            if (!valuesByName[field.name]) valuesByName[field.name] = [];
+            valuesByName[field.name].push(field.value);
+          });
+          const names = Object.keys(valuesByName);
+          if (names.length) {
+            answered += 1;
+            lastQuestionSlug = names[names.length - 1].replace(/^q_/, "");
+          }
+          names.forEach(name => {
+            answers[name] = valuesByName[name].length === 1 ? valuesByName[name][0] : valuesByName[name];
+          });
+        });
+        const panels = Array.from(form.querySelectorAll(".ce-section-panel"));
+        const currentPanel = panels.findIndex(panel => panel.offsetParent !== null);
+        const totalQuestions = questionBlocks.length;
+        const progress = totalQuestions ? Math.round(answered * 100 / totalQuestions) : 0;
+        const findIdentity = fragments => {
+          const field = Array.from(form.querySelectorAll('[name^="q_"]')).find(el =>
+            fragments.some(fragment => el.name.toLowerCase().includes(fragment))
+          );
+          return field ? String(field.value || "").trim() : "";
+        };
+        return {
+          token,
+          answers,
+          name: findIdentity(["full_name", "nombre", "_name"]),
+          email: findIdentity(["email", "correo"]),
+          current_section: currentPanel >= 0 ? currentPanel + 1 : 1,
+          total_sections: panels.length || 1,
+          answered_questions: answered,
+          total_questions: totalQuestions,
+          progress_percent: progress,
+          last_question_slug: lastQuestionSlug
+        };
+      }
+
+      async function save() {
+        if (saving) { pending = true; return; }
+        saving = true;
+        try {
+          const response = await fetch(endpoint, {
+            method: "POST",
+            credentials: "same-origin",
+            headers: {"Content-Type": "application/json", "X-CSRFToken": csrf},
+            body: JSON.stringify(payload())
+          });
+          if (response.ok) {
+            const data = await response.json();
+            if (data.token) {
+              token = data.token;
+              hiddenToken.value = token;
+              window.localStorage.setItem(storageKey, token);
+            }
+            if (data.completed) {
+              token = "";
+              hiddenToken.value = "";
+              window.localStorage.removeItem(storageKey);
+            }
+          }
+        } catch (_) {
+          // A later input or visibility change retries without interrupting the applicant.
+        } finally {
+          saving = false;
+          if (pending) { pending = false; save(); }
+        }
+      }
+
+      function scheduleSave() {
+        window.clearTimeout(timer);
+        timer = window.setTimeout(save, 700);
+      }
+      form.addEventListener("input", scheduleSave);
+      form.addEventListener("change", scheduleSave);
+      form.addEventListener("click", event => {
+        if (event.target.closest("[data-next], [data-prev]")) window.setTimeout(save, 0);
+      });
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "hidden") save();
+      });
+      window.setTimeout(save, 1000);
     })();
   </script>
 

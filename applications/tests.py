@@ -1,4 +1,5 @@
-from datetime import date, datetime, timezone as dt_timezone
+from datetime import date, datetime, timedelta, timezone as dt_timezone
+import uuid
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.contrib.auth import get_user_model
@@ -40,6 +41,7 @@ from applications.views import (
 from applications.models import (
     Answer,
     Application,
+    ApplicationDraft,
     Choice,
     DropboxSignWebhookEvent,
     FormDefinition,
@@ -57,6 +59,91 @@ from applications.models import (
     Section,
     StoredEmailTemplate,
 )
+
+
+class ApplicationDraftTrackingTests(TestCase):
+    def setUp(self):
+        self.form_def = FormDefinition.objects.create(slug="draft_test", name="Draft Test")
+        self.question = Question.objects.create(
+            form=self.form_def,
+            text="Tell us about yourself",
+            slug="about",
+            field_type=Question.SHORT_TEXT,
+            required=False,
+            position=1,
+        )
+
+    def test_autosave_creates_and_updates_same_draft(self):
+        url = reverse("application_draft_autosave", args=[self.form_def.slug])
+        response = self.client.post(
+            url,
+            data=json.dumps({
+                "answers": {"q_about": "Started answer"},
+                "email": "person@example.com",
+                "current_section": 2,
+                "total_sections": 4,
+                "answered_questions": 1,
+                "total_questions": 8,
+                "progress_percent": 13,
+                "last_question_slug": "about",
+            }),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        token = response.json()["token"]
+        response = self.client.post(
+            url,
+            data=json.dumps({"token": token, "answers": {"q_about": "Updated"}, "progress_percent": 25}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(ApplicationDraft.objects.count(), 1)
+        draft = ApplicationDraft.objects.get()
+        self.assertEqual(draft.answers["q_about"], "Updated")
+        self.assertEqual(draft.progress_percent, 25)
+
+    def test_successful_submission_marks_draft_completed(self):
+        draft = ApplicationDraft.objects.create(form=self.form_def, progress_percent=50)
+        response = self.client.post(
+            reverse("apply_by_slug", args=[self.form_def.slug]),
+            {"q_about": "Finished", "_draft_token": str(draft.token)},
+        )
+        self.assertEqual(response.status_code, 302)
+        draft.refresh_from_db()
+        self.assertIsNotNone(draft.completed_at)
+        self.assertIsNotNone(draft.application)
+        self.assertEqual(draft.application.answers.get().value, "Finished")
+
+    def test_immediate_submission_creates_completed_draft_without_prior_autosave(self):
+        token = uuid.uuid4()
+        response = self.client.post(
+            reverse("apply_by_slug", args=[self.form_def.slug]),
+            {"q_about": "Fast finish", "_draft_token": str(token)},
+        )
+        self.assertEqual(response.status_code, 302)
+        draft = ApplicationDraft.objects.get(token=token)
+        self.assertIsNotNone(draft.completed_at)
+        self.assertIsNotNone(draft.application_id)
+
+    def test_admin_progress_dashboard_shows_abandoned_location(self):
+        draft = ApplicationDraft.objects.create(
+            form=self.form_def,
+            email="person@example.com",
+            current_section=3,
+            total_sections=5,
+            progress_percent=45,
+            last_question_slug="about",
+        )
+        ApplicationDraft.objects.filter(pk=draft.pk).update(
+            updated_at=timezone.now() - timedelta(hours=25)
+        )
+        user = get_user_model().objects.create_superuser(email="admin@example.com", password="password")
+        self.client.force_login(user)
+        response = self.client.get(reverse("admin_application_progress_dashboard"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "person@example.com")
+        self.assertContains(response, "Section 3 of 5")
+        self.assertContains(response, "Tell us about yourself")
 
 
 class QuestionAdminFormTests(TestCase):

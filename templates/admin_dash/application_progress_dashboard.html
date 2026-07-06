@@ -1,0 +1,27 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<style>
+  .ce-progress-cards{display:grid;grid-template-columns:repeat(4,minmax(130px,1fr));gap:12px;margin:18px 0}
+  .ce-progress-card{padding:16px;border:1px solid #dbe4f0;border-radius:12px;background:#fff}
+  .ce-progress-card strong{display:block;font-size:28px;color:#172554}.ce-progress-card span{color:#64748b}
+  .ce-progress-filters{display:flex;gap:10px;align-items:end;flex-wrap:wrap;margin:16px 0}.ce-progress-filters label{display:grid;gap:4px}
+  .ce-progress-table{width:100%;border-collapse:collapse}.ce-progress-table th,.ce-progress-table td{padding:10px;border-bottom:1px solid #e5e7eb;text-align:left;vertical-align:top}
+  @media(max-width:700px){.ce-progress-cards{grid-template-columns:repeat(2,1fr)}.ce-progress-scroll{overflow:auto}}
+</style>
+<h1>Application Progress</h1>
+<p>Incomplete drafts are marked abandoned after 24 hours without activity. Draft tracking began when this feature was deployed.</p>
+<div class="ce-progress-cards">
+  <div class="ce-progress-card"><strong>{{ summary.started }}</strong><span>Started</span></div>
+  <div class="ce-progress-card"><strong>{{ summary.completed }}</strong><span>Completed</span></div>
+  <div class="ce-progress-card"><strong>{{ summary.abandoned }}</strong><span>Abandoned</span></div>
+  <div class="ce-progress-card"><strong>{{ summary.active }}</strong><span>Active now</span></div>
+</div>
+<form method="get" class="ce-progress-filters">
+  <label>Status<select name="status"><option value="abandoned" {% if status_filter == 'abandoned' %}selected{% endif %}>Abandoned</option><option value="active" {% if status_filter == 'active' %}selected{% endif %}>Active</option><option value="completed" {% if status_filter == 'completed' %}selected{% endif %}>Completed</option><option value="all" {% if status_filter == 'all' %}selected{% endif %}>All</option></select></label>
+  <label>Application<select name="form"><option value="">All applications</option>{% for form in form_options %}<option value="{{ form.slug }}" {% if form_filter == form.slug %}selected{% endif %}>{{ form.name }}</option>{% endfor %}</select></label>
+  <button class="button" type="submit">Apply</button>
+</form>
+<div class="ce-progress-scroll"><table class="ce-progress-table"><thead><tr><th>Applicant</th><th>Application</th><th>Status</th><th>Progress</th><th>Last location</th><th>Last activity</th></tr></thead><tbody>
+{% for row in rows %}<tr><td><strong>{{ row.draft.name|default:"Anonymous" }}</strong>{% if row.draft.email %}<br><a href="mailto:{{ row.draft.email }}">{{ row.draft.email }}</a>{% endif %}</td><td>{{ row.draft.form.name }}</td><td>{{ row.status }}</td><td>{{ row.draft.progress_percent }}%<br>{{ row.draft.answered_questions }} of {{ row.draft.total_questions }} questions</td><td>Section {{ row.draft.current_section }} of {{ row.draft.total_sections }}{% if row.last_question %}<br>{{ row.last_question }}{% endif %}</td><td>{{ row.draft.updated_at|date:"Y-m-d H:i" }}</td></tr>{% empty %}<tr><td colspan="6">No drafts match these filters.</td></tr>{% endfor %}
+</tbody></table></div>
+{% endblock %}

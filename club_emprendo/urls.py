@@ -34,6 +34,11 @@ urlpatterns = [
         name="admin_impact_dashboard",
     ),
     path(
+        "admin/dashboards/application-progress/",
+        admin_dashboard_views.application_progress_dashboard,
+        name="admin_application_progress_dashboard",
+    ),
+    path(
         "admin/dashboards/impact/report.pdf",
         admin_dashboard_views.impact_dashboard_pdf,
         name="admin_impact_dashboard_pdf",

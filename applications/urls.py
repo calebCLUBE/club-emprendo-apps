@@ -20,6 +20,8 @@ urlpatterns = [
     path("apply/emprendedora/preview/", views.apply_emprendedora_second_preview, name="preview_emprendedora_second"),
     path("apply/mentora/preview/", views.apply_mentora_second_preview, name="preview_mentora_second"),
 
+    path("apply/<slug:form_slug>/autosave/", views.autosave_application_draft, name="application_draft_autosave"),
+
     # ---------- GROUP/SLUG ROUTE ----------
     path("apply/<slug:form_slug>/", views.apply_by_slug, name="apply_by_slug"),
 

@@ -529,6 +529,43 @@ class Application(models.Model):
         return f"{self.form.slug} – {self.name} – {self.created_at:%Y-%m-%d}"
 
 
+class ApplicationDraft(models.Model):
+    """Autosaved progress for an application that may never be submitted."""
+
+    token = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    form = models.ForeignKey(
+        FormDefinition,
+        on_delete=models.CASCADE,
+        related_name="drafts",
+    )
+    application = models.OneToOneField(
+        Application,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="source_draft",
+    )
+    answers = models.JSONField(default=dict, blank=True)
+    name = models.CharField(max_length=200, blank=True)
+    email = models.EmailField(blank=True)
+    current_section = models.PositiveIntegerField(default=1)
+    total_sections = models.PositiveIntegerField(default=1)
+    answered_questions = models.PositiveIntegerField(default=0)
+    total_questions = models.PositiveIntegerField(default=0)
+    progress_percent = models.PositiveSmallIntegerField(default=0)
+    last_question_slug = models.CharField(max_length=160, blank=True)
+    started_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True, db_index=True)
+    completed_at = models.DateTimeField(null=True, blank=True, db_index=True)
+
+    class Meta:
+        ordering = ["-updated_at"]
+        indexes = [models.Index(fields=["form", "completed_at", "updated_at"])]
+
+    def __str__(self) -> str:
+        return f"{self.form.slug} draft {self.token}"
+
+
 class Answer(models.Model):
     application = models.ForeignKey(
         Application,

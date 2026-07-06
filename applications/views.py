@@ -1,18 +1,19 @@
 # applications/views.py
 import re
 import logging
+import uuid
 
 from django.conf import settings
 from django.core.mail import EmailMultiAlternatives
 from django.db import transaction
-from django.http import Http404
+from django.http import Http404, JsonResponse
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse
 from django.utils import timezone
 import json
 
 from .forms import build_application_form
-from .models import Application, Answer, FormDefinition, Question, Section, scheduled_group_open_state
+from .models import Application, ApplicationDraft, Answer, FormDefinition, Question, Section, scheduled_group_open_state
 from .drive_sync import schedule_group_track_responses_sync
 from .email_templates import build_form_email_context, render_email_template, resolve_form_email_template
 from .rich_text import is_rich_text, render_rich_text, rich_text_to_plain
@@ -28,6 +29,67 @@ from .grader_m import _disqualification_reasons as _m_a2_disqualification_reason
 GROUP_SLUG_RE = re.compile(r"^G(?P<num>\d+)_")
 THANKS_PLACEHOLDER_RE = re.compile(r"{{\s*([a-zA-Z0-9_]+)\s*}}")
 logger = logging.getLogger(__name__)
+
+
+def autosave_application_draft(request, form_slug: str):
+    if request.method != "POST":
+        return JsonResponse({"error": "POST required"}, status=405)
+    form_def = get_object_or_404(FormDefinition, slug=form_slug)
+    try:
+        payload = json.loads(request.body or "{}")
+    except (TypeError, ValueError):
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+
+    token = str(payload.get("token") or "").strip()
+    draft = ApplicationDraft.objects.filter(token=token, form=form_def).first() if token else None
+    if draft and draft.completed_at:
+        return JsonResponse({"token": str(draft.token), "completed": True})
+    if not draft:
+        try:
+            supplied_token = uuid.UUID(token) if token else None
+        except (TypeError, ValueError, AttributeError):
+            supplied_token = None
+        draft = ApplicationDraft(form=form_def)
+        if supplied_token and not ApplicationDraft.objects.filter(token=supplied_token).exists():
+            draft.token = supplied_token
+
+    valid_slugs = set(
+        Question.objects.filter(form__in=[form_def], active=True).values_list("slug", flat=True)
+    )
+    # Combined forms can contain fields owned by the paired form. Keep only q_ fields;
+    # the public form definition remains the ownership/security boundary for this draft.
+    raw_answers = payload.get("answers") if isinstance(payload.get("answers"), dict) else {}
+    answers = {}
+    for key, value in raw_answers.items():
+        key = str(key)[:160]
+        if not key.startswith("q_") or not isinstance(value, (str, list, bool, int, float)):
+            continue
+        if isinstance(value, str):
+            value = value[:10000]
+        elif isinstance(value, list):
+            value = [str(item)[:2000] for item in value[:100]]
+        answers[key] = value
+    primary_answers = {key: value for key, value in answers.items() if key[2:] in valid_slugs}
+    if primary_answers:
+        answers.update(primary_answers)
+
+    def bounded_int(key, default, maximum):
+        try:
+            return max(0, min(int(payload.get(key, default)), maximum))
+        except (TypeError, ValueError):
+            return default
+
+    draft.answers = answers
+    draft.name = str(payload.get("name") or "")[:200]
+    draft.email = str(payload.get("email") or "")[:254]
+    draft.current_section = max(1, bounded_int("current_section", 1, 1000))
+    draft.total_sections = max(1, bounded_int("total_sections", 1, 1000))
+    draft.answered_questions = bounded_int("answered_questions", 0, 10000)
+    draft.total_questions = bounded_int("total_questions", 0, 10000)
+    draft.progress_percent = bounded_int("progress_percent", 0, 100)
+    draft.last_question_slug = str(payload.get("last_question_slug") or "")[:160]
+    draft.save()
+    return JsonResponse({"token": str(draft.token), "saved": True})
 
 
 # -------------------------
@@ -1229,6 +1291,22 @@ def _handle_application_form(
                     value=stored_value,
                 )
                 answer_map[q.slug] = stored_value
+
+        draft_token = str(request.POST.get("_draft_token") or "").strip()
+        if draft_token:
+            try:
+                parsed_draft_token = uuid.UUID(draft_token)
+            except (TypeError, ValueError, AttributeError):
+                parsed_draft_token = None
+            if parsed_draft_token:
+                draft, _ = ApplicationDraft.objects.get_or_create(
+                    token=parsed_draft_token,
+                    defaults={"form": completion_form_def},
+                )
+                if draft.form_id == completion_form_def.id and not draft.completed_at:
+                    draft.application = app
+                    draft.completed_at = timezone.now()
+                    draft.save(update_fields=["application", "completed_at", "updated_at"])
 
         if terminal_rule and terminal_question:
             try:

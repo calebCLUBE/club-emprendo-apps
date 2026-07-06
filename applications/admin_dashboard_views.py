@@ -14,7 +14,7 @@ from django.template.loader import render_to_string
 from django.utils import timezone
 
 from .admin_views import _group_label_for_number, _load_database_encuestas_grid
-from .models import Application, FormGroup, GroupParticipantList
+from .models import Application, ApplicationDraft, FormDefinition, FormGroup, GroupParticipantList, Question
 from .meta_marketing import (
     MetaMarketingClient,
     ZernioMarketingClient,
@@ -2465,6 +2465,60 @@ def _render_impact_dashboard_html_pdf(request, context: dict) -> bytes | None:
 @staff_member_required
 def dashboards_home(request):
     return render(request, "admin_dash/dashboards_home.html")
+
+
+@staff_member_required
+def application_progress_dashboard(request):
+    now = timezone.now()
+    abandoned_before = now - timedelta(hours=24)
+    status = (request.GET.get("status") or "abandoned").strip().lower()
+    form_slug = (request.GET.get("form") or "").strip()
+    drafts = ApplicationDraft.objects.select_related("form", "application")
+    if form_slug:
+        drafts = drafts.filter(form__slug=form_slug)
+    if status == "completed":
+        drafts = drafts.filter(completed_at__isnull=False)
+    elif status == "active":
+        drafts = drafts.filter(completed_at__isnull=True, updated_at__gt=abandoned_before)
+    elif status == "all":
+        pass
+    else:
+        status = "abandoned"
+        drafts = drafts.filter(completed_at__isnull=True, updated_at__lte=abandoned_before)
+
+    rows = []
+    for draft in drafts.order_by("-updated_at")[:1000]:
+        last_question = None
+        if draft.last_question_slug:
+            last_question = Question.objects.filter(slug=draft.last_question_slug).order_by("id").first()
+        if draft.completed_at:
+            row_status = "Completed"
+        elif draft.updated_at <= abandoned_before:
+            row_status = "Abandoned"
+        else:
+            row_status = "Active"
+        rows.append({
+            "draft": draft,
+            "status": row_status,
+            "last_question": last_question.text if last_question else draft.last_question_slug,
+        })
+
+    base = ApplicationDraft.objects.all()
+    if form_slug:
+        base = base.filter(form__slug=form_slug)
+    summary = {
+        "started": base.count(),
+        "completed": base.filter(completed_at__isnull=False).count(),
+        "abandoned": base.filter(completed_at__isnull=True, updated_at__lte=abandoned_before).count(),
+        "active": base.filter(completed_at__isnull=True, updated_at__gt=abandoned_before).count(),
+    }
+    return render(request, "admin_dash/application_progress_dashboard.html", {
+        "rows": rows,
+        "summary": summary,
+        "status_filter": status,
+        "form_filter": form_slug,
+        "form_options": FormDefinition.objects.filter(drafts__isnull=False).distinct().order_by("name"),
+    })
 
 
 @staff_member_required

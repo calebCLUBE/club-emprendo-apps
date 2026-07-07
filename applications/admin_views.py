@@ -690,7 +690,7 @@ def _run_grade_job(job_id: int):
 
         apps = (
             Application.objects
-            .filter(form=fd)
+            .filter(form=fd, approved_for_grading=True)
             .prefetch_related("answers__question")
             .order_by("created_at", "id")
         )
@@ -5985,7 +5985,7 @@ def grading_home(request):
 
     totals = {
         row["form__slug"]: row["c"]
-        for row in Application.objects.filter(form__in=fds)
+        for row in Application.objects.filter(form__in=fds, approved_for_grading=True)
         .values("form__slug")
         .annotate(c=Count("id"))
     }
@@ -5993,7 +5993,7 @@ def grading_home(request):
     pending = {
         row["form__slug"]: row["c"]
         for row in (
-            Application.objects.filter(form__in=fds)
+            Application.objects.filter(form__in=fds, approved_for_grading=True)
             .filter(Q(recommendation__isnull=True) | Q(recommendation=""))
             .values("form__slug")
             .annotate(c=Count("id"))

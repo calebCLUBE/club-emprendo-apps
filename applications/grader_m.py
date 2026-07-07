@@ -178,7 +178,42 @@ REQ_FIELDS = [
 
 
 def _disqualification_reasons(row: dict) -> list[str]:
-    return [field for field in REQ_FIELDS if str(row.get(field, "")).lower() != "yes"]
+    # Current A1 forms use two aggregate confirmations. Older/full mentor forms
+    # use individual req_* confirmations. Missing legacy columns must not count
+    # as explicit "no" answers on the current schema.
+    aggregate_requirements = next(
+        (field for field in ("meets_requirements", "meets_all_req") if field in row),
+        None,
+    )
+    aggregate_availability = next(
+        (field for field in ("available_period", "availability_ok") if field in row),
+        None,
+    )
+    if aggregate_requirements or aggregate_availability:
+        return [
+            field
+            for field in (aggregate_requirements, aggregate_availability)
+            if field and not yes(row.get(field))
+        ]
+
+    present_fields = [field for field in REQ_FIELDS if field in row]
+    if not present_fields:
+        return []
+
+    reasons = [field for field in present_fields if not yes(row.get(field))]
+    if "req_avail_period" not in row:
+        period_alias = next(
+            (
+                field
+                for field in row
+                if str(field).startswith("req_avail_")
+                and field not in {"req_avail_2hrs_week", "req_avail_kickoff"}
+            ),
+            None,
+        )
+        if period_alias and not yes(row.get(period_alias)):
+            reasons.append(period_alias)
+    return reasons
 
 
 def _is_priority_email(row: dict, priority_emails: set[str] | None) -> bool:

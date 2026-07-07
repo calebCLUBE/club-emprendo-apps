@@ -1479,6 +1479,13 @@ def _handle_application_form(
             except Exception:
                 logger.exception("Default approval email failed for application %s", app.pk)
 
+        approved_for_grading = bool(thanks_payload.get("approved")) and not bool(
+            thanks_payload.get("disqualified")
+        )
+        if app.approved_for_grading != approved_for_grading:
+            app.approved_for_grading = approved_for_grading
+            app.save(update_fields=["approved_for_grading"])
+
         if combined_flow:
             return render(request, "applications/thanks.html", thanks_payload)
         request.session["ce_thanks_payload"] = thanks_payload

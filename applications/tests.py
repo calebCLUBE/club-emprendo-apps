@@ -26,6 +26,7 @@ from applications.admin_views import (
 from applications.email_templates import build_form_email_context, resolve_form_email_template
 from applications.forms import build_application_form
 from applications.grading_config import runtime_grading_config_for_form_slug
+from applications.grader_m import _disqualification_reasons as mentor_disqualification_reasons
 from applications.templatetags.app_extras import format_help_text, format_rich_text
 from applications.mentora_application_schema import apply_mentora_schema
 from applications.emprendedora_a1_autograde import (
@@ -59,6 +60,34 @@ from applications.models import (
     Section,
     StoredEmailTemplate,
 )
+
+
+class MentorGradingRequirementSchemaTests(TestCase):
+    def test_current_aggregate_schema_passes_when_both_confirmations_are_yes(self):
+        row = {"meets_requirements": "yes", "available_period": "yes"}
+        self.assertEqual(mentor_disqualification_reasons(row), [])
+
+    def test_current_aggregate_schema_reports_only_explicit_failed_confirmation(self):
+        row = {"meets_requirements": "yes", "availability_ok": "no"}
+        self.assertEqual(mentor_disqualification_reasons(row), ["availability_ok"])
+
+    def test_legacy_individual_schema_supports_dated_period_slug(self):
+        row = {
+            "req_basic_woman": "yes",
+            "req_basic_latam": "yes",
+            "req_basic_business_exp": "yes",
+            "req_basic_punctual": "yes",
+            "req_basic_internet_device": "yes",
+            "req_basic_training": "yes",
+            "req_basic_surveys": "yes",
+            "req_avail_sept_dec": "yes",
+            "req_avail_2hrs_week": "yes",
+            "req_avail_kickoff": "yes",
+        }
+        self.assertEqual(mentor_disqualification_reasons(row), [])
+
+    def test_unknown_schema_does_not_disqualify_for_missing_legacy_fields(self):
+        self.assertEqual(mentor_disqualification_reasons({"email": "person@example.com"}), [])
 
 
 class ApplicationDraftTrackingTests(TestCase):
@@ -1263,6 +1292,7 @@ class TerminalAnswerRuleTests(TestCase):
         self.assertContains(response, "Application ended")
         self.assertContains(response, "You do not currently meet the requirements.")
         app = Application.objects.get(form=form_def)
+        self.assertFalse(app.approved_for_grading)
         self.assertEqual(app.answers.get(question=later).value, "")
         self.assertEqual(len(mail.outbox), 1)
         self.assertEqual(mail.outbox[0].subject, "Update for Applicant One")
@@ -1313,6 +1343,7 @@ class TerminalAnswerRuleTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Approved for consideration")
         self.assertContains(response, "We received your application.")
+        self.assertTrue(Application.objects.get(form=form_def).approved_for_grading)
         self.assertEqual(len(mail.outbox), 1)
         self.assertEqual(mail.outbox[0].subject, "Application received for Applicant Two")
         self.assertIn("Hello Applicant Two", mail.outbox[0].body)
@@ -1433,6 +1464,7 @@ class TerminalAnswerRuleTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Not eligible")
+        self.assertFalse(Application.objects.get(form=form_def).approved_for_grading)
         self.assertEqual([message.subject for message in mail.outbox], ["Not eligible"])
 
     def test_terminal_completion_does_not_send_default_approval_email(self):

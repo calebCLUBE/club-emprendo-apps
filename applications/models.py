@@ -488,6 +488,12 @@ class Choice(models.Model):
 class Application(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
+    approved_for_grading = models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text="True only when the applicant completed the form on an approved outcome path.",
+    )
+
     form = models.ForeignKey(
         FormDefinition,
         on_delete=models.PROTECT,

@@ -139,6 +139,7 @@ class RuntimeGradingConfig:
     rubric_note: str
     ai_criteria: tuple[str, ...]
     structured_criteria: tuple[str, ...]
+    uses_configured_criteria: bool
 
     def weight(self, key: str, default: float = 0.0) -> float:
         return _to_float(self.weights.get(key), default)
@@ -204,6 +205,7 @@ def runtime_grading_config_for_form_slug(form_slug: str) -> RuntimeGradingConfig
     rubric_note = ""
     ai_criteria: list[str] = []
     structured_criteria: list[str] = []
+    uses_configured_criteria = False
 
     config = (
         ApplicationGradingConfig.objects
@@ -212,6 +214,9 @@ def runtime_grading_config_for_form_slug(form_slug: str) -> RuntimeGradingConfig
         .first()
     )
     if config:
+        valid_question_slugs = set(
+            Question.objects.filter(form=config.form, active=True).values_list("slug", flat=True)
+        )
         model_name = (config.model_name or "").strip()
         rubric_note = (config.rubric_note or "").strip()
         if config.max_total_score is not None:
@@ -220,8 +225,9 @@ def runtime_grading_config_for_form_slug(form_slug: str) -> RuntimeGradingConfig
             if not criterion.active:
                 continue
             key = (criterion.question_slug or "").strip()
-            if not key:
+            if not key or key not in valid_question_slugs:
                 continue
+            uses_configured_criteria = True
             weights[key] = _to_float(criterion.weight, weights.get(key, 0.0))
             if criterion.criterion_type == "ai_text":
                 ai_criteria.append(key)
@@ -240,6 +246,25 @@ def runtime_grading_config_for_form_slug(form_slug: str) -> RuntimeGradingConfig
                 continue
             response_weights.setdefault(question_slug, {})[choice_value] = _to_float(item.weight, 0.0)
 
+        active_keys = [*ai_criteria, *structured_criteria]
+        default_keys = set(default_weights_for_track(track))
+        configured_max_is_legacy_default = abs(
+            max_total - default_max_total_for_track(track)
+        ) < 0.0001
+        if active_keys and configured_max_is_legacy_default and not default_keys.issubset(set(active_keys)):
+            calculated_max = 0.0
+            for key in ai_criteria:
+                calculated_max += 5.0 * float(weights.get(key, 1.0))
+            for key in structured_criteria:
+                choice_weights = response_weights.get(key, {})
+                calculated_max += (
+                    max(choice_weights.values())
+                    if choice_weights
+                    else float(weights.get(key, 1.0))
+                )
+            if calculated_max > 0:
+                max_total = calculated_max
+
     return RuntimeGradingConfig(
         form_slug=form_slug,
         weights=weights,
@@ -251,6 +276,7 @@ def runtime_grading_config_for_form_slug(form_slug: str) -> RuntimeGradingConfig
         rubric_note=rubric_note,
         ai_criteria=tuple(ai_criteria),
         structured_criteria=tuple(structured_criteria),
+        uses_configured_criteria=uses_configured_criteria,
     )
 
 

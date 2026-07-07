@@ -432,6 +432,11 @@ def grade_single_row(
     prompt_for = getattr(grading_config, "prompt", lambda _key: "")
     allows_negative = getattr(grading_config, "allows_negative", lambda _key, fallback=False: fallback)
     rubric_note = getattr(grading_config, "rubric_note", "") or ""
+    custom_criteria = bool(getattr(grading_config, "uses_configured_criteria", False))
+    active_structured = set(getattr(grading_config, "structured_criteria", ()) or ())
+    ai_fields = getattr(grading_config, "ai_criteria", None)
+    if ai_fields is None:
+        ai_fields = DEFAULT_AI_FIELDS
 
     disqual_reasons = _disqualification_reasons(row)
     meets_all = not disqual_reasons
@@ -459,26 +464,36 @@ def grade_single_row(
         row.get("owned_business"),
         yes(row.get("owned_business")) * float(weights.get("owned_business", W["owned_business"])),
     )
+    if custom_criteria and "owned_business" not in active_structured:
+        owned_pt = 0.0
     years_pt = response_score(
         "business_years",
         row.get("business_years"),
         (business_years_pts(row.get("business_years"), row.get("owned_business")) / 4) * float(weights.get("business_years", W["business_years"])),
     )
+    if custom_criteria and "business_years" not in active_structured:
+        years_pt = 0.0
     emp_pt = response_score(
         "has_employees",
         row.get("has_employees"),
         yes(row.get("has_employees")) * float(weights.get("has_employees", W["has_employees"])),
     )
+    if custom_criteria and "has_employees" not in active_structured:
+        emp_pt = 0.0
     mentor_pt = response_score(
         "mentoring_exp_as_mentor",
         row.get("mentoring_exp_as_mentor"),
         yes(row.get("mentoring_exp_as_mentor")) * float(weights.get("mentoring_exp_as_mentor", W["mentoring_exp_as_mentor"])),
     )
+    if custom_criteria and "mentoring_exp_as_mentor" not in active_structured:
+        mentor_pt = 0.0
     student_pt = response_score(
         "mentoring_exp_as_student",
         row.get("mentoring_exp_as_student"),
         yes(row.get("mentoring_exp_as_student")) * float(weights.get("mentoring_exp_as_student", W["mentoring_exp_as_student"])),
     )
+    if custom_criteria and "mentoring_exp_as_student" not in active_structured:
+        student_pt = 0.0
     extra_structured_total = sum(
         response_score(slug, row.get(slug), 0.0) or 0.0
         for slug in (getattr(grading_config, "structured_criteria", ()) or ())
@@ -497,13 +512,12 @@ def grade_single_row(
         and row.get("professional_expertise").strip()
         else 0
     ) * float(weights.get("professional_expertise_struct", W["professional_expertise_struct"]))
+    if custom_criteria and "professional_expertise_struct" not in active_structured:
+        prof_struct_pt = 0.0
 
     red_flags = detect_red_flags(
         client,
-        row.get("business_description"),
-        row.get("mentoring_exp_detail"),
-        row.get("motivation"),
-        row.get("professional_expertise"),
+        *(row.get(slug) for slug in ai_fields),
     )
     flag_color = red_flag_color(red_flags, row.get("prior_participation"))
 
@@ -564,9 +578,6 @@ def grade_single_row(
 
     score_exp = []
     ai_total = 0.0
-    ai_fields = getattr(grading_config, "ai_criteria", None)
-    if ai_fields is None:
-        ai_fields = DEFAULT_AI_FIELDS
     for slug in ai_fields:
         raw_score, explanation = grade_unstructured(
             client,
@@ -673,6 +684,26 @@ def grade_from_dataframe(
         )
 
     out_df = pd.DataFrame(out, columns=COLUMNS)
+    # Keep every source answer in the generated grading sheet. Current forms can
+    # use administrator-generated slugs that do not map to the legacy fixed columns.
+    source_df = df.reset_index(drop=True)
+    if bool(getattr(grading_config, "uses_configured_criteria", False)):
+        # Configured/current forms must export the exact application dataset,
+        # including questions that are not active grading criteria. Do not emit
+        # obsolete legacy placeholders that appear blank despite data existing
+        # under the form's real question slug.
+        result_parts = [out_df[["Status", "score", "score_exp"]]]
+        source_columns = [
+            column for column in source_df.columns
+            if column not in {"Status", "score", "score_exp", "grading_rubric"}
+        ]
+        result_parts.append(source_df[source_columns])
+        result_parts.append(out_df[["flag_color", "meets_all_req", "grading_rubric"]])
+        out_df = pd.concat(result_parts, axis=1)
+    else:
+        for column in source_df.columns:
+            if column not in out_df.columns:
+                out_df[column] = source_df[column]
     out_df, removed = _dedupe_scored_rows(out_df, "score", ["email", "cedula", "id_number"])
     if removed and log_fn:
         log_fn(f"→ Removed {removed} duplicate mentora rows, keeping the highest score per person")

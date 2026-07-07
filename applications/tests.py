@@ -949,6 +949,53 @@ class GradingAndPairingConfigEditorTests(TestCase):
         self.assertIn("Evaluate how specific and credible the story is.", request["messages"][0]["content"])
         self.assertIn("I started selling products locally two years ago.", request["messages"][0]["content"])
 
+    def test_mentor_runtime_ignores_stale_fields_and_uses_current_form_denominator(self):
+        import pandas as pd
+        from applications import grader_m
+        from applications.grading_config import ensure_grading_config_for_form
+
+        form = FormDefinition.objects.create(slug="G904_M_A1", name="Current mentor form")
+        for position, slug in enumerate(("descripcion_del_negocio", "motivacion_para_ser_mentora"), start=1):
+            Question.objects.create(
+                form=form,
+                text=slug.replace("_", " "),
+                slug=slug,
+                field_type=Question.LONG_TEXT,
+                position=position,
+            )
+        config_model = ensure_grading_config_for_form(form)
+        config_model.criteria.filter(
+            question_slug__in={"descripcion_del_negocio", "motivacion_para_ser_mentora"}
+        ).update(active=True)
+
+        runtime = runtime_grading_config_for_form_slug(form.slug)
+        self.assertEqual(
+            set(runtime.ai_criteria),
+            {"descripcion_del_negocio", "motivacion_para_ser_mentora"},
+        )
+        self.assertEqual(runtime.max_total_score, 10)
+
+        source = pd.DataFrame([{
+            "application_id": 1,
+            "full_name": "Current Applicant",
+            "email": "current@example.com",
+            "meets_requirements": "yes",
+            "available_period": "yes",
+            "descripcion_del_negocio": "Detailed business response",
+            "motivacion_para_ser_mentora": "Detailed motivation response",
+        }])
+        with patch("applications.grader_m.detect_red_flags", return_value=""), patch(
+            "applications.grader_m.grade_unstructured",
+            return_value=(4.0, "Relevant current response."),
+        ):
+            result = grader_m.grade_from_dataframe(source, Mock(), grading_config=runtime)
+
+        self.assertEqual(result.iloc[0]["score"], "80.00%")
+        self.assertNotIn("business_description - Blank", result.iloc[0]["score_exp"])
+        self.assertEqual(result.iloc[0]["descripcion_del_negocio"], "Detailed business response")
+        self.assertEqual(result.iloc[0]["motivacion_para_ser_mentora"], "Detailed motivation response")
+        self.assertNotIn("business_description", result.columns)
+
     def test_pairing_config_editor_creates_default_priority_and_ai_rules(self):
         group = FormGroup.objects.create(
             number=901,

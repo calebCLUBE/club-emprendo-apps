@@ -42,6 +42,14 @@
       </select>
     </div>
     <div>
+      <label for="approval_filter"><strong>Approval page</strong></label><br>
+      <select id="approval_filter" name="approval" class="vTextField">
+        <option value="" {% if not approval_filter %}selected{% endif %}>All</option>
+        <option value="approved" {% if approval_filter == "approved" %}selected{% endif %}>Received approval page</option>
+        <option value="not_approved" {% if approval_filter == "not_approved" %}selected{% endif %}>Did not receive approval page</option>
+      </select>
+    </div>
+    <div>
       <button type="submit" class="button default">Apply</button>
       <a class="button" href="{% url 'admin_database_track_detail' track %}" style="margin-left:6px;">Clear</a>
     </div>
@@ -91,6 +99,7 @@
                 <a href="{% url 'admin_database_submission_detail' a.id %}">
                   #{{ a.id }} — {% if a.form.group and a.form.group.custom_name %}{{ a.form.group.custom_name }}{% else %}Group {{ a.form.group.number|default:"?" }}{% endif %} — {{ a.created_at }} — {{ a.name }} ({{ a.email }})
                 </a>
+                — {% if a.approved_for_grading %}<strong style="color:#16794b;">Approved page</strong>{% else %}<span style="color:#8a3b12;">Not approved</span>{% endif %}
               </span>
             </label>
           </li>

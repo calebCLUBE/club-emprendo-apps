@@ -13,7 +13,9 @@
     <p style="margin:6px 0 12px; color:#333;">
       Sent second application: <strong>{{ second_stage_sent_count }}</strong>
     </p>
+  {% endif %}
     <form method="get" style="margin:10px 0 12px; padding:10px; border:1px solid #ddd; border-radius:10px; display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap;">
+      {% if is_first_application %}
       <div>
         <label for="a1_pass_filter"><strong>Filter A1 result</strong></label><br>
         <select id="a1_pass_filter" name="a1_pass" class="vTextField">
@@ -22,17 +24,25 @@
           <option value="not_passed" {% if a1_pass_filter == "not_passed" %}selected{% endif %}>Did not pass</option>
         </select>
       </div>
+      {% endif %}
+      <div>
+        <label for="approval_filter"><strong>Approval page</strong></label><br>
+        <select id="approval_filter" name="approval" class="vTextField">
+          <option value="" {% if not approval_filter %}selected{% endif %}>All</option>
+          <option value="approved" {% if approval_filter == "approved" %}selected{% endif %}>Received approval page</option>
+          <option value="not_approved" {% if approval_filter == "not_approved" %}selected{% endif %}>Did not receive approval page</option>
+        </select>
+      </div>
       <div>
         <button type="submit" class="button default">Apply</button>
         <a class="button" href="{% url 'admin_database_form_detail' form_def.slug %}" style="margin-left:6px;">Clear</a>
       </div>
     </form>
-    {% if a1_pass_filter %}
+    {% if a1_pass_filter or approval_filter %}
       <p style="margin:6px 0 12px; color:#555;">
         Showing <strong>{{ submission_count }}</strong> of <strong>{{ submission_total_count }}</strong> submissions.
       </p>
     {% endif %}
-  {% endif %}
   {% if apps %}
     <form method="post"
           action="{% url 'admin_bulk_delete_submissions' %}"
@@ -67,6 +77,7 @@
                 <a href="{% url 'admin_database_submission_detail' a.id %}">
                   #{{ a.id }} — {{ a.created_at }} — {{ a.name }} ({{ a.email }})
                 </a>
+                — {% if a.approved_for_grading %}<strong style="color:#16794b;">Approved page</strong>{% else %}<span style="color:#8a3b12;">Not approved</span>{% endif %}
               </span>
             </label>
           </li>

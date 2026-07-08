@@ -13,6 +13,7 @@ urlpatterns = [
     # CUSTOM ADMIN PAGES
     # ============================
     path("admin/apps/", admin_views.apps_list, name="admin_apps_list"),
+    path("admin/communications/bulk-email/", admin_views.bulk_email_compose, name="admin_bulk_email_compose"),
     path(
         "admin/apps/dashboard/",
         admin_dashboard_views.applications_dashboard,

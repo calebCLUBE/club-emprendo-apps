@@ -24,6 +24,8 @@ from django.contrib import messages
 from django.contrib.admin.views.decorators import staff_member_required
 from django.core.files.storage import default_storage
 from django.core.mail import EmailMultiAlternatives, get_connection
+from django.core.exceptions import ValidationError
+from django.core.validators import validate_email
 from django.core.cache import cache
 from django.db import transaction, DatabaseError
 from django.db.models import Model, Count, Q
@@ -46,6 +48,101 @@ from applications.drive_sync import (
     sync_generated_csv_artifact,
     sync_group_track_responses_csv,
 )
+
+
+def _parse_bulk_email_recipients(raw_value: str) -> tuple[list[str], list[str]]:
+    candidates = re.split(r"[\s,;]+", raw_value or "")
+    valid: list[str] = []
+    invalid: list[str] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        email = candidate.strip().lower()
+        if not email or email in seen:
+            continue
+        seen.add(email)
+        try:
+            validate_email(email)
+        except ValidationError:
+            invalid.append(candidate.strip())
+        else:
+            valid.append(email)
+    return valid, invalid
+
+
+@staff_member_required
+def bulk_email_compose(request):
+    context = {
+        "recipients": "",
+        "subject": "",
+        "message_body": "",
+        "reply_to": "",
+    }
+    if request.method == "POST":
+        context.update({
+            "recipients": request.POST.get("recipients") or "",
+            "subject": (request.POST.get("subject") or "").strip(),
+            "message_body": request.POST.get("message_body") or "",
+            "reply_to": (request.POST.get("reply_to") or "").strip(),
+        })
+        recipients, invalid = _parse_bulk_email_recipients(context["recipients"])
+        errors = []
+        if invalid:
+            errors.append("Invalid email addresses: " + ", ".join(invalid[:20]))
+        if not recipients:
+            errors.append("Enter at least one valid recipient.")
+        if len(recipients) > 500:
+            errors.append("A single send is limited to 500 recipients.")
+        if not context["subject"]:
+            errors.append("Enter a subject.")
+        if not context["message_body"].strip():
+            errors.append("Enter a message.")
+        if context["reply_to"]:
+            try:
+                validate_email(context["reply_to"])
+            except ValidationError:
+                errors.append("Enter a valid reply-to address.")
+        if request.POST.get("confirm_send") != "yes":
+            errors.append("Confirm that you are ready to send this email.")
+
+        if errors:
+            context["errors"] = errors
+            context["recipient_count"] = len(recipients)
+            return render(request, "admin_dash/bulk_email_compose.html", context, status=400)
+
+        connection = get_connection(fail_silently=False)
+        queued = 0
+        try:
+            connection.open()
+            for start in range(0, len(recipients), 40):
+                batch = recipients[start:start + 40]
+                email = EmailMultiAlternatives(
+                    subject=context["subject"],
+                    body=context["message_body"],
+                    from_email=getattr(settings, "DEFAULT_FROM_EMAIL", None),
+                    to=[],
+                    bcc=batch,
+                    reply_to=[context["reply_to"]] if context["reply_to"] else None,
+                    connection=connection,
+                )
+                if email.send(fail_silently=False):
+                    queued += len(batch)
+        except Exception as exc:
+            logger.exception("Bulk email send failed after %s recipient(s)", queued)
+            context["errors"] = [
+                f"Sending stopped after {queued} recipient(s): {exc}"
+            ]
+            context["recipient_count"] = len(recipients)
+            return render(request, "admin_dash/bulk_email_compose.html", context, status=502)
+        finally:
+            connection.close()
+
+        messages.success(
+            request,
+            f"Email queued for {queued} recipient(s). Addresses were hidden from other recipients.",
+        )
+        return redirect("admin_bulk_email_compose")
+
+    return render(request, "admin_dash/bulk_email_compose.html", context)
 from applications.emprendedora_a1_autograde import emprendedora_a1_passes
 from applications.email_templates import build_form_email_context, resolve_form_email_template
 from applications.grading_config import (
@@ -5020,20 +5117,26 @@ def database_form_detail(request, form_slug: str):
     )
     is_first_application = (form_def.slug or "").endswith("E_A1") or (form_def.slug or "").endswith("M_A1")
     a1_pass_filter = _normalized_a1_pass_filter(request.GET.get("a1_pass"))
+    approval_filter = (request.GET.get("approval") or "").strip().lower()
+    if approval_filter not in {"approved", "not_approved"}:
+        approval_filter = ""
     if is_first_application:
         apps_qs = apps_qs.prefetch_related("answers__question")
 
     submission_total_count = apps_qs.count()
-    apps = list(apps_qs)
-    if is_first_application and a1_pass_filter:
-        apps = _filter_a1_apps_by_pass_status(apps, a1_pass_filter)
-    submission_count = len(apps)
-
     second_stage_sent_count = (
         apps_qs.filter(invited_to_second_stage=True).count()
         if is_first_application
         else None
     )
+    if approval_filter == "approved":
+        apps_qs = apps_qs.filter(approved_for_grading=True)
+    elif approval_filter == "not_approved":
+        apps_qs = apps_qs.filter(approved_for_grading=False)
+    apps = list(apps_qs)
+    if is_first_application and a1_pass_filter:
+        apps = _filter_a1_apps_by_pass_status(apps, a1_pass_filter)
+    submission_count = len(apps)
 
     return render(
         request,
@@ -5046,6 +5149,7 @@ def database_form_detail(request, form_slug: str):
             "is_first_application": is_first_application,
             "second_stage_sent_count": second_stage_sent_count,
             "a1_pass_filter": a1_pass_filter,
+            "approval_filter": approval_filter,
         },
     )
 
@@ -5294,6 +5398,9 @@ def database_type_detail(request, app_type: str):
     selected_group: int | None = int(group_raw) if group_raw.isdigit() else None
     is_first_application_type = app_type.endswith("_A1")
     a1_pass_filter = _normalized_a1_pass_filter(request.GET.get("a1_pass")) if is_first_application_type else ""
+    approval_filter = (request.GET.get("approval") or "").strip().lower()
+    if approval_filter not in {"approved", "not_approved"}:
+        approval_filter = ""
 
     all_forms = _group_forms_for_app_type(app_type, include_combined_groups=False)
     if selected_group is None:
@@ -5341,6 +5448,10 @@ def database_type_detail(request, app_type: str):
         apps_qs = apps_qs.prefetch_related("answers__question")
 
     submission_total_count = apps_qs.count()
+    if approval_filter == "approved":
+        apps_qs = apps_qs.filter(approved_for_grading=True)
+    elif approval_filter == "not_approved":
+        apps_qs = apps_qs.filter(approved_for_grading=False)
     apps = list(apps_qs)
     if is_first_application_type and a1_pass_filter:
         apps = _filter_a1_apps_by_pass_status(apps, a1_pass_filter)
@@ -5360,6 +5471,7 @@ def database_type_detail(request, app_type: str):
             "submission_total_count": submission_total_count,
             "is_first_application_type": is_first_application_type,
             "a1_pass_filter": a1_pass_filter,
+            "approval_filter": approval_filter,
         },
     )
 
@@ -5447,6 +5559,9 @@ def database_track_detail(request, track: str):
 
     group_raw = (request.GET.get("group") or "").strip()
     selected_group: int | None = int(group_raw) if group_raw.isdigit() else None
+    approval_filter = (request.GET.get("approval") or "").strip().lower()
+    if approval_filter not in {"approved", "not_approved"}:
+        approval_filter = ""
     completion_filter = (request.GET.get("completion") or "").strip().lower()
     if completion_filter == TRACK_COMPLETION_FILTER_EXCLUDE_A2_ONLY:
         completion_filter = TRACK_COMPLETION_FILTER_A1_ONLY
@@ -5526,6 +5641,11 @@ def database_track_detail(request, track: str):
             .prefetch_related("answers__question")
         )
 
+    if approval_filter == "approved":
+        apps_qs = apps_qs.filter(approved_for_grading=True)
+    elif approval_filter == "not_approved":
+        apps_qs = apps_qs.filter(approved_for_grading=False)
+
     apps = list(apps_qs)
     if completion_filter == TRACK_COMPLETION_FILTER_A1_NOT_PASSED:
         apps = _filter_a1_apps_by_pass_status(apps, "not_passed")
@@ -5540,6 +5660,7 @@ def database_track_detail(request, track: str):
             "selected_group": selected_group,
             "selected_group_label": selected_group_label,
             "completion_filter": completion_filter,
+            "approval_filter": approval_filter,
             "group_options": group_options,
             "group_option_items": group_option_items,
             "apps": apps,

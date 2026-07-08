@@ -1,0 +1,30 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<style>
+  .ce-mail-wrap{max-width:900px}.ce-mail-card{background:#fff;border:1px solid #dbe4f0;border-radius:14px;padding:20px}
+  .ce-mail-form{display:grid;gap:16px}.ce-mail-field{display:grid;gap:6px}.ce-mail-field label{font-weight:700;color:#1e293b}
+  .ce-mail-field input,.ce-mail-field textarea{box-sizing:border-box;width:100%;padding:10px;border:1px solid #cbd5e1;border-radius:8px}
+  .ce-mail-help{color:#64748b;font-size:13px}.ce-mail-errors{background:#fef2f2;border:1px solid #fecaca;color:#991b1b;border-radius:10px;padding:12px}
+  .ce-mail-confirm{display:flex;align-items:flex-start;gap:8px}.ce-mail-confirm input{margin-top:3px}
+</style>
+<div class="ce-mail-wrap">
+  <h1>Send Bulk Email</h1>
+  <p>Each address is sent as a hidden BCC recipient. Recipients cannot see the other addresses.</p>
+  {% if errors %}<div class="ce-mail-errors"><ul>{% for error in errors %}<li>{{ error }}</li>{% endfor %}</ul></div>{% endif %}
+  <div class="ce-mail-card">
+    <form method="post" class="ce-mail-form">
+      {% csrf_token %}
+      <div class="ce-mail-field">
+        <label for="id_recipients">Recipients</label>
+        <textarea id="id_recipients" name="recipients" rows="10" required placeholder="one@example.com&#10;two@example.com">{{ recipients }}</textarea>
+        <div class="ce-mail-help">Paste up to 500 addresses separated by lines, commas, spaces, or semicolons. Duplicates are removed.</div>
+      </div>
+      <div class="ce-mail-field"><label for="id_reply_to">Reply-to address (optional)</label><input id="id_reply_to" type="email" name="reply_to" value="{{ reply_to }}"></div>
+      <div class="ce-mail-field"><label for="id_subject">Subject</label><input id="id_subject" name="subject" value="{{ subject }}" maxlength="255" required></div>
+      <div class="ce-mail-field"><label for="id_message_body">Message</label><textarea id="id_message_body" name="message_body" rows="14" required>{{ message_body }}</textarea><div class="ce-mail-help">The message is sent as plain text, preserving paragraphs and links.</div></div>
+      <label class="ce-mail-confirm"><input type="checkbox" name="confirm_send" value="yes" required><span>I reviewed the recipients, subject, and message and am ready to send.</span></label>
+      <div><button type="submit" class="button default">Send email</button></div>
+    </form>
+  </div>
+</div>
+{% endblock %}

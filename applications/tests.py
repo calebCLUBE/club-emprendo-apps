@@ -21,6 +21,7 @@ from applications.admin_views import (
     _build_second_stage_reminder_payload,
     _clone_form,
     _combined_application_entries,
+    _parse_bulk_email_recipients,
     _sync_group_form_names,
 )
 from applications.email_templates import build_form_email_context, resolve_form_email_template
@@ -60,6 +61,101 @@ from applications.models import (
     Section,
     StoredEmailTemplate,
 )
+
+
+class BulkEmailComposeTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_superuser(
+            email="bulk-admin@example.com",
+            password="password",
+        )
+        self.client.force_login(self.user)
+
+    def test_recipient_parser_deduplicates_and_reports_invalid_addresses(self):
+        valid, invalid = _parse_bulk_email_recipients(
+            "One@Example.com; two@example.com\none@example.com bad-address"
+        )
+        self.assertEqual(valid, ["one@example.com", "two@example.com"])
+        self.assertEqual(invalid, ["bad-address"])
+
+    def test_bulk_email_hides_recipients_and_sends_in_batches(self):
+        recipients = [f"person{index}@example.com" for index in range(41)]
+        response = self.client.post(
+            reverse("admin_bulk_email_compose"),
+            {
+                "recipients": "\n".join(recipients),
+                "reply_to": "team@example.com",
+                "subject": "Program update",
+                "message_body": "Hello everyone,\n\nThis is an update.",
+                "confirm_send": "yes",
+            },
+            follow=True,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Email queued for 41 recipient(s)")
+        self.assertEqual(len(mail.outbox), 2)
+        self.assertEqual(mail.outbox[0].to, [])
+        self.assertEqual(len(mail.outbox[0].bcc), 40)
+        self.assertEqual(len(mail.outbox[1].bcc), 1)
+        self.assertEqual(mail.outbox[0].reply_to, ["team@example.com"])
+
+    def test_send_requires_explicit_confirmation(self):
+        response = self.client.post(
+            reverse("admin_bulk_email_compose"),
+            {
+                "recipients": "person@example.com",
+                "subject": "Subject",
+                "message_body": "Message",
+            },
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertContains(response, "Confirm that you are ready", status_code=400)
+        self.assertEqual(len(mail.outbox), 0)
+
+
+class SubmissionApprovalFilterTests(TestCase):
+    def setUp(self):
+        user = get_user_model().objects.create_superuser(
+            email="submission-filter@example.com",
+            password="password",
+        )
+        self.client.force_login(user)
+        self.form_def = FormDefinition.objects.create(
+            slug="G990_M_A1",
+            name="Approval filter test",
+        )
+        Application.objects.create(
+            form=self.form_def,
+            name="Approved Person",
+            email="approved@example.com",
+            approved_for_grading=True,
+        )
+        Application.objects.create(
+            form=self.form_def,
+            name="Rejected Person",
+            email="rejected@example.com",
+            approved_for_grading=False,
+        )
+
+    def test_form_submission_view_filters_for_approval_page(self):
+        response = self.client.get(
+            reverse("admin_database_form_detail", args=[self.form_def.slug]),
+            {"approval": "approved"},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Received approval page")
+        self.assertContains(response, "approved@example.com")
+        self.assertNotContains(response, "rejected@example.com")
+        self.assertContains(response, "Showing <strong>1</strong> of <strong>2</strong> submissions.", html=True)
+
+    def test_form_submission_view_filters_for_non_approved_page(self):
+        response = self.client.get(
+            reverse("admin_database_form_detail", args=[self.form_def.slug]),
+            {"approval": "not_approved"},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "rejected@example.com")
+        self.assertNotContains(response, "approved@example.com")
 
 
 class MentorGradingRequirementSchemaTests(TestCase):

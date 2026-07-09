@@ -15,6 +15,7 @@ from unittest.mock import Mock, patch
 
 from applications import admin_dashboard_views
 from applications import admin_profiles_views
+from applications.grader_m import MENTORA_EXACT_OUTPUT_COLUMNS
 from applications import meta_marketing
 from applications.admin import FormDefinitionAdmin, QuestionAdminForm, QuestionInlineFormSet, SectionAdminForm
 from applications.admin_views import (
@@ -1117,7 +1118,8 @@ class GradingAndPairingConfigEditorTests(TestCase):
         self.assertEqual(result.iloc[0]["score"], "80.00%")
         self.assertNotIn("business_description - Blank", result.iloc[0]["score_exp"])
         self.assertEqual(result.iloc[0]["descripcion_del_negocio"], "Detailed business response")
-        self.assertEqual(result.iloc[0]["motivacion_para_ser_mentora"], "Detailed motivation response")
+        self.assertEqual(list(result.columns), MENTORA_EXACT_OUTPUT_COLUMNS)
+        self.assertNotIn("motivacion_para_ser_mentora", result.columns)
         self.assertNotIn("business_description", result.columns)
 
     def test_mentor_grading_keeps_duplicate_submission_rows_in_export(self):
@@ -1163,6 +1165,54 @@ class GradingAndPairingConfigEditorTests(TestCase):
 
         self.assertEqual(len(result), 2)
         self.assertEqual(list(result["application_id"]), [1, 2])
+        self.assertEqual(list(result.columns), MENTORA_EXACT_OUTPUT_COLUMNS)
+
+    def test_mentor_grading_uses_exact_selection_column_order(self):
+        import pandas as pd
+        from applications import grader_m
+
+        runtime = SimpleNamespace(
+            uses_configured_criteria=True,
+            weights={"descripcion_del_negocio": 5},
+            max_total_score=5,
+            ai_criteria=("descripcion_del_negocio",),
+            structured_criteria=(),
+            prompt=lambda _slug: "",
+            allows_negative=lambda _slug, fallback=False: fallback,
+            response_score=lambda _slug, _value, default=None: default,
+            rubric_note="Rubric note",
+            model_name="",
+        )
+        source = pd.DataFrame([{
+            "created_at": "2026-07-08T12:00:00",
+            "application_id": 99,
+            "full_name": "Fallback Name",
+            "email": "fallback@example.com",
+            "nombre_completo": "Applicant Name",
+            "correo_electronico": "applicant@example.com",
+            "whatsapp": "+573000000000",
+            "ID": "ABC123",
+            "Reside": "Colombia",
+            "Nacionalidad": "Venezuela",
+            "edad": "31-40",
+            "meets_requirements": "yes",
+            "available_period": "yes",
+            "descripcion_del_negocio": "Detailed business response",
+            "acepto_que_los_datos_proporcionados_sean_tratados": "yes",
+        }])
+
+        with patch("applications.grader_m.detect_red_flags", return_value=""), patch(
+            "applications.grader_m.grade_unstructured",
+            return_value=(4.0, "Relevant response."),
+        ):
+            result = grader_m.grade_from_dataframe(source, Mock(), grading_config=runtime)
+
+        self.assertEqual(list(result.columns), MENTORA_EXACT_OUTPUT_COLUMNS)
+        self.assertEqual(result.iloc[0]["nombre_completo"], "Applicant Name")
+        self.assertEqual(result.iloc[0]["correo_electronico"], "applicant@example.com")
+        self.assertEqual(result.iloc[0]["full_name"], "Fallback Name")
+        self.assertEqual(result.iloc[0]["email"], "fallback@example.com")
+        self.assertEqual(result.iloc[0]["grading_rubric"], "Rubric note")
 
     def test_emprendedora_runtime_exports_source_columns_and_keeps_rows(self):
         import pandas as pd

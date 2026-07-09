@@ -412,6 +412,86 @@ COLUMNS = [
     "grading_rubric",
 ]
 
+MENTORA_EXACT_OUTPUT_COLUMNS = [
+    "Status",
+    "score",
+    "score_exp",
+    "nombre_completo",
+    "correo_electronico",
+    "whatsapp",
+    "ID",
+    "Reside",
+    "Nacionalidad",
+    "edad",
+    "meets_all_req",
+    "flag_color",
+    "has_participado_anteriormente_en_club_emprendo_pue",
+    "tienes_alguna_experiencia_previa_con_mentoria_para",
+    "soy_mujer",
+    "hablo_espanol",
+    "tengo_acceso_a_internet_y_un_dispositivo_computado",
+    "estoy_dispuesta_a_firmar_un_acta_de_compromiso_con",
+    "estoy_dispuesta_a_completar_el_curso_de_capacitaci",
+    "estoy_dispuesta_a_completar_dos_encuestas_de_retro",
+    "estoy_disponible_para_participar_en_el_programa_de",
+    "estoy_dispuesta_a_dedicarle_minimo_2_horas_a_la_se",
+    "revise_el_pdf_enlace_abajo_que_ofrece_una_breve_in",
+    "si_estas_dispuesta_por_favor_indicanos_que_requisi",
+    "has_dirigido_tu_propio_negocio",
+    "nombre_de_tu_emprendimiento",
+    "industria_de_tu_emprendimiento",
+    "descripcion_del_negocio",
+    "donde_operas_tu_negocio_o_donde_lo_operabas_si_ya",
+    "cuanto_tiempo_has_estado_operando_o_por_cuanto_tie",
+    "cual_es_tu_area_de_experiencia_profesional_mas_rel",
+    "que_te_motiva_a_ser_mentora_en_este_programa_de_cl",
+    "por_que_crees_que_serias_una_buena_mentora_para_un",
+    "en_que_horario_te_resulta_mas_conveniente_particip",
+    "te_gustaria_dejarnos_algun_comentario_duda_o_suger",
+    "declaro_que_he_leido_y_entendido_los_4_pasos_de_se",
+    "grading_rubric",
+    "created_at",
+    "application_id",
+    "full_name",
+    "email",
+    "acepto_que_los_datos_proporcionados_sean_tratados",
+]
+
+
+MENTORA_COLUMN_FALLBACKS = {
+    "nombre_completo": ("nombre_completo", "certificate_name", "preferred_name", "full_name", "name"),
+    "correo_electronico": ("correo_electronico", "email", "correo"),
+    "ID": ("ID", "id_number", "cedula"),
+    "Reside": ("Reside", "country_residence"),
+    "Nacionalidad": ("Nacionalidad", "country_birth", "birth_country", "country_of_birth"),
+    "edad": ("edad", "age_range"),
+}
+
+
+def _first_existing_column(df: pd.DataFrame, columns: tuple[str, ...]) -> pd.Series | None:
+    for column in columns:
+        if column in df.columns:
+            return df[column]
+    return None
+
+
+def _ordered_mentora_output(out_df: pd.DataFrame, source_df: pd.DataFrame) -> pd.DataFrame:
+    source_df = source_df.reset_index(drop=True)
+    out_df = out_df.reset_index(drop=True)
+    ordered = pd.DataFrame(index=out_df.index)
+
+    for column in MENTORA_EXACT_OUTPUT_COLUMNS:
+        value = None
+        if column in {"Status", "score", "score_exp", "meets_all_req", "flag_color", "grading_rubric"}:
+            value = _first_existing_column(out_df, (column,))
+        if value is None:
+            value = _first_existing_column(source_df, MENTORA_COLUMN_FALLBACKS.get(column, (column,)))
+        if value is None:
+            value = _first_existing_column(out_df, MENTORA_COLUMN_FALLBACKS.get(column, (column,)))
+        ordered[column] = value if value is not None else ""
+
+    return ordered
+
 # -----------------------
 # Grade ONE row
 # -----------------------
@@ -688,18 +768,7 @@ def grade_from_dataframe(
     # use administrator-generated slugs that do not map to the legacy fixed columns.
     source_df = df.reset_index(drop=True)
     if bool(getattr(grading_config, "uses_configured_criteria", False)):
-        # Configured/current forms must export the exact application dataset,
-        # including questions that are not active grading criteria. Do not emit
-        # obsolete legacy placeholders that appear blank despite data existing
-        # under the form's real question slug.
-        result_parts = [out_df[["Status", "score", "score_exp"]]]
-        source_columns = [
-            column for column in source_df.columns
-            if column not in {"Status", "score", "score_exp", "grading_rubric"}
-        ]
-        result_parts.append(source_df[source_columns])
-        result_parts.append(out_df[["flag_color", "meets_all_req", "grading_rubric"]])
-        out_df = pd.concat(result_parts, axis=1)
+        out_df = _ordered_mentora_output(out_df, source_df)
     else:
         for column in source_df.columns:
             if column not in out_df.columns:

@@ -51,6 +51,7 @@ urlpatterns = [
     path("admin/apps/toggle-form/<slug:form_slug>/", admin_views.toggle_form_open, name="admin_toggle_form_open"),
     path("admin/apps/toggle-accepting/<slug:form_slug>/", admin_views.toggle_form_accepting, name="admin_toggle_form_accepting"),
     path("admin/apps/send-a2-reminders/<slug:form_slug>/", admin_views.send_second_stage_reminders, name="admin_send_second_stage_reminders"),
+    path("admin/apps/send-application-email/<slug:form_slug>/", admin_views.send_application_update_email, name="admin_send_application_update_email"),
 
     # ============================
     # TASK MANAGER

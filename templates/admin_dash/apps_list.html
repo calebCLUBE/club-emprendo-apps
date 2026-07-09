@@ -52,6 +52,20 @@
       color: #666;
       font-size: 12px;
     }
+    .ce-email-box {
+      width: 100%;
+      margin-top: 10px;
+      padding: 10px;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      background: #fff;
+    }
+    .ce-email-box textarea {
+      width: 100%;
+      min-height: 86px;
+      box-sizing: border-box;
+      margin: 6px 0 8px;
+    }
   </style>
 
   <h1>Applications</h1>
@@ -240,6 +254,25 @@
                         {% endif %}
                       </form>
                     </div>
+
+                    <form
+                      method="post"
+                      action="{% url 'admin_send_application_update_email' fd.slug %}"
+                      class="ce-email-box"
+                      onsubmit="if(!confirm('Enviar este correo a todas las personas que llenaron {{ fd.slug }}?')) return false; var b=this.querySelector('button[type=submit]'); if(b){b.disabled=true;b.textContent='Enviando...';} return true;"
+                    >
+                      {% csrf_token %}
+                      <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                      <label for="application-email-{{ fd.id }}"><strong>Enviar correo a quienes llenaron esta aplicación</strong></label>
+                      <textarea
+                        id="application-email-{{ fd.id }}"
+                        name="message_body"
+                        placeholder="Escribe aquí el mensaje que quieres enviar..."
+                        required
+                      ></textarea>
+                      <button type="submit" class="button">Enviar correo</button>
+                      <span class="ce-meta">Remitente: contacto@clubemprendo.org</span>
+                    </form>
                   </div>
                 </details>
               {% endfor %}

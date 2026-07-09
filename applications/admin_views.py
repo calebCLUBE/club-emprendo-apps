@@ -143,6 +143,64 @@ def bulk_email_compose(request):
         return redirect("admin_bulk_email_compose")
 
     return render(request, "admin_dash/bulk_email_compose.html", context)
+
+
+def _application_email_recipients_for_form(form_def) -> list[str]:
+    recipients: list[str] = []
+    seen: set[str] = set()
+    for raw_email in (
+        Application.objects
+        .filter(form=form_def)
+        .exclude(email__isnull=True)
+        .exclude(email__exact="")
+        .order_by("created_at", "id")
+        .values_list("email", flat=True)
+    ):
+        email = (raw_email or "").strip().lower()
+        if not email or email in seen:
+            continue
+        try:
+            validate_email(email)
+        except ValidationError:
+            continue
+        seen.add(email)
+        recipients.append(email)
+    return recipients
+
+
+def _send_application_update_email(
+    *,
+    form_slug: str,
+    recipients: list[str],
+    message_body: str,
+    subject: str = "Actualización Club Emprendo",
+) -> int:
+    if not recipients:
+        return 0
+
+    connection = get_connection(fail_silently=False)
+    sent = 0
+    try:
+        connection.open()
+        for start in range(0, len(recipients), 40):
+            batch = recipients[start:start + 40]
+            msg = EmailMultiAlternatives(
+                subject=subject,
+                body=message_body,
+                from_email="contacto@clubemprendo.org",
+                to=[],
+                bcc=batch,
+                connection=connection,
+            )
+            msg.extra_headers = {"X-Club-Emprendo-Form": form_slug}
+            if msg.send(fail_silently=False):
+                sent += len(batch)
+    finally:
+        try:
+            connection.close()
+        except Exception:
+            pass
+    return sent
 from applications.emprendedora_a1_autograde import emprendedora_a1_passes
 from applications.email_templates import build_form_email_context, resolve_form_email_template
 from applications.grading_config import (
@@ -822,7 +880,30 @@ def _run_grade_job(job_id: int):
             "application_id",
             "full_name",
             "email",
-        ] + [q.slug for q in questions]
+        ]
+        source_questions = []
+        seen_headers = {header.lower() for header in headers}
+        skipped_duplicate_headers = []
+        for question in questions:
+            slug = (question.slug or "").strip()
+            header_key = slug.lower()
+            if not slug:
+                continue
+            if header_key in seen_headers:
+                skipped_duplicate_headers.append(slug)
+                continue
+            seen_headers.add(header_key)
+            source_questions.append(question)
+        headers += [q.slug for q in source_questions]
+        if skipped_duplicate_headers:
+            _job_log(
+                job,
+                (
+                    "↔️ Skipped duplicate source column(s): "
+                    + ", ".join(skipped_duplicate_headers)
+                    + ". Identity values are already exported once."
+                ),
+            )
 
         rows = []
         for app in app_list:
@@ -830,13 +911,28 @@ def _run_grade_job(job_id: int):
                 a.question.slug: (a.value or "")
                 for a in app.answers.all()
             }
+            full_name = (
+                app.name
+                or answer_map.get("full_name")
+                or answer_map.get("certificate_name")
+                or answer_map.get("preferred_name")
+                or answer_map.get("nombre")
+                or ""
+            )
+            email = (
+                app.email
+                or answer_map.get("email")
+                or answer_map.get("correo")
+                or answer_map.get("correo_electronico")
+                or ""
+            )
 
             rows.append([
                 app.created_at.isoformat(),
                 app.id,
-                app.name or "",
-                app.email or "",
-            ] + [answer_map.get(q.slug, "") for q in questions])
+                full_name,
+                email,
+            ] + [answer_map.get(q.slug, "") for q in source_questions])
 
         import pandas as pd
         master_df = pd.DataFrame(rows, columns=headers)
@@ -6890,6 +6986,49 @@ def send_second_stage_reminders(request, form_slug: str):
         messages.error(request, detail)
 
     return redirect("admin_apps_list")
+
+
+@staff_member_required
+@require_POST
+def send_application_update_email(request, form_slug: str):
+    form_def = get_object_or_404(FormDefinition, slug=form_slug)
+    message_body = (request.POST.get("message_body") or "").strip()
+    next_url = request.POST.get("next") or reverse("admin_apps_list")
+    if not url_has_allowed_host_and_scheme(
+        next_url,
+        allowed_hosts={request.get_host()},
+        require_https=request.is_secure(),
+    ):
+        next_url = reverse("admin_apps_list")
+
+    if not message_body:
+        messages.error(request, f"Escribe un mensaje antes de enviar correos para {form_slug}.")
+        return redirect(next_url)
+
+    recipients = _application_email_recipients_for_form(form_def)
+    if not recipients:
+        messages.warning(request, f"No hay correos válidos para enviar en {form_slug}.")
+        return redirect(next_url)
+
+    try:
+        sent = _send_application_update_email(
+            form_slug=form_slug,
+            recipients=recipients,
+            message_body=message_body,
+        )
+    except Exception as exc:
+        logger.exception("Application update email failed for %s", form_slug)
+        messages.error(request, f"No se pudo enviar el correo para {form_slug}: {exc}")
+        return redirect(next_url)
+
+    messages.success(
+        request,
+        (
+            f"Correo enviado para {form_slug}: {sent} destinataria(s). "
+            "Los correos se enviaron ocultos en BCC desde contacto@clubemprendo.org."
+        ),
+    )
+    return redirect(next_url)
 
 def _build_second_stage_reminder_payload(form_slug: str) -> tuple[dict | None, str | None]:
     """

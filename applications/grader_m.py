@@ -704,7 +704,8 @@ def grade_from_dataframe(
         for column in source_df.columns:
             if column not in out_df.columns:
                 out_df[column] = source_df[column]
-    out_df, removed = _dedupe_scored_rows(out_df, "score", ["email", "cedula", "id_number"])
-    if removed and log_fn:
-        log_fn(f"→ Removed {removed} duplicate mentora rows, keeping the highest score per person")
+    # Do not remove applicant rows here. The selection page count and the
+    # downloaded graded Excel must represent the same approved submission set.
+    # Duplicated people can still be reviewed manually in the sheet, but hidden
+    # row removal makes the export look incomplete.
     return out_df

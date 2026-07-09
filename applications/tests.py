@@ -21,6 +21,7 @@ from applications.admin_views import (
     _build_second_stage_reminder_payload,
     _clone_form,
     _combined_application_entries,
+    _application_email_recipients_for_form,
     _parse_bulk_email_recipients,
     _sync_group_form_names,
 )
@@ -111,6 +112,33 @@ class BulkEmailComposeTests(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertContains(response, "Confirm that you are ready", status_code=400)
         self.assertEqual(len(mail.outbox), 0)
+
+    def test_application_update_email_sends_to_people_who_filled_specific_form(self):
+        target_form = FormDefinition.objects.create(slug="G991_M_A1", name="Mentoras junio")
+        other_form = FormDefinition.objects.create(slug="G992_M_A1", name="Other")
+        Application.objects.create(form=target_form, name="One", email="one@example.com")
+        Application.objects.create(form=target_form, name="Duplicate", email="One@Example.com")
+        Application.objects.create(form=target_form, name="Two", email="two@example.com")
+        Application.objects.create(form=other_form, name="Other", email="other@example.com")
+
+        self.assertEqual(
+            _application_email_recipients_for_form(target_form),
+            ["one@example.com", "two@example.com"],
+        )
+
+        response = self.client.post(
+            reverse("admin_send_application_update_email", args=[target_form.slug]),
+            {"message_body": "Seguimos trabajando en la selección."},
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Correo enviado para G991_M_A1: 2 destinataria(s).")
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].from_email, "contacto@clubemprendo.org")
+        self.assertEqual(mail.outbox[0].to, [])
+        self.assertEqual(mail.outbox[0].bcc, ["one@example.com", "two@example.com"])
+        self.assertIn("Seguimos trabajando", mail.outbox[0].body)
 
 
 class SubmissionApprovalFilterTests(TestCase):
@@ -1090,6 +1118,100 @@ class GradingAndPairingConfigEditorTests(TestCase):
         self.assertNotIn("business_description - Blank", result.iloc[0]["score_exp"])
         self.assertEqual(result.iloc[0]["descripcion_del_negocio"], "Detailed business response")
         self.assertEqual(result.iloc[0]["motivacion_para_ser_mentora"], "Detailed motivation response")
+        self.assertNotIn("business_description", result.columns)
+
+    def test_mentor_grading_keeps_duplicate_submission_rows_in_export(self):
+        import pandas as pd
+        from applications import grader_m
+
+        runtime = SimpleNamespace(
+            uses_configured_criteria=True,
+            weights={"current_story": 5},
+            max_total_score=5,
+            ai_criteria=("current_story",),
+            structured_criteria=(),
+            prompt=lambda _slug: "",
+            allows_negative=lambda _slug, fallback=False: fallback,
+            response_score=lambda _slug, _value, default=None: default,
+            rubric_note="",
+            model_name="",
+        )
+        source = pd.DataFrame([
+            {
+                "application_id": 1,
+                "full_name": "Duplicate Applicant",
+                "email": "duplicate@example.com",
+                "meets_requirements": "yes",
+                "available_period": "yes",
+                "current_story": "First response",
+            },
+            {
+                "application_id": 2,
+                "full_name": "Duplicate Applicant",
+                "email": "duplicate@example.com",
+                "meets_requirements": "yes",
+                "available_period": "yes",
+                "current_story": "Second response",
+            },
+        ])
+
+        with patch("applications.grader_m.detect_red_flags", return_value=""), patch(
+            "applications.grader_m.grade_unstructured",
+            return_value=(4.0, "Relevant response."),
+        ):
+            result = grader_m.grade_from_dataframe(source, Mock(), grading_config=runtime)
+
+        self.assertEqual(len(result), 2)
+        self.assertEqual(list(result["application_id"]), [1, 2])
+
+    def test_emprendedora_runtime_exports_source_columns_and_keeps_rows(self):
+        import pandas as pd
+        from applications import grader_e
+
+        runtime = SimpleNamespace(
+            uses_configured_criteria=True,
+            weights={"descripcion_del_negocio": 5},
+            max_total_score=5,
+            ai_criteria=("descripcion_del_negocio",),
+            structured_criteria=(),
+            prompt=lambda _slug: "",
+            response_score=lambda _slug, _value, default=None: default,
+            rubric_note="",
+            model_name="",
+        )
+        source = pd.DataFrame([
+            {
+                "application_id": 1,
+                "full_name": "Applicant One",
+                "email": "same@example.com",
+                "internet_access": "yes_ok",
+                "commit_3_months": "yes",
+                "business_age": "1_3y",
+                "descripcion_del_negocio": "Respuesta detallada uno",
+            },
+            {
+                "application_id": 2,
+                "full_name": "Applicant Two",
+                "email": "same@example.com",
+                "internet_access": "yes_ok",
+                "commit_3_months": "yes",
+                "business_age": "1_3y",
+                "descripcion_del_negocio": "Respuesta detallada dos",
+            },
+        ])
+
+        with patch("applications.grader_e.detect_red_flags", return_value=""), patch(
+            "applications.grader_e.grade_unstructured",
+            return_value=(4.0, "Relevant response."),
+        ):
+            result = grader_e.grade_from_dataframe(source, Mock(), grading_config=runtime)
+
+        self.assertEqual(len(result), 2)
+        self.assertEqual(
+            list(result.columns[:6]),
+            ["Status", "score", "score_exp", "application_id", "full_name", "email"],
+        )
+        self.assertEqual(result.iloc[0]["descripcion_del_negocio"], "Respuesta detallada uno")
         self.assertNotIn("business_description", result.columns)
 
     def test_pairing_config_editor_creates_default_priority_and_ai_rules(self):

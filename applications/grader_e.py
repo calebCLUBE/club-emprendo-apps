@@ -446,6 +446,8 @@ def grade_single_row(
     model_name = getattr(grading_config, "model_name", "") or ""
     prompt_for = getattr(grading_config, "prompt", lambda _key: "")
     rubric_note = getattr(grading_config, "rubric_note", "") or ""
+    custom_criteria = bool(getattr(grading_config, "uses_configured_criteria", False))
+    active_structured = set(getattr(grading_config, "structured_criteria", ()) or ())
 
     disqual_reasons = _disqualification_reasons(row)
     application_id = _row_application_id(row)
@@ -470,27 +472,34 @@ def grade_single_row(
         row.get("prior_mentoring"),
         (1 if yes(row.get("prior_mentoring")) else 0) * float(weights.get("prior_mentoring", 2)),
     )
+    if custom_criteria and "prior_mentoring" not in active_structured:
+        prior_pt = 0.0
     business_age_pt = response_score(
         "business_age",
         row.get("business_age"),
         (business_age_pts(row.get("business_age")) / 5) * float(weights.get("business_age", 5)),
     )
+    if custom_criteria and "business_age" not in active_structured:
+        business_age_pt = 0.0
     employees_pt = response_score(
         "has_employees",
         row.get("has_employees"),
         (1 if yes(row.get("has_employees")) else 0) * float(weights.get("has_employees", 2)),
     )
+    if custom_criteria and "has_employees" not in active_structured:
+        employees_pt = 0.0
     extra_structured_total = sum(
         response_score(slug, row.get(slug), 0.0) or 0.0
         for slug in (getattr(grading_config, "structured_criteria", ()) or ())
         if slug not in {"prior_mentoring", "business_age", "has_employees"}
     )
 
+    ai_fields = getattr(grading_config, "ai_criteria", None)
+    if ai_fields is None:
+        ai_fields = DEFAULT_AI_FIELDS
     red_flags = detect_red_flags(
         client,
-        row.get("business_description"),
-        row.get("growth_how"),
-        row.get("biggest_challenge"),
+        *(row.get(slug) for slug in ai_fields),
     )
     flag_color = red_flag_color(red_flags, row.get("participated_before"))
 
@@ -551,9 +560,6 @@ def grade_single_row(
 
     score_exp_lines = []
     ai_total = 0.0
-    ai_fields = getattr(grading_config, "ai_criteria", None)
-    if ai_fields is None:
-        ai_fields = DEFAULT_AI_FIELDS
     for slug in ai_fields:
         raw_score, explanation = grade_unstructured(
             client,
@@ -645,7 +651,22 @@ def grade_from_dataframe(
         rows.append(out)
 
     out_df = pd.DataFrame(rows, columns=COLUMNS)
-    out_df, removed = _dedupe_scored_rows(out_df, "score", ["email", "cedula", "id_number"])
-    if removed and log_fn:
-        log_fn(f"→ Removed {removed} duplicate emprendedora rows, keeping the highest score per person")
+    source_df = df.reset_index(drop=True)
+    if bool(getattr(grading_config, "uses_configured_criteria", False)):
+        # Match the mentora export behavior: scoring columns first, then the
+        # exact source application data in form order, then grading metadata.
+        result_parts = [out_df[["Status", "score", "score_exp"]]]
+        source_columns = [
+            column for column in source_df.columns
+            if column not in {"Status", "score", "score_exp", "grading_rubric"}
+        ]
+        result_parts.append(source_df[source_columns])
+        result_parts.append(out_df[["flag_color", "meets_all_req", "grading_rubric"]])
+        out_df = pd.concat(result_parts, axis=1)
+    else:
+        for column in source_df.columns:
+            if column not in out_df.columns:
+                out_df[column] = source_df[column]
+    # Do not remove applicant rows here. The selection page count and the
+    # downloaded graded Excel must represent the same approved submission set.
     return out_df

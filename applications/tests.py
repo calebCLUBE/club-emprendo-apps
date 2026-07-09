@@ -1333,6 +1333,30 @@ class GradingAndPairingConfigEditorTests(TestCase):
         self.assertEqual(result.iloc[0]["descripcion_del_negocio"], "Respuesta detallada uno")
         self.assertNotIn("business_description", result.columns)
 
+    def test_emprendedora_legacy_output_has_no_duplicate_columns(self):
+        import pandas as pd
+        from applications import grader_e
+
+        source = pd.DataFrame([{
+            "full_name": "Applicant",
+            "email": "applicant@example.com",
+            "internet_access": "yes_ok",
+            "commit_3_months": "yes",
+            "business_age": "1_3y",
+            "business_description": "Business description",
+            "growth_how": "Growth plan",
+            "biggest_challenge": "Challenge",
+        }])
+
+        with patch("applications.grader_e.detect_red_flags", return_value=""), patch(
+            "applications.grader_e.grade_unstructured",
+            return_value=(4.0, "Relevant response."),
+        ):
+            result = grader_e.grade_from_dataframe(source, Mock())
+
+        self.assertEqual(result.columns.tolist().count("business_age"), 1)
+        self.assertEqual(len(result.columns), len(set(result.columns)))
+
     def test_pairing_config_editor_creates_default_priority_and_ai_rules(self):
         group = FormGroup.objects.create(
             number=901,

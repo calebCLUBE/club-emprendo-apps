@@ -453,7 +453,6 @@ COLUMNS = [
     "weekly_time",
     "participated_before",
     "business_industry",
-    "business_age",
     "business_description",
     "growth_how",
     "biggest_challenge",
@@ -582,7 +581,6 @@ def grade_single_row(
             weekly_time,
             participated_before,
             business_industry,
-            business_age_value,
             business_description,
             growth_how,
             biggest_challenge,
@@ -632,7 +630,6 @@ def grade_single_row(
         weekly_time,
         participated_before,
         business_industry,
-        business_age_value,
         business_description,
         growth_how,
         biggest_challenge,
@@ -700,6 +697,7 @@ def grade_from_dataframe(
         for column in source_df.columns:
             if column not in out_df.columns:
                 out_df[column] = source_df[column]
+    out_df = out_df.loc[:, ~out_df.columns.duplicated()]
     # Do not remove applicant rows here. The selection page count and the
     # downloaded graded Excel must represent the same approved submission set.
     return out_df

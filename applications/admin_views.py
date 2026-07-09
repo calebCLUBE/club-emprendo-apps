@@ -6314,9 +6314,10 @@ def grading_config_editor(request, form_slug: str):
         from applications import grader_e as grader
 
         disqualification_rules = [
-            "Internet passes when internet_access = 'yes_ok' OR meets_requirements = 'yes'.",
-            "Commitment passes when commit_3_months = 'yes' OR available_period = 'yes'.",
-            "business_age = 'idea' disqualifies the application.",
+            "Current forms pass requirements when meets_requirements/meets_all_req is affirmative.",
+            "Current forms pass availability when available_period/availability_ok is affirmative.",
+            "Legacy internet_access and commit_3_months are checked only when those columns exist.",
+            "business_age = 'idea' disqualifies the application only when that column exists.",
         ]
 
     ai_field_slugs = [criterion.question_slug for criterion in paragraph_criteria if criterion.active]

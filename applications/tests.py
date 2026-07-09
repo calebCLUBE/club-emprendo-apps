@@ -29,6 +29,7 @@ from applications.admin_views import (
 from applications.email_templates import build_form_email_context, resolve_form_email_template
 from applications.forms import build_application_form
 from applications.grading_config import runtime_grading_config_for_form_slug
+from applications.grader_e import _disqualification_reasons as emprendedora_disqualification_reasons
 from applications.grader_m import _disqualification_reasons as mentor_disqualification_reasons
 from applications.templatetags.app_extras import format_help_text, format_rich_text
 from applications.mentora_application_schema import apply_mentora_schema
@@ -213,6 +214,23 @@ class MentorGradingRequirementSchemaTests(TestCase):
 
     def test_unknown_schema_does_not_disqualify_for_missing_legacy_fields(self):
         self.assertEqual(mentor_disqualification_reasons({"email": "person@example.com"}), [])
+
+
+class EmprendedoraGradingRequirementSchemaTests(TestCase):
+    def test_current_aggregate_schema_passes_when_confirmations_are_affirmative(self):
+        row = {"meets_requirements": "sí", "available_period": "yes_ok"}
+        self.assertEqual(emprendedora_disqualification_reasons(row), [])
+
+    def test_current_aggregate_schema_reports_explicit_failed_confirmation(self):
+        row = {"meets_requirements": "yes", "available_period": "no"}
+        self.assertEqual(emprendedora_disqualification_reasons(row), ["available_period"])
+
+    def test_missing_legacy_fields_do_not_disqualify_current_form(self):
+        self.assertEqual(emprendedora_disqualification_reasons({"email": "person@example.com"}), [])
+
+    def test_legacy_fields_are_checked_when_present(self):
+        row = {"internet_access": "no", "commit_3_months": "yes"}
+        self.assertEqual(emprendedora_disqualification_reasons(row), ["internet_access"])
 
 
 class ApplicationDraftTrackingTests(TestCase):

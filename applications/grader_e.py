@@ -90,6 +90,23 @@ def yes(v):
     return str(v).strip().lower() == "yes"
 
 
+def affirmative(v) -> bool:
+    text = str(v or "").strip().lower()
+    if not text:
+        return False
+    return text in {
+        "yes",
+        "yes_ok",
+        "si",
+        "sí",
+        "true",
+        "1",
+        "y",
+        "s",
+        "ok",
+    }
+
+
 def prior_mentoring_pts(v):
     return 2 if yes(v) else 0
 
@@ -219,12 +236,28 @@ def _dedupe_scored_rows(df: pd.DataFrame, score_col: str, id_keys: list[str]) ->
 
 def _disqualification_reasons(row: dict) -> list[str]:
     reasons = []
-    internet_ok = row.get("internet_access") == "yes_ok" or yes(row.get("meets_requirements"))
-    commitment_ok = yes(row.get("commit_3_months")) or yes(row.get("available_period"))
-    if not internet_ok:
+
+    requirements_field = next(
+        (field for field in ("meets_requirements", "meets_all_req") if field in row),
+        None,
+    )
+    availability_field = next(
+        (field for field in ("available_period", "availability_ok") if field in row),
+        None,
+    )
+    if requirements_field and not affirmative(row.get(requirements_field)):
+        reasons.append(requirements_field)
+    if availability_field and not affirmative(row.get(availability_field)):
+        reasons.append(availability_field)
+
+    # Legacy/full-form aliases. Missing legacy columns must not count as failed
+    # requirements on current A1 forms, because eligibility is now already
+    # captured by aggregate approval-page fields above.
+    if not requirements_field and "internet_access" in row and not affirmative(row.get("internet_access")):
         reasons.append("internet_access")
-    if not commitment_ok:
+    if not availability_field and "commit_3_months" in row and not affirmative(row.get("commit_3_months")):
         reasons.append("commit_3_months")
+
     if str(row.get("business_age", "")).strip().lower() == "idea":
         reasons.append("business_age=idea")
     return reasons

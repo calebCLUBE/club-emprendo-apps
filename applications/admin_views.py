@@ -1040,6 +1040,26 @@ def download_graded_csv(request, graded_file_id: int):
     return response
 
 
+def _latest_graded_file_for_slug_or_404(form_slug: str) -> GradedFile:
+    form_slug = (form_slug or "").strip()
+    if not form_slug:
+        raise Http404("No graded file found.")
+    graded_file = (
+        GradedFile.objects.filter(form_slug=form_slug)
+        .order_by("-created_at", "-id")
+        .first()
+    )
+    if not graded_file:
+        raise Http404(f"No graded file found for {form_slug}.")
+    return graded_file
+
+
+@staff_member_required
+def download_latest_graded_csv(request, form_slug: str):
+    graded_file = _latest_graded_file_for_slug_or_404(form_slug)
+    return download_graded_csv(request, graded_file.id)
+
+
 @staff_member_required
 def download_graded_excel(request, graded_file_id: int):
     gf = get_object_or_404(GradedFile, id=graded_file_id)
@@ -1067,6 +1087,12 @@ def download_graded_excel(request, graded_file_id: int):
         f'attachment; filename="{gf.form_slug}_graded.xlsx"'
     )
     return response
+
+
+@staff_member_required
+def download_latest_graded_excel(request, form_slug: str):
+    graded_file = _latest_graded_file_for_slug_or_404(form_slug)
+    return download_graded_excel(request, graded_file.id)
 
 @staff_member_required
 @require_POST
@@ -6489,6 +6515,7 @@ def _render_grading_live_sheet(
             "graded_file": graded_file,
             "headers": headers,
             "rows": rows,
+            "needs_regeneration": _graded_sheet_needs_regeneration(form_slug, headers),
             "back_url": reverse(back_url_name),
             "back_label": back_label,
         },
@@ -6528,6 +6555,17 @@ def grading_live_sheet_file(request, graded_file_id: int):
         back_url_name="admin_database",
         back_label="Back to Database",
     )
+
+
+def _graded_sheet_needs_regeneration(form_slug: str, headers: list[str]) -> bool:
+    normalized_headers = {_normalized_header_key(header) for header in headers or []}
+    slug = (form_slug or "").strip().upper()
+    if not (slug.endswith("E_A1") or slug.endswith("M_A1")):
+        return False
+    # Current grading exports include application_id from the source dataset.
+    # The older legacy scorer-only exports did not, and can still contain stale
+    # all-disqualified rows until grading is rerun.
+    return bool(headers) and "applicationid" not in normalized_headers
 
 
 @staff_member_required

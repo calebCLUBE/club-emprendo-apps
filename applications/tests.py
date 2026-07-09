@@ -51,6 +51,7 @@ from applications.models import (
     DropboxSignWebhookEvent,
     FormDefinition,
     FormGroup,
+    GradedFile,
     ApplicationGradingConfig,
     GradingCriterion,
     GradingResponseWeight,
@@ -231,6 +232,56 @@ class EmprendedoraGradingRequirementSchemaTests(TestCase):
     def test_legacy_fields_are_checked_when_present(self):
         row = {"internet_access": "no", "commit_3_months": "yes"}
         self.assertEqual(emprendedora_disqualification_reasons(row), ["internet_access"])
+
+
+class GradedFileDownloadTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_superuser(
+            email="graded-download@example.com",
+            password="password",
+        )
+        self.client.force_login(self.user)
+
+    def test_latest_download_routes_use_latest_file_for_slug(self):
+        GradedFile.objects.create(
+            form_slug="G997_E_A1",
+            csv_text="Status,score\nold,1%\n",
+        )
+        latest = GradedFile.objects.create(
+            form_slug="G997_E_A1",
+            csv_text="Status,score\nnew,99%\n",
+        )
+
+        response = self.client.get(
+            reverse("admin_grading_download_latest_csv", args=["G997_E_A1"])
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("new,99%", response.content.decode())
+        self.assertNotIn("old,1%", response.content.decode())
+        self.assertIn(f'filename="G997_E_A1_graded.csv"', response["Content-Disposition"])
+
+        excel_response = self.client.get(
+            reverse("admin_grading_download_latest_excel", args=["G997_E_A1"])
+        )
+        self.assertEqual(excel_response.status_code, 200)
+        self.assertEqual(
+            excel_response["Content-Type"],
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        self.assertIn(str(latest.form_slug), excel_response["Content-Disposition"])
+
+    def test_sheet_view_warns_when_saved_graded_file_has_legacy_layout(self):
+        GradedFile.objects.create(
+            form_slug="G998_E_A1",
+            csv_text="Status,score,score_exp,full_name,email,grading_rubric\nN/A,NA,Disqualified,x,x@example.com,old\n",
+        )
+
+        response = self.client.get(reverse("admin_grading_live_sheet", args=["G998_E_A1"]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "old grading layout")
+        self.assertContains(response, "Grade (live)")
 
 
 class ApplicationDraftTrackingTests(TestCase):

@@ -180,6 +180,8 @@ urlpatterns = [
     path("admin/grading/start-job/<slug:form_slug>/", admin_views.start_grading_job, name="admin_start_grading_job"),
     path("admin/grading/config/<slug:form_slug>/", admin_views.grading_config_editor, name="admin_grading_config_editor"),
     path("admin/grading/sheet/<slug:form_slug>/", admin_views.grading_live_sheet, name="admin_grading_live_sheet"),
+    path("admin/grading/download/latest/<slug:form_slug>/", admin_views.download_latest_graded_csv, name="admin_grading_download_latest_csv"),
+    path("admin/grading/download-excel/latest/<slug:form_slug>/", admin_views.download_latest_graded_excel, name="admin_grading_download_latest_excel"),
     path("admin/grading/download/<int:graded_file_id>/", admin_views.download_graded_csv, name="admin_grading_download_csv"),
     path("admin/grading/download-excel/<int:graded_file_id>/", admin_views.download_graded_excel, name="admin_grading_download_excel"),
 

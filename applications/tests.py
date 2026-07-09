@@ -1191,7 +1191,7 @@ class GradingAndPairingConfigEditorTests(TestCase):
         self.assertNotIn("motivacion_para_ser_mentora", result.columns)
         self.assertNotIn("business_description", result.columns)
 
-    def test_mentor_grading_keeps_duplicate_submission_rows_in_export(self):
+    def test_mentor_grading_removes_duplicate_submission_rows_after_scoring(self):
         import pandas as pd
         from applications import grader_m
 
@@ -1226,15 +1226,19 @@ class GradingAndPairingConfigEditorTests(TestCase):
             },
         ])
 
+        logs = []
         with patch("applications.grader_m.detect_red_flags", return_value=""), patch(
             "applications.grader_m.grade_unstructured",
-            return_value=(4.0, "Relevant response."),
+            side_effect=[(3.0, "Lower response."), (5.0, "Higher response.")],
         ):
-            result = grader_m.grade_from_dataframe(source, Mock(), grading_config=runtime)
+            result = grader_m.grade_from_dataframe(source, Mock(), log_fn=logs.append, grading_config=runtime)
 
-        self.assertEqual(len(result), 2)
-        self.assertEqual(list(result["application_id"]), [1, 2])
+        self.assertEqual(len(result), 1)
+        self.assertEqual(list(result["application_id"]), [2])
         self.assertEqual(list(result.columns), MENTORA_EXACT_OUTPUT_COLUMNS)
+        self.assertTrue(
+            any("Removed 1 duplicate mentora row(s) after grading" in msg for msg in logs)
+        )
 
     def test_mentor_grading_uses_exact_selection_column_order(self):
         import pandas as pd
@@ -1283,7 +1287,7 @@ class GradingAndPairingConfigEditorTests(TestCase):
         self.assertEqual(result.iloc[0]["email"], "fallback@example.com")
         self.assertEqual(result.iloc[0]["grading_rubric"], "Rubric note")
 
-    def test_emprendedora_runtime_exports_source_columns_and_keeps_rows(self):
+    def test_emprendedora_runtime_exports_source_columns_and_dedupes_people(self):
         import pandas as pd
         from applications import grader_e
 
@@ -1319,19 +1323,24 @@ class GradingAndPairingConfigEditorTests(TestCase):
             },
         ])
 
+        logs = []
         with patch("applications.grader_e.detect_red_flags", return_value=""), patch(
             "applications.grader_e.grade_unstructured",
-            return_value=(4.0, "Relevant response."),
+            side_effect=[(3.0, "Lower response."), (5.0, "Higher response.")],
         ):
-            result = grader_e.grade_from_dataframe(source, Mock(), grading_config=runtime)
+            result = grader_e.grade_from_dataframe(source, Mock(), log_fn=logs.append, grading_config=runtime)
 
-        self.assertEqual(len(result), 2)
+        self.assertEqual(len(result), 1)
         self.assertEqual(
             list(result.columns[:6]),
             ["Status", "score", "score_exp", "application_id", "full_name", "email"],
         )
-        self.assertEqual(result.iloc[0]["descripcion_del_negocio"], "Respuesta detallada uno")
+        self.assertEqual(result.iloc[0]["application_id"], 2)
+        self.assertEqual(result.iloc[0]["descripcion_del_negocio"], "Respuesta detallada dos")
         self.assertNotIn("business_description", result.columns)
+        self.assertTrue(
+            any("Removed 1 duplicate emprendedora row(s) after grading" in msg for msg in logs)
+        )
 
     def test_emprendedora_legacy_output_has_no_duplicate_columns(self):
         import pandas as pd

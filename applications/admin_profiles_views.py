@@ -2613,8 +2613,25 @@ def _sync_group_from_linked_google_sheet(
             if email_index is None:
                 raise ValueError(f"Tab '{title}' needs an Email/Correo column.")
             missing_checkbox_headers: list[str] = []
-            for field_name, canonical_index in _participant_checkbox_specs(cfg):
-                source_index = _participant_source_field_index(headers, field_name)
+            checkbox_specs = _participant_checkbox_specs(cfg)
+            detected_checkbox_indexes = sorted(
+                {
+                    int(index)
+                    for index in (source_tab.get("checkbox_column_indexes") or [])
+                    if isinstance(index, int) and 0 <= index < len(headers)
+                }
+            )
+            positional_checkbox_indexes = (
+                detected_checkbox_indexes
+                if len(detected_checkbox_indexes) == len(checkbox_specs)
+                else []
+            )
+            for checkbox_position, (field_name, canonical_index) in enumerate(checkbox_specs):
+                source_index = (
+                    positional_checkbox_indexes[checkbox_position]
+                    if positional_checkbox_indexes
+                    else _participant_source_field_index(headers, field_name)
+                )
                 if source_index is None:
                     missing_checkbox_headers.append(cfg["headers"][canonical_index].strip())
                     continue

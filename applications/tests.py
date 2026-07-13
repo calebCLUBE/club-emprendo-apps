@@ -87,6 +87,30 @@ class GoogleSheetsCredentialScopeTests(TestCase):
                 }
             ],
         }
+        spreadsheets.getByDataFilter.return_value.execute.return_value = {
+            "sheets": [
+                {
+                    "properties": {"sheetId": 1},
+                    "data": [
+                        {
+                            "startColumn": 0,
+                            "rowData": [
+                                {
+                                    "values": [
+                                        {},
+                                        {
+                                            "dataValidation": {
+                                                "condition": {"type": "BOOLEAN"}
+                                            }
+                                        },
+                                    ]
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ]
+        }
         mock_service_factory.return_value = service
 
         result = drive_sync.fetch_google_spreadsheet_tabs(
@@ -94,6 +118,7 @@ class GoogleSheetsCredentialScopeTests(TestCase):
         )
 
         self.assertEqual(result["tabs"][0]["title"], "Mentoras ")
+        self.assertEqual(result["tabs"][0]["checkbox_column_indexes"], [1])
         self.assertEqual(
             spreadsheets.values.return_value.batchGetByDataFilter.call_args.kwargs["body"]["dataFilters"],
             [{"gridRange": {"sheetId": 1}}],
@@ -4234,6 +4259,41 @@ class ParticipantsCapacitacionCheckTests(TestCase):
         self.assertContains(response, "Mirrored extra tab")
         self.assertContains(response, "Google Sheet linked · website is read-only")
         self.assertContains(response, "const sheetReadonly = true")
+
+    @patch("applications.admin_profiles_views.update_google_spreadsheet_values")
+    @patch("applications.admin_profiles_views.fetch_google_spreadsheet_tabs")
+    def test_link_uses_google_checkbox_validation_when_headers_are_custom(
+        self,
+        mock_fetch_tabs,
+        mock_update_values,
+    ):
+        payload = self._linked_google_workbook_payload()
+        mentoras_tab = payload["tabs"][0]
+        headers = list(mentoras_tab["values"][0])
+        checkbox_indexes = list(admin_profiles_views.MENTORAS_BOOLEAN_COLS)
+        for position, column_index in enumerate(checkbox_indexes, start=1):
+            headers[column_index] = f"Custom checkbox {position}"
+        mentoras_tab["values"][0] = headers
+        mentoras_tab["checkbox_column_indexes"] = checkbox_indexes
+        mock_fetch_tabs.return_value = payload
+        mock_update_values.return_value = len(checkbox_indexes)
+
+        response = self.client.post(
+            reverse("admin_profiles_participants"),
+            data={
+                "action": "save_google_sheet_link",
+                "group": str(self.group.number),
+                "google_sheet_url": "https://docs.google.com/spreadsheets/d/linked-sheet-123/edit",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.participant_list.refresh_from_db()
+        stored_mentoras_tab = self.participant_list.google_sheet_tabs[0]
+        self.assertEqual(
+            [item["index"] for item in stored_mentoras_tab["checkbox_columns"]],
+            checkbox_indexes,
+        )
 
     @patch("applications.admin_profiles_views._fetch_encuestas_emails_for_group")
     @patch("applications.admin_profiles_views.update_google_spreadsheet_values")

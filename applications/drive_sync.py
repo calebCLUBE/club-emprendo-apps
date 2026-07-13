@@ -591,6 +591,48 @@ def fetch_google_spreadsheet_tabs(file_ref: str) -> dict:
             matched_sheet_id = grid_range.get("sheetId")
             if isinstance(matched_sheet_id, int):
                 values_by_sheet_id[matched_sheet_id] = value_range.get("values") or []
+
+    try:
+        validation_response = (
+            service.spreadsheets()
+            .getByDataFilter(
+                spreadsheetId=file_id,
+                body={
+                    "dataFilters": [
+                        {
+                            "gridRange": {
+                                "sheetId": sheet_id,
+                                "startRowIndex": 0,
+                                "endRowIndex": 200,
+                            }
+                        }
+                        for sheet_id in sheet_ids
+                    ],
+                    "includeGridData": True,
+                },
+            )
+            .execute()
+        )
+    except Exception as exc:
+        raise RuntimeError(_friendly_sheets_error(exc)) from exc
+
+    checkbox_columns_by_sheet_id: dict[int, set[int]] = {}
+    for sheet_payload in validation_response.get("sheets") or []:
+        properties = sheet_payload.get("properties") or {}
+        sheet_id = properties.get("sheetId")
+        if not isinstance(sheet_id, int):
+            continue
+        checkbox_columns: set[int] = set()
+        for grid_data in sheet_payload.get("data") or []:
+            start_column = int(grid_data.get("startColumn") or 0)
+            for row_data in grid_data.get("rowData") or []:
+                for offset, cell in enumerate(row_data.get("values") or []):
+                    validation = cell.get("dataValidation") or {}
+                    condition = validation.get("condition") or {}
+                    if str(condition.get("type") or "").upper() == "BOOLEAN":
+                        checkbox_columns.add(start_column + offset)
+        checkbox_columns_by_sheet_id[sheet_id] = checkbox_columns
+
     tabs = []
     for index, title in enumerate(titles):
         props = sheets[index].get("properties") or {}
@@ -601,6 +643,9 @@ def fetch_google_spreadsheet_tabs(file_ref: str) -> dict:
                 "title": title,
                 "sheet_id": sheet_id,
                 "values": values or [],
+                "checkbox_column_indexes": sorted(
+                    checkbox_columns_by_sheet_id.get(sheet_id, set())
+                ),
             }
         )
     return {

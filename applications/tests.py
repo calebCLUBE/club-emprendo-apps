@@ -69,6 +69,31 @@ from applications.models import (
 
 class GoogleSheetsCredentialScopeTests(TestCase):
     @patch("applications.drive_sync._service_for_sheets")
+    def test_duplicate_checkbox_columns_are_deleted_rightmost_first(
+        self,
+        mock_service_factory,
+    ):
+        service = Mock()
+        mock_service_factory.return_value = service
+
+        deleted = drive_sync.delete_google_spreadsheet_columns(
+            "https://docs.google.com/spreadsheets/d/sheet-123/edit",
+            [
+                {"sheet_id": 7, "column_index": 12},
+                {"sheet_id": 7, "column_index": 18},
+            ],
+        )
+
+        self.assertEqual(deleted, 2)
+        requests = service.spreadsheets.return_value.batchUpdate.call_args.kwargs[
+            "body"
+        ]["requests"]
+        self.assertEqual(
+            [request["deleteDimension"]["range"]["startIndex"] for request in requests],
+            [18, 12],
+        )
+
+    @patch("applications.drive_sync._service_for_sheets")
     def test_missing_checkbox_column_is_created_and_formatted(self, mock_service_factory):
         service = Mock()
         mock_service_factory.return_value = service
@@ -4364,6 +4389,50 @@ class ParticipantsCapacitacionCheckTests(TestCase):
             requested_headers,
             {"Website", "Encuesta inicial", "Plazo extra", "Lanzamiento"},
         )
+
+    @patch("applications.admin_profiles_views.ensure_google_spreadsheet_checkbox_columns")
+    @patch("applications.admin_profiles_views.delete_google_spreadsheet_columns")
+    @patch("applications.admin_profiles_views.update_google_spreadsheet_values")
+    @patch("applications.admin_profiles_views.fetch_google_spreadsheet_tabs")
+    def test_link_recognizes_enuesta_inicial_and_removes_appended_duplicate(
+        self,
+        mock_fetch_tabs,
+        mock_update_values,
+        mock_delete_columns,
+        mock_ensure_columns,
+    ):
+        payload = self._linked_google_workbook_payload()
+        mentoras_tab = payload["tabs"][0]
+        headers = list(mentoras_tab["values"][0])
+        headers[12] = "Enuesta inicial"
+        headers.append("Encuesta inicial")
+        mentoras_tab["values"][0] = headers
+        mentoras_tab["values"][1].append(False)
+        mentoras_tab["column_count"] = len(headers)
+        mock_fetch_tabs.return_value = payload
+        mock_update_values.return_value = 17
+        mock_delete_columns.return_value = 1
+        mock_ensure_columns.return_value = 0
+
+        response = self.client.post(
+            reverse("admin_profiles_participants"),
+            data={
+                "action": "save_google_sheet_link",
+                "group": str(self.group.number),
+                "google_sheet_url": "https://docs.google.com/spreadsheets/d/linked-sheet-123/edit",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        mock_delete_columns.assert_called_once_with(
+            "https://docs.google.com/spreadsheets/d/linked-sheet-123/edit",
+            [{"sheet_id": 1, "column_index": 18}],
+        )
+        self.assertEqual(mock_ensure_columns.call_args.args[1], [])
+        self.participant_list.refresh_from_db()
+        stored_headers = self.participant_list.google_sheet_tabs[0]["headers"]
+        self.assertEqual(stored_headers[12], "Enuesta inicial")
+        self.assertNotIn("Encuesta inicial", stored_headers)
 
     @patch("applications.admin_profiles_views._fetch_encuestas_emails_for_group")
     @patch("applications.admin_profiles_views.update_google_spreadsheet_values")

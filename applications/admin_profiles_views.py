@@ -31,6 +31,7 @@ from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 
 from .drive_sync import (
+    delete_google_spreadsheet_columns,
     ensure_google_spreadsheet_checkbox_columns,
     fetch_drive_csv_file_text,
     fetch_google_spreadsheet_tabs,
@@ -256,7 +257,12 @@ PARTICIPANT_SOURCE_FIELD_ALIASES = {
     "acta": ("acta", "firmoacta", "firmacta"),
     "website": ("website", "web", "sitio"),
     "capacitacion": ("capacitacion", "capacitacin", "training"),
-    "encuesta_inicial": ("encuestainicial", "initialsurvey", "surveyinitial"),
+    "encuesta_inicial": (
+        "encuestainicial",
+        "enuestainicial",
+        "initialsurvey",
+        "surveyinitial",
+    ),
     "encuesta_final": ("encuestafinal", "finalsurvey", "surveyfinal"),
     "plazo_extra": ("plazoextra", "extra"),
     "lanzamiento": ("lanzamiento", "launch"),
@@ -2594,6 +2600,7 @@ def _sync_group_from_linked_google_sheet(
     stored_tabs: list[dict] = []
     seen_tracks: set[str] = set()
     missing_google_checkbox_columns: list[dict] = []
+    duplicate_google_checkbox_columns: list[dict] = []
 
     for source_tab in spreadsheet.get("tabs") or []:
         # Keep Google's exact tab title for subsequent A1 write ranges. Track
@@ -2622,6 +2629,53 @@ def _sync_group_from_linked_google_sheet(
                     if isinstance(index, int) and 0 <= index < len(headers)
                 }
             )
+
+            # A prior sync may have appended a canonical checkbox header when
+            # the original used a supported typo/alias. Remove only the later
+            # exact canonical duplicate that our sync would have created.
+            duplicate_indexes: list[int] = []
+            normalized_headers = [_normalized_source_header(header) for header in headers]
+            for field_name, canonical_index in checkbox_specs:
+                normalized_aliases = {
+                    _normalized_source_header(alias)
+                    for alias in PARTICIPANT_SOURCE_FIELD_ALIASES.get(field_name, ())
+                }
+                matching_indexes = [
+                    index
+                    for index, normalized in enumerate(normalized_headers)
+                    if normalized in normalized_aliases
+                ]
+                if len(matching_indexes) < 2:
+                    continue
+                primary_index = matching_indexes[0]
+                canonical_header = cfg["headers"][canonical_index].strip()
+                canonical_normalized = _normalized_source_header(canonical_header)
+                for duplicate_index in matching_indexes[1:]:
+                    if (
+                        duplicate_index > primary_index
+                        and normalized_headers[duplicate_index] == canonical_normalized
+                    ):
+                        duplicate_indexes.append(duplicate_index)
+
+            for duplicate_index in sorted(set(duplicate_indexes), reverse=True):
+                duplicate_google_checkbox_columns.append(
+                    {
+                        "sheet_id": int(source_tab.get("sheet_id") or 0),
+                        "column_index": duplicate_index,
+                    }
+                )
+                headers.pop(duplicate_index)
+                for source_row in body_rows:
+                    if duplicate_index < len(source_row):
+                        source_row.pop(duplicate_index)
+                detected_checkbox_indexes = [
+                    index - 1 if index > duplicate_index else index
+                    for index in detected_checkbox_indexes
+                    if index != duplicate_index
+                ]
+                if email_index > duplicate_index:
+                    email_index -= 1
+
             positional_checkbox_indexes = (
                 detected_checkbox_indexes
                 if len(detected_checkbox_indexes) == len(checkbox_specs)
@@ -2643,7 +2697,11 @@ def _sync_group_from_linked_google_sheet(
                         {
                             "sheet_id": int(source_tab.get("sheet_id") or 0),
                             "column_index": source_index,
-                            "column_count": int(source_tab.get("column_count") or 0),
+                            "column_count": max(
+                                0,
+                                int(source_tab.get("column_count") or 0)
+                                - len(set(duplicate_indexes)),
+                            ),
                             "header": header_label,
                         }
                     )
@@ -2712,6 +2770,10 @@ def _sync_group_from_linked_google_sheet(
 
     participant_list.google_sheet_tabs = stored_tabs
     pushed_tabs, checkbox_updates = _linked_google_checkbox_updates(participant_list, stored_tabs)
+    deleted_checkbox_columns = delete_google_spreadsheet_columns(
+        source_url,
+        duplicate_google_checkbox_columns,
+    )
     created_checkbox_columns = ensure_google_spreadsheet_checkbox_columns(
         source_url,
         missing_google_checkbox_columns,
@@ -2739,6 +2801,7 @@ def _sync_group_from_linked_google_sheet(
         "emprendedoras": len(canonical_rows["emprendedoras"]),
         "checkbox_cells": updated_cells,
         "checkbox_columns_created": created_checkbox_columns,
+        "checkbox_columns_deleted": deleted_checkbox_columns,
     }
 
 
@@ -3574,7 +3637,8 @@ def profiles_participants(request):
                     f"Tabs: {result['tabs']} · Mentoras: {result['mentoras']} · "
                     f"Emprendedoras: {result['emprendedoras']} · "
                     f"checkbox cells mirrored to Google: {result['checkbox_cells']} · "
-                    f"checkbox columns added: {result['checkbox_columns_created']}."
+                    f"checkbox columns added: {result['checkbox_columns_created']} · "
+                    f"duplicate checkbox columns removed: {result['checkbox_columns_deleted']}."
                 ),
             )
             return redirect(f"{reverse('admin_profiles_participants')}?group={target_group.number}")

@@ -747,6 +747,45 @@ def ensure_google_spreadsheet_checkbox_columns(file_ref: str, columns: list[dict
     return len(clean_columns)
 
 
+def delete_google_spreadsheet_columns(file_ref: str, columns: list[dict]) -> int:
+    """Delete specific columns by immutable sheet ID, rightmost first."""
+    file_id = _normalize_file_id(file_ref)
+    if not file_id:
+        raise ValueError("Invalid Google Sheet link. Paste the full Sheets URL.")
+    clean_columns = sorted(
+        {
+            (int(item.get("sheet_id") or 0), int(item.get("column_index") or 0))
+            for item in columns
+            if isinstance(item, dict)
+        },
+        key=lambda value: (value[0], -value[1]),
+    )
+    if not clean_columns:
+        return 0
+    requests = [
+        {
+            "deleteDimension": {
+                "range": {
+                    "sheetId": sheet_id,
+                    "dimension": "COLUMNS",
+                    "startIndex": column_index,
+                    "endIndex": column_index + 1,
+                }
+            }
+        }
+        for sheet_id, column_index in clean_columns
+    ]
+    service = _service_for_sheets()
+    try:
+        service.spreadsheets().batchUpdate(
+            spreadsheetId=file_id,
+            body={"requests": requests},
+        ).execute()
+    except Exception as exc:
+        raise RuntimeError(_friendly_sheets_error(exc)) from exc
+    return len(clean_columns)
+
+
 def update_google_spreadsheet_values(file_ref: str, updates: list[dict]) -> int:
     """Write RAW values to explicit A1 ranges in a linked Google Sheet."""
     file_id = _normalize_file_id(file_ref)

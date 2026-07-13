@@ -93,6 +93,19 @@ class GoogleSheetsCredentialScopeTests(TestCase):
             cache_discovery=False,
         )
 
+    def test_disabled_sheets_api_error_is_actionable(self):
+        raw_error = (
+            "SERVICE_DISABLED: Google Sheets API has not been used in project 1052922067631 "
+            "before or it is disabled. service=sheets.googleapis.com "
+            "activationUrl=https://console.developers.google.com/apis/api/"
+            "sheets.googleapis.com/overview?project=1052922067631"
+        )
+
+        message = drive_sync._friendly_sheets_error(RuntimeError(raw_error))
+
+        self.assertIn("Google Sheets API is disabled for project 1052922067631", message)
+        self.assertIn("overview?project=1052922067631", message)
+
 
 class BulkEmailComposeTests(TestCase):
     def setUp(self):

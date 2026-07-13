@@ -236,6 +236,37 @@ def _friendly_upload_error(exc: Exception) -> str:
     return text or repr(exc)
 
 
+def _friendly_sheets_error(exc: Exception) -> str:
+    text = str(exc or "").strip()
+    if "sheets.googleapis.com" in text and (
+        "SERVICE_DISABLED" in text or "has not been used" in text or "it is disabled" in text
+    ):
+        project_match = re.search(r"projects?[/ ](\d+)|project=(\d+)", text)
+        project_id = next(
+            (value for value in (project_match.groups() if project_match else ()) if value),
+            "the Google Cloud project",
+        )
+        activation_match = re.search(
+            r"https://console\.developers\.google\.com/apis/api/sheets\.googleapis\.com/overview\?project=\d+",
+            text,
+        )
+        activation_url = (
+            activation_match.group(0)
+            if activation_match
+            else "https://console.cloud.google.com/apis/library/sheets.googleapis.com"
+        )
+        return (
+            f"Google Sheets API is disabled for project {project_id}. "
+            f"Enable it here, wait a few minutes, then retry: {activation_url}"
+        )
+    if "PERMISSION_DENIED" in text or "The caller does not have permission" in text:
+        return (
+            "Google denied access to this spreadsheet. Share it with the configured Google account "
+            "and give that account Editor access."
+        )
+    return text or repr(exc)
+
+
 def _parse_service_account_info(raw_text: str) -> dict:
     """
     Parse service account JSON from env with tolerance for common paste mistakes:
@@ -512,14 +543,17 @@ def fetch_google_spreadsheet_tabs(file_ref: str) -> dict:
         raise ValueError("Invalid Google Sheet link. Paste the full Sheets URL.")
 
     service = _service_for_sheets()
-    metadata = (
-        service.spreadsheets()
-        .get(
-            spreadsheetId=file_id,
-            fields="spreadsheetId,properties.title,sheets.properties(sheetId,title,index)",
+    try:
+        metadata = (
+            service.spreadsheets()
+            .get(
+                spreadsheetId=file_id,
+                fields="spreadsheetId,properties.title,sheets.properties(sheetId,title,index)",
+            )
+            .execute()
         )
-        .execute()
-    )
+    except Exception as exc:
+        raise RuntimeError(_friendly_sheets_error(exc)) from exc
     sheets = sorted(
         metadata.get("sheets") or [],
         key=lambda item: int((item.get("properties") or {}).get("index") or 0),
@@ -529,17 +563,20 @@ def fetch_google_spreadsheet_tabs(file_ref: str) -> dict:
     if not titles:
         raise ValueError("The linked Google Sheet has no tabs.")
 
-    values_response = (
-        service.spreadsheets()
-        .values()
-        .batchGet(
-            spreadsheetId=file_id,
-            ranges=[_quoted_sheet_title(title) for title in titles],
-            majorDimension="ROWS",
-            valueRenderOption="UNFORMATTED_VALUE",
+    try:
+        values_response = (
+            service.spreadsheets()
+            .values()
+            .batchGet(
+                spreadsheetId=file_id,
+                ranges=[_quoted_sheet_title(title) for title in titles],
+                majorDimension="ROWS",
+                valueRenderOption="UNFORMATTED_VALUE",
+            )
+            .execute()
         )
-        .execute()
-    )
+    except Exception as exc:
+        raise RuntimeError(_friendly_sheets_error(exc)) from exc
     value_ranges = values_response.get("valueRanges") or []
     tabs = []
     for index, title in enumerate(titles):
@@ -572,15 +609,18 @@ def update_google_spreadsheet_values(file_ref: str, updates: list[dict]) -> int:
     if not clean_updates:
         return 0
     service = _service_for_sheets()
-    response = (
-        service.spreadsheets()
-        .values()
-        .batchUpdate(
-            spreadsheetId=file_id,
-            body={"valueInputOption": "RAW", "data": clean_updates},
+    try:
+        response = (
+            service.spreadsheets()
+            .values()
+            .batchUpdate(
+                spreadsheetId=file_id,
+                body={"valueInputOption": "RAW", "data": clean_updates},
+            )
+            .execute()
         )
-        .execute()
-    )
+    except Exception as exc:
+        raise RuntimeError(_friendly_sheets_error(exc)) from exc
     return int(response.get("totalUpdatedCells") or 0)
 
 

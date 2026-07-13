@@ -536,6 +536,12 @@ def _quoted_sheet_title(title: str) -> str:
     return "'" + str(title or "").replace("'", "''") + "'"
 
 
+def _sheet_values_range(title: str) -> str:
+    # The Sheets values API does not accept a bare quoted tab title. Include
+    # an explicit A1 grid range; the response still trims unused trailing cells.
+    return f"{_quoted_sheet_title(title)}!A:ZZZ"
+
+
 def fetch_google_spreadsheet_tabs(file_ref: str) -> dict:
     """Read every tab from a Google Sheet, preserving tab and cell order."""
     file_id = _normalize_file_id(file_ref)
@@ -569,7 +575,7 @@ def fetch_google_spreadsheet_tabs(file_ref: str) -> dict:
             .values()
             .batchGet(
                 spreadsheetId=file_id,
-                ranges=[_quoted_sheet_title(title) for title in titles],
+                ranges=[_sheet_values_range(title) for title in titles],
                 majorDimension="ROWS",
                 valueRenderOption="UNFORMATTED_VALUE",
             )

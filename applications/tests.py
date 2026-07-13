@@ -68,6 +68,12 @@ from applications.models import (
 
 
 class GoogleSheetsCredentialScopeTests(TestCase):
+    def test_sheet_values_range_includes_grid_and_escapes_tab_title(self):
+        self.assertEqual(
+            drive_sync._sheet_values_range("Mentor's"),
+            "'Mentor''s'!A:ZZZ",
+        )
+
     @patch("googleapiclient.discovery.build")
     @patch("google.oauth2.credentials.Credentials")
     def test_sheets_service_reuses_existing_drive_oauth_scope(

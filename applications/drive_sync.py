@@ -183,6 +183,40 @@ def _build_service(
     return build("drive", "v3", credentials=creds, cache_discovery=False)
 
 
+def _build_sheets_service(
+    key_path: str,
+    key_json: str = "",
+    oauth_client_id: str = "",
+    oauth_client_secret: str = "",
+    oauth_refresh_token: str = "",
+):
+    from google.oauth2.service_account import Credentials
+    from google.oauth2.credentials import Credentials as UserCredentials
+    from googleapiclient.discovery import build
+
+    scopes = [
+        "https://www.googleapis.com/auth/drive",
+        "https://www.googleapis.com/auth/spreadsheets",
+    ]
+    if _has_oauth_config(oauth_client_id, oauth_client_secret, oauth_refresh_token):
+        creds = UserCredentials(
+            token=None,
+            refresh_token=oauth_refresh_token,
+            token_uri="https://oauth2.googleapis.com/token",
+            client_id=oauth_client_id,
+            client_secret=oauth_client_secret,
+            scopes=scopes,
+        )
+    elif key_json:
+        creds = Credentials.from_service_account_info(
+            _parse_service_account_info(key_json),
+            scopes=scopes,
+        )
+    else:
+        creds = Credentials.from_service_account_file(key_path, scopes=scopes)
+    return build("sheets", "v4", credentials=creds, cache_discovery=False)
+
+
 def _friendly_upload_error(exc: Exception) -> str:
     text = str(exc or "").strip()
     if "storageQuotaExceeded" in text or "Service Accounts do not have storage quota" in text:
@@ -438,6 +472,108 @@ def _service_for_drive_reads() -> object:
         oauth_client_secret=oauth_client_secret,
         oauth_refresh_token=oauth_refresh_token,
     )
+
+
+def _service_for_sheets() -> object:
+    key_path, key_json, _root_folder_id = _load_config()
+    oauth_client_id, oauth_client_secret, oauth_refresh_token = _oauth_env_config()
+    has_oauth = _has_oauth_config(oauth_client_id, oauth_client_secret, oauth_refresh_token)
+    if not key_path and not key_json and not has_oauth:
+        raise RuntimeError(
+            "Missing Google credentials. Configure the Drive service account or OAuth credentials."
+        )
+    if key_path and not key_json and not has_oauth and not os.path.exists(key_path):
+        raise RuntimeError(f"Drive key file not found at {key_path}.")
+    return _build_sheets_service(
+        key_path,
+        key_json,
+        oauth_client_id=oauth_client_id,
+        oauth_client_secret=oauth_client_secret,
+        oauth_refresh_token=oauth_refresh_token,
+    )
+
+
+def _quoted_sheet_title(title: str) -> str:
+    return "'" + str(title or "").replace("'", "''") + "'"
+
+
+def fetch_google_spreadsheet_tabs(file_ref: str) -> dict:
+    """Read every tab from a Google Sheet, preserving tab and cell order."""
+    file_id = _normalize_file_id(file_ref)
+    if not file_id:
+        raise ValueError("Invalid Google Sheet link. Paste the full Sheets URL.")
+
+    service = _service_for_sheets()
+    metadata = (
+        service.spreadsheets()
+        .get(
+            spreadsheetId=file_id,
+            fields="spreadsheetId,properties.title,sheets.properties(sheetId,title,index)",
+        )
+        .execute()
+    )
+    sheets = sorted(
+        metadata.get("sheets") or [],
+        key=lambda item: int((item.get("properties") or {}).get("index") or 0),
+    )
+    titles = [str((item.get("properties") or {}).get("title") or "").strip() for item in sheets]
+    titles = [title for title in titles if title]
+    if not titles:
+        raise ValueError("The linked Google Sheet has no tabs.")
+
+    values_response = (
+        service.spreadsheets()
+        .values()
+        .batchGet(
+            spreadsheetId=file_id,
+            ranges=[_quoted_sheet_title(title) for title in titles],
+            majorDimension="ROWS",
+            valueRenderOption="UNFORMATTED_VALUE",
+        )
+        .execute()
+    )
+    value_ranges = values_response.get("valueRanges") or []
+    tabs = []
+    for index, title in enumerate(titles):
+        props = sheets[index].get("properties") or {}
+        values = value_ranges[index].get("values") if index < len(value_ranges) else []
+        tabs.append(
+            {
+                "title": title,
+                "sheet_id": int(props.get("sheetId") or 0),
+                "values": values or [],
+            }
+        )
+    return {
+        "spreadsheet_id": file_id,
+        "title": str((metadata.get("properties") or {}).get("title") or file_id),
+        "tabs": tabs,
+    }
+
+
+def update_google_spreadsheet_values(file_ref: str, updates: list[dict]) -> int:
+    """Write RAW values to explicit A1 ranges in a linked Google Sheet."""
+    file_id = _normalize_file_id(file_ref)
+    if not file_id:
+        raise ValueError("Invalid Google Sheet link. Paste the full Sheets URL.")
+    clean_updates = [
+        {"range": str(item.get("range") or ""), "values": item.get("values") or []}
+        for item in updates
+        if str(item.get("range") or "").strip()
+    ]
+    if not clean_updates:
+        return 0
+    service = _service_for_sheets()
+    response = (
+        service.spreadsheets()
+        .values()
+        .batchUpdate(
+            spreadsheetId=file_id,
+            body={"valueInputOption": "RAW", "data": clean_updates},
+        )
+        .execute()
+    )
+    return int(response.get("totalUpdatedCells") or 0)
 
 
 def fetch_drive_csv_file_text(file_ref: str) -> tuple[str, str, str]:

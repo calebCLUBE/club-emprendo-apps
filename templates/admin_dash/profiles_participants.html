@@ -81,6 +81,13 @@
         font-family: inherit;
         line-height: 1.35;
       }
+      .ce-link-input {
+        width: min(100%, 900px);
+        box-sizing: border-box;
+        padding: 10px;
+        border: 1px solid #d2d2d2;
+        border-radius: 8px;
+      }
       .ce-muted {
         color: #666;
         font-size: 12px;
@@ -175,7 +182,44 @@
           Group {{ selected_group.number }} participant lists
         </div>
         <div class="ce-muted">
-          Paste emails to auto-create rows, then edit using the Excel-style sheets below.
+          Link this group to its own multi-tab Google Sheet, or use the legacy participant tools below.
+        </div>
+
+        <div class="ce-panel" style="margin-top:12px;">
+          <div style="font-weight:700; margin-bottom:8px;">Linked participant Google Sheet</div>
+          <form method="post">
+            {% csrf_token %}
+            <input type="hidden" name="group" value="{{ selected_group.number }}">
+            <label for="google_sheet_url" style="display:block; font-weight:600; margin-bottom:4px;">Google Sheet link</label>
+            <input
+              class="ce-link-input"
+              id="google_sheet_url"
+              name="google_sheet_url"
+              type="url"
+              required
+              placeholder="https://docs.google.com/spreadsheets/d/.../edit"
+              value="{{ linked_google_sheet_url }}"
+            >
+            <div class="ce-muted">
+              The workbook needs Mentoras and Emprendedoras tabs and the existing checkbox columns. Google supplies all ordinary cell values; website check buttons exclusively control checkbox values and mirror them back to Google.
+            </div>
+            <div class="ce-actions" style="margin-top:10px;">
+              <button class="ce-btn" type="submit" name="action" value="save_google_sheet_link">
+                {% if linked_google_sheet_url %}Save link and refresh{% else %}Link and import workbook{% endif %}
+              </button>
+              {% if linked_google_sheet_url %}
+                <button class="ce-btn ce-btn--ghost" type="submit" name="action" value="sync_linked_google_sheet">Refresh linked workbook</button>
+                <a class="ce-btn ce-btn--ghost" href="{{ linked_google_sheet_url }}" target="_blank" rel="noopener">Open Google Sheet</a>
+                <button class="ce-btn ce-btn--danger" type="submit" name="action" value="unlink_google_sheet" formnovalidate onclick="return confirm('Unlink this Google Sheet? Cached participant rows will remain on the website.');">Unlink</button>
+              {% endif %}
+            </div>
+          </form>
+          {% if linked_google_sheet_last_synced_at %}
+            <div class="ce-muted">Last synced: {{ linked_google_sheet_last_synced_at|date:"Y-m-d H:i" }}</div>
+          {% endif %}
+          {% if linked_google_sheet_sync_error %}
+            <div class="ce-muted" style="color:#8f1f1f;">Last sync error: {{ linked_google_sheet_sync_error }}</div>
+          {% endif %}
         </div>
 
         <div class="ce-kpis">
@@ -194,21 +238,23 @@
             {% csrf_token %}
             <input type="hidden" name="group" value="{{ selected_group.number }}">
             <button class="ce-btn" type="submit" name="action" value="sync_from_google_sheet">
-              Sync this group from Google Sheet
+              {% if linked_google_sheet_url %}Refresh linked Google Sheet{% else %}Sync this group from global Google Sheet{% endif %}
             </button>
           </form>
-          <form method="post">
-            {% csrf_token %}
-            <input type="hidden" name="group" value="{{ selected_group.number }}">
-            <button class="ce-btn ce-btn--ghost" type="submit" name="action" value="sync_from_group_assignments">
-              Sync from assigned group applications
-            </button>
-          </form>
+          {% if not linked_google_sheet_url %}
+            <form method="post">
+              {% csrf_token %}
+              <input type="hidden" name="group" value="{{ selected_group.number }}">
+              <button class="ce-btn ce-btn--ghost" type="submit" name="action" value="sync_from_group_assignments">
+                Sync from assigned group applications
+              </button>
+            </form>
+          {% endif %}
           <form method="post">
             {% csrf_token %}
             <input type="hidden" name="group" value="{{ selected_group.number }}">
             <button class="ce-btn" type="submit" name="action" value="check_dropbox">
-              Check Dropbox
+              Check Acta
             </button>
           </form>
           <form method="post" onsubmit="return confirm('Delete Group {{ selected_group.number }} from the Participants page? This will clear participant-sheet data, hide the group here, and keep all submissions/database records.');">
@@ -223,6 +269,7 @@
           This archives/hides the group in Participants only. Submissions, answers, forms, and database records are preserved.
         </div>
 
+        {% if not linked_google_sheet_url %}
         <form method="post" style="margin-top:12px;">
           {% csrf_token %}
           <input type="hidden" name="group" value="{{ selected_group.number }}">
@@ -240,7 +287,6 @@
             <button class="ce-btn" type="submit" name="action" value="build_from_emails">Create sheets from email lists</button>
           </div>
         </form>
-
         <form method="post" style="margin-top:12px;">
           {% csrf_token %}
           <input type="hidden" name="group" value="{{ selected_group.number }}">
@@ -261,6 +307,7 @@
             <button class="ce-btn" type="submit" name="action" value="add_from_cedulas">Add participants by cedula</button>
           </div>
         </form>
+        {% endif %}
 
         <div class="ce-panel" style="margin-top:12px;">
           <div style="font-weight:700; margin-bottom:8px;">Participant sheets</div>

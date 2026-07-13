@@ -5,6 +5,7 @@ import os
 import re
 import zipfile
 import hashlib
+import logging
 import subprocess
 import sys
 import tempfile
@@ -29,7 +30,11 @@ from django.utils.dateparse import parse_datetime
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 
-from .drive_sync import fetch_drive_csv_file_text
+from .drive_sync import (
+    fetch_drive_csv_file_text,
+    fetch_google_spreadsheet_tabs,
+    update_google_spreadsheet_values,
+)
 from .models import (
     Answer,
     Application,
@@ -41,6 +46,8 @@ from .models import (
     ParticipantEmailStatus,
 )
 from .participant_statuses import PARTICIPANT_STATUS_SHEET_OPTIONS
+
+logger = logging.getLogger(__name__)
 
 GROUP_SLUG_RE = re.compile(r"^G(?P<num>\d+)_")
 
@@ -480,6 +487,16 @@ def _mark_participant_sheet_acta_signed(
             _number_sheet_rows(updated_rows, number_col=2),
         )
         participant_list.save(update_fields=[rows_field, "updated_at"])
+        if str(getattr(participant_list, "google_sheet_url", "") or "").strip():
+            try:
+                _push_linked_participant_checkboxes(participant_list)
+            except Exception as exc:
+                participant_list.google_sheet_sync_error = str(exc)
+                participant_list.save(update_fields=["google_sheet_sync_error", "updated_at"])
+                logger.exception(
+                    "Could not push Group %s Acta checkbox updates to linked Google Sheet",
+                    group_num,
+                )
 
     return matched, changed, f"Updated {changed} row(s), matched {matched} signer email(s)."
 
@@ -1197,6 +1214,12 @@ def _sync_participants_from_drive_sheet(group_number: int | None = None) -> dict
             group.save(update_fields=["is_active"])
 
         participant_obj, _created_list = GroupParticipantList.objects.get_or_create(group=group)
+        if str(getattr(participant_obj, "google_sheet_url", "") or "").strip():
+            if group_number is not None:
+                raise ValueError(
+                    f"Group {parsed_group} uses its own linked Google Sheet; refresh that linked workbook instead."
+                )
+            continue
         updates: list[str] = []
         changed_tracks: list[tuple[dict, list[list]]] = []
         for track_slug in ("mentoras", "emprendedoras"):
@@ -1374,6 +1397,8 @@ def _run_dropbox_reconcile_for_group(
     max_pages: int = 60,
     background: bool = True,
 ) -> tuple[bool, str]:
+    if not str(getattr(settings, "DROPBOX_SIGN_API_KEY", "") or "").strip():
+        return False, "DROPBOX_SIGN_API_KEY is not configured."
     filters = _dropbox_group_file_filters(group_num=group_num, track=track)
     cli_args = [
         sys.executable,
@@ -2410,6 +2435,301 @@ def _participant_track_sheet_configs() -> dict[str, dict]:
     }
 
 
+def _participant_checkbox_specs(cfg: dict) -> list[tuple[str, int]]:
+    specs = [
+        ("acta", cfg["acta_col"]),
+        ("website", 10),
+        ("capacitacion", cfg["capacitacion_col"]),
+        ("encuesta_inicial", cfg["encuestas_initial_col"]),
+        ("encuesta_final", cfg["encuestas_final_col"]),
+        ("plazo_extra", 14),
+        ("lanzamiento", 15),
+    ]
+    if cfg["slug"] == "mentoras":
+        specs.extend([("wm", 16), ("we", 17)])
+    else:
+        specs.append(("we", 16))
+    return [(name, index) for name, index in specs if index is not None and index < len(cfg["headers"])]
+
+
+def _participant_google_tab_track(title: str) -> str:
+    return _participant_source_track(title)
+
+
+def _sheet_column_label(index: int) -> str:
+    value = int(index) + 1
+    label = ""
+    while value:
+        value, remainder = divmod(value - 1, 26)
+        label = chr(65 + remainder) + label
+    return label
+
+
+def _participant_google_column_types(headers: list[str], checkbox_columns: list[dict]) -> list[str]:
+    checkbox_indexes = {int(item["index"]) for item in checkbox_columns}
+    types: list[str] = []
+    for index, header in enumerate(headers):
+        normalized = _normalized_source_header(header)
+        if index in checkbox_indexes:
+            types.append("checkbox")
+        elif normalized in {"estatus", "status", "estado"}:
+            types.append("select")
+        elif normalized in {"email", "correo", "correoelectronico", "mail"}:
+            types.append("email")
+        elif normalized in {"", "n", "numero", "number"} or str(header or "").strip() == "#":
+            types.append("readonly_num")
+        else:
+            types.append("text")
+    return types
+
+
+def _participant_google_tabs_for_display(participant_list) -> list[dict]:
+    tabs: list[dict] = []
+    for tab in list(getattr(participant_list, "google_sheet_tabs", []) or []):
+        if not isinstance(tab, dict):
+            continue
+        headers = [str(value or "") for value in (tab.get("headers") or [])]
+        rows = [list(row) for row in (tab.get("rows") or []) if isinstance(row, list)]
+        checkbox_columns = [
+            item for item in (tab.get("checkbox_columns") or []) if isinstance(item, dict)
+        ]
+        tabs.append(
+            {
+                "key": str(tab.get("track") or f"google-{len(tabs) + 1}"),
+                "name": str(tab.get("title") or f"Sheet {len(tabs) + 1}"),
+                "headers": headers,
+                "rows": rows,
+                "column_types": _participant_google_column_types(headers, checkbox_columns),
+                "status_options": PARTICIPANT_STATUS_SHEET_OPTIONS,
+            }
+        )
+    return tabs
+
+
+def _participant_checkbox_state_by_email(rows: list[list], cfg: dict) -> dict[str, dict[int, bool]]:
+    normalized = _normalize_sheet_rows(rows, cfg["headers"])
+    normalized = _coerce_bool_columns(normalized, cfg["bool_cols"])
+    normalized = _apply_contract_signed_to_rows(
+        normalized,
+        email_col=cfg["email_col"],
+        acta_col=cfg["acta_col"],
+    )
+    out: dict[str, dict[int, bool]] = {}
+    for row in normalized:
+        email = _normalize_email(row[cfg["email_col"]] if cfg["email_col"] < len(row) else "")
+        if not email:
+            continue
+        out[email] = {
+            index: _as_checkbox_bool(row[index] if index < len(row) else False)
+            for _field, index in _participant_checkbox_specs(cfg)
+        }
+    return out
+
+
+def _linked_google_checkbox_updates(participant_list, tabs_payload: list[dict] | None = None) -> tuple[list[dict], list[dict]]:
+    configs = _participant_track_sheet_configs()
+    tabs = [dict(tab) for tab in (tabs_payload if tabs_payload is not None else participant_list.google_sheet_tabs or [])]
+    updates: list[dict] = []
+    for tab in tabs:
+        track_slug = str(tab.get("track") or "")
+        cfg = configs.get(track_slug)
+        if not cfg:
+            continue
+        headers = [str(value or "") for value in (tab.get("headers") or [])]
+        rows = [list(row) for row in (tab.get("rows") or []) if isinstance(row, list)]
+        email_index = tab.get("email_index")
+        checkbox_columns = [item for item in (tab.get("checkbox_columns") or []) if isinstance(item, dict)]
+        if not isinstance(email_index, int) or not checkbox_columns:
+            continue
+        checkbox_state = _participant_checkbox_state_by_email(
+            getattr(participant_list, cfg["rows_field"], []),
+            cfg,
+        )
+        for row in rows:
+            if len(row) < len(headers):
+                row.extend([""] * (len(headers) - len(row)))
+            email = _normalize_email(row[email_index] if email_index < len(row) else "")
+            state = checkbox_state.get(email, {})
+            for item in checkbox_columns:
+                source_index = int(item["index"])
+                canonical_index = int(item["canonical_index"])
+                row[source_index] = bool(state.get(canonical_index, False))
+        tab["rows"] = rows
+        if rows:
+            escaped_title = str(tab.get("title") or "").replace("'", "''")
+            for item in checkbox_columns:
+                source_index = int(item["index"])
+                column = _sheet_column_label(source_index)
+                updates.append(
+                    {
+                        "range": f"'{escaped_title}'!{column}2:{column}{len(rows) + 1}",
+                        "values": [[bool(row[source_index])] for row in rows],
+                    }
+                )
+    return tabs, updates
+
+
+def _sync_group_from_linked_google_sheet(
+    *,
+    group,
+    participant_list,
+    sheet_url: str | None = None,
+    request=None,
+) -> dict:
+    source_url = str(sheet_url if sheet_url is not None else participant_list.google_sheet_url or "").strip()
+    if not source_url:
+        raise ValueError("Paste a Google Sheet link first.")
+
+    spreadsheet = fetch_google_spreadsheet_tabs(source_url)
+    configs = _participant_track_sheet_configs()
+    existing_states = {
+        slug: _participant_checkbox_state_by_email(
+            getattr(participant_list, cfg["rows_field"], []),
+            cfg,
+        )
+        for slug, cfg in configs.items()
+    }
+    canonical_rows: dict[str, list[list]] = {}
+    stored_tabs: list[dict] = []
+    seen_tracks: set[str] = set()
+
+    for source_tab in spreadsheet.get("tabs") or []:
+        title = str(source_tab.get("title") or "").strip()
+        values = [list(row) for row in (source_tab.get("values") or []) if isinstance(row, list)]
+        headers = [str(value or "").strip() for value in (values[0] if values else [])]
+        body_rows = [list(row) for row in values[1:]] if values else []
+        track_slug = _participant_google_tab_track(title)
+        checkbox_columns: list[dict] = []
+        email_index = None
+
+        if track_slug in configs:
+            if track_slug in seen_tracks:
+                raise ValueError(f"More than one Google Sheet tab maps to {configs[track_slug]['label']}.")
+            seen_tracks.add(track_slug)
+            cfg = configs[track_slug]
+            email_index = _participant_source_field_index(headers, "email")
+            if email_index is None:
+                raise ValueError(f"Tab '{title}' needs an Email/Correo column.")
+            missing_checkbox_headers: list[str] = []
+            for field_name, canonical_index in _participant_checkbox_specs(cfg):
+                source_index = _participant_source_field_index(headers, field_name)
+                if source_index is None:
+                    missing_checkbox_headers.append(cfg["headers"][canonical_index].strip())
+                    continue
+                checkbox_columns.append(
+                    {
+                        "field": field_name,
+                        "index": source_index,
+                        "canonical_index": canonical_index,
+                    }
+                )
+            if missing_checkbox_headers:
+                raise ValueError(
+                    f"Tab '{title}' is missing checkbox columns: {', '.join(missing_checkbox_headers)}."
+                )
+
+            field_indexes = {
+                field_name: _participant_source_field_index(headers, field_name)
+                for field_name in PARTICIPANT_SOURCE_FIELD_ALIASES
+            }
+            converted_rows: list[list] = []
+            for source_row in body_rows:
+                canonical = _participant_source_row_to_sheet_row(
+                    source_row,
+                    headers,
+                    cfg,
+                    field_indexes,
+                )
+                email = _normalize_email(
+                    canonical[cfg["email_col"]] if cfg["email_col"] < len(canonical) else ""
+                )
+                if not email:
+                    continue
+                saved_state = existing_states[track_slug].get(email, {})
+                for _field_name, canonical_index in _participant_checkbox_specs(cfg):
+                    canonical[canonical_index] = bool(saved_state.get(canonical_index, False))
+                converted_rows.append(canonical)
+            converted_rows = _apply_contract_signed_to_rows(
+                converted_rows,
+                email_col=cfg["email_col"],
+                acta_col=cfg["acta_col"],
+            )
+            converted_rows = _number_sheet_rows(converted_rows, number_col=2)
+            canonical_rows[track_slug] = converted_rows
+
+        stored_tabs.append(
+            {
+                "title": title,
+                "sheet_id": int(source_tab.get("sheet_id") or 0),
+                "track": track_slug if track_slug in configs else "",
+                "headers": headers,
+                "rows": body_rows,
+                "email_index": email_index,
+                "checkbox_columns": checkbox_columns,
+            }
+        )
+
+    missing_tracks = [configs[slug]["label"] for slug in configs if slug not in seen_tracks]
+    if missing_tracks:
+        raise ValueError(
+            "The Google Sheet needs tabs named Mentoras and Emprendedoras. "
+            f"Missing: {', '.join(missing_tracks)}."
+        )
+
+    for slug, cfg in configs.items():
+        setattr(participant_list, cfg["rows_field"], canonical_rows[slug])
+        setattr(
+            participant_list,
+            cfg["text_field"],
+            "\n".join(_emails_from_sheet_rows(canonical_rows[slug], cfg["email_col"])),
+        )
+
+    participant_list.google_sheet_tabs = stored_tabs
+    pushed_tabs, checkbox_updates = _linked_google_checkbox_updates(participant_list, stored_tabs)
+    updated_cells = update_google_spreadsheet_values(source_url, checkbox_updates)
+    participant_list.google_sheet_url = source_url
+    participant_list.google_sheet_id = str(spreadsheet.get("spreadsheet_id") or "")
+    participant_list.google_sheet_tabs = pushed_tabs
+    participant_list.google_sheet_last_synced_at = timezone.now()
+    participant_list.google_sheet_sync_error = ""
+    participant_list.save()
+
+    for slug, cfg in configs.items():
+        _create_participant_sheet_version(
+            group=group,
+            track_slug=slug,
+            rows=canonical_rows[slug],
+            request=request,
+            action="linked_google_sync",
+        )
+    return {
+        "title": str(spreadsheet.get("title") or "Google Sheet"),
+        "tabs": len(stored_tabs),
+        "mentoras": len(canonical_rows["mentoras"]),
+        "emprendedoras": len(canonical_rows["emprendedoras"]),
+        "checkbox_cells": updated_cells,
+    }
+
+
+def _push_linked_participant_checkboxes(participant_list) -> int:
+    if not participant_list or not str(participant_list.google_sheet_url or "").strip():
+        return 0
+    pushed_tabs, updates = _linked_google_checkbox_updates(participant_list)
+    updated_cells = update_google_spreadsheet_values(participant_list.google_sheet_url, updates)
+    participant_list.google_sheet_tabs = pushed_tabs
+    participant_list.google_sheet_last_synced_at = timezone.now()
+    participant_list.google_sheet_sync_error = ""
+    participant_list.save(
+        update_fields=[
+            "google_sheet_tabs",
+            "google_sheet_last_synced_at",
+            "google_sheet_sync_error",
+            "updated_at",
+        ]
+    )
+    return updated_cells
+
+
 def _participant_track_rows_for_group(group, participant_list, cfg: dict) -> tuple[list[list], bool]:
     rows: list[list] = []
     if participant_list:
@@ -3150,12 +3470,106 @@ def profiles_participants(request):
         selected_group = groups_qs.filter(number=int(group_raw)).first()
         if selected_group:
             participant_list = GroupParticipantList.objects.filter(group=selected_group).first()
+            if (
+                request.method == "GET"
+                and participant_list
+                and str(participant_list.google_sheet_url or "").strip()
+            ):
+                try:
+                    _sync_group_from_linked_google_sheet(
+                        group=selected_group,
+                        participant_list=participant_list,
+                        request=request,
+                    )
+                    participant_list.refresh_from_db()
+                except Exception as exc:
+                    participant_list.google_sheet_sync_error = str(exc)
+                    participant_list.save(update_fields=["google_sheet_sync_error", "updated_at"])
+                    messages.warning(
+                        request,
+                        f"Could not refresh this group's linked Google Sheet: {exc}",
+                    )
 
     if request.method == "POST":
         action = (request.POST.get("action") or "save_sheet").strip()
+        if action in {"save_google_sheet_link", "sync_linked_google_sheet", "unlink_google_sheet"}:
+            posted_group = (request.POST.get("group") or "").strip()
+            target_group = groups_qs.filter(number=int(posted_group)).first() if posted_group.isdigit() else None
+            if not target_group:
+                messages.error(request, "Please select a valid group.")
+                return redirect(reverse("admin_profiles_participants"))
+            target_list, _ = GroupParticipantList.objects.get_or_create(group=target_group)
+            target_url = (request.POST.get("google_sheet_url") or target_list.google_sheet_url or "").strip()
+
+            if action == "unlink_google_sheet":
+                target_list.google_sheet_url = ""
+                target_list.google_sheet_id = ""
+                target_list.google_sheet_tabs = []
+                target_list.google_sheet_last_synced_at = None
+                target_list.google_sheet_sync_error = ""
+                target_list.save(
+                    update_fields=[
+                        "google_sheet_url",
+                        "google_sheet_id",
+                        "google_sheet_tabs",
+                        "google_sheet_last_synced_at",
+                        "google_sheet_sync_error",
+                        "updated_at",
+                    ]
+                )
+                messages.success(
+                    request,
+                    f"Unlinked the Google Sheet from Group {target_group.number}. Cached participant rows were kept.",
+                )
+                return redirect(f"{reverse('admin_profiles_participants')}?group={target_group.number}")
+
+            try:
+                result = _sync_group_from_linked_google_sheet(
+                    group=target_group,
+                    participant_list=target_list,
+                    sheet_url=target_url,
+                    request=request,
+                )
+            except Exception as exc:
+                target_list.google_sheet_sync_error = str(exc)
+                target_list.save(update_fields=["google_sheet_sync_error", "updated_at"])
+                messages.error(request, f"Could not link/sync this Google Sheet: {exc}")
+                return redirect(f"{reverse('admin_profiles_participants')}?group={target_group.number}")
+
+            messages.success(
+                request,
+                (
+                    f"Synced Group {target_group.number} from {result['title']}. "
+                    f"Tabs: {result['tabs']} · Mentoras: {result['mentoras']} · "
+                    f"Emprendedoras: {result['emprendedoras']} · "
+                    f"checkbox cells mirrored to Google: {result['checkbox_cells']}."
+                ),
+            )
+            return redirect(f"{reverse('admin_profiles_participants')}?group={target_group.number}")
+
         if action == "sync_from_google_sheet":
             scoped_group = int(group_raw) if group_raw.isdigit() else None
             try:
+                linked_list = (
+                    GroupParticipantList.objects.filter(group__number=scoped_group).first()
+                    if scoped_group is not None
+                    else None
+                )
+                if linked_list and str(linked_list.google_sheet_url or "").strip():
+                    sync_result = _sync_group_from_linked_google_sheet(
+                        group=linked_list.group,
+                        participant_list=linked_list,
+                        request=request,
+                    )
+                    messages.success(
+                        request,
+                        (
+                            f"Refreshed Group {scoped_group} from its linked Google Sheet. "
+                            f"Mentoras: {sync_result['mentoras']} · "
+                            f"Emprendedoras: {sync_result['emprendedoras']}."
+                        ),
+                    )
+                    return redirect(f"{reverse('admin_profiles_participants')}?group={scoped_group}")
                 sync_result = _sync_participants_from_drive_sheet(scoped_group)
             except Exception as exc:
                 messages.error(request, f"Could not sync participants from Google Sheet: {exc}")
@@ -3197,6 +3611,18 @@ def profiles_participants(request):
             messages.error(request, "Selected group does not exist or is archived.")
             return redirect(reverse("admin_profiles_participants"))
 
+        selected_participant_list = GroupParticipantList.objects.filter(group=selected_group).first()
+        if (
+            selected_participant_list
+            and str(selected_participant_list.google_sheet_url or "").strip()
+            and action in {"build_from_emails", "add_from_cedulas", "sync_from_group_assignments", "save_sheet"}
+        ):
+            messages.error(
+                request,
+                "This group is sourced from its linked Google Sheet. Edit ordinary participant data in Google and refresh the workbook.",
+            )
+            return redirect(f"{reverse('admin_profiles_participants')}?group={selected_group.number}")
+
         if action in {"delete_group", "force_delete_group", "delete_group_force"}:
             messages.error(
                 request,
@@ -3208,6 +3634,22 @@ def profiles_participants(request):
             return redirect(f"{reverse('admin_profiles_participants')}?group={selected_group.number}")
 
         if action == "check_dropbox":
+            linked_list = GroupParticipantList.objects.filter(group=selected_group).first()
+            if linked_list and str(linked_list.google_sheet_url or "").strip():
+                try:
+                    _sync_group_from_linked_google_sheet(
+                        group=selected_group,
+                        participant_list=linked_list,
+                        request=request,
+                    )
+                except Exception as exc:
+                    messages.error(
+                        request,
+                        f"Could not refresh the linked Google Sheet before checking Acta: {exc}",
+                    )
+                    return redirect(
+                        f"{reverse('admin_profiles_participants')}?group={selected_group.number}"
+                    )
             try:
                 ok, summary = _run_dropbox_reconcile_for_group(
                     group_num=selected_group.number,
@@ -3238,12 +3680,22 @@ def profiles_participants(request):
                     participant_list.emprendedoras_emails_text = ""
                     participant_list.mentoras_sheet_rows = []
                     participant_list.emprendedoras_sheet_rows = []
+                    participant_list.google_sheet_url = ""
+                    participant_list.google_sheet_id = ""
+                    participant_list.google_sheet_tabs = []
+                    participant_list.google_sheet_last_synced_at = None
+                    participant_list.google_sheet_sync_error = ""
                     participant_list.save(
                         update_fields=[
                             "mentoras_emails_text",
                             "emprendedoras_emails_text",
                             "mentoras_sheet_rows",
                             "emprendedoras_sheet_rows",
+                            "google_sheet_url",
+                            "google_sheet_id",
+                            "google_sheet_tabs",
+                            "google_sheet_last_synced_at",
+                            "google_sheet_sync_error",
                             "updated_at",
                         ]
                     )
@@ -3640,6 +4092,15 @@ def profiles_participants(request):
         "emprendedoras_count": len(emprendedoras_rows),
         "has_list": has_list,
         "participants_drive_file": _participant_source_url(),
+        "linked_google_sheet_url": (
+            str(getattr(participant_list, "google_sheet_url", "") or "") if participant_list else ""
+        ),
+        "linked_google_sheet_last_synced_at": (
+            getattr(participant_list, "google_sheet_last_synced_at", None) if participant_list else None
+        ),
+        "linked_google_sheet_sync_error": (
+            str(getattr(participant_list, "google_sheet_sync_error", "") or "") if participant_list else ""
+        ),
     }
     return render(request, "admin_dash/profiles_participants.html", context)
 
@@ -3721,26 +4182,60 @@ def profiles_participants_track_sheet(request, group_num: int, track: str):
 
     participant_list = GroupParticipantList.objects.filter(group=group).first()
     track_cfg = _participant_track_sheet_configs()[track_slug]
+    linked_google_sheet = bool(
+        participant_list and str(participant_list.google_sheet_url or "").strip()
+    )
 
     if request.method == "POST":
         is_async_save = request.headers.get("x-requested-with") == "XMLHttpRequest"
         action = (request.POST.get("action") or "save_sheet").strip()
-        if action in {"check_dropbox", "check_capacitacion", "check_encuestas", "check_encuestas_final"}:
-            saved_current, save_error = _save_posted_participant_sheet_before_check(
-                request=request,
-                group=group,
-                participant_list=participant_list,
-                cfg=track_cfg,
-                field_name="sheet_data",
+        check_actions = {"check_dropbox", "check_capacitacion", "check_encuestas", "check_encuestas_final"}
+        if linked_google_sheet and action not in check_actions:
+            message = "This workbook is sourced from Google Sheets and is read-only on the website."
+            if is_async_save:
+                return JsonResponse({"ok": False, "error": message}, status=409)
+            messages.error(request, message)
+            return redirect(
+                reverse(
+                    "admin_profiles_participants_track_sheet",
+                    args=[group.number, track_slug],
+                )
             )
-            if not saved_current:
-                messages.error(request, save_error)
+        if linked_google_sheet and action in check_actions:
+            try:
+                _sync_group_from_linked_google_sheet(
+                    group=group,
+                    participant_list=participant_list,
+                    request=request,
+                )
+                participant_list.refresh_from_db()
+            except Exception as exc:
+                participant_list.google_sheet_sync_error = str(exc)
+                participant_list.save(update_fields=["google_sheet_sync_error", "updated_at"])
+                messages.error(request, f"Could not refresh the linked Google Sheet before checking: {exc}")
                 return redirect(
                     reverse(
                         "admin_profiles_participants_track_sheet",
                         args=[group.number, track_slug],
                     )
                 )
+        if action in {"check_dropbox", "check_capacitacion", "check_encuestas", "check_encuestas_final"}:
+            if not linked_google_sheet:
+                saved_current, save_error = _save_posted_participant_sheet_before_check(
+                    request=request,
+                    group=group,
+                    participant_list=participant_list,
+                    cfg=track_cfg,
+                    field_name="sheet_data",
+                )
+                if not saved_current:
+                    messages.error(request, save_error)
+                    return redirect(
+                        reverse(
+                            "admin_profiles_participants_track_sheet",
+                            args=[group.number, track_slug],
+                        )
+                    )
         if action == "restore_version":
             version_raw = (request.POST.get("version_id") or "").strip()
             if not version_raw.isdigit():
@@ -3841,6 +4336,12 @@ def profiles_participants_track_sheet(request, group_num: int, track: str):
             except Exception as exc:
                 ok, summary = False, f"Unexpected error running Wix capacitacion check: {exc}"
             if ok:
+                if linked_google_sheet:
+                    participant_list.refresh_from_db()
+                    try:
+                        _push_linked_participant_checkboxes(participant_list)
+                    except Exception as exc:
+                        messages.error(request, f"Capacitacion was checked, but Google checkbox sync failed: {exc}")
                 _create_participant_sheet_version_from_store(
                     group=group,
                     track_slug=track_slug,
@@ -3893,6 +4394,12 @@ def profiles_participants_track_sheet(request, group_num: int, track: str):
             except Exception as exc:
                 ok, summary = False, f"Unexpected error running encuestas check: {exc}"
             if ok:
+                if linked_google_sheet:
+                    participant_list.refresh_from_db()
+                    try:
+                        _push_linked_participant_checkboxes(participant_list)
+                    except Exception as exc:
+                        messages.error(request, f"Encuesta inicial was checked, but Google checkbox sync failed: {exc}")
                 _create_participant_sheet_version_from_store(
                     group=group,
                     track_slug=track_slug,
@@ -3945,6 +4452,12 @@ def profiles_participants_track_sheet(request, group_num: int, track: str):
             except Exception as exc:
                 ok, summary = False, f"Unexpected error running final encuestas check: {exc}"
             if ok:
+                if linked_google_sheet:
+                    participant_list.refresh_from_db()
+                    try:
+                        _push_linked_participant_checkboxes(participant_list)
+                    except Exception as exc:
+                        messages.error(request, f"Encuesta final was checked, but Google checkbox sync failed: {exc}")
                 _create_participant_sheet_version_from_store(
                     group=group,
                     track_slug=track_slug,
@@ -4072,6 +4585,22 @@ def profiles_participants_track_sheet(request, group_num: int, track: str):
             )
         )
 
+    if linked_google_sheet:
+        try:
+            _sync_group_from_linked_google_sheet(
+                group=group,
+                participant_list=participant_list,
+                request=request,
+            )
+            participant_list.refresh_from_db()
+        except Exception as exc:
+            participant_list.google_sheet_sync_error = str(exc)
+            participant_list.save(update_fields=["google_sheet_sync_error", "updated_at"])
+            messages.warning(
+                request,
+                f"Could not refresh the linked Google Sheet. Showing the last synced copy: {exc}",
+            )
+
     rows: list[list] = []
     if participant_list:
         stored_rows = _normalize_sheet_rows(getattr(participant_list, rows_field, []), headers)
@@ -4110,18 +4639,42 @@ def profiles_participants_track_sheet(request, group_num: int, track: str):
             action="baseline",
         )
 
+    display_headers = headers
+    display_column_types = column_types
+    display_status_options = status_options
+    display_rows = rows
+    if linked_google_sheet:
+        stored_tabs = list(participant_list.google_sheet_tabs or [])
+        display_tabs = _participant_google_tabs_for_display(participant_list)
+        linked_tab = next(
+            (
+                display_tabs[index]
+                for index, stored in enumerate(stored_tabs)
+                if index < len(display_tabs) and str(stored.get("track") or "") == track_slug
+            ),
+            None,
+        )
+        if linked_tab:
+            display_headers = linked_tab["headers"]
+            display_column_types = linked_tab["column_types"]
+            display_status_options = linked_tab["status_options"]
+            display_rows = linked_tab["rows"]
+
     context = {
         "group": group,
         "track_slug": track_slug,
         "track_label": track_label,
-        "sheet_headers": headers,
-        "sheet_column_types": column_types,
-        "sheet_status_options": status_options,
-        "sheet_rows": rows,
-        "sheet_rows_json": json.dumps(rows),
+        "sheet_headers": display_headers,
+        "sheet_column_types": display_column_types,
+        "sheet_status_options": display_status_options,
+        "sheet_rows": display_rows,
+        "sheet_rows_json": json.dumps(display_rows),
         "sheet_versions": _participant_sheet_versions(group, track_slug),
         "emails_text": emails_text,
-        "rows_count": len(rows),
+        "rows_count": len(display_rows),
+        "linked_google_sheet": linked_google_sheet,
+        "linked_google_sheet_url": participant_list.google_sheet_url if linked_google_sheet else "",
+        "sheet_readonly": linked_google_sheet,
     }
     return render(request, "admin_dash/profiles_participants_track_sheet.html", context)
 
@@ -4130,23 +4683,47 @@ def _profiles_participants_combined_sheet(request, group):
     configs = _participant_track_sheet_configs()
     ordered_configs = [configs["mentoras"], configs["emprendedoras"]]
     participant_list = GroupParticipantList.objects.filter(group=group).first()
+    linked_google_sheet = bool(
+        participant_list and str(participant_list.google_sheet_url or "").strip()
+    )
     redirect_url = reverse("admin_profiles_participants_track_sheet", args=[group.number, "all"])
 
     if request.method == "POST":
         is_async_save = request.headers.get("x-requested-with") == "XMLHttpRequest"
         action = (request.POST.get("action") or "save_sheet").strip()
-        if action in {"check_dropbox", "check_capacitacion", "check_encuestas", "check_encuestas_final"}:
-            for cfg in ordered_configs:
-                saved_current, save_error = _save_posted_participant_sheet_before_check(
-                    request=request,
+        check_actions = {"check_dropbox", "check_capacitacion", "check_encuestas", "check_encuestas_final"}
+        if linked_google_sheet and action not in check_actions:
+            message = "This workbook is sourced from Google Sheets and is read-only on the website."
+            if is_async_save:
+                return JsonResponse({"ok": False, "error": message}, status=409)
+            messages.error(request, message)
+            return redirect(redirect_url)
+        if linked_google_sheet and action in check_actions:
+            try:
+                _sync_group_from_linked_google_sheet(
                     group=group,
                     participant_list=participant_list,
-                    cfg=cfg,
-                    field_name=f"{cfg['slug']}_sheet_data",
+                    request=request,
                 )
-                if not saved_current:
-                    messages.error(request, f"{cfg['label']}: {save_error}")
-                    return redirect(redirect_url)
+                participant_list.refresh_from_db()
+            except Exception as exc:
+                participant_list.google_sheet_sync_error = str(exc)
+                participant_list.save(update_fields=["google_sheet_sync_error", "updated_at"])
+                messages.error(request, f"Could not refresh the linked Google Sheet before checking: {exc}")
+                return redirect(redirect_url)
+        if action in {"check_dropbox", "check_capacitacion", "check_encuestas", "check_encuestas_final"}:
+            if not linked_google_sheet:
+                for cfg in ordered_configs:
+                    saved_current, save_error = _save_posted_participant_sheet_before_check(
+                        request=request,
+                        group=group,
+                        participant_list=participant_list,
+                        cfg=cfg,
+                        field_name=f"{cfg['slug']}_sheet_data",
+                    )
+                    if not saved_current:
+                        messages.error(request, f"{cfg['label']}: {save_error}")
+                        return redirect(redirect_url)
 
         if action == "restore_version":
             version_token = (request.POST.get("version_id") or "").strip()
@@ -4260,6 +4837,12 @@ def _profiles_participants_combined_sheet(request, group):
                 else:
                     errors.append(f"{cfg['label']}: {summary}")
             if summaries:
+                if linked_google_sheet:
+                    participant_list.refresh_from_db()
+                    try:
+                        _push_linked_participant_checkboxes(participant_list)
+                    except Exception as exc:
+                        messages.error(request, f"Capacitacion was checked, but Google checkbox sync failed: {exc}")
                 messages.success(
                     request,
                     f"Wix capacitacion check completed for Group {group.number}. {' '.join(summaries)}",
@@ -4310,6 +4893,12 @@ def _profiles_participants_combined_sheet(request, group):
                 else:
                     errors.append(f"{cfg['label']}: {summary}")
             if summaries:
+                if linked_google_sheet:
+                    participant_list.refresh_from_db()
+                    try:
+                        _push_linked_participant_checkboxes(participant_list)
+                    except Exception as exc:
+                        messages.error(request, f"Encuestas were checked, but Google checkbox sync failed: {exc}")
                 messages.success(
                     request,
                     (
@@ -4420,6 +5009,22 @@ def _profiles_participants_combined_sheet(request, group):
         )
         return redirect(redirect_url)
 
+    if linked_google_sheet:
+        try:
+            _sync_group_from_linked_google_sheet(
+                group=group,
+                participant_list=participant_list,
+                request=request,
+            )
+            participant_list.refresh_from_db()
+        except Exception as exc:
+            participant_list.google_sheet_sync_error = str(exc)
+            participant_list.save(update_fields=["google_sheet_sync_error", "updated_at"])
+            messages.warning(
+                request,
+                f"Could not refresh the linked Google Sheet. Showing the last synced copy: {exc}",
+            )
+
     rows_by_track = {}
     repaired_fields: list[str] = []
     for cfg in ordered_configs:
@@ -4452,22 +5057,31 @@ def _profiles_participants_combined_sheet(request, group):
         .order_by("-created_at", "-id")[:50]
     )
 
+    display_tabs = (
+        _participant_google_tabs_for_display(participant_list)
+        if linked_google_sheet
+        else _participant_sheet_tabs(
+            rows_by_track["mentoras"],
+            rows_by_track["emprendedoras"],
+        )
+    )
+    first_display_tab = display_tabs[0] if display_tabs else None
     context = {
         "group": group,
         "track_slug": "all",
         "track_label": "Participants",
         "combined_sheet": True,
-        "sheet_headers": MENTORAS_HEADERS,
-        "sheet_column_types": MENTORAS_COLUMN_TYPES,
-        "sheet_status_options": MENTORAS_STATUS_OPTIONS,
-        "sheet_rows": rows_by_track["mentoras"],
-        "sheet_tabs": _participant_sheet_tabs(
-            rows_by_track["mentoras"],
-            rows_by_track["emprendedoras"],
-        ),
+        "sheet_headers": first_display_tab["headers"] if first_display_tab else MENTORAS_HEADERS,
+        "sheet_column_types": first_display_tab["column_types"] if first_display_tab else MENTORAS_COLUMN_TYPES,
+        "sheet_status_options": first_display_tab["status_options"] if first_display_tab else MENTORAS_STATUS_OPTIONS,
+        "sheet_rows": first_display_tab["rows"] if first_display_tab else rows_by_track["mentoras"],
+        "sheet_tabs": display_tabs,
         "sheet_versions": sheet_versions,
         "emails_text": "",
         "rows_count": len(rows_by_track["mentoras"]) + len(rows_by_track["emprendedoras"]),
+        "linked_google_sheet": linked_google_sheet,
+        "linked_google_sheet_url": participant_list.google_sheet_url if linked_google_sheet else "",
+        "sheet_readonly": linked_google_sheet,
     }
     return render(request, "admin_dash/profiles_participants_track_sheet.html", context)
 

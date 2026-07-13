@@ -782,6 +782,7 @@
       ? JSON.parse(sheetStatusOptionsEl.textContent || '[]')
       : [];
     const allowStructureEdit = {{ sheet_allow_structure_edit|default:True|yesno:"true,false" }};
+    const sheetReadonly = {{ sheet_readonly|default:False|yesno:"true,false" }};
     const FILTER_PATCH_VERSION = 'v2026.06.03.6';
 
     function normalizeSheetTab(raw, idx) {
@@ -6476,10 +6477,10 @@
         try {
           fitToViewport();
           const spreadsheet = x_spreadsheet('#{{ root_id }}', {
-            mode: 'edit',
-            showToolbar: true,
+            mode: sheetReadonly ? 'read' : 'edit',
+            showToolbar: !sheetReadonly,
             showGrid: true,
-            showContextmenu: allowStructureEdit,
+            showContextmenu: !sheetReadonly && allowStructureEdit,
             row: {
               len: Math.max(1, matrix.length),
               height: 28,

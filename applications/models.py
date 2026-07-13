@@ -962,6 +962,11 @@ class GroupParticipantList(models.Model):
     emprendedoras_emails_text = models.TextField(blank=True)
     mentoras_sheet_rows = models.JSONField(default=list, blank=True)
     emprendedoras_sheet_rows = models.JSONField(default=list, blank=True)
+    google_sheet_url = models.URLField(max_length=1000, blank=True, default="")
+    google_sheet_id = models.CharField(max_length=255, blank=True, default="")
+    google_sheet_tabs = models.JSONField(default=list, blank=True)
+    google_sheet_last_synced_at = models.DateTimeField(null=True, blank=True)
+    google_sheet_sync_error = models.TextField(blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

@@ -116,6 +116,7 @@
 <div class="ce-sheet-page">
   <div class="ce-sheet-actions">
     <span class="ce-sheet-debug">Participants sheet patch v2026.06.03.6</span>
+    {% if not linked_google_sheet %}
     <form class="ce-version-form" method="post">
       {% csrf_token %}
       <input type="hidden" name="action" value="restore_version">
@@ -129,15 +130,21 @@
       </select>
       <button class="ce-sheet-btn ce-sheet-btn--ghost" type="submit">Restore</button>
     </form>
-    <span id="ce-sheet-autosave-status" class="ce-autosave-status">Autosave ready</span>
+    {% endif %}
+    <span id="ce-sheet-autosave-status" class="ce-autosave-status">
+      {% if linked_google_sheet %}Google Sheet linked · website is read-only{% else %}Autosave ready{% endif %}
+    </span>
     <a class="ce-sheet-btn ce-sheet-btn--ghost" href="{% url 'admin_profiles_participants' %}?group={{ group.number }}">
       Back
     </a>
     <form method="post" data-ce-check-form>
       {% csrf_token %}
       <input type="hidden" name="action" value="check_dropbox">
-      <button class="ce-sheet-btn" type="submit">Check Dropbox</button>
+      <button class="ce-sheet-btn" type="submit">Check Acta</button>
     </form>
+    {% if linked_google_sheet_url %}
+      <a class="ce-sheet-btn ce-sheet-btn--ghost" href="{{ linked_google_sheet_url }}" target="_blank" rel="noopener">Open Google Sheet</a>
+    {% endif %}
     <form method="post" data-ce-check-form>
       {% csrf_token %}
       <input type="hidden" name="action" value="check_capacitacion">
@@ -167,7 +174,7 @@
   </form>
 
   <div class="ce-sheet-shell">
-    {% include "admin_dash/includes/xsheet_preview.html" with sheet_id="participants-track-sheet-xsheet" sheet_headers=sheet_headers sheet_rows=sheet_rows sheet_tabs=sheet_tabs sheet_column_types=sheet_column_types sheet_status_options=sheet_status_options sheet_height=860 sheet_deferred=True %}
+    {% include "admin_dash/includes/xsheet_preview.html" with sheet_id="participants-track-sheet-xsheet" sheet_headers=sheet_headers sheet_rows=sheet_rows sheet_tabs=sheet_tabs sheet_column_types=sheet_column_types sheet_status_options=sheet_status_options sheet_height=860 sheet_deferred=True sheet_readonly=sheet_readonly sheet_allow_structure_edit=False %}
   </div>
 </div>
 
@@ -175,6 +182,7 @@
   (function () {
     const REGISTRY_ID = 'participants-track-sheet-xsheet';
     const IS_COMBINED = {{ combined_sheet|default:False|yesno:"true,false" }};
+    const IS_LINKED = {{ linked_google_sheet|default:False|yesno:"true,false" }};
     const form = document.getElementById('ce-sheet-save-form');
     const sheetDataInput = document.getElementById('ce-sheet-data');
     const mentorasSheetDataInput = document.getElementById('ce-mentoras-sheet-data');
@@ -297,6 +305,9 @@
     }
 
     async function saveIfChanged(force) {
+      if (IS_LINKED) {
+        return;
+      }
       if (saveInFlight || checkSubmitInProgress) {
         return;
       }
@@ -363,16 +374,20 @@
         if (checkSubmitInProgress) {
           return;
         }
-        attachCurrentSheetPayload(checkForm);
+        if (!IS_LINKED) {
+          attachCurrentSheetPayload(checkForm);
+        }
         checkSubmitInProgress = true;
         setAutosaveStatus('Checking...');
       });
     });
 
-    bootstrapSavedPayloadWhenReady();
-    window.setInterval(function () {
-      saveIfChanged(false);
-    }, 3500);
+    if (!IS_LINKED) {
+      bootstrapSavedPayloadWhenReady();
+      window.setInterval(function () {
+        saveIfChanged(false);
+      }, 3500);
+    }
   })();
 </script>
 {% endblock %}

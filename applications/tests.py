@@ -4051,6 +4051,190 @@ class ParticipantsCapacitacionCheckTests(TestCase):
         self.assertTrue(self.participant_list.mentoras_sheet_rows[0][13])
         self.assertTrue(self.participant_list.emprendedoras_sheet_rows[0][13])
 
+    def _linked_google_workbook_payload(self):
+        mentora_row = [
+            "Google info",
+            "CP",
+            99,
+            "Mentora from Google",
+            "M1",
+            "m1@example.com",
+            "+57",
+            "Colombia",
+            "30",
+            True,
+            False,
+            True,
+            True,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ]
+        emprendedora_row = [
+            "Google info E",
+            "CP",
+            42,
+            "Emprendedora from Google",
+            "E1",
+            "e1@example.com",
+            "+57",
+            "Colombia",
+            "31",
+            True,
+            True,
+            True,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ]
+        return {
+            "spreadsheet_id": "linked-sheet-123",
+            "title": "Group 993 Participants",
+            "tabs": [
+                {
+                    "title": "Mentoras",
+                    "sheet_id": 1,
+                    "values": [admin_profiles_views.MENTORAS_HEADERS, mentora_row],
+                },
+                {
+                    "title": "Emprendedoras",
+                    "sheet_id": 2,
+                    "values": [admin_profiles_views.EMPRENDEDORAS_HEADERS, emprendedora_row],
+                },
+                {
+                    "title": "Notes",
+                    "sheet_id": 3,
+                    "values": [["Custom heading", "Owner"], ["Mirrored extra tab", "Admin"]],
+                },
+            ],
+        }
+
+    @patch("applications.admin_profiles_views.update_google_spreadsheet_values")
+    @patch("applications.admin_profiles_views.fetch_google_spreadsheet_tabs")
+    def test_group_can_link_multitab_google_sheet_and_preserve_website_checkboxes(
+        self,
+        mock_fetch_tabs,
+        mock_update_values,
+    ):
+        self.participant_list.mentoras_sheet_rows[0][10] = True
+        self.participant_list.save(update_fields=["mentoras_sheet_rows", "updated_at"])
+        mock_fetch_tabs.return_value = self._linked_google_workbook_payload()
+        mock_update_values.return_value = 17
+        sheet_url = "https://docs.google.com/spreadsheets/d/linked-sheet-123/edit"
+
+        response = self.client.post(
+            reverse("admin_profiles_participants"),
+            data={
+                "action": "save_google_sheet_link",
+                "group": str(self.group.number),
+                "google_sheet_url": sheet_url,
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.participant_list.refresh_from_db()
+        self.assertEqual(self.participant_list.google_sheet_url, sheet_url)
+        self.assertEqual(self.participant_list.google_sheet_id, "linked-sheet-123")
+        self.assertEqual(len(self.participant_list.google_sheet_tabs), 3)
+        self.assertEqual(self.participant_list.mentoras_sheet_rows[0][3], "Mentora from Google")
+        self.assertTrue(self.participant_list.mentoras_sheet_rows[0][10])
+        self.assertFalse(self.participant_list.mentoras_sheet_rows[0][11])
+        self.assertFalse(self.participant_list.mentoras_sheet_rows[0][12])
+        self.assertTrue(mock_update_values.called)
+        written_ranges = {
+            item["range"]
+            for item in mock_update_values.call_args.args[1]
+        }
+        self.assertIn("'Mentoras'!J2:J2", written_ranges)
+        self.assertIn("'Mentoras'!R2:R2", written_ranges)
+
+        response = self.client.get(
+            reverse(
+                "admin_profiles_participants_track_sheet",
+                args=[self.group.number, "all"],
+            )
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Notes")
+        self.assertContains(response, "Mirrored extra tab")
+        self.assertContains(response, "Google Sheet linked · website is read-only")
+        self.assertContains(response, "const sheetReadonly = true")
+
+    @patch("applications.admin_profiles_views._fetch_encuestas_emails_for_group")
+    @patch("applications.admin_profiles_views.update_google_spreadsheet_values")
+    @patch("applications.admin_profiles_views.fetch_google_spreadsheet_tabs")
+    def test_linked_encuesta_check_writes_checkbox_result_back_to_google(
+        self,
+        mock_fetch_tabs,
+        mock_update_values,
+        mock_fetch_encuestas,
+    ):
+        mock_fetch_tabs.return_value = self._linked_google_workbook_payload()
+        mock_update_values.return_value = 17
+        mock_fetch_encuestas.return_value = (
+            True,
+            {"m1@example.com"},
+            "Encuesta inicial source scanned.",
+        )
+        sheet_url = "https://docs.google.com/spreadsheets/d/linked-sheet-123/edit"
+        self.client.post(
+            reverse("admin_profiles_participants"),
+            data={
+                "action": "save_google_sheet_link",
+                "group": str(self.group.number),
+                "google_sheet_url": sheet_url,
+            },
+        )
+
+        response = self.client.post(
+            reverse(
+                "admin_profiles_participants_track_sheet",
+                args=[self.group.number, "all"],
+            ),
+            data={"action": "check_encuestas"},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.participant_list.refresh_from_db()
+        self.assertTrue(self.participant_list.mentoras_sheet_rows[0][12])
+        encuesta_writes = []
+        for call in mock_update_values.call_args_list:
+            for item in call.args[1]:
+                if item["range"] == "'Mentoras'!M2:M2":
+                    encuesta_writes.append(item["values"])
+        self.assertIn([[True]], encuesta_writes)
+
+    @patch("applications.admin_profiles_views.update_google_spreadsheet_values")
+    @patch("applications.admin_profiles_views.fetch_google_spreadsheet_tabs")
+    def test_linked_google_workbook_rejects_website_autosave(
+        self,
+        mock_fetch_tabs,
+        mock_update_values,
+    ):
+        mock_fetch_tabs.return_value = self._linked_google_workbook_payload()
+        mock_update_values.return_value = 17
+        self.client.post(
+            reverse("admin_profiles_participants"),
+            data={
+                "action": "save_google_sheet_link",
+                "group": str(self.group.number),
+                "google_sheet_url": "https://docs.google.com/spreadsheets/d/linked-sheet-123/edit",
+            },
+        )
+        response = self.client.post(
+            reverse(
+                "admin_profiles_participants_track_sheet",
+                args=[self.group.number, "all"],
+            ),
+            data={"action": "save_sheet", "mentoras_sheet_data": "[]", "emprendedoras_sheet_data": "[]"},
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        self.assertEqual(response.status_code, 409)
+
 
 class DropboxSignWebhookActaAutomationTests(TestCase):
     def _mentora_row(self, idx: int, email: str) -> list:

@@ -13,7 +13,7 @@ from io import StringIO
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from applications import admin_dashboard_views
+from applications import admin_dashboard_views, drive_sync
 from applications import admin_profiles_views
 from applications.grader_m import MENTORA_EXACT_OUTPUT_COLUMNS
 from applications import meta_marketing
@@ -65,6 +65,33 @@ from applications.models import (
     Section,
     StoredEmailTemplate,
 )
+
+
+class GoogleSheetsCredentialScopeTests(TestCase):
+    @patch("googleapiclient.discovery.build")
+    @patch("google.oauth2.credentials.Credentials")
+    def test_sheets_service_reuses_existing_drive_oauth_scope(
+        self,
+        mock_user_credentials,
+        mock_build,
+    ):
+        drive_sync._build_sheets_service(
+            "",
+            oauth_client_id="client-id",
+            oauth_client_secret="client-secret",
+            oauth_refresh_token="refresh-token",
+        )
+
+        self.assertEqual(
+            mock_user_credentials.call_args.kwargs["scopes"],
+            ["https://www.googleapis.com/auth/drive"],
+        )
+        mock_build.assert_called_once_with(
+            "sheets",
+            "v4",
+            credentials=mock_user_credentials.return_value,
+            cache_discovery=False,
+        )
 
 
 class BulkEmailComposeTests(TestCase):

@@ -194,11 +194,11 @@ def _build_sheets_service(
     from google.oauth2.credentials import Credentials as UserCredentials
     from googleapiclient.discovery import build
 
-    scopes = [
-        "https://www.googleapis.com/auth/drive",
-        "https://www.googleapis.com/auth/spreadsheets",
-    ]
     if _has_oauth_config(oauth_client_id, oauth_client_secret, oauth_refresh_token):
+        # Refresh tokens cannot be expanded to newly requested scopes. The
+        # existing deployment token was issued for Drive, and the Sheets API
+        # accepts the full Drive scope for spreadsheet reads and writes.
+        scopes = ["https://www.googleapis.com/auth/drive"]
         creds = UserCredentials(
             token=None,
             refresh_token=oauth_refresh_token,
@@ -208,11 +208,19 @@ def _build_sheets_service(
             scopes=scopes,
         )
     elif key_json:
+        scopes = [
+            "https://www.googleapis.com/auth/drive",
+            "https://www.googleapis.com/auth/spreadsheets",
+        ]
         creds = Credentials.from_service_account_info(
             _parse_service_account_info(key_json),
             scopes=scopes,
         )
     else:
+        scopes = [
+            "https://www.googleapis.com/auth/drive",
+            "https://www.googleapis.com/auth/spreadsheets",
+        ]
         creds = Credentials.from_service_account_file(key_path, scopes=scopes)
     return build("sheets", "v4", credentials=creds, cache_discovery=False)
 

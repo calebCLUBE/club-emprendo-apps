@@ -31,6 +31,7 @@ from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 
 from .drive_sync import (
+    ensure_google_spreadsheet_checkbox_columns,
     fetch_drive_csv_file_text,
     fetch_google_spreadsheet_tabs,
     update_google_spreadsheet_values,
@@ -2592,6 +2593,7 @@ def _sync_group_from_linked_google_sheet(
     canonical_rows: dict[str, list[list]] = {}
     stored_tabs: list[dict] = []
     seen_tracks: set[str] = set()
+    missing_google_checkbox_columns: list[dict] = []
 
     for source_tab in spreadsheet.get("tabs") or []:
         # Keep Google's exact tab title for subsequent A1 write ranges. Track
@@ -2612,7 +2614,6 @@ def _sync_group_from_linked_google_sheet(
             email_index = _participant_source_field_index(headers, "email")
             if email_index is None:
                 raise ValueError(f"Tab '{title}' needs an Email/Correo column.")
-            missing_checkbox_headers: list[str] = []
             checkbox_specs = _participant_checkbox_specs(cfg)
             detected_checkbox_indexes = sorted(
                 {
@@ -2633,8 +2634,19 @@ def _sync_group_from_linked_google_sheet(
                     else _participant_source_field_index(headers, field_name)
                 )
                 if source_index is None:
-                    missing_checkbox_headers.append(cfg["headers"][canonical_index].strip())
-                    continue
+                    source_index = len(headers)
+                    header_label = cfg["headers"][canonical_index].strip()
+                    headers.append(header_label)
+                    for source_row in body_rows:
+                        source_row.extend([""] * (len(headers) - len(source_row)))
+                    missing_google_checkbox_columns.append(
+                        {
+                            "sheet_id": int(source_tab.get("sheet_id") or 0),
+                            "column_index": source_index,
+                            "column_count": int(source_tab.get("column_count") or 0),
+                            "header": header_label,
+                        }
+                    )
                 checkbox_columns.append(
                     {
                         "field": field_name,
@@ -2642,11 +2654,6 @@ def _sync_group_from_linked_google_sheet(
                         "canonical_index": canonical_index,
                     }
                 )
-            if missing_checkbox_headers:
-                raise ValueError(
-                    f"Tab '{title}' is missing checkbox columns: {', '.join(missing_checkbox_headers)}."
-                )
-
             field_indexes = {
                 field_name: _participant_source_field_index(headers, field_name)
                 for field_name in PARTICIPANT_SOURCE_FIELD_ALIASES
@@ -2705,6 +2712,10 @@ def _sync_group_from_linked_google_sheet(
 
     participant_list.google_sheet_tabs = stored_tabs
     pushed_tabs, checkbox_updates = _linked_google_checkbox_updates(participant_list, stored_tabs)
+    created_checkbox_columns = ensure_google_spreadsheet_checkbox_columns(
+        source_url,
+        missing_google_checkbox_columns,
+    )
     updated_cells = update_google_spreadsheet_values(source_url, checkbox_updates)
     participant_list.google_sheet_url = source_url
     participant_list.google_sheet_id = str(spreadsheet.get("spreadsheet_id") or "")
@@ -2727,6 +2738,7 @@ def _sync_group_from_linked_google_sheet(
         "mentoras": len(canonical_rows["mentoras"]),
         "emprendedoras": len(canonical_rows["emprendedoras"]),
         "checkbox_cells": updated_cells,
+        "checkbox_columns_created": created_checkbox_columns,
     }
 
 
@@ -3561,7 +3573,8 @@ def profiles_participants(request):
                     f"Synced Group {target_group.number} from {result['title']}. "
                     f"Tabs: {result['tabs']} · Mentoras: {result['mentoras']} · "
                     f"Emprendedoras: {result['emprendedoras']} · "
-                    f"checkbox cells mirrored to Google: {result['checkbox_cells']}."
+                    f"checkbox cells mirrored to Google: {result['checkbox_cells']} · "
+                    f"checkbox columns added: {result['checkbox_columns_created']}."
                 ),
             )
             return redirect(f"{reverse('admin_profiles_participants')}?group={target_group.number}")

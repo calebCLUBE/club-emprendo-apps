@@ -69,6 +69,37 @@ from applications.models import (
 
 class GoogleSheetsCredentialScopeTests(TestCase):
     @patch("applications.drive_sync._service_for_sheets")
+    def test_missing_checkbox_column_is_created_and_formatted(self, mock_service_factory):
+        service = Mock()
+        mock_service_factory.return_value = service
+
+        created = drive_sync.ensure_google_spreadsheet_checkbox_columns(
+            "https://docs.google.com/spreadsheets/d/sheet-123/edit",
+            [
+                {
+                    "sheet_id": 7,
+                    "column_index": 20,
+                    "column_count": 18,
+                    "header": "Encuesta inicial",
+                }
+            ],
+        )
+
+        self.assertEqual(created, 1)
+        requests = service.spreadsheets.return_value.batchUpdate.call_args.kwargs["body"][
+            "requests"
+        ]
+        self.assertEqual(requests[0]["appendDimension"]["length"], 3)
+        self.assertEqual(
+            requests[1]["updateCells"]["rows"][0]["values"][0]["userEnteredValue"],
+            {"stringValue": "Encuesta inicial"},
+        )
+        self.assertEqual(
+            requests[2]["setDataValidation"]["rule"]["condition"]["type"],
+            "BOOLEAN",
+        )
+
+    @patch("applications.drive_sync._service_for_sheets")
     def test_tab_read_preserves_exact_google_title_whitespace(self, mock_service_factory):
         service = Mock()
         spreadsheets = service.spreadsheets.return_value
@@ -4293,6 +4324,45 @@ class ParticipantsCapacitacionCheckTests(TestCase):
         self.assertEqual(
             [item["index"] for item in stored_mentoras_tab["checkbox_columns"]],
             checkbox_indexes,
+        )
+
+    @patch("applications.admin_profiles_views.ensure_google_spreadsheet_checkbox_columns")
+    @patch("applications.admin_profiles_views.update_google_spreadsheet_values")
+    @patch("applications.admin_profiles_views.fetch_google_spreadsheet_tabs")
+    def test_link_adds_missing_google_checkbox_columns_instead_of_rejecting(
+        self,
+        mock_fetch_tabs,
+        mock_update_values,
+        mock_ensure_columns,
+    ):
+        payload = self._linked_google_workbook_payload()
+        mentoras_tab = payload["tabs"][0]
+        headers = list(mentoras_tab["values"][0])
+        missing_indexes = [10, 12, 14, 15]
+        for column_index in missing_indexes:
+            headers[column_index] = f"Ordinary source column {column_index}"
+        mentoras_tab["values"][0] = headers
+        mentoras_tab["column_count"] = len(headers)
+        mock_fetch_tabs.return_value = payload
+        mock_update_values.return_value = 20
+        mock_ensure_columns.return_value = len(missing_indexes)
+
+        response = self.client.post(
+            reverse("admin_profiles_participants"),
+            data={
+                "action": "save_google_sheet_link",
+                "group": str(self.group.number),
+                "google_sheet_url": "https://docs.google.com/spreadsheets/d/linked-sheet-123/edit",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        requested_headers = {
+            item["header"] for item in mock_ensure_columns.call_args.args[1]
+        }
+        self.assertEqual(
+            requested_headers,
+            {"Website", "Encuesta inicial", "Plazo extra", "Lanzamiento"},
         )
 
     @patch("applications.admin_profiles_views._fetch_encuestas_emails_for_group")

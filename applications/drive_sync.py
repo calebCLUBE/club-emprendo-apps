@@ -544,7 +544,10 @@ def fetch_google_spreadsheet_tabs(file_ref: str) -> dict:
             service.spreadsheets()
             .get(
                 spreadsheetId=file_id,
-                fields="spreadsheetId,properties.title,sheets.properties(sheetId,title,index)",
+                fields=(
+                    "spreadsheetId,properties.title,"
+                    "sheets.properties(sheetId,title,index,gridProperties(columnCount,rowCount))"
+                ),
             )
             .execute()
         )
@@ -642,6 +645,8 @@ def fetch_google_spreadsheet_tabs(file_ref: str) -> dict:
             {
                 "title": title,
                 "sheet_id": sheet_id,
+                "column_count": int((props.get("gridProperties") or {}).get("columnCount") or 0),
+                "row_count": int((props.get("gridProperties") or {}).get("rowCount") or 0),
                 "values": values or [],
                 "checkbox_column_indexes": sorted(
                     checkbox_columns_by_sheet_id.get(sheet_id, set())
@@ -653,6 +658,93 @@ def fetch_google_spreadsheet_tabs(file_ref: str) -> dict:
         "title": str((metadata.get("properties") or {}).get("title") or file_id),
         "tabs": tabs,
     }
+
+
+def ensure_google_spreadsheet_checkbox_columns(file_ref: str, columns: list[dict]) -> int:
+    """Create missing header cells and BOOLEAN validation by immutable sheet ID."""
+    file_id = _normalize_file_id(file_ref)
+    if not file_id:
+        raise ValueError("Invalid Google Sheet link. Paste the full Sheets URL.")
+    clean_columns = [item for item in columns if isinstance(item, dict)]
+    if not clean_columns:
+        return 0
+
+    requests: list[dict] = []
+    required_columns_by_sheet: dict[int, tuple[int, int]] = {}
+    for item in clean_columns:
+        sheet_id = int(item.get("sheet_id") or 0)
+        column_index = int(item.get("column_index") or 0)
+        current_count = int(item.get("column_count") or 0)
+        previous_required, previous_count = required_columns_by_sheet.get(
+            sheet_id,
+            (0, current_count),
+        )
+        required_columns_by_sheet[sheet_id] = (
+            max(previous_required, column_index + 1),
+            max(previous_count, current_count),
+        )
+    for sheet_id, (required_count, current_count) in required_columns_by_sheet.items():
+        if required_count > current_count:
+            requests.append(
+                {
+                    "appendDimension": {
+                        "sheetId": sheet_id,
+                        "dimension": "COLUMNS",
+                        "length": required_count - current_count,
+                    }
+                }
+            )
+
+    for item in clean_columns:
+        sheet_id = int(item.get("sheet_id") or 0)
+        column_index = int(item.get("column_index") or 0)
+        header = str(item.get("header") or "Checkbox").strip() or "Checkbox"
+        requests.extend(
+            [
+                {
+                    "updateCells": {
+                        "start": {
+                            "sheetId": sheet_id,
+                            "rowIndex": 0,
+                            "columnIndex": column_index,
+                        },
+                        "rows": [
+                            {
+                                "values": [
+                                    {"userEnteredValue": {"stringValue": header}}
+                                ]
+                            }
+                        ],
+                        "fields": "userEnteredValue",
+                    }
+                },
+                {
+                    "setDataValidation": {
+                        "range": {
+                            "sheetId": sheet_id,
+                            "startRowIndex": 1,
+                            "startColumnIndex": column_index,
+                            "endColumnIndex": column_index + 1,
+                        },
+                        "rule": {
+                            "condition": {"type": "BOOLEAN"},
+                            "strict": True,
+                            "showCustomUi": True,
+                        },
+                    }
+                },
+            ]
+        )
+
+    service = _service_for_sheets()
+    try:
+        service.spreadsheets().batchUpdate(
+            spreadsheetId=file_id,
+            body={"requests": requests},
+        ).execute()
+    except Exception as exc:
+        raise RuntimeError(_friendly_sheets_error(exc)) from exc
+    return len(clean_columns)
 
 
 def update_google_spreadsheet_values(file_ref: str, updates: list[dict]) -> int:

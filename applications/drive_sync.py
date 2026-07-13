@@ -15,7 +15,9 @@ import httpx
 logger = logging.getLogger(__name__)
 
 FOLDER_MIMETYPE = "application/vnd.google-apps.folder"
-GROUP_PREFIX_RE = re.compile(r"^\s*2\.(?P<num>\d+)\b", re.IGNORECASE)
+SPREADSHEET_MIMETYPE = "application/vnd.google-apps.spreadsheet"
+DEFAULT_GROUPS_ROOT_FOLDER_ID = "1C_SPNhYW_SRxUMzfptz9XCRPJsc7rVQd"
+GROUP_PREFIX_RE = re.compile(r"^\s*(?:2\.)?G?(?P<num>\d+)\b", re.IGNORECASE)
 FOLDER_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 FILE_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 GROUP_TRACK_FORM_RE = re.compile(r"^G(?P<num>\d+)_(?P<track>E|M)_A[12]$", re.IGNORECASE)
@@ -64,7 +66,7 @@ def _load_config() -> tuple[str, str, str]:
     raw_root_folder = (
         os.getenv("GOOGLE_DRIVE_GROUPS_ROOT_FOLDER_ID", "").strip()
         or os.getenv("DRIVE_GROUPS_ROOT_FOLDER_ID", "").strip()
-        or os.getenv("DRIVE_FOLDER_ID", "").strip()
+        or DEFAULT_GROUPS_ROOT_FOLDER_ID
     )
     root_folder_id = _normalize_folder_id(raw_root_folder)
     return key_path, key_json, root_folder_id
@@ -396,6 +398,13 @@ def _find_child_folder_by_name(service, parent_id: str, name: str) -> dict | Non
     return None
 
 
+def _ensure_child_folder(service, parent_id: str, name: str) -> dict:
+    existing = _find_child_folder_by_name(service, parent_id, name)
+    if existing:
+        return existing
+    return _create_folder(service, name, parent_id)
+
+
 def _find_child_item_by_name(service, parent_id: str, name: str) -> dict | None:
     target = (name or "").strip().lower()
     for item in _list_children(service, parent_id):
@@ -433,6 +442,80 @@ def _upsert_csv_file(service, parent_id: str, filename: str, csv_text: str) -> d
     )
 
 
+def _quote_sheet_title(title: str) -> str:
+    return "'" + str(title or "Sheet1").replace("'", "''") + "'"
+
+
+def _upsert_google_sheet_file(
+    drive_service,
+    parent_id: str,
+    filename: str,
+    headers: list[str],
+    rows: list[list[str]],
+) -> dict:
+    """Create or replace a native Google Sheet with the current response rows."""
+    existing = _find_child_item_by_name(drive_service, parent_id, filename)
+    if existing and existing.get("id") and existing.get("mimeType") == SPREADSHEET_MIMETYPE:
+        spreadsheet = existing
+    else:
+        spreadsheet = (
+            drive_service.files()
+            .create(
+                body={
+                    "name": filename,
+                    "mimeType": SPREADSHEET_MIMETYPE,
+                    "parents": [parent_id],
+                },
+                fields="id,name,mimeType",
+                supportsAllDrives=True,
+            )
+            .execute()
+        )
+
+    spreadsheet_id = str(spreadsheet.get("id") or "")
+    if not spreadsheet_id:
+        raise RuntimeError(f"Google Drive did not return an id for {filename}.")
+
+    sheets_service = _service_for_sheets()
+    metadata = (
+        sheets_service.spreadsheets()
+        .get(
+            spreadsheetId=spreadsheet_id,
+            fields="sheets.properties(sheetId,title)",
+        )
+        .execute()
+    )
+    sheets = metadata.get("sheets") or []
+    if not sheets:
+        raise RuntimeError(f"Google Sheets did not return a worksheet for {filename}.")
+    properties = sheets[0].get("properties") or {}
+    sheet_id = int(properties.get("sheetId") or 0)
+    sheet_title = str(properties.get("title") or "Sheet1")
+
+    # Clear values from the previous snapshot before writing the latest one so
+    # deleted submissions/columns cannot remain below or to the right.
+    sheets_service.spreadsheets().batchUpdate(
+        spreadsheetId=spreadsheet_id,
+        body={
+            "requests": [
+                {
+                    "updateCells": {
+                        "range": {"sheetId": sheet_id},
+                        "fields": "userEnteredValue",
+                    }
+                }
+            ]
+        },
+    ).execute()
+    sheets_service.spreadsheets().values().update(
+        spreadsheetId=spreadsheet_id,
+        range=f"{_quote_sheet_title(sheet_title)}!A1",
+        valueInputOption="RAW",
+        body={"majorDimension": "ROWS", "values": [headers] + rows},
+    ).execute()
+    return spreadsheet
+
+
 def _resolve_group_folder(service, root_folder_id: str, group_num: int) -> dict | None:
     return _find_existing_group_folder(service, root_folder_id, group_num)
 
@@ -461,7 +544,7 @@ def _service_and_root() -> tuple[object, str]:
     raw_root = (
         os.getenv("GOOGLE_DRIVE_GROUPS_ROOT_FOLDER_ID", "").strip()
         or os.getenv("DRIVE_GROUPS_ROOT_FOLDER_ID", "").strip()
-        or os.getenv("DRIVE_FOLDER_ID", "").strip()
+        or DEFAULT_GROUPS_ROOT_FOLDER_ID
     )
     key_path, key_json, root_folder_id = _load_config()
     oauth_client_id, oauth_client_secret, oauth_refresh_token = _oauth_env_config()
@@ -911,11 +994,16 @@ def _build_group_track_rows(group_num: int, track: str) -> tuple[list[str], list
     if t not in {"E", "M"}:
         return [], []
 
-    # Include classic slugs (G#_E_A1/A2, G#_M_A1/A2) and combined variants (e.g. G#_E... / G#_M...).
+    # Group forms may use classic G# slugs or a custom group-name prefix.
+    # The track/master suffix is stable across both naming schemes.
     forms = [
         fd
         for fd in FormDefinition.objects.filter(group__number=group_num, is_master=False)
-        if re.match(rf"^G{int(group_num)}_{t}(?:_|$)", (fd.slug or "").strip(), flags=re.IGNORECASE)
+        if re.search(
+            rf"(?:^|_){t}_A[12]$",
+            (fd.slug or "").strip(),
+            flags=re.IGNORECASE,
+        )
     ]
     if not forms:
         return [], []
@@ -974,17 +1062,23 @@ def sync_group_track_responses_csv(group_num: int, track: str) -> DriveCsvSyncRe
             detail=f"Target folder not found for G{group_num} track {track}.",
         )
 
-    filename = f"G{group_num}_{track.upper()} Respuestas.csv"
+    track_label = "Mentoras" if (track or "").upper() == "M" else "Emprendedoras"
+    filename = f"G{group_num} Aplicaciones {track_label}"
     headers, rows = _build_group_track_rows(group_num, track)
     no_forms = not headers
     if no_forms:
-        # Ensure a placeholder CSV exists for brand-new groups even before submissions/forms are present.
+        # Ensure a placeholder Sheet exists for brand-new groups before submissions arrive.
         headers = ["created_at", "application_id", "group_number", "name", "email"]
         rows = []
 
-    csv_text = _rows_to_csv_text(headers, rows)
     try:
-        uploaded = _upsert_csv_file(service, target_folder_id, filename, csv_text)
+        uploaded = _upsert_google_sheet_file(
+            service,
+            target_folder_id,
+            filename,
+            headers,
+            rows,
+        )
     except Exception as exc:
         return DriveCsvSyncResult(
             status="error",
@@ -994,9 +1088,9 @@ def sync_group_track_responses_csv(group_num: int, track: str) -> DriveCsvSyncRe
     return DriveCsvSyncResult(
         status="updated",
         detail=(
-            f"Synced {filename} (placeholder; no forms found yet)."
+            f"Synced Google Sheet {filename} (placeholder; no forms found yet)."
             if no_forms
-            else f"Synced {filename}"
+            else f"Synced Google Sheet {filename}"
         ),
         file_name=filename,
         file_id=(uploaded.get("id") or ""),
@@ -1092,7 +1186,7 @@ def ensure_group_drive_tree(
     raw_root = (
         os.getenv("GOOGLE_DRIVE_GROUPS_ROOT_FOLDER_ID", "").strip()
         or os.getenv("DRIVE_GROUPS_ROOT_FOLDER_ID", "").strip()
-        or os.getenv("DRIVE_FOLDER_ID", "").strip()
+        or DEFAULT_GROUPS_ROOT_FOLDER_ID
     )
     key_path, key_json, root_folder_id = _load_config()
     oauth_client_id, oauth_client_secret, oauth_refresh_token = _oauth_env_config()
@@ -1101,7 +1195,7 @@ def ensure_group_drive_tree(
         return DriveGroupSyncResult(
             status="skipped",
             detail=(
-                "Drive sync skipped: set GOOGLE_DRIVE_GROUPS_ROOT_FOLDER_ID and either "
+                "Drive sync skipped: configure Google credentials with either "
                 "GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON (path) or "
                 "GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON_CONTENT (JSON text), or set OAuth envs "
                 "(GOOGLE_DRIVE_OAUTH_CLIENT_ID/SECRET/REFRESH_TOKEN)."
@@ -1131,36 +1225,29 @@ def ensure_group_drive_tree(
         oauth_refresh_token=oauth_refresh_token,
     )
     existing = _find_existing_group_folder(service, root_folder_id, group_num)
-    if existing:
-        return DriveGroupSyncResult(
-            status="exists",
-            detail=f"Group G{group_num} already exists in Drive. No changes made.",
-            folder_name=(existing.get("name") or ""),
-            folder_id=(existing.get("id") or ""),
-        )
-
     start_label = _month_label(start_month)
     end_label = _month_label(end_month)
-    top_folder_name = f"2.{group_num} G{group_num} Mentorias - {start_label} a {end_label} {year}"
+    top_folder_name = f"G{group_num} Mentorias - {start_label} a {end_label}"
 
-    top = _create_folder(service, top_folder_name, root_folder_id)
+    top = existing or _create_folder(service, top_folder_name, root_folder_id)
     top_id = top.get("id")
 
     if not top_id:
         raise RuntimeError("Drive API did not return an id for the group folder.")
 
-    _create_folder(service, f"G{group_num} Certificados", top_id)
-    _create_folder(service, "Actas de compromiso", top_id)
-    _create_folder(service, f"G{group_num} Recursos Usados", top_id)
-    _create_folder(service, f"G{group_num} Emparejamiento", top_id)
-    apps_folder = _create_folder(service, f"G{group_num} Aplicaciones", top_id)
+    _ensure_child_folder(service, top_id, "Participants")
+    _ensure_child_folder(service, top_id, f"G{group_num} Recursos Usados")
+    _ensure_child_folder(service, top_id, f"G{group_num} Emparejamiento")
+    _ensure_child_folder(service, top_id, f"G{group_num} Certificados")
+    apps_folder = _ensure_child_folder(service, top_id, f"G{group_num} Aplicaciones")
+    _ensure_child_folder(service, top_id, "Actas de Compromiso")
 
     apps_id = apps_folder.get("id")
     if not apps_id:
         raise RuntimeError("Drive API did not return an id for the applications folder.")
 
-    _create_folder(service, "Mentoras", apps_id)
-    _create_folder(service, "Emprendedoras", apps_id)
+    _ensure_child_folder(service, apps_id, "Mentoras")
+    _ensure_child_folder(service, apps_id, "Emprendedoras")
 
     logger.info(
         "Created Drive tree for G%s in folder %s (%s)",
@@ -1169,8 +1256,12 @@ def ensure_group_drive_tree(
         top_id,
     )
     return DriveGroupSyncResult(
-        status="created",
-        detail=f"Drive folders created for G{group_num}.",
-        folder_name=top_folder_name,
+        status="exists" if existing else "created",
+        detail=(
+            f"Drive folders verified for G{group_num}."
+            if existing
+            else f"Drive folders created for G{group_num}."
+        ),
+        folder_name=(top.get("name") or top_folder_name),
         folder_id=top_id,
     )

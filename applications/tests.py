@@ -68,6 +68,145 @@ from applications.models import (
 
 
 class GoogleSheetsCredentialScopeTests(TestCase):
+    @patch("applications.drive_sync._upsert_google_sheet_file")
+    @patch("applications.drive_sync._build_group_track_rows")
+    @patch("applications.drive_sync._resolve_track_target_folder_id")
+    @patch("applications.drive_sync._service_and_root")
+    def test_group_response_sync_targets_matching_track_folder_and_sheet(
+        self,
+        mock_service_and_root,
+        mock_resolve_folder,
+        mock_build_rows,
+        mock_upsert_sheet,
+    ):
+        service = Mock()
+        mock_service_and_root.return_value = (service, "groups-root")
+        mock_resolve_folder.return_value = "emprendedoras-folder"
+        mock_build_rows.return_value = (
+            ["email", "business"],
+            [["founder@example.com", "Bakery"]],
+        )
+        mock_upsert_sheet.return_value = {"id": "sheet-1"}
+
+        result = drive_sync.sync_group_track_responses_csv(12, "E")
+
+        self.assertEqual(result.status, "updated")
+        mock_resolve_folder.assert_called_once_with(service, "groups-root", 12, "E")
+        mock_upsert_sheet.assert_called_once_with(
+            service,
+            "emprendedoras-folder",
+            "G12 Aplicaciones Emprendedoras",
+            ["email", "business"],
+            [["founder@example.com", "Bakery"]],
+        )
+
+    @patch("applications.drive_sync._service_for_sheets")
+    @patch("applications.drive_sync._find_child_item_by_name")
+    def test_response_snapshot_is_written_as_native_google_sheet(
+        self,
+        mock_find_item,
+        mock_sheets_factory,
+    ):
+        drive_service = Mock()
+        drive_service.files.return_value.create.return_value.execute.return_value = {
+            "id": "response-sheet-1",
+            "name": "G12 Aplicaciones Mentoras",
+            "mimeType": drive_sync.SPREADSHEET_MIMETYPE,
+        }
+        mock_find_item.return_value = None
+        sheets_service = Mock()
+        mock_sheets_factory.return_value = sheets_service
+        sheets_service.spreadsheets.return_value.get.return_value.execute.return_value = {
+            "sheets": [{"properties": {"sheetId": 0, "title": "Sheet1"}}]
+        }
+
+        result = drive_sync._upsert_google_sheet_file(
+            drive_service,
+            "mentoras-folder",
+            "G12 Aplicaciones Mentoras",
+            ["email", "name"],
+            [["mentor@example.com", "Mentora"]],
+        )
+
+        self.assertEqual(result["id"], "response-sheet-1")
+        create_body = drive_service.files.return_value.create.call_args.kwargs["body"]
+        self.assertEqual(create_body["mimeType"], drive_sync.SPREADSHEET_MIMETYPE)
+        self.assertEqual(create_body["parents"], ["mentoras-folder"])
+        update_call = sheets_service.spreadsheets.return_value.values.return_value.update
+        self.assertEqual(update_call.call_args.kwargs["range"], "'Sheet1'!A1")
+        self.assertEqual(
+            update_call.call_args.kwargs["body"]["values"],
+            [["email", "name"], ["mentor@example.com", "Mentora"]],
+        )
+
+    @patch("applications.drive_sync._ensure_child_folder")
+    @patch("applications.drive_sync._create_folder")
+    @patch("applications.drive_sync._find_existing_group_folder")
+    @patch("applications.drive_sync._build_service")
+    @patch("applications.drive_sync._oauth_env_config")
+    @patch("applications.drive_sync._load_config")
+    def test_group_drive_tree_matches_requested_folder_contract(
+        self,
+        mock_load_config,
+        mock_oauth_config,
+        mock_build_service,
+        mock_find_group,
+        mock_create_folder,
+        mock_ensure_folder,
+    ):
+        service = Mock()
+        mock_load_config.return_value = (
+            "",
+            '{"type":"service_account"}',
+            drive_sync.DEFAULT_GROUPS_ROOT_FOLDER_ID,
+        )
+        mock_oauth_config.return_value = ("", "", "")
+        mock_build_service.return_value = service
+        mock_find_group.return_value = None
+        mock_create_folder.return_value = {
+            "id": "group-folder",
+            "name": "G12 Mentorias - Junio a Agosto",
+        }
+
+        def ensured_folder(_service, parent_id, name):
+            if name == "G12 Aplicaciones":
+                return {"id": "applications-folder", "name": name}
+            return {"id": f"folder-{name}", "name": name}
+
+        mock_ensure_folder.side_effect = ensured_folder
+
+        result = drive_sync.ensure_group_drive_tree(
+            group_num=12,
+            start_month="junio",
+            end_month="agosto",
+            year=2026,
+        )
+
+        self.assertEqual(result.status, "created")
+        mock_create_folder.assert_called_once_with(
+            service,
+            "G12 Mentorias - Junio a Agosto",
+            drive_sync.DEFAULT_GROUPS_ROOT_FOLDER_ID,
+        )
+        self.assertEqual(
+            [call.args[2] for call in mock_ensure_folder.call_args_list[:6]],
+            [
+                "Participants",
+                "G12 Recursos Usados",
+                "G12 Emparejamiento",
+                "G12 Certificados",
+                "G12 Aplicaciones",
+                "Actas de Compromiso",
+            ],
+        )
+        self.assertEqual(
+            [(call.args[1], call.args[2]) for call in mock_ensure_folder.call_args_list[6:]],
+            [
+                ("applications-folder", "Mentoras"),
+                ("applications-folder", "Emprendedoras"),
+            ],
+        )
+
     @patch("applications.drive_sync._service_for_sheets")
     def test_duplicate_checkbox_columns_are_deleted_rightmost_first(
         self,
@@ -1793,6 +1932,7 @@ class SingleCombinedApplicationTests(TestCase):
         self.assertFalse(app.answers.filter(question=self.a2_question).exists())
         mock_a1_grade.assert_called_once()
         mock_a2_email.assert_not_called()
+        mock_sync.assert_called_with(self.group.number, "E")
 
 
 class TerminalAnswerRuleTests(TestCase):
@@ -2202,8 +2342,13 @@ class GroupFormNamingTests(TestCase):
             accepting_responses=True,
         )
 
+    @patch("applications.admin_views.sync_group_track_responses_csv")
     @patch("applications.admin_views.ensure_group_drive_tree")
-    def test_create_group_clones_only_current_single_app_masters(self, mock_drive):
+    def test_create_group_clones_only_current_single_app_masters(
+        self,
+        mock_drive,
+        mock_response_sync,
+    ):
         FormDefinition.objects.create(slug="E_A2", name="Retired E A2", is_master=True)
         FormDefinition.objects.create(slug="M_A2", name="Retired M A2", is_master=True)
         user = get_user_model().objects.create_superuser(
@@ -2211,6 +2356,15 @@ class GroupFormNamingTests(TestCase):
             password="test-password",
         )
         self.client.force_login(user)
+        mock_drive.return_value = SimpleNamespace(
+            status="created",
+            folder_name="G1 Mentorias - Junio a Agosto",
+            detail="created",
+        )
+        mock_response_sync.return_value = SimpleNamespace(
+            status="updated",
+            detail="sheet synced",
+        )
 
         response = self.client.post(
             reverse("admin_create_group"),
@@ -2227,6 +2381,80 @@ class GroupFormNamingTests(TestCase):
         group = FormGroup.objects.get(custom_name="June Group")
         slugs = set(FormDefinition.objects.filter(group=group).values_list("slug", flat=True))
         self.assertEqual(slugs, {"june_group_E_A1", "june_group_M_A1"})
+        mock_drive.assert_called_once_with(
+            group_num=group.number,
+            start_month="junio",
+            end_month="agosto",
+            year=2026,
+        )
+        self.assertEqual(
+            [call.args for call in mock_response_sync.call_args_list],
+            [(group.number, "E"), (group.number, "M")],
+        )
+
+    @patch("applications.admin_views.ensure_group_drive_tree")
+    def test_create_group_skips_drive_when_name_does_not_contain_group(self, mock_drive):
+        user = get_user_model().objects.create_superuser(
+            email="create-cohort@example.com",
+            password="test-password",
+        )
+        self.client.force_login(user)
+
+        response = self.client.post(
+            reverse("admin_create_group"),
+            {
+                "group_name": "Cohorte Junio",
+                "start_day": "1",
+                "start_month": "junio",
+                "end_month": "agosto",
+                "year": "2026",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(FormGroup.objects.filter(custom_name="Cohorte Junio").exists())
+        mock_drive.assert_not_called()
+
+    def test_response_rows_include_custom_group_name_form_slugs(self):
+        group = FormGroup.objects.create(
+            number=812,
+            start_day=1,
+            start_month="junio",
+            end_month="agosto",
+            year=2026,
+            custom_name="June Group",
+            use_combined_application=True,
+        )
+        form = FormDefinition.objects.create(
+            slug="june_group_M_A1",
+            name="June Group Mentoras",
+            group=group,
+            is_master=False,
+        )
+        question = Question.objects.create(
+            form=form,
+            text="Experience",
+            slug="experience",
+            field_type=Question.LONG_TEXT,
+            position=1,
+        )
+        application = Application.objects.create(
+            form=form,
+            name="Mentora Example",
+            email="mentor@example.com",
+        )
+        Answer.objects.create(
+            application=application,
+            question=question,
+            value="Ten years",
+        )
+
+        headers, rows = drive_sync._build_group_track_rows(group.number, "M")
+
+        self.assertIn("experience", headers)
+        self.assertEqual(len(rows), 1)
+        self.assertIn("mentor@example.com", rows[0])
+        self.assertIn("Ten years", rows[0])
 
     def test_clone_form_uses_custom_group_name_token_for_form_name(self):
         group = FormGroup.objects.create(

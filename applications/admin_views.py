@@ -3977,25 +3977,26 @@ def create_group(request):
             _clone_form(master_fd, group)
 
     drive_result = None
-    try:
-        drive_result = ensure_group_drive_tree(
-            group_num=group.number,
-            start_month=group.start_month,
-            end_month=group.end_month,
-            year=group.year,
-        )
-    except Exception as exc:
-        logger.exception("Drive folder sync failed for group %s", group.number)
-        detail = str(exc).strip()
-        if len(detail) > 220:
-            detail = detail[:220] + "..."
-        messages.warning(
-            request,
-            (
-                f"Grupo {group_num} creado, pero falló la creación de carpetas en Drive."
-                + (f" Error: {detail}" if detail else "")
-            ),
-        )
+    if re.search(r"\bgroup\b", group_name, flags=re.IGNORECASE):
+        try:
+            drive_result = ensure_group_drive_tree(
+                group_num=group.number,
+                start_month=group.start_month,
+                end_month=group.end_month,
+                year=group.year,
+            )
+        except Exception as exc:
+            logger.exception("Drive folder sync failed for group %s", group.number)
+            detail = str(exc).strip()
+            if len(detail) > 220:
+                detail = detail[:220] + "..."
+            messages.warning(
+                request,
+                (
+                    f"Grupo {group_num} creado, pero falló la creación de carpetas en Drive."
+                    + (f" Error: {detail}" if detail else "")
+                ),
+            )
 
     if group_name:
         messages.success(request, f"Grupo {group_num} ({group_name}) creado y formularios clonados.")
@@ -4010,12 +4011,12 @@ def create_group(request):
         elif drive_result.status == "exists":
             messages.info(
                 request,
-                f"Drive: G{group_num} ya existe ({drive_result.folder_name}). No se hicieron cambios.",
+                f"Drive: estructura verificada para G{group_num} ({drive_result.folder_name}).",
                 )
         elif drive_result.status == "skipped":
             messages.warning(request, f"Drive: {drive_result.detail}")
 
-        # Seed/update application response CSV files right after group creation, even with 0 submissions.
+        # Seed/update native application response Sheets immediately, even with 0 submissions.
         if drive_result.status in {"created", "exists"}:
             seed_results = []
             for track in ("E", "M"):
@@ -4023,10 +4024,10 @@ def create_group(request):
                     res = sync_group_track_responses_csv(group.number, track)
                     seed_results.append(f"{track}: {res.status} ({res.detail})")
                 except Exception as exc:
-                    logger.exception("Drive seed CSV sync failed for G%s track %s", group.number, track)
+                    logger.exception("Drive seed Sheet sync failed for G%s track %s", group.number, track)
                     seed_results.append(f"{track}: error ({exc})")
             if seed_results:
-                messages.info(request, "Drive CSV seed -> " + " | ".join(seed_results))
+                messages.info(request, "Drive Sheet seed -> " + " | ".join(seed_results))
     _sync_group_open_close(group)
     return redirect("admin_apps_list")
 
@@ -4417,7 +4418,8 @@ def _sync_drive_for_group_number(group_num: int) -> list[tuple[str, str, str]]:
     out: list[tuple[str, str, str]] = []
 
     for track in ("E", "M"):
-        label = f"G{group_num}_{track} Respuestas.csv"
+        track_label = "Mentoras" if track == "M" else "Emprendedoras"
+        label = f"G{group_num} Aplicaciones {track_label}"
         try:
             res = sync_group_track_responses_csv(group_num, track)
             out.append((res.status, label, res.detail))

@@ -2594,7 +2594,9 @@ def _sync_group_from_linked_google_sheet(
     seen_tracks: set[str] = set()
 
     for source_tab in spreadsheet.get("tabs") or []:
-        title = str(source_tab.get("title") or "").strip()
+        # Keep Google's exact tab title for subsequent A1 write ranges. Track
+        # detection normalizes whitespace separately.
+        title = str(source_tab.get("title") or "")
         values = [list(row) for row in (source_tab.get("values") or []) if isinstance(row, list)]
         headers = [str(value or "").strip() for value in (values[0] if values else [])]
         body_rows = [list(row) for row in values[1:]] if values else []

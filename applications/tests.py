@@ -68,10 +68,35 @@ from applications.models import (
 
 
 class GoogleSheetsCredentialScopeTests(TestCase):
-    def test_sheet_values_range_includes_grid_and_escapes_tab_title(self):
+    @patch("applications.drive_sync._service_for_sheets")
+    def test_tab_read_preserves_exact_google_title_whitespace(self, mock_service_factory):
+        service = Mock()
+        spreadsheets = service.spreadsheets.return_value
+        spreadsheets.get.return_value.execute.return_value = {
+            "spreadsheetId": "sheet-123",
+            "properties": {"title": "Participants"},
+            "sheets": [
+                {"properties": {"sheetId": 1, "title": "Mentoras ", "index": 0}},
+            ],
+        }
+        spreadsheets.values.return_value.batchGetByDataFilter.return_value.execute.return_value = {
+            "valueRanges": [
+                {
+                    "dataFilters": [{"gridRange": {"sheetId": 1}}],
+                    "valueRange": {"values": [["Email"], ["person@example.com"]]},
+                }
+            ],
+        }
+        mock_service_factory.return_value = service
+
+        result = drive_sync.fetch_google_spreadsheet_tabs(
+            "https://docs.google.com/spreadsheets/d/sheet-123/edit"
+        )
+
+        self.assertEqual(result["tabs"][0]["title"], "Mentoras ")
         self.assertEqual(
-            drive_sync._sheet_values_range("Mentor's"),
-            "'Mentor''s'!A:ZZZ",
+            spreadsheets.values.return_value.batchGetByDataFilter.call_args.kwargs["body"]["dataFilters"],
+            [{"gridRange": {"sheetId": 1}}],
         )
 
     @patch("googleapiclient.discovery.build")

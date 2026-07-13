@@ -532,16 +532,6 @@ def _service_for_sheets() -> object:
     )
 
 
-def _quoted_sheet_title(title: str) -> str:
-    return "'" + str(title or "").replace("'", "''") + "'"
-
-
-def _sheet_values_range(title: str) -> str:
-    # The Sheets values API does not accept a bare quoted tab title. Include
-    # an explicit A1 grid range; the response still trims unused trailing cells.
-    return f"{_quoted_sheet_title(title)}!A:ZZZ"
-
-
 def fetch_google_spreadsheet_tabs(file_ref: str) -> dict:
     """Read every tab from a Google Sheet, preserving tab and cell order."""
     file_id = _normalize_file_id(file_ref)
@@ -564,34 +554,52 @@ def fetch_google_spreadsheet_tabs(file_ref: str) -> dict:
         metadata.get("sheets") or [],
         key=lambda item: int((item.get("properties") or {}).get("index") or 0),
     )
-    titles = [str((item.get("properties") or {}).get("title") or "").strip() for item in sheets]
-    titles = [title for title in titles if title]
+    # Preserve the exact title returned by Google. A tab can legally contain
+    # leading/trailing whitespace, and stripping it makes otherwise valid A1
+    # ranges point at a different, nonexistent tab.
+    titles = [str((item.get("properties") or {}).get("title") or "") for item in sheets]
+    titles = [title for title in titles if title.strip()]
     if not titles:
         raise ValueError("The linked Google Sheet has no tabs.")
 
+    sheet_ids = [int((item.get("properties") or {}).get("sheetId") or 0) for item in sheets]
     try:
         values_response = (
             service.spreadsheets()
             .values()
-            .batchGet(
+            .batchGetByDataFilter(
                 spreadsheetId=file_id,
-                ranges=[_sheet_values_range(title) for title in titles],
-                majorDimension="ROWS",
-                valueRenderOption="UNFORMATTED_VALUE",
+                body={
+                    "dataFilters": [
+                        {"gridRange": {"sheetId": sheet_id}}
+                        for sheet_id in sheet_ids
+                    ],
+                    "majorDimension": "ROWS",
+                    "valueRenderOption": "UNFORMATTED_VALUE",
+                },
             )
             .execute()
         )
     except Exception as exc:
         raise RuntimeError(_friendly_sheets_error(exc)) from exc
-    value_ranges = values_response.get("valueRanges") or []
+    values_by_sheet_id: dict[int, list[list]] = {}
+    for matched in values_response.get("valueRanges") or []:
+        matched_filters = matched.get("dataFilters") or []
+        value_range = matched.get("valueRange") or {}
+        for data_filter in matched_filters:
+            grid_range = data_filter.get("gridRange") or {}
+            matched_sheet_id = grid_range.get("sheetId")
+            if isinstance(matched_sheet_id, int):
+                values_by_sheet_id[matched_sheet_id] = value_range.get("values") or []
     tabs = []
     for index, title in enumerate(titles):
         props = sheets[index].get("properties") or {}
-        values = value_ranges[index].get("values") if index < len(value_ranges) else []
+        sheet_id = int(props.get("sheetId") or 0)
+        values = values_by_sheet_id.get(sheet_id, [])
         tabs.append(
             {
                 "title": title,
-                "sheet_id": int(props.get("sheetId") or 0),
+                "sheet_id": sheet_id,
                 "values": values or [],
             }
         )

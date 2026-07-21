@@ -148,6 +148,7 @@ def _build_service(
     oauth_client_id: str = "",
     oauth_client_secret: str = "",
     oauth_refresh_token: str = "",
+    timeout_seconds: float | None = None,
 ):
     from google.oauth2.service_account import Credentials
     from google.oauth2.credentials import Credentials as UserCredentials
@@ -182,6 +183,15 @@ def _build_service(
             key_path,
             scopes=scopes,
         )
+    if timeout_seconds is not None:
+        import google_auth_httplib2
+        import httplib2
+
+        authorized_http = google_auth_httplib2.AuthorizedHttp(
+            creds,
+            http=httplib2.Http(timeout=float(timeout_seconds)),
+        )
+        return build("drive", "v3", http=authorized_http, cache_discovery=False)
     return build("drive", "v3", credentials=creds, cache_discovery=False)
 
 
@@ -587,12 +597,18 @@ def _service_for_drive_reads() -> object:
         )
     if key_path and not key_json and not has_oauth and not os.path.exists(key_path):
         raise RuntimeError(f"Drive key file not found at {key_path}.")
+    try:
+        read_timeout = float(os.getenv("GOOGLE_DRIVE_READ_TIMEOUT_SECONDS", "8"))
+    except (TypeError, ValueError):
+        read_timeout = 8.0
+    read_timeout = max(3.0, min(read_timeout, 20.0))
     return _build_service(
         key_path,
         key_json,
         oauth_client_id=oauth_client_id,
         oauth_client_secret=oauth_client_secret,
         oauth_refresh_token=oauth_refresh_token,
+        timeout_seconds=read_timeout,
     )
 
 
@@ -950,7 +966,7 @@ def fetch_drive_csv_file_text(file_ref: str) -> tuple[str, str, str]:
                     export_url,
                     params={"format": "csv", "gid": gid},
                     headers=headers,
-                    timeout=30,
+                    timeout=8,
                     follow_redirects=True,
                 )
                 if resp.status_code < 400 and resp.content:

@@ -114,6 +114,21 @@ else:
         }
     }
 
+# Keep expensive admin dashboard/profile snapshots shared between Gunicorn
+# workers on the same instance. The cache is disposable and is rebuilt from
+# the database/Drive when it expires.
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.filebased.FileBasedCache",
+        "LOCATION": os.environ.get(
+            "DJANGO_FILE_CACHE_DIR",
+            "/tmp/club_emprendo_django_cache",
+        ),
+        "TIMEOUT": 300,
+        "OPTIONS": {"MAX_ENTRIES": 1000},
+    }
+}
+
 
 # --- Static (WhiteNoise) ---
 STATIC_URL = "/static/"

@@ -1,11 +1,14 @@
 import io
+import os
 import re
 import textwrap
 from collections import Counter, defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, timedelta
 
 from django.contrib import messages
 from django.contrib.admin.views.decorators import staff_member_required
+from django.core.cache import cache
 from django.db.models import Avg, Count, Q
 from django.db.models.functions import TruncDay, TruncMonth, TruncWeek
 from django.http import HttpResponse
@@ -186,6 +189,11 @@ IMPACT_SURVEY_SECTIONS = [
         "color": "#F59E0B",
     },
 ]
+IMPACT_CACHE_SECONDS = max(60, int(os.getenv("IMPACT_DASHBOARD_CACHE_SECONDS", "300")))
+IMPACT_STALE_CACHE_SECONDS = max(
+    IMPACT_CACHE_SECONDS,
+    int(os.getenv("IMPACT_DASHBOARD_STALE_CACHE_SECONDS", "86400")),
+)
 
 
 def _parse_iso_date(raw: str | None) -> date | None:
@@ -500,8 +508,25 @@ def _build_impact_dataset(
     title: str,
     sheet_url_name: str,
     scoped_emails: set[str] | None = None,
+    refresh: bool = False,
 ) -> tuple[dict, set[str]]:
-    label, headers, raw_rows, file_name, file_id = _load_database_encuestas_grid(kind)
+    cache_key = f"admin:impact:grid:{kind}:v1"
+    stale_cache_key = f"admin:impact:grid:{kind}:stale:v1"
+    grid = None if refresh else cache.get(cache_key)
+    stale = False
+    if grid is None:
+        try:
+            grid = _load_database_encuestas_grid(kind)
+        except Exception:
+            grid = cache.get(stale_cache_key)
+            if grid is None:
+                raise
+            stale = True
+        else:
+            cache.set(cache_key, grid, timeout=IMPACT_CACHE_SECONDS)
+            cache.set(stale_cache_key, grid, timeout=IMPACT_STALE_CACHE_SECONDS)
+
+    label, headers, raw_rows, file_name, file_id = grid
     rows = _non_empty_rows(raw_rows)
 
     email_index = _find_header_index(headers, IMPACT_EMAIL_HEADERS, IMPACT_EMAIL_TOKENS)
@@ -545,6 +570,7 @@ def _build_impact_dataset(
         "completion_rows": completion_rows,
         "nps_rows": nps_rows,
         "wellbeing_rows": wellbeing_rows,
+        "stale": stale,
     }
     return dataset, unique_emails
 
@@ -1543,24 +1569,27 @@ def _load_impact_survey_datasets(
     top_n: int,
     scoped_emails: set[str] | None = None,
     request=None,
+    refresh: bool = False,
 ) -> tuple[dict[str, dict], dict[str, set[str]]]:
     datasets: dict[str, dict] = {}
     email_sets: dict[str, set[str]] = {}
-    for section in IMPACT_SURVEY_SECTIONS:
+
+    def _load(section: dict) -> tuple[str, dict, set[str], Exception | None]:
         kind = section["kind"]
         title = section["title"]
         sheet_url_name = section["sheet_url_name"]
         try:
-            if scoped_emails is None:
-                dataset, email_set = _build_impact_dataset(kind, title, sheet_url_name)
-            else:
-                dataset, email_set = _build_impact_dataset(
-                    kind,
-                    title,
-                    sheet_url_name,
-                    scoped_emails=scoped_emails,
-                )
+            kwargs = {"scoped_emails": scoped_emails} if scoped_emails is not None else {}
+            if refresh:
+                kwargs["refresh"] = True
+            dataset, email_set = _build_impact_dataset(
+                kind,
+                title,
+                sheet_url_name,
+                **kwargs,
+            )
             dataset["completion_rows"] = list(dataset.get("completion_rows") or [])[:top_n]
+            return kind, dataset, email_set, None
         except Exception as exc:
             dataset = {
                 "kind": kind,
@@ -1574,9 +1603,27 @@ def _load_impact_survey_datasets(
                 "nps_rows": [],
                 "wellbeing_rows": [],
             }
-            email_set = set()
-            if request is not None:
-                messages.error(request, f"Could not load {title}: {exc}")
+            return kind, dataset, set(), exc
+
+    # Each survey is independent. Loading them concurrently keeps a slow Drive
+    # response from multiplying the request duration by four.
+    results: dict[str, tuple[dict, set[str], Exception | None]] = {}
+    with ThreadPoolExecutor(max_workers=min(4, len(IMPACT_SURVEY_SECTIONS))) as executor:
+        futures = {executor.submit(_load, section): section for section in IMPACT_SURVEY_SECTIONS}
+        for future in as_completed(futures):
+            kind, dataset, email_set, error = future.result()
+            results[kind] = (dataset, email_set, error)
+
+    for section in IMPACT_SURVEY_SECTIONS:
+        kind = section["kind"]
+        dataset, email_set, error = results[kind]
+        if error is not None and request is not None:
+            messages.error(request, f"Could not load {section['title']}: {error}")
+        elif dataset.get("stale") and request is not None:
+            messages.warning(
+                request,
+                f"Google Drive is slow or unavailable; showing the last saved {section['title']} data.",
+            )
         datasets[kind] = dataset
         email_sets[kind] = email_set
     return datasets, email_sets
@@ -2486,11 +2533,19 @@ def application_progress_dashboard(request):
         status = "abandoned"
         drafts = drafts.filter(completed_at__isnull=True, updated_at__lte=abandoned_before)
 
+    draft_rows = list(drafts.order_by("-updated_at")[:1000])
+    question_form_ids = {draft.form_id for draft in draft_rows if draft.last_question_slug}
+    question_slugs = {draft.last_question_slug for draft in draft_rows if draft.last_question_slug}
+    question_text = {
+        (form_id, slug): text
+        for form_id, slug, text in Question.objects.filter(
+            form_id__in=question_form_ids,
+            slug__in=question_slugs,
+        ).values_list("form_id", "slug", "text")
+    }
+
     rows = []
-    for draft in drafts.order_by("-updated_at")[:1000]:
-        last_question = None
-        if draft.last_question_slug:
-            last_question = Question.objects.filter(slug=draft.last_question_slug).order_by("id").first()
+    for draft in draft_rows:
         if draft.completed_at:
             row_status = "Completed"
         elif draft.updated_at <= abandoned_before:
@@ -2500,18 +2555,27 @@ def application_progress_dashboard(request):
         rows.append({
             "draft": draft,
             "status": row_status,
-            "last_question": last_question.text if last_question else draft.last_question_slug,
+            "last_question": question_text.get(
+                (draft.form_id, draft.last_question_slug),
+                draft.last_question_slug,
+            ),
         })
 
     base = ApplicationDraft.objects.all()
     if form_slug:
         base = base.filter(form__slug=form_slug)
-    summary = {
-        "started": base.count(),
-        "completed": base.filter(completed_at__isnull=False).count(),
-        "abandoned": base.filter(completed_at__isnull=True, updated_at__lte=abandoned_before).count(),
-        "active": base.filter(completed_at__isnull=True, updated_at__gt=abandoned_before).count(),
-    }
+    summary = base.aggregate(
+        started=Count("id"),
+        completed=Count("id", filter=Q(completed_at__isnull=False)),
+        abandoned=Count(
+            "id",
+            filter=Q(completed_at__isnull=True, updated_at__lte=abandoned_before),
+        ),
+        active=Count(
+            "id",
+            filter=Q(completed_at__isnull=True, updated_at__gt=abandoned_before),
+        ),
+    )
     return render(request, "admin_dash/application_progress_dashboard.html", {
         "rows": rows,
         "summary": summary,
@@ -2545,9 +2609,9 @@ def marketing_dashboard(request):
     zernio_accounts: list[dict] = []
     if configured:
         client = (
-            ZernioMarketingClient(zernio_config)
+            ZernioMarketingClient(zernio_config, timeout=8.0)
             if provider == "zernio"
-            else MetaMarketingClient(meta_config)
+            else MetaMarketingClient(meta_config, timeout=8.0)
         )
         if provider == "zernio":
             try:
@@ -2646,6 +2710,7 @@ def impact_dashboard(request):
     group_numbers = _impact_allowed_group_filter(group_numbers) if group_numbers else None
     year_filter = _parse_impact_year(request.GET.get("year"))
     track_filter = _normalize_impact_track_filter(request.GET.get("track"))
+    refresh_data = _is_truthy(request.GET.get("refresh"))
 
     all_participant_records = _participant_records()
     participant_records = _filter_records_by_impact_scope(
@@ -2670,6 +2735,7 @@ def impact_dashboard(request):
         top_n=top_n,
         scoped_emails=survey_scope,
         request=request,
+        refresh=refresh_data,
     )
     participant_summary = _participant_summary(participant_records, group_numbers=summary_group_numbers)
     completed_participant_emails = _completed_group_participant_emails(participant_records)

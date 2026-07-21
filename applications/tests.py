@@ -5,6 +5,7 @@ from django.urls import reverse
 from django.contrib.auth import get_user_model
 from django.contrib import admin as django_admin
 from django.core import mail
+from django.core.cache import cache
 from django.core.management import call_command
 from django.utils import timezone
 import json
@@ -3188,6 +3189,7 @@ class A2ReminderRecipientSelectionTests(TestCase):
 
 class ImpactDashboardMetricTests(TestCase):
     def setUp(self):
+        cache.clear()
         self.group1 = FormGroup.objects.create(
             number=981,
             start_day=1,
@@ -3281,6 +3283,57 @@ class ImpactDashboardMetricTests(TestCase):
                 "982,Mentoras,Cambio de pareja,Repeated Mentor G2 From Sheet,M2,repeat@example.com,+51,Peru,38,true,false,true,false,false",
             ]
         )
+
+    @patch("applications.admin_dashboard_views._load_database_encuestas_grid")
+    def test_impact_dataset_reuses_cached_drive_grid(self, mock_load_grid):
+        mock_load_grid.return_value = (
+            "Initial survey",
+            ["Email", "Quality of life"],
+            [["person@example.com", "8"]],
+            "survey.csv",
+            "drive-id",
+        )
+
+        first, _emails = admin_dashboard_views._build_impact_dataset(
+            "emprendedoras",
+            "Initial survey",
+            "admin_database_encuestas_sheet",
+        )
+        second, _emails = admin_dashboard_views._build_impact_dataset(
+            "emprendedoras",
+            "Initial survey",
+            "admin_database_encuestas_sheet",
+        )
+
+        self.assertEqual(first["responses_count"], 1)
+        self.assertEqual(second["responses_count"], 1)
+        mock_load_grid.assert_called_once_with("emprendedoras")
+
+    @patch("applications.admin_dashboard_views._load_database_encuestas_grid")
+    def test_impact_dataset_uses_stale_cache_when_drive_fails(self, mock_load_grid):
+        mock_load_grid.return_value = (
+            "Initial survey",
+            ["Email"],
+            [["person@example.com"]],
+            "survey.csv",
+            "drive-id",
+        )
+        admin_dashboard_views._build_impact_dataset(
+            "emprendedoras",
+            "Initial survey",
+            "admin_database_encuestas_sheet",
+        )
+        cache.delete("admin:impact:grid:emprendedoras:v1")
+        mock_load_grid.side_effect = RuntimeError("Drive timed out")
+
+        dataset, _emails = admin_dashboard_views._build_impact_dataset(
+            "emprendedoras",
+            "Initial survey",
+            "admin_database_encuestas_sheet",
+        )
+
+        self.assertTrue(dataset["stale"])
+        self.assertEqual(dataset["responses_count"], 1)
 
     def test_participant_sheet_status_options_use_requested_default_labels(self):
         expected = [
@@ -4127,28 +4180,12 @@ class ParticipantsCapacitacionCheckTests(TestCase):
         self.assertNotContains(response, "Open Emprendedoras sheet")
 
     @patch("applications.admin_profiles_views.fetch_drive_csv_file_text")
-    def test_participants_page_auto_refreshes_database_from_google_sheet(self, mock_fetch):
-        mock_fetch.return_value = (
-            "\n".join(
-                [
-                    "Grupo,Track,Estatus,Nombre,Id,Email,WhatsApp,Reside,Edad,Acta,Website,Capacitacion,Encuesta inicial,Encuesta final",
-                    "993,Mentoras,Activa,Mentora Auto,M9,mentor-auto@example.com,+57,Colombia,30,true,false,true,false,true",
-                    "994,Emprendedoras,Graduada,Founder Auto,E9,founder-auto@example.com,+51,Peru,40,true,true,true,true,true",
-                ]
-            ),
-            "drive-file-id",
-            "Participant source",
-        )
-
+    def test_participants_page_uses_saved_data_until_manual_refresh(self, mock_fetch):
         response = self.client.get(reverse("admin_profiles_participants"))
 
         self.assertEqual(response.status_code, 200)
-        synced_existing = GroupParticipantList.objects.get(group=self.group)
-        synced_new = GroupParticipantList.objects.get(group__number=994)
-        self.assertEqual(synced_existing.mentoras_sheet_rows[0][3], "Mentora Auto")
-        self.assertEqual(synced_existing.mentoras_sheet_rows[0][5], "mentor-auto@example.com")
-        self.assertEqual(synced_new.emprendedoras_sheet_rows[0][3], "Founder Auto")
-        self.assertEqual(synced_new.emprendedoras_sheet_rows[0][5], "founder-auto@example.com")
+        mock_fetch.assert_not_called()
+        self.assertFalse(FormGroup.objects.filter(number=994).exists())
 
     @patch("applications.admin_profiles_views.fetch_drive_csv_file_text")
     def test_participant_google_sheet_view_renders_complete_source_sheet(self, mock_fetch):

@@ -19,15 +19,18 @@ import httpx
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.admin.views.decorators import staff_member_required
+from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.core.management import call_command
 from django.core.validators import validate_email
 from django.db import connection
+from django.db.models import Prefetch
 from django.http import HttpResponse, JsonResponse, HttpResponseNotAllowed
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils.dateparse import parse_datetime
 from django.utils import timezone
+from django.core.paginator import Paginator
 from django.views.decorators.csrf import csrf_exempt
 
 from .drive_sync import (
@@ -3163,10 +3166,20 @@ def _build_grading_lookup(target_groups: set[int]) -> tuple[dict[tuple[int, str]
     return latest_by_group_track, latest_by_group, rows_by_file_id
 
 
-def _build_profiles():
+def _build_profiles_uncached():
     apps = list(
         Application.objects.select_related("form")
-        .prefetch_related("answers__question")
+        .prefetch_related(
+            Prefetch(
+                "answers",
+                queryset=Answer.objects.select_related("question").only(
+                    "application_id",
+                    "value",
+                    "question__slug",
+                ),
+                to_attr="profile_answers",
+            )
+        )
         .order_by("-created_at", "-id")
     )
     if not apps:
@@ -3175,7 +3188,7 @@ def _build_profiles():
     app_data_by_id: dict[int, dict] = {}
     for app in apps:
         answer_map = {}
-        for ans in app.answers.all():
+        for ans in app.profile_answers:
             slug = getattr(ans.question, "slug", "")
             if slug:
                 answer_map[slug] = (ans.value or "").strip()
@@ -3398,6 +3411,25 @@ def _build_profiles():
     return profiles
 
 
+def _build_profiles():
+    latest_app = Application.objects.order_by("-id").values_list("id", "created_at").first()
+    latest_grade = GradedFile.objects.order_by("-id").values_list("id", "created_at").first()
+    app_count = Application.objects.count()
+    cache_key = "admin:profiles:v2:{}:{}:{}:{}:{}".format(
+        app_count,
+        latest_app[0] if latest_app else 0,
+        latest_app[1].isoformat() if latest_app else "none",
+        latest_grade[0] if latest_grade else 0,
+        latest_grade[1].isoformat() if latest_grade else "none",
+    )
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+    profiles = _build_profiles_uncached()
+    cache.set(cache_key, profiles, timeout=120)
+    return profiles
+
+
 def _profiles_filtered_payload(request):
     profiles = _build_profiles()
     status_map = {
@@ -3518,8 +3550,20 @@ def profiles_list(request):
         return redirect(target)
 
     payload = _profiles_filtered_payload(request)
+    page_size_raw = (request.GET.get("page_size") or "100").strip()
+    try:
+        page_size = max(25, min(int(page_size_raw), 200))
+    except (TypeError, ValueError):
+        page_size = 100
+    paginator = Paginator(payload["filtered"], page_size)
+    page_obj = paginator.get_page(request.GET.get("page"))
+    page_params = request.GET.copy()
+    page_params.pop("page", None)
     context = {
-        "profiles": payload["filtered"],
+        "profiles": page_obj.object_list,
+        "page_obj": page_obj,
+        "page_query": page_params.urlencode(),
+        "page_size": page_size,
         "query": payload["query"],
         "group_filter": payload["group_filter"],
         "status_filter": payload["status_filter"],
@@ -3552,8 +3596,6 @@ def profiles_sheet(request):
 @staff_member_required
 def profiles_participants(request):
     group_raw = (request.GET.get("group") or request.POST.get("group") or "").strip()
-    if request.method == "GET":
-        _auto_refresh_participant_database_from_drive(request)
 
     groups_qs = _formgroup_active_queryset()
     groups = list(groups_qs)
@@ -3564,25 +3606,6 @@ def profiles_participants(request):
         selected_group = groups_qs.filter(number=int(group_raw)).first()
         if selected_group:
             participant_list = GroupParticipantList.objects.filter(group=selected_group).first()
-            if (
-                request.method == "GET"
-                and participant_list
-                and str(participant_list.google_sheet_url or "").strip()
-            ):
-                try:
-                    _sync_group_from_linked_google_sheet(
-                        group=selected_group,
-                        participant_list=participant_list,
-                        request=request,
-                    )
-                    participant_list.refresh_from_db()
-                except Exception as exc:
-                    participant_list.google_sheet_sync_error = str(exc)
-                    participant_list.save(update_fields=["google_sheet_sync_error", "updated_at"])
-                    messages.warning(
-                        request,
-                        f"Could not refresh this group's linked Google Sheet: {exc}",
-                    )
 
     if request.method == "POST":
         action = (request.POST.get("action") or "save_sheet").strip()

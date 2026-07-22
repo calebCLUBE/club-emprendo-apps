@@ -28,7 +28,7 @@ from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
 from django.core.cache import cache
 from django.db import transaction, DatabaseError
-from django.db.models import Model, Count, Q
+from django.db.models import Model, Count, Q, Prefetch, prefetch_related_objects
 from django.db.models.functions import Lower
 from django.http import HttpResponse, Http404
 from django.shortcuts import get_object_or_404, redirect, render
@@ -2778,6 +2778,41 @@ def _sync_group_open_close(group: FormGroup):
         accepting_responses=desired_open,
     )
 
+
+def _sync_groups_open_close(groups: list[FormGroup]):
+    """Apply schedule state for a page of groups with a fixed number of queries."""
+    group_ids = [group.id for group in groups if group and group.id]
+    if not group_ids:
+        return
+
+    forms_qs = FormDefinition.objects.filter(group_id__in=group_ids)
+    if _model_has_field(FormDefinition, "manual_open_override"):
+        forms_qs.filter(manual_open_override=True).exclude(
+            is_public=True, accepting_responses=True
+        ).update(is_public=True, accepting_responses=True)
+        forms_qs.filter(manual_open_override=False).exclude(
+            is_public=False, accepting_responses=False
+        ).update(is_public=False, accepting_responses=False)
+        forms_qs = forms_qs.filter(manual_open_override__isnull=True)
+
+    open_group_ids: list[int] = []
+    closed_group_ids: list[int] = []
+    for group in groups:
+        desired_open = scheduled_group_open_state(group)
+        if desired_open is True:
+            open_group_ids.append(group.id)
+        elif desired_open is False:
+            closed_group_ids.append(group.id)
+
+    if open_group_ids:
+        forms_qs.filter(group_id__in=open_group_ids).exclude(
+            is_public=True, accepting_responses=True
+        ).update(is_public=True, accepting_responses=True)
+    if closed_group_ids:
+        forms_qs.filter(group_id__in=closed_group_ids).exclude(
+            is_public=False, accepting_responses=False
+        ).update(is_public=False, accepting_responses=False)
+
 def _ensure_test_grading_form(role: str) -> FormDefinition:
     """
     role: "E" or "M"
@@ -3845,13 +3880,17 @@ def apps_list(request):
         )
 
         groups = list(FormGroup.objects.order_by("-created_at", "-id"))
+        _sync_groups_open_close(groups)
+        prefetch_related_objects(
+            groups,
+            Prefetch("forms", queryset=FormDefinition.objects.order_by("-id")),
+        )
         groups_by_number = {int(g.number): g for g in groups}
-        has_combined_groups = FormGroup.objects.filter(use_combined_application=True).exists()
+        has_combined_groups = any(g.use_combined_application for g in groups)
         group_list = []
         for g in groups:
-            _sync_group_open_close(g)
             g.display_label = _group_label_for_number(int(g.number), groups_by_number)
-            all_group_forms = list(FormDefinition.objects.filter(group=g).order_by("-id"))
+            all_group_forms = list(g.forms.all())
             forms_for_group = (
                 _combined_application_entries(all_group_forms)
                 if g.use_combined_application
@@ -4224,14 +4263,18 @@ def database_home(request):
         for row in Application.objects.values("form__slug").annotate(c=Count("id"))
     }
 
-    groups = list(FormGroup.objects.order_by("number"))
+    groups = list(
+        FormGroup.objects.prefetch_related(
+            Prefetch("forms", queryset=FormDefinition.objects.order_by("slug"))
+        ).order_by("number")
+    )
     groups_by_number = {int(g.number): g for g in groups}
     group_blocks: list[dict] = []
     combined_track_counts = {"E": 0, "M": 0}
     legacy_type_counts = {k: 0 for k in MASTER_SLUGS}
 
     for g in groups:
-        forms_for_group = list(FormDefinition.objects.filter(group=g).order_by("slug"))
+        forms_for_group = list(g.forms.all())
         use_combined = bool(getattr(g, "use_combined_application", False))
         group_label = _group_label_for_number(int(g.number), groups_by_number)
 
@@ -4287,6 +4330,7 @@ def database_home(request):
     latest_graded_by_form: dict[str, GradedFile] = {}
     graded_candidates = (
         GradedFile.objects.exclude(form_slug__startswith="PAIR_G")
+        .defer("csv_text")
         .order_by("-created_at", "-id")
     )
     for gf in graded_candidates:
@@ -4337,7 +4381,7 @@ def database_home(request):
 
     pairing_files = GradedFile.objects.filter(
         form_slug__startswith="PAIR_G"
-    ).order_by("-created_at")[:100]
+    ).defer("csv_text").order_by("-created_at")[:100]
 
     transfer_form_options: list[dict] = []
     transfer_forms = list(

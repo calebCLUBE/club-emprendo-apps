@@ -148,7 +148,6 @@
       <a class="ce-btn ce-btn--ghost" href="{% url 'admin_profiles_list' %}">Back to profiles</a>
       <a class="ce-btn ce-btn--ghost" href="/admin/">Admin home</a>
       <a class="ce-btn ce-btn--ghost" href="{% url 'admin_emparejamiento_home' %}">Emparejamiento</a>
-      <a class="ce-btn ce-btn--ghost" href="{% url 'admin_profiles_participants_google_sheet' %}">View Google Sheet</a>
     </div>
 
     <section class="ce-panel">
@@ -162,17 +161,10 @@
           <div class="ce-muted">No groups available yet.</div>
         {% endfor %}
       </div>
-      <form method="post" style="margin-top:12px;">
-        {% csrf_token %}
-        <button class="ce-btn" type="submit" name="action" value="sync_from_google_sheet">
-          Sync participant database from Google Sheet
-        </button>
-        <a class="ce-btn ce-btn--ghost" href="{% url 'admin_profiles_participants_google_sheet' %}">
-          View complete Google Sheet
-        </a>
-      </form>
-      <div class="ce-muted">
-        Source: {{ participants_drive_file }}
+      <div class="ce-muted" style="margin-top:12px;">
+        The participant database is assembled only from each group's linked Google Sheet.
+        Select a group to link or refresh its workbook. Unlinked groups are not included in
+        aggregate participant profiles or impact reporting.
       </div>
     </section>
 
@@ -182,7 +174,7 @@
           Group {{ selected_group.number }} participant lists
         </div>
         <div class="ce-muted">
-          Link this group to its own multi-tab Google Sheet, or use the legacy participant tools below.
+          This group's linked multi-tab Google Sheet is its participant-data source.
         </div>
 
         <div class="ce-panel" style="margin-top:12px;">
@@ -234,22 +226,6 @@
         </div>
 
         <div class="ce-actions" style="margin-top:12px;">
-          <form method="post">
-            {% csrf_token %}
-            <input type="hidden" name="group" value="{{ selected_group.number }}">
-            <button class="ce-btn" type="submit" name="action" value="sync_from_google_sheet">
-              {% if linked_google_sheet_url %}Refresh linked Google Sheet{% else %}Sync this group from global Google Sheet{% endif %}
-            </button>
-          </form>
-          {% if not linked_google_sheet_url %}
-            <form method="post">
-              {% csrf_token %}
-              <input type="hidden" name="group" value="{{ selected_group.number }}">
-              <button class="ce-btn ce-btn--ghost" type="submit" name="action" value="sync_from_group_assignments">
-                Sync from assigned group applications
-              </button>
-            </form>
-          {% endif %}
           <form method="post">
             {% csrf_token %}
             <input type="hidden" name="group" value="{{ selected_group.number }}">

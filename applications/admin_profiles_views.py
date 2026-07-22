@@ -106,10 +106,6 @@ EMPRENDEDORAS_ENCUESTAS_FINAL_DRIVE_FILE_DEFAULT = (
 MENTORAS_ENCUESTAS_FINAL_DRIVE_FILE_DEFAULT = (
     "https://docs.google.com/spreadsheets/d/1OdQ0exguYQkOz8zGmKex8txi-8KsJxVLfBnuUTJtSMg/edit?resourcekey=&gid=1172577522#gid=1172577522"
 )
-PARTICIPANTS_DRIVE_FILE_DEFAULT = (
-    "https://docs.google.com/spreadsheets/d/11TXU8gmcTPqfoEhc4JKIaRuOjhKnVLTnhAJfDR2Lxr8/edit?gid=2127194111#gid=2127194111"
-)
-
 PROFILE_OVERVIEW_FIELDS = [
     ("full_name", "Full name"),
     ("preferred_name", "Preferred name"),
@@ -227,27 +223,6 @@ EMPRENDEDORAS_COLUMN_TYPES = [
     "checkbox",      # W/E
 ]
 
-PARTICIPANT_SOURCE_GROUP_KEYS = {
-    "group",
-    "grupo",
-    "groupnumber",
-    "numerogrupo",
-    "nmerogrupo",
-    "grupoactual",
-    "participantgroup",
-}
-PARTICIPANT_SOURCE_TRACK_KEYS = {
-    "track",
-    "me",
-    "tipo",
-    "role",
-    "rol",
-    "perfil",
-    "participanttype",
-    "tipoparticipante",
-}
-PARTICIPANT_SOURCE_MENTORA_TOKENS = ("mentora", "mentor", "m")
-PARTICIPANT_SOURCE_EMPRENDEDORA_TOKENS = ("emprendedora", "emprendedor", "founder", "e")
 PARTICIPANT_SOURCE_FIELD_ALIASES = {
     "info": ("info", "informacion", "informacin"),
     "status": ("estatus", "status", "estado"),
@@ -1026,21 +1001,6 @@ def _coerce_bool_columns(rows: list[list], bool_cols: list[int]) -> list[list]:
     return out
 
 
-def _participant_source_url() -> str:
-    return _setting_or_env("PARTICIPANTS_DRIVE_FILE", PARTICIPANTS_DRIVE_FILE_DEFAULT)
-
-
-def _participant_source_column(headers: list[str], keys: set[str]) -> int | None:
-    normalized_headers = [_normalized_source_header(header) for header in headers]
-    for idx, normalized in enumerate(normalized_headers):
-        if normalized in keys:
-            return idx
-    for idx, normalized in enumerate(normalized_headers):
-        if any(key and key in normalized for key in keys):
-            return idx
-    return None
-
-
 def _participant_source_field_index(headers: list[str], field_name: str) -> int | None:
     normalized_headers = [_normalized_source_header(header) for header in headers]
     aliases = set(PARTICIPANT_SOURCE_FIELD_ALIASES.get(field_name, ()))
@@ -1059,19 +1019,6 @@ def _participant_source_value(row: list[str], index: int | None) -> str:
     return str(row[index] or "").strip()
 
 
-def _participant_source_group_number(value: str | None) -> int | None:
-    raw = str(value or "").strip()
-    if not raw:
-        return None
-    match = re.search(r"\d{1,4}", raw)
-    if not match:
-        return None
-    try:
-        return int(match.group(0))
-    except Exception:
-        return None
-
-
 def _participant_source_track(value: str | None) -> str:
     raw = str(value or "").strip().lower()
     if not raw:
@@ -1086,15 +1033,6 @@ def _participant_source_track(value: str | None) -> str:
     if "emprendedor" in normalized or "emprendedora" in normalized or "founder" in normalized:
         return "emprendedoras"
     return ""
-
-
-def _participant_source_track_from_row(row: list[str], track_idx: int | None, headers: list[str]) -> str:
-    explicit_track = _participant_source_track(_participant_source_value(row, track_idx))
-    if explicit_track:
-        return explicit_track
-
-    joined = " ".join(_participant_source_value(row, idx) for idx in range(min(len(row), len(headers))))
-    return _participant_source_track(joined)
 
 
 def _participant_source_row_to_sheet_row(
@@ -1147,169 +1085,6 @@ def _participant_source_row_to_sheet_row(
             continue
         row[target_idx] = _participant_source_value(source_row, source_idx)
     return row
-
-
-def _participant_source_group_defaults(group_number: int) -> dict:
-    today = timezone.localdate()
-    return {
-        "start_day": 1,
-        "start_month": "",
-        "end_month": "",
-        "year": today.year,
-    }
-
-
-def _sync_participants_from_drive_sheet(group_number: int | None = None) -> dict:
-    source_url = _participant_source_url()
-    csv_text, file_id, file_name = fetch_drive_csv_file_text(source_url)
-    reader = csv.reader(io.StringIO(csv_text))
-    rows = list(reader)
-    if not rows:
-        raise ValueError("Participant Google Sheet is empty.")
-
-    headers = [str(value or "").strip() for value in rows[0]]
-    body_rows = [list(row) for row in rows[1:] if any(str(cell or "").strip() for cell in row)]
-    group_idx = _participant_source_column(headers, PARTICIPANT_SOURCE_GROUP_KEYS)
-    track_idx = _participant_source_column(headers, PARTICIPANT_SOURCE_TRACK_KEYS)
-    if group_idx is None:
-        raise ValueError("Participant Google Sheet needs a group column, such as Group or Grupo.")
-    if track_idx is None:
-        raise ValueError("Participant Google Sheet needs a track/type column, such as Track, Rol, or Tipo.")
-
-    configs = _participant_track_sheet_configs()
-    field_indexes = {
-        field_name: _participant_source_field_index(headers, field_name)
-        for field_name in PARTICIPANT_SOURCE_FIELD_ALIASES
-    }
-
-    rows_by_group: dict[int, dict[str, list[list]]] = defaultdict(lambda: {"mentoras": [], "emprendedoras": []})
-    skipped_rows = 0
-    for source_row in body_rows:
-        parsed_group = _participant_source_group_number(_participant_source_value(source_row, group_idx))
-        if parsed_group is None:
-            skipped_rows += 1
-            continue
-        if group_number is not None and int(parsed_group) != int(group_number):
-            continue
-
-        track_slug = _participant_source_track_from_row(source_row, track_idx, headers)
-        if track_slug not in configs:
-            skipped_rows += 1
-            continue
-        cfg = configs[track_slug]
-        sheet_row = _participant_source_row_to_sheet_row(source_row, headers, cfg, field_indexes)
-        if not _normalize_email(_participant_source_value(sheet_row, cfg["email_col"])):
-            skipped_rows += 1
-            continue
-        rows_by_group[int(parsed_group)][track_slug].append(sheet_row)
-
-    if group_number is not None and int(group_number) not in rows_by_group:
-        raise ValueError(f"No participant rows found in the Google Sheet for Group {group_number}.")
-
-    synced_groups = 0
-    created_groups = 0
-    mentoras_total = 0
-    emprendedoras_total = 0
-    marked_emails: list[str] = []
-
-    for parsed_group, track_rows in sorted(rows_by_group.items()):
-        group, created = FormGroup.objects.get_or_create(
-            number=parsed_group,
-            defaults=_participant_source_group_defaults(parsed_group),
-        )
-        if created:
-            created_groups += 1
-        elif _formgroup_is_active_column_exists() and not getattr(group, "is_active", True):
-            group.is_active = True
-            group.save(update_fields=["is_active"])
-
-        participant_obj, _created_list = GroupParticipantList.objects.get_or_create(group=group)
-        if str(getattr(participant_obj, "google_sheet_url", "") or "").strip():
-            if group_number is not None:
-                raise ValueError(
-                    f"Group {parsed_group} uses its own linked Google Sheet; refresh that linked workbook instead."
-                )
-            continue
-        updates: list[str] = []
-        changed_tracks: list[tuple[dict, list[list]]] = []
-        for track_slug in ("mentoras", "emprendedoras"):
-            cfg = configs[track_slug]
-            rows_for_track = _normalize_sheet_rows(track_rows.get(track_slug, []), cfg["headers"])
-            rows_for_track = _coerce_bool_columns(rows_for_track, cfg["bool_cols"])
-            rows_for_track = _number_sheet_rows(rows_for_track, number_col=2)
-            emails = _emails_from_sheet_rows(rows_for_track, cfg["email_col"])
-            marked_emails.extend(emails)
-            next_emails_text = "\n".join(emails)
-            if getattr(participant_obj, cfg["text_field"]) != next_emails_text:
-                setattr(participant_obj, cfg["text_field"], next_emails_text)
-                updates.append(cfg["text_field"])
-            if getattr(participant_obj, cfg["rows_field"]) != rows_for_track:
-                setattr(participant_obj, cfg["rows_field"], rows_for_track)
-                updates.append(cfg["rows_field"])
-                changed_tracks.append((cfg, rows_for_track))
-            if track_slug == "mentoras":
-                mentoras_total += len(rows_for_track)
-            else:
-                emprendedoras_total += len(rows_for_track)
-
-        if updates:
-            participant_obj.save(update_fields=updates + ["updated_at"])
-            for cfg, rows_for_track in changed_tracks:
-                _create_participant_sheet_version(
-                    group=group,
-                    track_slug=cfg["slug"],
-                    rows=rows_for_track,
-                    request=None,
-                    action="google_sheet_sync",
-                )
-        synced_groups += 1
-
-    created_count, updated_count, unchanged_count = _mark_participated_yes(
-        list(dict.fromkeys(marked_emails))
-    )
-    return {
-        "file_id": file_id,
-        "file_name": file_name,
-        "source_url": source_url,
-        "groups": synced_groups,
-        "created_groups": created_groups,
-        "mentoras": mentoras_total,
-        "emprendedoras": emprendedoras_total,
-        "skipped_rows": skipped_rows,
-        "participation_created": created_count,
-        "participation_updated": updated_count,
-        "participation_unchanged": unchanged_count,
-    }
-
-
-def _load_participants_drive_grid() -> tuple[list[str], list[list[str]], str, str]:
-    csv_text, file_id, file_name = fetch_drive_csv_file_text(_participant_source_url())
-    parsed = list(csv.reader(io.StringIO(csv_text or "")))
-    if not parsed:
-        raise RuntimeError("Participant Google Sheet returned no rows.")
-    headers = [str(value or "").strip() for value in parsed[0]]
-    rows = [
-        [str(value or "").strip() for value in row]
-        for row in parsed[1:]
-        if any(str(cell or "").strip() for cell in row)
-    ]
-    if not headers:
-        raise RuntimeError("Participant Google Sheet returned no header row.")
-    return headers, rows, file_name, file_id
-
-
-def _auto_refresh_participant_database_from_drive(request) -> dict | None:
-    try:
-        return _sync_participants_from_drive_sheet()
-    except Exception as exc:
-        messages.warning(
-            request,
-            (
-                "Could not refresh participant database from Google Sheet. "
-                f"Using the last synced participant data instead. Error: {exc}"
-            ),
-        )
-        return None
 
 
 def _emails_from_sheet_rows(rows: list[list], email_col: int) -> list[str]:
@@ -2089,7 +1864,7 @@ def _run_encuestas_check_for_track(
 
 def _participant_list_email_keys() -> set[str]:
     out: set[str] = set()
-    participant_lists = GroupParticipantList.objects.only(
+    participant_lists = GroupParticipantList.objects.exclude(google_sheet_url="").only(
         "mentoras_emails_text",
         "emprendedoras_emails_text",
         "mentoras_sheet_rows",
@@ -3436,25 +3211,15 @@ def _profiles_filtered_payload(request):
         _email_status_key(row.email): row
         for row in ParticipantEmailStatus.objects.only(
             "email",
-            "participated",
             "contract_signed",
             "contract_signed_at",
         )
     }
     participant_list_email_keys = _participant_list_email_keys()
-    for email_key in participant_list_email_keys:
-        row = status_map.get(email_key)
-        if row is None:
-            status_map[email_key] = ParticipantEmailStatus(
-                email=email_key,
-                participated=True,
-            )
-            continue
-        row.participated = True
     for profile in profiles:
         profile_email_key = _email_status_key(profile.get("email"))
         row = status_map.get(profile_email_key)
-        profile["participated"] = bool(getattr(row, "participated", False))
+        profile["participated"] = profile_email_key in participant_list_email_keys
         profile["contract_signed"] = bool(getattr(row, "contract_signed", False))
         profile["contract_signed_at"] = getattr(row, "contract_signed_at", None)
 
@@ -3667,56 +3432,10 @@ def profiles_participants(request):
             return redirect(f"{reverse('admin_profiles_participants')}?group={target_group.number}")
 
         if action == "sync_from_google_sheet":
-            scoped_group = int(group_raw) if group_raw.isdigit() else None
-            try:
-                linked_list = (
-                    GroupParticipantList.objects.filter(group__number=scoped_group).first()
-                    if scoped_group is not None
-                    else None
-                )
-                if linked_list and str(linked_list.google_sheet_url or "").strip():
-                    sync_result = _sync_group_from_linked_google_sheet(
-                        group=linked_list.group,
-                        participant_list=linked_list,
-                        request=request,
-                    )
-                    messages.success(
-                        request,
-                        (
-                            f"Refreshed Group {scoped_group} from its linked Google Sheet. "
-                            f"Mentoras: {sync_result['mentoras']} · "
-                            f"Emprendedoras: {sync_result['emprendedoras']}."
-                        ),
-                    )
-                    return redirect(f"{reverse('admin_profiles_participants')}?group={scoped_group}")
-                sync_result = _sync_participants_from_drive_sheet(scoped_group)
-            except Exception as exc:
-                messages.error(request, f"Could not sync participants from Google Sheet: {exc}")
-                if scoped_group:
-                    return redirect(f"{reverse('admin_profiles_participants')}?group={scoped_group}")
-                return redirect(reverse("admin_profiles_participants"))
-
-            messages.success(
+            messages.error(
                 request,
-                (
-                    f"Synced participant database from {sync_result['file_name']}. "
-                    f"Groups: {sync_result['groups']} "
-                    f"({sync_result['created_groups']} new). "
-                    f"Mentoras: {sync_result['mentoras']} rows · "
-                    f"Emprendedoras: {sync_result['emprendedoras']} rows. "
-                    f"Profile participation set to Yes: "
-                    f"{sync_result['participation_created']} new, "
-                    f"{sync_result['participation_updated']} changed, "
-                    f"{sync_result['participation_unchanged']} already yes."
-                ),
+                "The global participant Google Sheet has been retired. Link and refresh each group's own Google Sheet instead.",
             )
-            if sync_result["skipped_rows"]:
-                messages.warning(
-                    request,
-                    f"Skipped {sync_result['skipped_rows']} source rows missing group, track, or email.",
-                )
-            if scoped_group:
-                return redirect(f"{reverse('admin_profiles_participants')}?group={scoped_group}")
             return redirect(reverse("admin_profiles_participants"))
 
         posted_group = (request.POST.get("group") or "").strip()
@@ -4210,7 +3929,6 @@ def profiles_participants(request):
         "mentoras_count": len(mentoras_rows),
         "emprendedoras_count": len(emprendedoras_rows),
         "has_list": has_list,
-        "participants_drive_file": _participant_source_url(),
         "linked_google_sheet_url": (
             str(getattr(participant_list, "google_sheet_url", "") or "") if participant_list else ""
         ),
@@ -4226,30 +3944,11 @@ def profiles_participants(request):
 
 @staff_member_required
 def profiles_participants_google_sheet(request):
-    try:
-        headers, rows, file_name, file_id = _load_participants_drive_grid()
-    except Exception as exc:
-        messages.error(request, f"Could not load participant Google Sheet: {exc}")
-        return redirect(reverse("admin_profiles_participants"))
-
-    refresh_requested = str(request.GET.get("refresh") or "").strip().lower() in {"1", "true", "yes"}
-    if refresh_requested:
-        messages.success(
-            request,
-            f"Participant Google Sheet refreshed: {len(rows)} row(s), {len(headers)} column(s).",
-        )
-
-    return render(
+    messages.info(
         request,
-        "admin_dash/profiles_participants_google_sheet.html",
-        {
-            "sheet_headers": headers,
-            "sheet_rows": rows,
-            "source_name": file_name,
-            "source_file_id": file_id,
-            "source_url": _participant_source_url(),
-        },
+        "The global participant Google Sheet has been retired. Open a group to use its linked Google Sheet.",
     )
+    return redirect(reverse("admin_profiles_participants"))
 
 
 @staff_member_required
@@ -5455,11 +5154,8 @@ def profile_detail(request, identity_key: str):
         status_row = None
         if email_key:
             status_row = ParticipantEmailStatus.objects.filter(email=email_key).first()
-        participation_value = getattr(status_row, "participated", None)
         from_participant_list = email_key in _participant_list_email_keys() if email_key else False
-        profile["participated"] = (
-            bool(participation_value) if participation_value is not None else from_participant_list
-        )
+        profile["participated"] = from_participant_list
         profile["contract_signed"] = bool(getattr(status_row, "contract_signed", False))
         profile["contract_signed_at"] = getattr(status_row, "contract_signed_at", None)
         profile["contract_signature_request_id"] = getattr(

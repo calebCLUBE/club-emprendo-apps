@@ -3248,6 +3248,7 @@ class ImpactDashboardMetricTests(TestCase):
 
         GroupParticipantList.objects.create(
             group=self.group1,
+            google_sheet_url="https://docs.google.com/spreadsheets/d/group981/edit",
             emprendedoras_sheet_rows=[
                 ["", "G", 1, "Founder", "E1", "founder@example.com", "", "Colombia", "", True, True, True, True, True],
                 ["", "NFA", 2, "No Start", "E2", "no-start@example.com", "", "Peru", "", False, False, False, False, False],
@@ -3259,6 +3260,7 @@ class ImpactDashboardMetricTests(TestCase):
         )
         GroupParticipantList.objects.create(
             group=self.group2,
+            google_sheet_url="https://docs.google.com/spreadsheets/d/group982/edit",
             mentoras_sheet_rows=[
                 ["", "A", 1, "Founder Mentor", "M3", "founder@example.com", "", "Colombia", "", True, True, True, True, False],
                 ["", "CP", 2, "Repeated Mentor", "M2", "repeat@example.com", "", "Peru", "", True, False, True, False, False],
@@ -3266,6 +3268,7 @@ class ImpactDashboardMetricTests(TestCase):
         )
         GroupParticipantList.objects.create(
             group=self.non_program_group,
+            google_sheet_url="https://docs.google.com/spreadsheets/d/group984/edit",
             emprendedoras_sheet_rows=[
                 ["", "G", 1, "Pilot", "P1", "pilot@example.com", "", "Colombia", "", True, True, True, True, True],
             ],
@@ -3335,6 +3338,30 @@ class ImpactDashboardMetricTests(TestCase):
         self.assertTrue(dataset["stale"])
         self.assertEqual(dataset["responses_count"], 1)
 
+    def test_participant_aggregates_only_use_linked_group_sheets(self):
+        unlinked_group = FormGroup.objects.create(
+            number=985,
+            custom_name="Group 985",
+            start_day=1,
+            start_month="enero",
+            end_month="marzo",
+            year=2026,
+        )
+        GroupParticipantList.objects.create(
+            group=unlinked_group,
+            mentoras_emails_text="unlinked@example.com",
+            mentoras_sheet_rows=[
+                ["", "A", 1, "Unlinked", "U1", "unlinked@example.com"]
+            ],
+        )
+
+        records = admin_dashboard_views._participant_records()
+        profile_email_keys = admin_profiles_views._participant_list_email_keys()
+
+        self.assertNotIn("unlinked@example.com", {row["email"] for row in records})
+        self.assertNotIn("unlinked@example.com", profile_email_keys)
+        self.assertIn("founder@example.com", profile_email_keys)
+
     def test_participant_sheet_status_options_use_requested_default_labels(self):
         expected = [
             "No Firmo A",
@@ -3363,6 +3390,7 @@ class ImpactDashboardMetricTests(TestCase):
         )
         GroupParticipantList.objects.create(
             group=status_group,
+            google_sheet_url="https://docs.google.com/spreadsheets/d/group983/edit",
             emprendedoras_sheet_rows=[
                 ["", "NCP", 1, "Started by status", "E3", "started-status@example.com", "", "Colombia", "", False, False, False, False, False],
                 ["", "NC", 2, "Not started by status", "E4", "not-started-status@example.com", "", "Colombia", "", False, False, False, False, False],
@@ -4175,7 +4203,9 @@ class ParticipantsCapacitacionCheckTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Open participant workbook")
         self.assertContains(response, f"/profiles/participants/{self.group.number}/all/")
-        self.assertContains(response, reverse("admin_profiles_participants_google_sheet"))
+        self.assertContains(response, "assembled only from each group's linked Google Sheet")
+        self.assertNotContains(response, reverse("admin_profiles_participants_google_sheet"))
+        self.assertNotContains(response, "11TXU8gmcTPqfoEhc4JKIaRuOjhKnVLTnhAJfDR2Lxr8")
         self.assertNotContains(response, "Open Mentoras sheet")
         self.assertNotContains(response, "Open Emprendedoras sheet")
 
@@ -4188,61 +4218,23 @@ class ParticipantsCapacitacionCheckTests(TestCase):
         self.assertFalse(FormGroup.objects.filter(number=994).exists())
 
     @patch("applications.admin_profiles_views.fetch_drive_csv_file_text")
-    def test_participant_google_sheet_view_renders_complete_source_sheet(self, mock_fetch):
-        mock_fetch.return_value = (
-            "Grupo,Track,Nombre,Email\n993,Mentoras,Mentora Sheet,mentor-sheet@example.com\n994,Emprendedoras,Founder Sheet,founder-sheet@example.com\n",
-            "drive-file-id",
-            "Participant source",
-        )
-
+    def test_retired_global_participant_sheet_view_redirects_without_fetching(self, mock_fetch):
         response = self.client.get(reverse("admin_profiles_participants_google_sheet"))
 
-        self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Participant Google Sheet")
-        self.assertContains(response, "Participant source")
-        self.assertContains(response, "drive-file-id")
-        self.assertContains(response, "participants-google-sheet-headers")
-        self.assertContains(response, "mentor-sheet@example.com")
-        self.assertContains(response, "founder-sheet@example.com")
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.url, reverse("admin_profiles_participants"))
+        mock_fetch.assert_not_called()
 
     @patch("applications.admin_profiles_views.fetch_drive_csv_file_text")
-    def test_participants_page_syncs_database_from_google_sheet(self, mock_fetch):
-        mock_fetch.return_value = (
-            "\n".join(
-                [
-                    "Grupo,Track,Estatus,Nombre,Id,Email,WhatsApp,Reside,Edad,Acta,Website,Capacitacion,Encuesta inicial,Encuesta final",
-                    "993,Mentoras,Activa,Mentora Sheet,M9,mentor-sheet@example.com,+57,Colombia,30,true,false,true,false,true",
-                    "994,Emprendedoras,Graduada,Founder Sheet,E9,founder-sheet@example.com,+51,Peru,40,true,true,true,true,true",
-                ]
-            ),
-            "drive-file-id",
-            "Participant source",
-        )
-
+    def test_retired_global_participant_sync_action_does_not_import(self, mock_fetch):
         response = self.client.post(
             reverse("admin_profiles_participants"),
             data={"action": "sync_from_google_sheet"},
         )
 
         self.assertEqual(response.status_code, 302)
-        group_994 = FormGroup.objects.get(number=994)
-        synced_existing = GroupParticipantList.objects.get(group=self.group)
-        synced_new = GroupParticipantList.objects.get(group=group_994)
-        self.assertEqual(synced_existing.mentoras_sheet_rows[0][1], "Activa")
-        self.assertEqual(synced_existing.mentoras_sheet_rows[0][3], "Mentora Sheet")
-        self.assertEqual(synced_existing.mentoras_sheet_rows[0][5], "mentor-sheet@example.com")
-        self.assertTrue(synced_existing.mentoras_sheet_rows[0][9])
-        self.assertFalse(synced_existing.mentoras_sheet_rows[0][10])
-        self.assertTrue(synced_existing.mentoras_sheet_rows[0][11])
-        self.assertEqual(synced_new.emprendedoras_sheet_rows[0][1], "Graduada")
-        self.assertEqual(synced_new.emprendedoras_sheet_rows[0][3], "Founder Sheet")
-        self.assertEqual(synced_new.emprendedoras_sheet_rows[0][5], "founder-sheet@example.com")
-        self.assertTrue(
-            ParticipantEmailStatus.objects.filter(email="mentor-sheet@example.com", participated=True).exists()
-        )
-        self.assertTrue(
-            ParticipantEmailStatus.objects.filter(email="founder-sheet@example.com", participated=True).exists()
-        )
+        mock_fetch.assert_not_called()
+        self.assertFalse(FormGroup.objects.filter(number=994).exists())
 
     def test_combined_track_sheet_renders_both_tabs(self):
         response = self.client.get(

@@ -600,7 +600,11 @@ def _track_impact_summary(track_label: str, initial_dataset: dict, final_dataset
 
 def _participant_records() -> list[dict]:
     records: list[dict] = []
-    participant_lists = GroupParticipantList.objects.select_related("group").order_by("group__number", "id")
+    participant_lists = (
+        GroupParticipantList.objects.exclude(google_sheet_url="")
+        .select_related("group")
+        .order_by("group__number", "id")
+    )
     group_map = {group.number: group for group in FormGroup.objects.all()}
 
     for participant_list in participant_lists:

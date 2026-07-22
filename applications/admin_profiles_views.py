@@ -1391,41 +1391,41 @@ def _extract_emails_from_any(value) -> list[str]:
 
 
 def _record_is_completed(record: dict) -> bool:
-    bool_keys = (
-        "completed",
-        "is_completed",
-        "isComplete",
-        "is_complete",
-        "done",
-        "finished",
-        "passed",
-    )
+    normalized = {_normalize_header(str(key)): value for key, value in record.items()}
+    bool_keys = ("completed", "iscompleted", "iscomplete", "done", "finished", "passed")
     for key in bool_keys:
-        if key in record:
-            return _as_checkbox_bool(record.get(key))
+        if key not in normalized:
+            continue
+        value = normalized[key]
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)):
+            # Avoid interpreting an aggregate such as {"completed": 37} as a
+            # participant-level completion flag.
+            return value == 1
+        raw = str(value or "").strip().lower()
+        if raw in {"1", "true", "yes", "checked", "done", "completed", "finished", "passed"}:
+            return True
+        if raw in {"0", "false", "no", "unchecked", "pending", "incomplete"}:
+            return False
 
     date_keys = (
-        "completed_at",
-        "completedAt",
-        "completionDate",
-        "completion_date",
-        "finishedAt",
-        "finished_at",
+        "completedat",
+        "completiondate",
+        "finishedat",
     )
     for key in date_keys:
-        raw = str(record.get(key, "") or "").strip()
+        raw = str(normalized.get(key, "") or "").strip()
         if raw:
             return True
 
     status_keys = (
         "status",
-        "completion_status",
-        "completionStatus",
-        "progress_status",
-        "progressStatus",
+        "completionstatus",
+        "progressstatus",
         "state",
     )
-    positive_tokens = ("complete", "completed", "finished", "done", "passed")
+    positive_tokens = ("complete", "completed", "finished", "done", "passed", "graduated", "certified")
     negative_tokens = (
         "incomplete",
         "pending",
@@ -1438,13 +1438,42 @@ def _record_is_completed(record: dict) -> bool:
         "cancel",
     )
     for key in status_keys:
-        status = str(record.get(key, "") or "").strip().lower()
+        status = str(normalized.get(key, "") or "").strip().lower()
         if not status:
             continue
         if any(token in status for token in negative_tokens):
             return False
         if any(token in status for token in positive_tokens):
             return True
+
+    percentage_keys = (
+        "completionpercentage",
+        "completionpercent",
+        "percentcomplete",
+        "progresspercentage",
+        "progresspercent",
+        "progress",
+    )
+    for key in percentage_keys:
+        raw = normalized.get(key)
+        if raw is None or isinstance(raw, bool):
+            continue
+        try:
+            percent = float(str(raw).strip().rstrip("%"))
+        except (TypeError, ValueError):
+            continue
+        if percent >= 100:
+            return True
+
+    completed_step_keys = ("completedsteps", "stepscompleted", "completedstepcount")
+    total_step_keys = ("totalsteps", "stepcount", "totalstepcount")
+    completed_steps = next((normalized.get(key) for key in completed_step_keys if key in normalized), None)
+    total_steps = next((normalized.get(key) for key in total_step_keys if key in normalized), None)
+    try:
+        if float(total_steps) > 0 and float(completed_steps) >= float(total_steps):
+            return True
+    except (TypeError, ValueError):
+        pass
     return False
 
 
@@ -1452,17 +1481,18 @@ def _extract_completed_emails_from_wix_payload(payload) -> set[str]:
     out: set[str] = set()
     explicit_keys = {
         "completedemails",
-        "completed_emails",
         "signedemails",
-        "signed_emails",
         "completedparticipants",
-        "completed_participants",
+        "completedmembers",
+        "completedcontacts",
+        "completions",
+        "graduates",
     }
     for node in _iter_nested_values(payload):
         if not isinstance(node, dict):
             continue
         for key, value in node.items():
-            if str(key or "").strip().lower() in explicit_keys:
+            if _normalize_header(str(key or "")) in explicit_keys:
                 for email in _extract_emails_from_any(value):
                     out.add(email)
 
@@ -1471,13 +1501,9 @@ def _extract_completed_emails_from_wix_payload(payload) -> set[str]:
             continue
         if not _record_is_completed(node):
             continue
-        candidate_values = []
-        for key, value in node.items():
-            if "email" in str(key or "").strip().lower():
-                candidate_values.append(value)
-        if not candidate_values:
-            continue
-        for email in _extract_emails_from_any(candidate_values):
+        # Wix commonly puts completion fields on the enrollment object and the
+        # email under nested member/contact/contactDetails objects.
+        for email in _extract_emails_from_any(node):
             out.add(email)
     return out
 
@@ -1523,11 +1549,15 @@ def _fetch_wix_capacitacion_completed_emails(
         "program_name": program_name,
         "group": str(group_num),
         "track": str(track_slug),
+        "limit": "1000",
+        "pageSize": "1000",
     }
     body = {
         "programName": program_name,
         "group": int(group_num),
         "track": str(track_slug),
+        "limit": 1000,
+        "pageSize": 1000,
     }
     if participant_pool:
         body["participantEmails"] = sorted(participant_pool)
@@ -1563,6 +1593,7 @@ def _fetch_wix_capacitacion_completed_emails(
         return False, set(), "Wix response was not valid JSON."
 
     completed = _extract_completed_emails_from_wix_payload(payload)
+    returned_count = len(completed)
     if participant_pool:
         completed = {email for email in completed if email in participant_pool}
 
@@ -1571,7 +1602,8 @@ def _fetch_wix_capacitacion_completed_emails(
         completed,
         (
             f"Wix completions fetched for '{program_name}'. "
-            f"Matched participant emails: {len(completed)}."
+            f"Completed emails returned: {returned_count}; "
+            f"matched participant emails: {len(completed)} of {len(participant_pool)}."
         ),
     )
 

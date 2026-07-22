@@ -4081,6 +4081,63 @@ class MarketingDashboardTests(TestCase):
         mock_client.ad_insights.assert_not_called()
 
 
+class WixCapacitacionPayloadTests(TestCase):
+    def test_extracts_nested_contact_email_from_completed_enrollment(self):
+        payload = {
+            "enrollments": [
+                {
+                    "status": "COMPLETED",
+                    "member": {"contactDetails": {"email": "nested@example.com"}},
+                },
+                {
+                    "status": "IN_PROGRESS",
+                    "member": {"contactDetails": {"email": "pending@example.com"}},
+                },
+            ]
+        }
+
+        completed = admin_profiles_views._extract_completed_emails_from_wix_payload(payload)
+
+        self.assertEqual(completed, {"nested@example.com"})
+
+    def test_recognizes_percentage_and_completed_step_shapes(self):
+        payload = {
+            "participants": [
+                {"email": "percent@example.com", "completionPercentage": 100},
+                {"email": "steps@example.com", "completedSteps": 8, "totalSteps": 8},
+                {"email": "partial@example.com", "completedSteps": 7, "totalSteps": 8},
+            ]
+        }
+
+        completed = admin_profiles_views._extract_completed_emails_from_wix_payload(payload)
+
+        self.assertEqual(completed, {"percent@example.com", "steps@example.com"})
+
+    def test_completed_aggregate_count_does_not_mark_every_nested_email(self):
+        payload = {
+            "completed": 2,
+            "participants": [
+                {"email": "one@example.com"},
+                {"email": "two@example.com"},
+            ],
+        }
+
+        completed = admin_profiles_views._extract_completed_emails_from_wix_payload(payload)
+
+        self.assertEqual(completed, set())
+
+    def test_extracts_explicit_completed_members_list(self):
+        payload = {
+            "completedMembers": [
+                {"contact": {"primaryEmail": "member@example.com"}},
+            ]
+        }
+
+        completed = admin_profiles_views._extract_completed_emails_from_wix_payload(payload)
+
+        self.assertEqual(completed, {"member@example.com"})
+
+
 class ParticipantsPageSafetyTests(TestCase):
     def setUp(self):
         user_model = get_user_model()

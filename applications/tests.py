@@ -4575,6 +4575,65 @@ class ParticipantsCapacitacionCheckTests(TestCase):
 
     @patch("applications.admin_profiles_views.update_google_spreadsheet_values")
     @patch("applications.admin_profiles_views.fetch_google_spreadsheet_tabs")
+    def test_group_link_only_imports_tabs_matching_selected_group(
+        self,
+        mock_fetch_tabs,
+        mock_update_values,
+    ):
+        payload = self._linked_google_workbook_payload()
+        payload["tabs"][0]["title"] = "G993 M"
+        payload["tabs"][1]["title"] = "G993 E"
+        payload["tabs"][2]["title"] = "G993 Emparejamiento"
+
+        other_mentoras = json.loads(json.dumps(payload["tabs"][0]))
+        other_mentoras["title"] = "G994 M"
+        other_mentoras["sheet_id"] = 4
+        other_mentoras["values"][1][3] = "Wrong-group Mentora"
+        other_mentoras["values"][1][5] = "wrong-m@example.com"
+        other_emprendedoras = json.loads(json.dumps(payload["tabs"][1]))
+        other_emprendedoras["title"] = "G994 E"
+        other_emprendedoras["sheet_id"] = 5
+        other_emprendedoras["values"][1][3] = "Wrong-group Emprendedora"
+        other_emprendedoras["values"][1][5] = "wrong-e@example.com"
+        other_pairing = {
+            "title": "G994 Emparejamiento",
+            "sheet_id": 6,
+            "values": [["Mentora", "Emprendedora"], ["Wrong", "Group"]],
+        }
+        payload["tabs"].extend([other_mentoras, other_emprendedoras, other_pairing])
+        mock_fetch_tabs.return_value = payload
+        mock_update_values.return_value = 17
+
+        response = self.client.post(
+            reverse("admin_profiles_participants"),
+            data={
+                "action": "save_google_sheet_link",
+                "group": str(self.group.number),
+                "google_sheet_url": "https://docs.google.com/spreadsheets/d/multi-group/edit",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.participant_list.refresh_from_db()
+        self.assertEqual(
+            [tab["title"] for tab in self.participant_list.google_sheet_tabs],
+            ["G993 M", "G993 E", "G993 Emparejamiento"],
+        )
+        self.assertEqual(self.participant_list.mentoras_sheet_rows[0][5], "m1@example.com")
+        self.assertEqual(self.participant_list.emprendedoras_sheet_rows[0][5], "e1@example.com")
+        imported_blob = json.dumps(self.participant_list.google_sheet_tabs)
+        self.assertNotIn("wrong-m@example.com", imported_blob)
+        self.assertNotIn("wrong-e@example.com", imported_blob)
+        written_ranges = {
+            item["range"]
+            for item in mock_update_values.call_args.args[1]
+        }
+        self.assertTrue(written_ranges)
+        self.assertTrue(all("G993" in cell_range for cell_range in written_ranges))
+        self.assertFalse(any("G994" in cell_range for cell_range in written_ranges))
+
+    @patch("applications.admin_profiles_views.update_google_spreadsheet_values")
+    @patch("applications.admin_profiles_views.fetch_google_spreadsheet_tabs")
     def test_link_uses_google_checkbox_validation_when_headers_are_custom(
         self,
         mock_fetch_tabs,

@@ -193,7 +193,7 @@
               value="{{ linked_google_sheet_url }}"
             >
             <div class="ce-muted">
-              The workbook needs Mentoras and Emprendedoras tabs and the existing checkbox columns. Google supplies all ordinary cell values; website check buttons exclusively control checkbox values and mirror them back to Google.
+              Use tabs named G{{ selected_group.number }} M, G{{ selected_group.number }} E, and optionally G{{ selected_group.number }} Emparejamiento. A workbook may contain other groups, but only G{{ selected_group.number }} tabs are connected to this participant database. Google supplies ordinary cell values; website check buttons exclusively control checkbox values and mirror them back to Google.
             </div>
             <div class="ce-actions" style="margin-top:10px;">
               <button class="ce-btn" type="submit" name="action" value="save_google_sheet_link">

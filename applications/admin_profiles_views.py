@@ -55,6 +55,10 @@ from .participant_statuses import PARTICIPANT_STATUS_SHEET_OPTIONS
 logger = logging.getLogger(__name__)
 
 GROUP_SLUG_RE = re.compile(r"^G(?P<num>\d+)_")
+PARTICIPANT_GOOGLE_GROUP_TAB_RE = re.compile(
+    r"^\s*g\s*(?P<group>\d+)(?=\s|[-_:]|$)",
+    re.IGNORECASE,
+)
 
 IDENTITY_SLUGS = ("cedula", "id_number")
 EMAIL_SLUGS = ("email",)
@@ -2238,7 +2242,26 @@ def _participant_checkbox_specs(cfg: dict) -> list[tuple[str, int]]:
 
 
 def _participant_google_tab_track(title: str) -> str:
-    return _participant_source_track(title)
+    match = PARTICIPANT_GOOGLE_GROUP_TAB_RE.match(str(title or ""))
+    track_label = str(title or "")
+    if match:
+        track_label = track_label[match.end():].lstrip(" -_:")
+    normalized = _normalized_source_header(track_label)
+    if normalized in {"m", "mentor", "mentora", "mentoras"}:
+        return "mentoras"
+    if normalized in {"e", "emprendedor", "emprendedora", "emprendedoras", "founder"}:
+        return "emprendedoras"
+    return _participant_source_track(track_label)
+
+
+def _participant_google_tab_group_number(title: str) -> int | None:
+    match = PARTICIPANT_GOOGLE_GROUP_TAB_RE.match(str(title or ""))
+    if not match:
+        return None
+    try:
+        return int(match.group("group"))
+    except (TypeError, ValueError):
+        return None
 
 
 def _sheet_column_label(index: int) -> str:
@@ -2380,10 +2403,21 @@ def _sync_group_from_linked_google_sheet(
     missing_google_checkbox_columns: list[dict] = []
     duplicate_google_checkbox_columns: list[dict] = []
 
-    for source_tab in spreadsheet.get("tabs") or []:
+    source_tabs = list(spreadsheet.get("tabs") or [])
+    has_group_scoped_tabs = any(
+        _participant_google_tab_group_number(str(tab.get("title") or "")) is not None
+        for tab in source_tabs
+        if isinstance(tab, dict)
+    )
+    target_group_number = int(group.number)
+
+    for source_tab in source_tabs:
         # Keep Google's exact tab title for subsequent A1 write ranges. Track
         # detection normalizes whitespace separately.
         title = str(source_tab.get("title") or "")
+        tab_group_number = _participant_google_tab_group_number(title)
+        if has_group_scoped_tabs and tab_group_number != target_group_number:
+            continue
         values = [list(row) for row in (source_tab.get("values") or []) if isinstance(row, list)]
         headers = [str(value or "").strip() for value in (values[0] if values else [])]
         body_rows = [list(row) for row in values[1:]] if values else []
@@ -2523,6 +2557,7 @@ def _sync_group_from_linked_google_sheet(
             {
                 "title": title,
                 "sheet_id": int(source_tab.get("sheet_id") or 0),
+                "group_number": tab_group_number,
                 "track": track_slug if track_slug in configs else "",
                 "headers": headers,
                 "rows": body_rows,
@@ -2533,8 +2568,9 @@ def _sync_group_from_linked_google_sheet(
 
     missing_tracks = [configs[slug]["label"] for slug in configs if slug not in seen_tracks]
     if missing_tracks:
+        expected_tabs = f"G{target_group_number} M and G{target_group_number} E"
         raise ValueError(
-            "The Google Sheet needs tabs named Mentoras and Emprendedoras. "
+            f"The Google Sheet needs tabs {expected_tabs} for Group {target_group_number}. "
             f"Missing: {', '.join(missing_tracks)}."
         )
 

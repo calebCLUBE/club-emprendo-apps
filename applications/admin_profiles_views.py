@@ -9,6 +9,7 @@ import logging
 import subprocess
 import sys
 import tempfile
+import threading
 from collections import defaultdict
 from functools import lru_cache
 from io import BytesIO
@@ -123,6 +124,11 @@ PROFILE_OVERVIEW_FIELDS = [
     ("industry", "Industry"),
     ("professional_expertise", "Expertise"),
 ]
+
+PROFILE_ANSWER_SLUGS = frozenset(
+    (*IDENTITY_SLUGS, *EMAIL_SLUGS, *(slug for slug, _label in PROFILE_OVERVIEW_FIELDS))
+)
+_PROFILE_BUILD_LOCK = threading.Lock()
 
 MENTORAS_HEADERS = [
     "Info",
@@ -2955,7 +2961,12 @@ def _build_grading_lookup(target_groups: set[int]) -> tuple[dict[tuple[int, str]
     latest_by_group_track: dict[tuple[int, str], GradedFile] = {}
     latest_by_group: dict[int, GradedFile] = {}
 
-    graded_files = GradedFile.objects.exclude(form_slug__startswith="PAIR_G").order_by("-created_at", "-id")
+    graded_files = (
+        GradedFile.objects.exclude(form_slug__startswith="PAIR_G")
+        .only("id", "form_slug", "created_at")
+        .order_by("-created_at", "-id")
+        .iterator(chunk_size=500)
+    )
     for gf in graded_files:
         group_num = _group_number_from_slug(gf.form_slug)
         if group_num is None or (target_groups and group_num not in target_groups):
@@ -2973,20 +2984,44 @@ def _build_grading_lookup(target_groups: set[int]) -> tuple[dict[tuple[int, str]
     for gf in latest_by_group.values():
         selected_files[gf.id] = gf
 
-    rows_by_file_id = {gf_id: _parse_graded_file_rows(gf) for gf_id, gf in selected_files.items()}
+    rows_by_file_id: dict[int, dict[str, dict]] = {}
+    selected_ids = list(selected_files)
+    if selected_ids:
+        selected_rows = (
+            GradedFile.objects.filter(id__in=selected_ids)
+            .only("id", "csv_text")
+            .iterator(chunk_size=1)
+        )
+        for graded_file in selected_rows:
+            rows_by_file_id[graded_file.id] = _parse_graded_file_rows(graded_file)
     return latest_by_group_track, latest_by_group, rows_by_file_id
 
 
 def _build_profiles_uncached():
     apps = list(
         Application.objects.select_related("form")
+        .only(
+            "id",
+            "created_at",
+            "name",
+            "email",
+            "recommendation",
+            "overall_score",
+            "tablestakes_score",
+            "commitment_score",
+            "nice_to_have_score",
+            "form_id",
+            "form__slug",
+            "form__name",
+            "form__group_id",
+        )
         .prefetch_related(
             Prefetch(
                 "answers",
-                queryset=Answer.objects.select_related("question").only(
-                    "application_id",
-                    "value",
-                    "question__slug",
+                queryset=(
+                    Answer.objects.filter(question__slug__in=PROFILE_ANSWER_SLUGS)
+                    .select_related("question")
+                    .only("application_id", "value", "question__slug")
                 ),
                 to_attr="profile_answers",
             )
@@ -3236,9 +3271,15 @@ def _build_profiles():
     cached = cache.get(cache_key)
     if cached is not None:
         return cached
-    profiles = _build_profiles_uncached()
-    cache.set(cache_key, profiles, timeout=120)
-    return profiles
+    # A cold cache can receive several simultaneous admin requests. Build once
+    # so the large application/CSV scan is never duplicated in memory.
+    with _PROFILE_BUILD_LOCK:
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
+        profiles = _build_profiles_uncached()
+        cache.set(cache_key, profiles, timeout=300)
+        return profiles
 
 
 def _profiles_filtered_payload(request):

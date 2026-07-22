@@ -1174,6 +1174,53 @@ class ApplicationsDashboardPreviewTests(TestCase):
         self.assertNotContains(preview, "Current master second question")
 
 
+class ProfileMemoryBoundedBuildTests(TestCase):
+    def setUp(self):
+        cache.clear()
+        admin_profiles_views._formgroup_number_from_id.cache_clear()
+
+    def test_profile_build_ignores_unneeded_answers_and_uses_latest_grade(self):
+        group = FormGroup.objects.create(
+            number=903,
+            start_day=1,
+            start_month="enero",
+            end_month="abril",
+            year=2026,
+        )
+        form = FormDefinition.objects.create(slug="G903_E_A1", name="Group 903 E", group=group)
+        app = Application.objects.create(form=form, name="Ada", email="ada@example.com")
+        name_question = Question.objects.create(
+            form=form,
+            text="Full name",
+            slug="full_name",
+            field_type=Question.SHORT_TEXT,
+        )
+        essay_question = Question.objects.create(
+            form=form,
+            text="Long essay",
+            slug="long_business_essay",
+            field_type=Question.LONG_TEXT,
+        )
+        Answer.objects.create(application=app, question=name_question, value="Ada Lovelace")
+        Answer.objects.create(application=app, question=essay_question, value="unused-essay " * 10000)
+        GradedFile.objects.create(
+            form_slug=form.slug,
+            csv_text="email,recommendation,overall_score\nada@example.com,Maybe,50\n",
+        )
+        GradedFile.objects.create(
+            form_slug=form.slug,
+            csv_text="email,recommendation,overall_score\nada@example.com,Recommended,95\n",
+        )
+
+        profiles = admin_profiles_views._build_profiles_uncached()
+
+        self.assertEqual(len(profiles), 1)
+        self.assertEqual(profiles[0]["applicant_name"], "Ada Lovelace")
+        self.assertEqual(profiles[0]["recommendation"], "Recommended")
+        self.assertEqual(profiles[0]["overall_score"], "95")
+        self.assertNotIn("unused-essay", profiles[0]["search_text"])
+
+
 class GradingAndPairingConfigEditorTests(TestCase):
     def setUp(self):
         self.user = get_user_model().objects.create_superuser(

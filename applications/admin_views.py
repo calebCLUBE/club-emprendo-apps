@@ -1680,10 +1680,12 @@ def _pair_one_group(
       - PAIR_HEADERS
     """
 
-    emp_fd = _group_form_for_number_master(group_num, "E_A2")
-    mentor_fd = _group_form_for_number_master(group_num, "M_A2")
+    # The current application flow has one application per track. Historical A2
+    # forms may still exist, but pairing must use the current A1 responses.
+    emp_fd = _group_form_for_number_master(group_num, "E_A1")
+    mentor_fd = _group_form_for_number_master(group_num, "M_A1")
     if not emp_fd or not mentor_fd:
-        raise Http404(f"Could not resolve A2 forms for group {group_num}.")
+        raise Http404(f"Could not resolve current A1 forms for group {group_num}.")
     emp_slug = emp_fd.slug
     mentor_slug = mentor_fd.slug
     pairing_config = runtime_pairing_config_for_group(group_num)

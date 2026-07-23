@@ -1935,6 +1935,58 @@ class GradingAndPairingConfigEditorTests(TestCase):
         self.assertFalse(cross_group_form.is_valid())
         self.assertIn("emprendedora_question_slug", cross_group_form.errors)
 
+    def test_pairing_job_uses_current_a1_forms_instead_of_retired_a2_forms(self):
+        from applications.admin_views import _pair_one_group
+
+        group = FormGroup.objects.create(
+            number=912,
+            start_day=1,
+            start_month="enero",
+            end_month="abril",
+            year=2026,
+        )
+        current_e = FormDefinition.objects.create(
+            slug="G912_E_A1", name="Current entrepreneur application", group=group
+        )
+        current_m = FormDefinition.objects.create(
+            slug="G912_M_A1", name="Current mentor application", group=group
+        )
+        FormDefinition.objects.create(
+            slug="G912_E_A2", name="Retired entrepreneur application", group=group
+        )
+        FormDefinition.objects.create(
+            slug="G912_M_A2", name="Retired mentor application", group=group
+        )
+        Question.objects.create(
+            form=current_e,
+            text="Current entrepreneur answer",
+            slug="current_entrepreneur_answer",
+            field_type=Question.LONG_TEXT,
+        )
+        Question.objects.create(
+            form=current_m,
+            text="Current mentor answer",
+            slug="current_mentor_answer",
+            field_type=Question.LONG_TEXT,
+        )
+        logs = []
+
+        result = _pair_one_group(
+            group_num=group.number,
+            emp_emails=["founder@example.com"],
+            mentor_emails=["mentor@example.com"],
+            log_fn=logs.append,
+        )
+
+        self.assertTrue(result.empty)
+        self.assertIn("current_entrepreneur_answer_emprendedora", result.columns)
+        self.assertIn("current_mentor_answer_mentora", result.columns)
+        self.assertTrue(
+            any("G912_E_A1 and G912_M_A1" in message for message in logs),
+            logs,
+        )
+        self.assertFalse(any("G912_E_A2" in message or "G912_M_A2" in message for message in logs))
+
 
 class HelpTextFormattingTests(TestCase):
     def test_pasted_help_text_keeps_paragraphs_and_auto_links_url(self):

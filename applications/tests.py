@@ -18,7 +18,13 @@ from applications import admin_dashboard_views, drive_sync
 from applications import admin_profiles_views
 from applications.grader_m import MENTORA_EXACT_OUTPUT_COLUMNS
 from applications import meta_marketing
-from applications.admin import FormDefinitionAdmin, QuestionAdminForm, QuestionInlineFormSet, SectionAdminForm
+from applications.admin import (
+    FormDefinitionAdmin,
+    PairingRuleAdminForm,
+    QuestionAdminForm,
+    QuestionInlineFormSet,
+    SectionAdminForm,
+)
 from applications.admin_views import (
     _build_second_stage_reminder_payload,
     _clone_form,
@@ -1733,6 +1739,201 @@ class GradingAndPairingConfigEditorTests(TestCase):
                 mentora_question_slug="professional_expertise",
             ).exists()
         )
+
+    def test_pairing_editor_uses_question_dropdowns_from_current_group_a1_forms(self):
+        group = FormGroup.objects.create(
+            number=906,
+            start_day=1,
+            start_month="enero",
+            end_month="abril",
+            year=2026,
+        )
+        other_group = FormGroup.objects.create(
+            number=907,
+            start_day=1,
+            start_month="enero",
+            end_month="abril",
+            year=2026,
+        )
+        entrepreneur_form = FormDefinition.objects.create(
+            slug="G906_E_A1", name="Group 906 Emprendedora", group=group
+        )
+        mentor_form = FormDefinition.objects.create(
+            slug="G906_M_A1", name="Group 906 Mentora", group=group
+        )
+        retired_form = FormDefinition.objects.create(
+            slug="G906_E_A2", name="Retired Group 906 form", group=group
+        )
+        other_form = FormDefinition.objects.create(
+            slug="G907_E_A1", name="Other group form", group=other_group
+        )
+        stage = Question.objects.create(
+            form=entrepreneur_form,
+            text="Current business stage",
+            slug="business_stage_current",
+            field_type=Question.CHOICE,
+            position=1,
+        )
+        Choice.objects.create(question=stage, label="Idea", value="idea", position=1)
+        Choice.objects.create(question=stage, label="Operating", value="operating", position=2)
+        Question.objects.create(
+            form=mentor_form,
+            text="Current mentoring expertise",
+            slug="mentoring_expertise_current",
+            field_type=Question.LONG_TEXT,
+            position=1,
+        )
+        Question.objects.create(
+            form=retired_form,
+            text="Retired application question",
+            slug="retired_question",
+            field_type=Question.SHORT_TEXT,
+        )
+        Question.objects.create(
+            form=other_form,
+            text="Other group question",
+            slug="other_group_question",
+            field_type=Question.SHORT_TEXT,
+        )
+
+        response = self.client.get(
+            reverse("admin_pairing_config_editor", args=[group.number]),
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Group 906 pairing rules")
+        self.assertContains(response, 'class="ce-pairing-question-select"')
+        self.assertContains(response, "Current business stage")
+        self.assertContains(response, "Current mentoring expertise")
+        self.assertContains(response, "Idea (stored as idea) / Operating (stored as operating)")
+        self.assertContains(response, "Group 906 Emprendedora (G906_E_A1)")
+        self.assertContains(response, "Group 906 Mentora (G906_M_A1)")
+        self.assertNotContains(response, "Retired application question")
+        self.assertNotContains(response, "Other group question")
+        self.assertContains(response, "ce-pairing-guide")
+        self.assertContains(response, "ce-pairing-answer-preview")
+
+    def test_pairing_home_prefills_selected_groups_participant_emails(self):
+        group = FormGroup.objects.create(
+            number=908,
+            start_day=1,
+            start_month="enero",
+            end_month="abril",
+            year=2026,
+        )
+        other_group = FormGroup.objects.create(
+            number=909,
+            start_day=1,
+            start_month="enero",
+            end_month="abril",
+            year=2026,
+        )
+        GroupParticipantList.objects.create(
+            group=group,
+            mentoras_sheet_rows=[
+                ["", "A", 1, "Mentor One", "M1", "mentor.one@example.com"],
+                ["", "A", 2, "Mentor Two", "M2", "mentor.two@example.com"],
+            ],
+            emprendedoras_sheet_rows=[
+                ["", "A", 1, "Founder", "E1", "founder@example.com"],
+            ],
+        )
+        GroupParticipantList.objects.create(
+            group=other_group,
+            mentoras_emails_text="other.mentor@example.com",
+            emprendedoras_emails_text="other.founder@example.com",
+        )
+        selected_output = GradedFile.objects.create(
+            form_slug="PAIR_G908",
+            csv_text="mentor,founder\nmentor.one@example.com,founder@example.com",
+        )
+        GradedFile.objects.create(
+            form_slug="PAIR_G909",
+            csv_text="mentor,founder\nother.mentor@example.com,other.founder@example.com",
+        )
+
+        response = self.client.get(
+            reverse("admin_emparejamiento_home"),
+            {"group": group.number},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "mentor.one@example.com")
+        self.assertContains(response, "mentor.two@example.com")
+        self.assertContains(response, "founder@example.com")
+        self.assertNotContains(response, "other.mentor@example.com")
+        self.assertContains(response, "2 emails")
+        self.assertContains(response, "1 email")
+        self.assertContains(response, reverse("admin_grading_live_sheet_file", args=[selected_output.id]))
+        self.assertContains(response, "These emails are loaded from Group 908")
+        self.assertContains(response, 'id="ce-pairing-group"')
+
+    def test_pairing_rule_form_accepts_only_selected_groups_current_questions(self):
+        group = FormGroup.objects.create(
+            number=910,
+            start_day=1,
+            start_month="enero",
+            end_month="abril",
+            year=2026,
+        )
+        other_group = FormGroup.objects.create(
+            number=911,
+            start_day=1,
+            start_month="enero",
+            end_month="abril",
+            year=2026,
+        )
+        entrepreneur_form = FormDefinition.objects.create(
+            slug="G910_E_A1", name="Group 910 Emprendedora", group=group
+        )
+        mentor_form = FormDefinition.objects.create(
+            slug="G910_M_A1", name="Group 910 Mentora", group=group
+        )
+        other_form = FormDefinition.objects.create(
+            slug="G911_E_A1", name="Group 911 Emprendedora", group=other_group
+        )
+        entrepreneur_question = Question.objects.create(
+            form=entrepreneur_form,
+            text="Business goal",
+            slug="group_910_business_goal",
+            field_type=Question.LONG_TEXT,
+        )
+        mentor_question = Question.objects.create(
+            form=mentor_form,
+            text="Mentoring experience",
+            slug="group_910_mentoring_experience",
+            field_type=Question.LONG_TEXT,
+        )
+        other_question = Question.objects.create(
+            form=other_form,
+            text="Other group question",
+            slug="group_911_question",
+            field_type=Question.LONG_TEXT,
+        )
+        config = PairingConfig.objects.create(group=group)
+        form_data = {
+            "config": config.id,
+            "label": "Goals and experience",
+            "emprendedora_question_slug": entrepreneur_question.slug,
+            "mentora_question_slug": mentor_question.slug,
+            "comparison_type": PairingPriorityRule.COMPARE_EXACT,
+            "weight": "2.00",
+            "required": False,
+            "output_key": "goals_experience",
+            "active": True,
+            "position": 1,
+        }
+
+        form = PairingRuleAdminForm(data=form_data, pairing_config=config)
+        self.assertTrue(form.is_valid(), form.errors)
+        saved_rule = form.save()
+        self.assertEqual(saved_rule.config, config)
+
+        form_data["emprendedora_question_slug"] = other_question.slug
+        cross_group_form = PairingRuleAdminForm(data=form_data, pairing_config=config)
+        self.assertFalse(cross_group_form.is_valid())
+        self.assertIn("emprendedora_question_slug", cross_group_form.errors)
 
 
 class HelpTextFormattingTests(TestCase):

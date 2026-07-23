@@ -1158,49 +1158,186 @@ class ApplicationGradingConfigAdmin(admin.ModelAdmin):
     )
 
 
-class PairingPriorityRuleInline(admin.TabularInline):
-    model = PairingPriorityRule
-    extra = 0
-    fields = (
-        "position",
-        "active",
-        "required",
-        "label",
-        "comparison_type",
-        "emprendedora_question_slug",
-        "mentora_question_slug",
-        "weight",
-        "output_key",
+def _pairing_application_for_group(group, track: str):
+    if not group:
+        return None
+    suffix = f"_{track}_A1"
+    return (
+        FormDefinition.objects.filter(group=group, slug__iendswith=suffix)
+        .order_by("-id")
+        .first()
     )
 
 
-class PairingAIComparisonInline(admin.TabularInline):
-    model = PairingAIComparison
+def _pairing_answer_summary(question: Question) -> str:
+    if question.field_type == Question.BOOLEAN:
+        return "Yes / No"
+    if question.field_type in {Question.CHOICE, Question.MULTI_CHOICE, Question.MULTIPLE_CHOICE_GRID}:
+        choices = [
+            f"{choice.label or choice.value} (stored as {choice.value})"
+            for choice in question.choices.all()
+        ]
+        if question.field_type == Question.MULTIPLE_CHOICE_GRID:
+            rows = [line.strip() for line in (question.grid_rows or "").splitlines() if line.strip()]
+            row_note = f"Rows: {' / '.join(rows)}. " if rows else ""
+            return row_note + ("Answers: " + " / ".join(choices) if choices else "Grid response")
+        return " / ".join(choices) if choices else "No answer options configured"
+    if question.field_type == Question.INTEGER:
+        return "Number response"
+    return "Written response"
+
+
+def _pairing_question_choices(group, track: str, current_slug: str = ""):
+    form = _pairing_application_for_group(group, track)
+    questions = []
+    if form:
+        questions = list(
+            Question.objects.filter(form=form, active=True)
+            .select_related("section")
+            .prefetch_related("choices")
+            .order_by("position", "id")
+        )
+
+    choices = [("", "Select a question…")]
+    metadata = {}
+    for question in questions:
+        section = getattr(question.section, "title", "") or "Application questions"
+        choices.append((question.slug, f"{question.text}  [{question.slug}]"))
+        metadata[question.slug] = {
+            "answers": _pairing_answer_summary(question),
+            "section": section,
+            "form": f"{form.name} ({form.slug})",
+        }
+
+    current_slug = (current_slug or "").strip()
+    if current_slug and current_slug not in metadata:
+        choices.append((current_slug, f"Saved legacy field  [{current_slug}]"))
+        metadata[current_slug] = {
+            "answers": "This saved field is not present in the current group application.",
+            "section": "Legacy configuration",
+            "form": f"Group {getattr(group, 'number', '—')}",
+        }
+    return form, choices, metadata
+
+
+class PairingQuestionSelect(forms.Select):
+    def __init__(self, *args, question_metadata=None, **kwargs):
+        self.question_metadata = question_metadata or {}
+        super().__init__(*args, **kwargs)
+
+    def create_option(self, name, value, label, selected, index, subindex=None, attrs=None):
+        option = super().create_option(name, value, label, selected, index, subindex, attrs)
+        meta = self.question_metadata.get(str(value), {})
+        if meta:
+            option["attrs"]["data-answer-options"] = meta.get("answers", "")
+            option["attrs"]["data-question-section"] = meta.get("section", "")
+            option["attrs"]["data-application-name"] = meta.get("form", "")
+        return option
+
+
+class PairingRuleAdminForm(forms.ModelForm):
+    emprendedora_question_slug = forms.ChoiceField(label="Emprendedora question")
+    mentora_question_slug = forms.ChoiceField(label="Mentora question")
+
+    class Meta:
+        model = PairingPriorityRule
+        fields = "__all__"
+
+    def __init__(self, *args, pairing_config=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        config = pairing_config or getattr(self.instance, "config", None)
+        group = getattr(config, "group", None)
+        for field_name, track in (
+            ("emprendedora_question_slug", "E"),
+            ("mentora_question_slug", "M"),
+        ):
+            current = getattr(self.instance, field_name, "")
+            form, choices, metadata = _pairing_question_choices(group, track, current)
+            field = self.fields[field_name]
+            field.choices = choices
+            field.widget = PairingQuestionSelect(
+                attrs={"class": "ce-pairing-question-select"},
+                choices=choices,
+                question_metadata=metadata,
+            )
+            role = "Emprendedora" if track == "E" else "Mentora"
+            field.help_text = (
+                f"Questions from {form.name} ({form.slug})." if form
+                else f"No current {role} A1 application was found for this group."
+            )
+
+
+class PairingAIComparisonAdminForm(PairingRuleAdminForm):
+    class Meta:
+        model = PairingAIComparison
+        fields = "__all__"
+
+
+class PairingRuleInlineFormSet(BaseInlineFormSet):
+    def get_form_kwargs(self, index):
+        kwargs = super().get_form_kwargs(index)
+        kwargs["pairing_config"] = self.instance
+        return kwargs
+
+
+class PairingPriorityRuleInline(admin.StackedInline):
+    model = PairingPriorityRule
+    form = PairingRuleAdminForm
+    formset = PairingRuleInlineFormSet
     extra = 0
-    fields = (
-        "position",
-        "active",
-        "label",
-        "emprendedora_question_slug",
-        "mentora_question_slug",
-        "weight",
-        "output_key",
-        "prompt",
+    verbose_name = "Standard matching rule"
+    verbose_name_plural = "1. Standard matching rules"
+    fieldsets = (
+        (None, {"fields": (("active", "position"), "label")} ),
+        ("Application answers to compare", {
+            "fields": ("emprendedora_question_slug", "mentora_question_slug"),
+            "description": "Choose one answer from each current Group application. The available answer options appear below each selection.",
+        }),
+        ("Matching behavior", {"fields": (("comparison_type", "weight", "required"),)}),
+        ("Advanced output", {"fields": ("output_key",), "classes": ("collapse",)}),
+    )
+
+
+class PairingAIComparisonInline(admin.StackedInline):
+    model = PairingAIComparison
+    form = PairingAIComparisonAdminForm
+    formset = PairingRuleInlineFormSet
+    extra = 0
+    verbose_name = "AI comparison"
+    verbose_name_plural = "2. AI comparisons for the shortlist"
+    fieldsets = (
+        (None, {"fields": (("active", "position"), "label")} ),
+        ("Application answers to compare", {
+            "fields": ("emprendedora_question_slug", "mentora_question_slug"),
+            "description": "Choose the written or structured answers the AI should compare for this Group.",
+        }),
+        ("Scoring", {"fields": (("weight", "output_key"),)}),
+        ("AI instructions", {
+            "fields": ("prompt",),
+            "description": "Optional. Explain what makes these two answers compatible. Leave blank to use the default pairing prompt.",
+        }),
     )
 
 
 @admin.register(PairingConfig)
 class PairingConfigAdmin(admin.ModelAdmin):
+    change_form_template = "admin/applications/pairingconfig/change_form.html"
     list_display = ("group", "top_k_for_ai", "availability_required", "model_name", "updated_at")
     search_fields = ("group__number", "group__custom_name")
     raw_id_fields = ("group",)
     inlines = (PairingPriorityRuleInline, PairingAIComparisonInline)
     fieldsets = (
-        (None, {
-            "fields": ("group", "model_name", "top_k_for_ai", "availability_required")
+        ("Group and matching setup", {
+            "fields": ("group", "availability_required"),
+            "description": "These rules apply only to the Mentora and Emprendedora A1 applications attached to this Group.",
         }),
-        ("AI prompt placeholders", {
+        ("AI shortlist settings", {
+            "fields": (("top_k_for_ai", "model_name"),),
+            "description": "Standard rules create a shortlist. AI comparisons then evaluate the strongest candidates.",
+        }),
+        ("Prompt reference", {
             "fields": (),
+            "classes": ("collapse",),
             "description": (
                 "For AI comparisons, prompts can use {{ label }}, {{ mentor_text }}, "
                 "and {{ entrepreneur_text }}. Keep output format as lines beginning "
@@ -1208,3 +1345,6 @@ class PairingConfigAdmin(admin.ModelAdmin):
             ),
         }),
     )
+
+    def get_readonly_fields(self, request, obj=None):
+        return ("group",) if obj else ()

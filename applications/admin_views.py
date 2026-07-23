@@ -2110,9 +2110,32 @@ def emparejamiento_home(request):
     group_raw = (request.GET.get("group") or "").strip()
     selected_group = None
     job = None
+    mentoras_emails = []
+    emprendedoras_emails = []
 
     if group_raw.isdigit():
         selected_group = FormGroup.objects.filter(number=int(group_raw)).first()
+        if selected_group:
+            participant_list = GroupParticipantList.objects.filter(
+                group=selected_group
+            ).first()
+            if participant_list:
+                def emails_from_participant_rows(rows, fallback_text):
+                    row_emails = "\n".join(
+                        str(row[5])
+                        for row in (rows or [])
+                        if isinstance(row, (list, tuple)) and len(row) > 5 and row[5]
+                    )
+                    return _norm_email_list(row_emails) or _norm_email_list(fallback_text)
+
+                mentoras_emails = emails_from_participant_rows(
+                    participant_list.mentoras_sheet_rows,
+                    participant_list.mentoras_emails_text,
+                )
+                emprendedoras_emails = emails_from_participant_rows(
+                    participant_list.emprendedoras_sheet_rows,
+                    participant_list.emprendedoras_emails_text,
+                )
 
     job_id = (request.GET.get("job") or "").strip()
     if job_id.isdigit():
@@ -2122,9 +2145,12 @@ def emparejamiento_home(request):
             job = None
 
     try:
-        pairing_files = GradedFile.objects.filter(
-            form_slug__startswith="PAIR_G"
-        ).order_by("-created_at")[:50]
+        pairing_files = GradedFile.objects.filter(form_slug__startswith="PAIR_G")
+        if selected_group:
+            pairing_files = pairing_files.filter(
+                form_slug=f"PAIR_G{selected_group.number}"
+            )
+        pairing_files = pairing_files.order_by("-created_at")[:50]
     except DatabaseError:
         pairing_files = []
 
@@ -2136,6 +2162,10 @@ def emparejamiento_home(request):
             "selected_group": selected_group,
             "pairing_files": pairing_files,
             "job": job,
+            "mentoras_emails": "\n".join(mentoras_emails),
+            "emprendedoras_emails": "\n".join(emprendedoras_emails),
+            "mentoras_count": len(mentoras_emails),
+            "emprendedoras_count": len(emprendedoras_emails),
         },
     )
 

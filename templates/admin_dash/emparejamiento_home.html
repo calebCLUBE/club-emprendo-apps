@@ -1,107 +1,327 @@
 {% extends "admin/base_site.html" %}
 
 {% block content %}
-<div class="ce-admin-wrap">
-  <h1 style="margin:0 0 14px 0;">Emparejamiento</h1>
+<style>
+  .ce-pairing {
+    --ce-blue: #2563eb;
+    --ce-border: #dbe3ef;
+    --ce-muted: #5f6b7a;
+    max-width: 1180px;
+    margin: 0 auto;
+    color: #172033;
+  }
+  .ce-pairing * { box-sizing: border-box; }
+  .ce-pairing-header {
+    display: flex;
+    justify-content: space-between;
+    gap: 24px;
+    align-items: end;
+    margin-bottom: 22px;
+  }
+  .ce-pairing h1 { margin: 0 0 6px; font-size: 30px; }
+  .ce-pairing h2 { margin: 0 0 7px; font-size: 19px; }
+  .ce-pairing p { margin: 0; }
+  .ce-pairing-muted { color: var(--ce-muted); line-height: 1.5; }
+  .ce-group-picker { min-width: 250px; }
+  .ce-group-picker label {
+    display: block;
+    margin-bottom: 6px;
+    font-weight: 700;
+  }
+  .ce-group-picker select,
+  .ce-email-box textarea {
+    width: 100%;
+    border: 1px solid #b8c4d6;
+    border-radius: 8px;
+    background: #fff;
+  }
+  .ce-group-picker select { min-height: 42px; padding: 8px 36px 8px 11px; }
+  .ce-pairing-card {
+    padding: 20px;
+    border: 1px solid var(--ce-border);
+    border-radius: 12px;
+    background: #fff;
+    box-shadow: 0 2px 8px rgba(20, 33, 61, .05);
+  }
+  .ce-pairing-workflow {
+    display: grid;
+    gap: 14px;
+  }
+  .ce-step-header {
+    display: grid;
+    grid-template-columns: 34px minmax(0, 1fr) auto;
+    gap: 12px;
+    align-items: center;
+  }
+  .ce-step-number {
+    display: grid;
+    place-items: center;
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    background: #eaf1ff;
+    color: #174db5;
+    font-weight: 800;
+  }
+  .ce-pairing .ce-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 40px;
+    padding: 8px 14px;
+    border: 1px solid var(--ce-blue);
+    border-radius: 8px;
+    background: var(--ce-blue);
+    color: #fff;
+    font-weight: 700;
+    text-decoration: none;
+    cursor: pointer;
+  }
+  .ce-pairing .ce-btn:hover { color: #fff; background: #1d4ed8; }
+  .ce-pairing .ce-btn--secondary {
+    border-color: #b8c4d6;
+    background: #fff;
+    color: #26364f;
+  }
+  .ce-pairing .ce-btn--secondary:hover { color: #172033; background: #f5f7fb; }
+  .ce-email-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+    margin-top: 16px;
+  }
+  .ce-email-box {
+    padding: 14px;
+    border: 1px solid #e2e8f1;
+    border-radius: 10px;
+    background: #f8fafc;
+  }
+  .ce-email-box label {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 8px;
+    font-weight: 700;
+  }
+  .ce-count {
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: #e7eefc;
+    color: #264a87;
+    font-size: 12px;
+  }
+  .ce-email-box textarea {
+    min-height: 150px;
+    padding: 10px;
+    resize: vertical;
+    font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  .ce-run-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 18px;
+    align-items: center;
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid #e2e8f0;
+  }
+  .ce-warning {
+    margin-top: 12px !important;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: #fff7e6;
+    color: #7a4a00;
+  }
+  .ce-job { margin-top: 14px; }
+  .ce-status {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: #eaf1ff;
+    color: #174db5;
+    font-weight: 700;
+  }
+  .ce-log {
+    margin-top: 12px;
+    max-height: 420px;
+    overflow: auto;
+    padding: 14px;
+    border-radius: 9px;
+    background: #0b1020;
+    color: #e5e7eb;
+    font: 13px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
+    white-space: pre-wrap;
+  }
+  .ce-output { margin-top: 20px; }
+  .ce-output-row {
+    display: grid;
+    grid-template-columns: minmax(180px, 1fr) auto;
+    gap: 14px;
+    align-items: center;
+    padding: 13px 0;
+    border-top: 1px solid #e5eaf1;
+  }
+  .ce-output-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .ce-empty {
+    padding: 32px;
+    border: 1px dashed #b9c4d4;
+    border-radius: 12px;
+    background: #f8fafc;
+    text-align: center;
+  }
+  @media (max-width: 760px) {
+    .ce-pairing-header, .ce-run-row { align-items: stretch; flex-direction: column; }
+    .ce-group-picker { min-width: 0; }
+    .ce-email-grid { grid-template-columns: 1fr; }
+    .ce-step-header { grid-template-columns: 34px minmax(0, 1fr); }
+    .ce-step-header .ce-btn { grid-column: 1 / -1; }
+    .ce-output-row { grid-template-columns: 1fr; }
+  }
+</style>
 
-  <div style="margin: 0 0 14px 0; padding:12px; border:1px solid #ddd; border-radius:10px; background:#fff;">
-    <div style="font-weight:700; margin-bottom:8px;">Selecciona un grupo</div>
-
-    <div style="display:flex; gap:10px; flex-wrap:wrap;">
-      {% for g in groups %}
-        <a class="button" href="{% url 'admin_emparejamiento_home' %}?group={{ g.number }}" style="text-decoration:none;">
-          Pair Group {{ g.number }}
-        </a>
-      {% empty %}
-        <div style="color:#666;">No groups yet.</div>
-      {% endfor %}
+<div class="ce-pairing">
+  <header class="ce-pairing-header">
+    <div>
+      <h1>Emparejamiento</h1>
+      <p class="ce-pairing-muted">Configure the matching rules, verify the participants, then create the pairings.</p>
     </div>
-  </div>
+    <div class="ce-group-picker">
+      <label for="ce-pairing-group">Group</label>
+      <select id="ce-pairing-group" data-base-url="{% url 'admin_emparejamiento_home' %}">
+        <option value="">Choose a group…</option>
+        {% for g in groups %}
+          <option value="{{ g.number }}" {% if selected_group and selected_group.number == g.number %}selected{% endif %}>
+            Group {{ g.number }}
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+  </header>
 
   {% if selected_group %}
-  <div style="padding:12px; border:1px solid #ddd; border-radius:10px; background:#fff;">
-    <div style="font-weight:700; margin-bottom:10px;">Group {{ selected_group.number }} — inputs</div>
-    <div style="margin-bottom:12px;">
-      <a class="button" href="{% url 'admin_pairing_config_editor' selected_group.number %}">
-        Edit pairing rules
-      </a>
-    </div>
+    <div class="ce-pairing-workflow">
+      <section class="ce-pairing-card">
+        <div class="ce-step-header">
+          <span class="ce-step-number">1</span>
+          <div>
+            <h2>Configure the matching rules</h2>
+            <p class="ce-pairing-muted">Choose questions and answer options from Group {{ selected_group.number }}’s applications.</p>
+          </div>
+          <a class="ce-btn" href="{% url 'admin_pairing_config_editor' selected_group.number %}">
+            Edit rules
+          </a>
+        </div>
+      </section>
 
-    <form method="post" action="{% url 'admin_emparejamiento_run' selected_group.number %}" style="display:grid; gap:12px;">
-      {% csrf_token %}
+      <form method="post" action="{% url 'admin_emparejamiento_run' selected_group.number %}" class="ce-pairing-card">
+        {% csrf_token %}
+        <div class="ce-step-header">
+          <span class="ce-step-number">2</span>
+          <div>
+            <h2>Review the participants</h2>
+            <p class="ce-pairing-muted">
+              These emails are loaded from Group {{ selected_group.number }}’s participant database. You can edit this run without changing the database.
+            </p>
+          </div>
+          <a class="ce-btn ce-btn--secondary" href="{% url 'admin_profiles_participants' %}?group={{ selected_group.number }}">
+            Open participants
+          </a>
+        </div>
 
-      <div>
-        <label style="font-weight:600;">Mentoras emails (one per line or comma-separated)</label>
-        <textarea name="mentoras_emails" rows="4" style="width:100%; padding:10px; border:1px solid #ccc; border-radius:8px;"
-          placeholder="mentora1@email.com&#10;mentora2@email.com&#10;...">{{ mentoras_emails|default:"" }}</textarea>
-      </div>
+        <div class="ce-email-grid">
+          <div class="ce-email-box">
+            <label for="id_mentoras_emails">
+              <span>Mentoras</span>
+              <span class="ce-count">{{ mentoras_count }} email{{ mentoras_count|pluralize }}</span>
+            </label>
+            <textarea id="id_mentoras_emails" name="mentoras_emails" placeholder="No mentor emails found.">{{ mentoras_emails }}</textarea>
+          </div>
+          <div class="ce-email-box">
+            <label for="id_emprendedoras_emails">
+              <span>Emprendedoras</span>
+              <span class="ce-count">{{ emprendedoras_count }} email{{ emprendedoras_count|pluralize }}</span>
+            </label>
+            <textarea id="id_emprendedoras_emails" name="emprendedoras_emails" placeholder="No entrepreneur emails found.">{{ emprendedoras_emails }}</textarea>
+          </div>
+        </div>
 
-      <div>
-        <label style="font-weight:600;">Emprendedoras emails (one per line or comma-separated)</label>
-        <textarea name="emprendedoras_emails" rows="4" style="width:100%; padding:10px; border:1px solid #ccc; border-radius:8px;"
-          placeholder="emp1@email.com&#10;emp2@email.com&#10;...">{{ emprendedoras_emails|default:"" }}</textarea>
-      </div>
-
-      <button class="button" type="submit" style="background:#2563eb;color:white;">
-        Run pairing for Group {{ selected_group.number }}
-      </button>
-    </form>
-  </div>
-  {% endif %}
-
-  {% if job %}
-    <h3 style="margin-top:20px;">Emparejamiento log</h3>
-
-    <script>
-      // auto-refresh every 2 seconds while job is running/queued
-      (function() {
-        {% if job.status %}
-        const status = "{{ job.status }}".toLowerCase();
-        {% else %}
-        const status = "";
+        {% if not mentoras_count or not emprendedoras_count %}
+          <p class="ce-warning">
+            One side has no participant emails. Add them on the Participants page or paste them here before running.
+          </p>
         {% endif %}
-        if (status === "queued" || status === "running") {
-          setTimeout(function() {
-            const url = new URL(window.location.href);
-            url.searchParams.set("job", "{{ job.id }}");
-            window.location.href = url.toString();
-          }, 2000);
-        }
-      })();
-    </script>
 
-    <div style="
-      background:#0b1020;
-      color:#e5e7eb;
-      padding:14px;
-      border-radius:10px;
-      font-family:monospace;
-      white-space:pre-wrap;
-      max-height:420px;
-      overflow:auto;
-    ">
-{{ job.log_text }}
+        <div class="ce-run-row">
+          <div>
+            <h2>3. Create the pairings</h2>
+            <p class="ce-pairing-muted">This creates a new output for Group {{ selected_group.number }}.</p>
+          </div>
+          <button class="ce-btn" type="submit">Run pairing</button>
+        </div>
+      </form>
     </div>
 
-    <p style="margin-top:8px;">
-      Status: <strong>{{ job.status }}</strong>
-    </p>
-  {% endif %}
+    {% if job %}
+      <section class="ce-pairing-card ce-job">
+        <div class="ce-step-header">
+          <span class="ce-step-number">✓</span>
+          <div>
+            <h2>Pairing run</h2>
+            <p class="ce-pairing-muted">The page refreshes automatically while the run is active.</p>
+          </div>
+          <span class="ce-status">{{ job.status }}</span>
+        </div>
+        <div class="ce-log">{{ job.log_text }}</div>
+      </section>
+    {% endif %}
 
-  <h3 style="margin-top:20px;">Recent pairing outputs</h3>
-  <ul>
-    {% for f in pairing_files %}
-      <li>
-        {{ f.created_at }} — {{ f.form_slug }} —
-        <a href="{% url 'admin_grading_live_sheet_file' f.id %}">Sheet</a>
-        —
-        <a href="{% url 'admin_grading_download_csv' f.id %}">Download CSV</a>
-        —
-        <a href="{% url 'admin_grading_download_excel' f.id %}">Download Excel</a>
-      </li>
-    {% empty %}
-      <li>No pairing outputs yet.</li>
-    {% endfor %}
-  </ul>
+    <section class="ce-pairing-card ce-output">
+      <h2>Group {{ selected_group.number }} outputs</h2>
+      <p class="ce-pairing-muted">Open the live sheet or download the latest result.</p>
+      {% for f in pairing_files %}
+        <div class="ce-output-row">
+          <div>
+            <strong>{{ f.created_at }}</strong>
+            <div class="ce-pairing-muted">{{ f.form_slug }}</div>
+          </div>
+          <div class="ce-output-actions">
+            <a class="ce-btn ce-btn--secondary" href="{% url 'admin_grading_live_sheet_file' f.id %}">Open sheet</a>
+            <a class="ce-btn ce-btn--secondary" href="{% url 'admin_grading_download_csv' f.id %}">CSV</a>
+            <a class="ce-btn ce-btn--secondary" href="{% url 'admin_grading_download_excel' f.id %}">Excel</a>
+          </div>
+        </div>
+      {% empty %}
+        <p class="ce-warning">No pairing output has been created for this group yet.</p>
+      {% endfor %}
+    </section>
+  {% else %}
+    <div class="ce-empty">
+      <h2>Choose a group to begin</h2>
+      <p class="ce-pairing-muted">The questions, participants, and output files will all stay scoped to that group.</p>
+    </div>
+  {% endif %}
 </div>
+
+<script>
+  (function () {
+    const picker = document.getElementById("ce-pairing-group");
+    if (picker) {
+      picker.addEventListener("change", function () {
+        const baseUrl = picker.dataset.baseUrl;
+        window.location.href = picker.value ? `${baseUrl}?group=${encodeURIComponent(picker.value)}` : baseUrl;
+      });
+    }
+
+    {% if job %}
+      const status = "{{ job.status|escapejs }}".toLowerCase();
+      if (status === "queued" || status === "running") {
+        window.setTimeout(function () {
+          const url = new URL(window.location.href);
+          url.searchParams.set("job", "{{ job.id }}");
+          window.location.href = url.toString();
+        }, 2000);
+      }
+    {% endif %}
+  })();
+</script>
 {% endblock %}

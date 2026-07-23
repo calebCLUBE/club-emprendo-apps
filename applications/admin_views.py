@@ -7,6 +7,7 @@ import json
 import re
 import zipfile
 import unicodedata
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Tuple
 from urllib.parse import urlparse
 from xml.sax.saxutils import escape
@@ -1909,8 +1910,21 @@ def _pair_one_group(
 
     # Cache LLM results so we never re-call for the same pair
     llm_cache = {}  # key: (mentor_email, emp_email, label) -> (score, reasoning)
+    llm_cache_lock = threading.Lock()
 
     TOP_K_FOR_LLM = max(1, int(pairing_config.top_k_for_ai or 3))  # only run LLM on top K candidates per emprendedora
+    try:
+        AI_MAX_WORKERS = int(os.getenv("PAIRING_AI_MAX_WORKERS", "6"))
+    except (TypeError, ValueError):
+        AI_MAX_WORKERS = 6
+    AI_MAX_WORKERS = max(1, min(8, AI_MAX_WORKERS))
+    if log_fn:
+        log_fn(
+            "🤖 AI scoring: "
+            f"top {TOP_K_FOR_LLM} candidate(s) × "
+            f"{len(pairing_config.ai_comparisons)} comparison(s), "
+            f"up to {AI_MAX_WORKERS} concurrent request(s)."
+        )
 
     def score_pair_base(emp_row, mentor_row):
         """
@@ -1976,42 +1990,93 @@ def _pair_one_group(
 
         return score, matches
 
-    def add_llm_score(emp_row, mentor_row, score, matches):
-        """
-        Always runs OpenAI for unstructured fits on already-good candidates.
-        Adds weighted LLM score and explanations.
-        """
+    def evaluate_llm_comparison(emp_row, mentor_row, index, item):
         emp_email = str(_row_get(emp_row, "email", "")).strip().lower()
         mentor_email = str(_row_get(mentor_row, "email", "")).strip().lower()
-
-        for index, item in enumerate(pairing_config.ai_comparisons, start=1):
-            output_key = item.get("output_key") or f"llm{index}"
-            label = item.get("label") or output_key
-            cache_key = (mentor_email, emp_email, output_key)
-            if cache_key in llm_cache:
-                ai_score, explanation = llm_cache[cache_key]
-            else:
-                ai_score, explanation = _llm_fit_score(
-                    client,
-                    mentor_text=_row_get(mentor_row, item.get("mentora_question_slug") or "", ""),
-                    emp_text=_row_get(emp_row, item.get("emprendedora_question_slug") or "", ""),
-                    label=label,
-                    prompt_template=item.get("prompt") or "",
-                    model_name=pairing_config.model_name,
-                )
+        output_key = item.get("output_key") or f"llm{index}"
+        label = item.get("label") or output_key
+        cache_key = (mentor_email, emp_email, output_key)
+        with llm_cache_lock:
+            cached = llm_cache.get(cache_key)
+        if cached is not None:
+            ai_score, explanation = cached
+        else:
+            ai_score, explanation = _llm_fit_score(
+                client,
+                mentor_text=_row_get(mentor_row, item.get("mentora_question_slug") or "", ""),
+                emp_text=_row_get(emp_row, item.get("emprendedora_question_slug") or "", ""),
+                label=label,
+                prompt_template=item.get("prompt") or "",
+                model_name=pairing_config.model_name,
+            )
+            with llm_cache_lock:
                 llm_cache[cache_key] = (ai_score, explanation)
+        return {
+            "index": index,
+            "output_key": output_key,
+            "weighted_score": float(item.get("weight") or 0) * ai_score,
+            "explanation": explanation if ai_score > 0 else "none",
+        }
 
-            score += float(item.get("weight") or 0) * ai_score
-            matches[output_key] = explanation if ai_score > 0 else "none"
+    def score_top_candidates_with_ai(emp_row, candidates):
+        """
+        Evaluate independent candidate/comparison requests concurrently.
 
-            if index == 1:
-                matches["llm1"] = matches[output_key]
-            elif index == 2:
-                matches["llm2"] = matches[output_key]
+        Assignment remains sequential outside this function, so a mentor cannot
+        be selected for two emprendedoras.
+        """
+        results = [
+            {
+                "score": base_score,
+                "email": mentor_email,
+                "mentor": mentor_row,
+                "matches": dict(base_matches),
+            }
+            for base_score, mentor_email, mentor_row, base_matches in candidates
+        ]
+        tasks = []
+        for candidate_index, candidate in enumerate(candidates):
+            _base_score, _mentor_email, mentor_row, _base_matches = candidate
+            for comparison_index, item in enumerate(
+                pairing_config.ai_comparisons,
+                start=1,
+            ):
+                tasks.append(
+                    (
+                        candidate_index,
+                        comparison_index,
+                        item,
+                        mentor_row,
+                    )
+                )
 
-        matches.setdefault("llm1", "none")
-        matches.setdefault("llm2", "none")
-        return score, matches
+        if tasks:
+            worker_count = min(AI_MAX_WORKERS, len(tasks))
+            with ThreadPoolExecutor(max_workers=worker_count) as executor:
+                future_to_candidate = {
+                    executor.submit(
+                        evaluate_llm_comparison,
+                        emp_row,
+                        mentor_row,
+                        comparison_index,
+                        item,
+                    ): candidate_index
+                    for candidate_index, comparison_index, item, mentor_row in tasks
+                }
+                for future in as_completed(future_to_candidate):
+                    candidate = results[future_to_candidate[future]]
+                    comparison = future.result()
+                    candidate["score"] += comparison["weighted_score"]
+                    candidate["matches"][comparison["output_key"]] = comparison["explanation"]
+                    if comparison["index"] == 1:
+                        candidate["matches"]["llm1"] = comparison["explanation"]
+                    elif comparison["index"] == 2:
+                        candidate["matches"]["llm2"] = comparison["explanation"]
+
+        for candidate in results:
+            candidate["matches"].setdefault("llm1", "none")
+            candidate["matches"].setdefault("llm2", "none")
+        return results
 
     def _extra_ai_values(matches: dict | None) -> list[str]:
         matches = matches or {}
@@ -2104,20 +2169,19 @@ def _pair_one_group(
             best_score = 0
         scored.sort(key=lambda x: x[0], reverse=True)
 
-        # 2) run LLM only on top K
+        # 2) run independent AI comparisons concurrently for the top K
         top = scored[:TOP_K_FOR_LLM]
         best_score = -10_000
         best_email = None
         best_m = None
         best_matches = None
 
-        for base_score, m_email, m, base_matches in top:
-            final_score, final_matches = add_llm_score(e, m, base_score, base_matches)
-            if final_score > best_score:
-                best_score = final_score
-                best_email = m_email
-                best_m = m
-                best_matches = final_matches
+        for candidate in score_top_candidates_with_ai(e, top):
+            if candidate["score"] > best_score:
+                best_score = candidate["score"]
+                best_email = candidate["email"]
+                best_m = candidate["mentor"]
+                best_matches = candidate["matches"]
 
         if best_email is None or best_m is None or best_score < 0:
             # if LLM scoring eliminates all options, fall back to any remaining mentor

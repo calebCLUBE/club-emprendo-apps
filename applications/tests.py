@@ -1988,6 +1988,8 @@ class GradingAndPairingConfigEditorTests(TestCase):
         self.assertFalse(any("G912_E_A2" in message or "G912_M_A2" in message for message in logs))
 
     def test_pairing_uses_configured_a1_grid_questions_for_availability(self):
+        import threading
+
         from applications.admin_views import _pair_one_group, _parse_emp_availability
 
         group = FormGroup.objects.create(
@@ -2027,6 +2029,11 @@ class GradingAndPairingConfigEditorTests(TestCase):
             name="Mentor",
             email="mentor@example.com",
         )
+        second_mentor = Application.objects.create(
+            form=mentor_form,
+            name="Second Mentor",
+            email="second.mentor@example.com",
+        )
         Answer.objects.create(
             application=entrepreneur,
             question=entrepreneur_schedule,
@@ -2042,10 +2049,17 @@ class GradingAndPairingConfigEditorTests(TestCase):
                 {"row": "Noche", "value": "viernes", "label": "Viernes"},
             ]),
         )
+        Answer.objects.create(
+            application=second_mentor,
+            question=mentor_schedule,
+            value=json.dumps([
+                {"row": "Tarde", "value": "martes", "label": "Martes"},
+            ]),
+        )
         config = PairingConfig.objects.create(
             group=group,
             availability_required=True,
-            top_k_for_ai=1,
+            top_k_for_ai=2,
         )
         PairingPriorityRule.objects.create(
             config=config,
@@ -2065,25 +2079,42 @@ class GradingAndPairingConfigEditorTests(TestCase):
             weight=1,
             output_key="llm1",
         )
+        PairingAIComparison.objects.create(
+            config=config,
+            label="Second schedule comparison",
+            emprendedora_question_slug=entrepreneur_schedule.slug,
+            mentora_question_slug=mentor_schedule.slug,
+            weight=1,
+            output_key="llm2",
+        )
         logs = []
+        concurrent_requests = threading.Barrier(4, timeout=2)
+
+        def score_concurrently(*_args, **_kwargs):
+            concurrent_requests.wait()
+            return 1, "Compatible schedules."
 
         with override_settings(OPENAI_API_KEY="test-key"), patch(
             "applications.admin_views.OpenAI"
         ), patch(
             "applications.admin_views._llm_fit_score",
-            return_value=(1, "Compatible schedules."),
-        ):
+            side_effect=score_concurrently,
+        ) as mock_llm:
             result = _pair_one_group(
                 group_num=group.number,
                 emp_emails=[entrepreneur.email],
-                mentor_emails=[mentor.email],
+                mentor_emails=[mentor.email, second_mentor.email],
                 log_fn=logs.append,
             )
 
         self.assertEqual(len(result), 1)
-        self.assertEqual(result.iloc[0]["mentora_email"], mentor.email)
+        self.assertIn(
+            result.iloc[0]["mentora_email"],
+            {mentor.email, second_mentor.email},
+        )
         self.assertEqual(result.iloc[0]["matching_availability"], "tue_afternoon")
         self.assertNotEqual(result.iloc[0]["matching_availability"], "NO MATCH FOUND")
+        self.assertEqual(mock_llm.call_count, 4)
         self.assertTrue(
             any(
                 "emprendedora=current_entrepreneur_schedule, "

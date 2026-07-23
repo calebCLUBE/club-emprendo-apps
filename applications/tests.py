@@ -1813,6 +1813,7 @@ class GradingAndPairingConfigEditorTests(TestCase):
         self.assertNotContains(response, "Other group question")
         self.assertContains(response, "ce-pairing-guide")
         self.assertContains(response, "ce-pairing-answer-preview")
+        self.assertNotContains(response, "Top k for ai")
 
     def test_pairing_home_prefills_selected_groups_participant_emails(self):
         group = FormGroup.objects.create(
@@ -2092,6 +2093,11 @@ class GradingAndPairingConfigEditorTests(TestCase):
             name="Second Mentor",
             email="second.mentor@example.com",
         )
+        lower_priority_mentor = Application.objects.create(
+            form=mentor_form,
+            name="Lower Priority Mentor",
+            email="lower.priority.mentor@example.com",
+        )
         Answer.objects.create(
             application=entrepreneur,
             question=entrepreneur_schedule,
@@ -2109,6 +2115,13 @@ class GradingAndPairingConfigEditorTests(TestCase):
         )
         Answer.objects.create(
             application=second_mentor,
+            question=mentor_schedule,
+            value=json.dumps([
+                {"row": "Tarde", "value": "martes", "label": "Martes"},
+            ]),
+        )
+        Answer.objects.create(
+            application=lower_priority_mentor,
             question=mentor_schedule,
             value=json.dumps([
                 {"row": "Tarde", "value": "martes", "label": "Martes"},
@@ -2145,6 +2158,16 @@ class GradingAndPairingConfigEditorTests(TestCase):
                     (mentor_motivation, "I want to help founders solve challenges."),
                 ),
             ),
+            (
+                lower_priority_mentor,
+                (
+                    (mentor_industry, "products"),
+                    (mentor_country, "peru"),
+                    (mentor_age, "5-10nanos"),
+                    (mentor_expertise, "I help product companies."),
+                    (mentor_motivation, "I want to help entrepreneurs."),
+                ),
+            ),
         ):
             for question, value in answers:
                 Answer.objects.create(
@@ -2155,7 +2178,8 @@ class GradingAndPairingConfigEditorTests(TestCase):
         config = PairingConfig.objects.create(
             group=group,
             availability_required=True,
-            top_k_for_ai=2,
+            # This retired value must not limit or trigger AI candidates.
+            top_k_for_ai=1,
         )
         PairingPriorityRule.objects.create(
             config=config,
@@ -2173,7 +2197,7 @@ class GradingAndPairingConfigEditorTests(TestCase):
             emprendedora_question_slug="industry",
             mentora_question_slug="business_industry",
             comparison_type=PairingPriorityRule.COMPARE_EXACT,
-            weight=10,
+            weight=30,
             output_key="industry",
         )
         PairingPriorityRule.objects.create(
@@ -2182,7 +2206,7 @@ class GradingAndPairingConfigEditorTests(TestCase):
             emprendedora_question_slug="country_residence",
             mentora_question_slug="country_residence",
             comparison_type=PairingPriorityRule.COMPARE_EXACT,
-            weight=10,
+            weight=20,
             output_key="country",
         )
         PairingPriorityRule.objects.create(
@@ -2231,7 +2255,11 @@ class GradingAndPairingConfigEditorTests(TestCase):
             result = _pair_one_group(
                 group_num=group.number,
                 emp_emails=[entrepreneur.email],
-                mentor_emails=[mentor.email, second_mentor.email],
+                mentor_emails=[
+                    mentor.email,
+                    second_mentor.email,
+                    lower_priority_mentor.email,
+                ],
                 log_fn=logs.append,
             )
 
@@ -2274,6 +2302,20 @@ class GradingAndPairingConfigEditorTests(TestCase):
         )
         self.assertTrue(
             any("one AI batch for 2 candidate(s) and 4 comparison(s)" in message for message in logs),
+            logs,
+        )
+        self.assertTrue(
+            any(
+                "2 mentors share the best standard-rule values" in message
+                for message in logs
+            ),
+            logs,
+        )
+        self.assertTrue(
+            any(
+                "Industry (30) → Country (20)" in message
+                for message in logs
+            ),
             logs,
         )
         self.assertEqual(
@@ -2339,6 +2381,19 @@ class GradingAndPairingConfigEditorTests(TestCase):
         self.assertEqual(result[("1", 1)], (2, "Partial expertise fit."))
         self.assertEqual(result[("1", 2)], (5, "Excellent challenge fit."))
         client.chat.completions.create.assert_called_once()
+
+        failing_client = Mock()
+        failing_client.chat.completions.create.side_effect = TimeoutError("provider timeout")
+        errors = []
+        failed_result = _llm_batch_fit_scores(
+            failing_client,
+            candidates,
+            error_callback=errors.append,
+        )
+
+        self.assertEqual(failed_result, {})
+        failing_client.chat.completions.create.assert_called_once()
+        self.assertIn("provider timeout", errors[0])
 
 
 class HelpTextFormattingTests(TestCase):

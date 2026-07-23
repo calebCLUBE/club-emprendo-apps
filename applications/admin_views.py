@@ -1711,7 +1711,7 @@ def _llm_batch_fit_scores(
     model_name: str = "",
     error_callback=None,
 ) -> dict[tuple[str, int], tuple[int, str]]:
-    """Score every shortlisted mentor for one entrepreneur in one API call."""
+    """Score every tied mentor candidate for one entrepreneur in one API call."""
     if not candidates:
         return {}
 
@@ -1725,41 +1725,38 @@ def _llm_batch_fit_scores(
         + json.dumps(candidates, ensure_ascii=False)
     )
 
-    last_err = None
-    for attempt in range(1, 3):
-        try:
-            response = client.chat.completions.create(
-                model=(model_name or "gpt-5.2"),
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0,
-                timeout=30,
-            )
-            content = (response.choices[0].message.content or "").strip()
-            if content.startswith("```"):
-                content = re.sub(r"^```(?:json)?\s*", "", content, flags=re.IGNORECASE)
-                content = re.sub(r"\s*```$", "", content)
-            payload = json.loads(content)
-            scores = {}
-            for candidate in payload.get("results") or []:
-                candidate_id = str(candidate.get("candidate_id", ""))
-                for comparison in candidate.get("comparisons") or []:
-                    index = int(comparison.get("index") or 0)
-                    if not candidate_id or index <= 0:
-                        continue
-                    score = max(0, min(5, int(comparison.get("score") or 0)))
-                    reasoning = str(comparison.get("reasoning") or "").strip() or "none"
-                    scores[(candidate_id, index)] = (
-                        score,
-                        reasoning if score > 0 else "none",
-                    )
-            if not scores:
-                raise ValueError("AI batch response contained no usable scores")
-            return scores
-        except Exception as exc:
-            last_err = exc
-            time.sleep(0.5 * attempt)
+    try:
+        response = client.chat.completions.create(
+            model=(model_name or "gpt-5.2"),
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0,
+            timeout=12,
+        )
+        content = (response.choices[0].message.content or "").strip()
+        if content.startswith("```"):
+            content = re.sub(r"^```(?:json)?\s*", "", content, flags=re.IGNORECASE)
+            content = re.sub(r"\s*```$", "", content)
+        payload = json.loads(content)
+        scores = {}
+        for candidate in payload.get("results") or []:
+            candidate_id = str(candidate.get("candidate_id", ""))
+            for comparison in candidate.get("comparisons") or []:
+                index = int(comparison.get("index") or 0)
+                if not candidate_id or index <= 0:
+                    continue
+                score = max(0, min(5, int(comparison.get("score") or 0)))
+                reasoning = str(comparison.get("reasoning") or "").strip() or "none"
+                scores[(candidate_id, index)] = (
+                    score,
+                    reasoning if score > 0 else "none",
+                )
+        if not scores:
+            raise ValueError("AI batch response contained no usable scores")
+        return scores
+    except Exception as exc:
+        last_err = exc
 
-    logger.error("Batched LLM pairing failed. Last error: %s", last_err)
+    logger.error("Batched LLM pairing failed. Error: %s", last_err)
     if error_callback:
         error_callback(f"Batched AI scoring: {last_err}")
     return {}
@@ -2066,28 +2063,41 @@ def _pair_one_group(
 
     ai_diagnostics = {"populated": 0, "nonzero": 0, "errors": []}
 
-    TOP_K_FOR_LLM = max(1, int(pairing_config.top_k_for_ai or 3))  # only run LLM on top K candidates per emprendedora
+    priority_rules = sorted(
+        priority_rules,
+        key=lambda rule: (
+            -float(rule.get("weight") or 0),
+            int(rule.get("position") or 0),
+            str(rule.get("label") or ""),
+        ),
+    )
     if log_fn:
         log_fn(
-            "🤖 AI scoring: "
-            f"top {TOP_K_FOR_LLM} candidate(s) × "
-            f"{len(ai_comparisons)} comparison(s), "
-            "one batched request per emprendedora."
+            "📊 Standard-rule priority: "
+            + " → ".join(
+                f"{rule.get('label') or 'Rule'} ({float(rule.get('weight') or 0):g})"
+                for rule in priority_rules
+            )
+        )
+        log_fn(
+            "🤖 AI scoring is used only to break ties between mentors with "
+            "the same best standard-rule matches."
         )
 
     def score_pair_base(emp_row, mentor_row):
         """
         Fast scoring without OpenAI. Also enforces required availability overlap.
-        Returns (score, matches_dict) where score < 0 means invalid.
+        Returns (priority_signature, score, matches_dict). A None signature is invalid.
         """
         emp_email = str(_row_get(emp_row, "email", "")).strip().lower()
         mentor_email = str(_row_get(mentor_row, "email", "")).strip().lower()
 
         overlap = sorted(emp_av.get(emp_email, set()).intersection(mentor_av.get(mentor_email, set())))
         if pairing_config.availability_required and not overlap:
-            return -10_000, {"availability": []}
+            return None, -10_000, {"availability": []}
 
         score = 0
+        priority_signature = []
         matches = {
             "availability": overlap,
             "emp_industry_val": _row_get(emp_row, "industry", "") or "",
@@ -2110,6 +2120,7 @@ def _pair_one_group(
             if comparison_type == "availability_overlap":
                 matched = bool(overlap)
                 matched_value = overlap if matched else "none"
+                priority_signature.extend((int(matched), len(overlap) if matched else 0))
                 if matched:
                     score += 100 + weight * len(overlap)
             elif comparison_type == "business_age":
@@ -2118,6 +2129,7 @@ def _pair_one_group(
                 emp_min = _business_age_bucket_to_min_years(emp_raw)
                 mentor_max = _mentor_years_to_max_years(mentor_raw)
                 matched = bool(emp_raw and mentor_raw and mentor_max >= emp_min)
+                priority_signature.append(int(matched))
                 if matched:
                     score += weight
                     matched_value = f"mentor_max={mentor_max} >= emp_min={emp_min}"
@@ -2137,20 +2149,21 @@ def _pair_one_group(
                     matched = False
                 else:
                     matched = bool(emp_value and mentor_value and emp_value == mentor_value)
+                priority_signature.append(int(matched))
 
                 if matched:
                     score += weight
                     matched_value = emp_value
 
             if required and not matched:
-                return -10_000, matches
+                return None, -10_000, matches
             matches[output_key] = matched_value
 
-        return score, matches
+        return tuple(priority_signature), score, matches
 
     def score_top_candidates_with_ai(emp_row, candidates):
         """
-        Score the full shortlist in one API request. Assignment remains
+        Score all tied standard-rule winners in one API request. Assignment remains
         sequential outside this function, so mentors cannot be selected twice.
         """
         results = [
@@ -2301,9 +2314,17 @@ def _pair_one_group(
             m = mentor_rows_by_email.get(m_email)
             if m is None:
                 continue
-            base_score, base_matches = score_pair_base(e, m)
-            if base_score > -10_000:
-                scored.append((base_score, m_email, m, base_matches))
+            priority_signature, base_score, base_matches = score_pair_base(e, m)
+            if priority_signature is not None:
+                scored.append(
+                    (
+                        priority_signature,
+                        base_score,
+                        m_email,
+                        m,
+                        base_matches,
+                    )
+                )
 
         if not scored:
             # ⚠️ No availability match found — DO NOT FAIL
@@ -2346,21 +2367,47 @@ def _pair_one_group(
                 "llm2": "none",
             }
             best_score = 0
-        scored.sort(key=lambda x: x[0], reverse=True)
-
-        # 2) run independent AI comparisons concurrently for the top K
-        top = scored[:TOP_K_FOR_LLM]
+        scored.sort(key=lambda item: item[2])
         best_score = -10_000
         best_email = None
         best_m = None
         best_matches = None
 
-        for candidate in score_top_candidates_with_ai(e, top):
-            if candidate["score"] > best_score:
-                best_score = candidate["score"]
-                best_email = candidate["email"]
-                best_m = candidate["mentor"]
-                best_matches = candidate["matches"]
+        if scored:
+            best_priority_signature = max(item[0] for item in scored)
+            tied = [
+                item
+                for item in scored
+                if item[0] == best_priority_signature
+            ]
+            standard_candidates = [
+                (base_score, mentor_email, mentor_row, base_matches)
+                for (
+                    _priority_signature,
+                    base_score,
+                    mentor_email,
+                    mentor_row,
+                    base_matches,
+                ) in tied
+            ]
+            if len(standard_candidates) == 1:
+                best_score, best_email, best_m, best_matches = standard_candidates[0]
+                best_matches.setdefault("llm1", "none")
+                best_matches.setdefault("llm2", "none")
+                if log_fn:
+                    log_fn("✅ One clear standard-rule winner; AI tie-break not needed.")
+            else:
+                if log_fn:
+                    log_fn(
+                        f"⚖️ {len(standard_candidates)} mentors share the best "
+                        "standard-rule values; running one AI tie-break."
+                    )
+                for candidate in score_top_candidates_with_ai(e, standard_candidates):
+                    if candidate["score"] > best_score:
+                        best_score = candidate["score"]
+                        best_email = candidate["email"]
+                        best_m = candidate["mentor"]
+                        best_matches = candidate["matches"]
 
         if best_email is None or best_m is None or best_score < 0:
             # if LLM scoring eliminates all options, fall back to any remaining mentor

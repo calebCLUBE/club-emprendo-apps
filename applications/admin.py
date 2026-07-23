@@ -1304,7 +1304,7 @@ class PairingAIComparisonInline(admin.StackedInline):
     formset = PairingRuleInlineFormSet
     extra = 0
     verbose_name = "AI comparison"
-    verbose_name_plural = "2. AI comparisons for the shortlist"
+    verbose_name_plural = "2. AI comparisons used only to break standard-rule ties"
     fieldsets = (
         (None, {"fields": (("active", "position"), "label")} ),
         ("Application answers to compare", {
@@ -1322,7 +1322,7 @@ class PairingAIComparisonInline(admin.StackedInline):
 @admin.register(PairingConfig)
 class PairingConfigAdmin(admin.ModelAdmin):
     change_form_template = "admin/applications/pairingconfig/change_form.html"
-    list_display = ("group", "top_k_for_ai", "availability_required", "model_name", "updated_at")
+    list_display = ("group", "availability_required", "model_name", "updated_at")
     search_fields = ("group__number", "group__custom_name")
     raw_id_fields = ("group",)
     inlines = (PairingPriorityRuleInline, PairingAIComparisonInline)
@@ -1331,9 +1331,9 @@ class PairingConfigAdmin(admin.ModelAdmin):
             "fields": ("group", "availability_required"),
             "description": "These rules apply only to the Mentora and Emprendedora A1 applications attached to this Group.",
         }),
-        ("AI shortlist settings", {
-            "fields": (("top_k_for_ai", "model_name"),),
-            "description": "Standard rules create a shortlist. AI comparisons then evaluate the strongest candidates.",
+        ("AI tie-break settings", {
+            "fields": ("model_name",),
+            "description": "AI comparisons run only when multiple mentors have the same best standard-rule matches.",
         }),
         ("Prompt reference", {
             "fields": (),

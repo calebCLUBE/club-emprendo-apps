@@ -2019,6 +2019,66 @@ class GradingAndPairingConfigEditorTests(TestCase):
             field_type=Question.MULTIPLE_CHOICE_GRID,
             grid_rows="Mañana\nTarde\nNoche",
         )
+        entrepreneur_industry = Question.objects.create(
+            form=entrepreneur_form,
+            text="Business industry",
+            slug="business_active",
+            field_type=Question.SHORT_TEXT,
+        )
+        mentor_industry = Question.objects.create(
+            form=mentor_form,
+            text="Business industry",
+            slug="industria_de_tu_emprendimiento",
+            field_type=Question.SHORT_TEXT,
+        )
+        entrepreneur_country = Question.objects.create(
+            form=entrepreneur_form,
+            text="Country",
+            slug="pais_donde_vives_ahora_2",
+            field_type=Question.SHORT_TEXT,
+        )
+        mentor_country = Question.objects.create(
+            form=mentor_form,
+            text="Country",
+            slug="pais_donde_vives_ahora",
+            field_type=Question.SHORT_TEXT,
+        )
+        entrepreneur_age = Question.objects.create(
+            form=entrepreneur_form,
+            text="Business age",
+            slug="comment",
+            field_type=Question.SHORT_TEXT,
+        )
+        mentor_age = Question.objects.create(
+            form=mentor_form,
+            text="Business age",
+            slug="cuanto_tiempo_has_estado_operando_o_por_cuanto_tie",
+            field_type=Question.SHORT_TEXT,
+        )
+        entrepreneur_growth = Question.objects.create(
+            form=entrepreneur_form,
+            text="Growth plan",
+            slug="como_crees_que_este_programa_puede_ayudarte_a_crec",
+            field_type=Question.LONG_TEXT,
+        )
+        mentor_expertise = Question.objects.create(
+            form=mentor_form,
+            text="Professional expertise",
+            slug="cual_es_tu_area_de_experiencia_profesional_mas_rel",
+            field_type=Question.LONG_TEXT,
+        )
+        entrepreneur_challenge = Question.objects.create(
+            form=entrepreneur_form,
+            text="Biggest challenge",
+            slug="cual_es_tu_mayor_desafio_actualmente_como_emprende",
+            field_type=Question.LONG_TEXT,
+        )
+        mentor_motivation = Question.objects.create(
+            form=mentor_form,
+            text="Mentor motivation",
+            slug="que_te_motiva_a_ser_mentora_en_este_programa_de_cl",
+            field_type=Question.LONG_TEXT,
+        )
         entrepreneur = Application.objects.create(
             form=entrepreneur_form,
             name="Founder",
@@ -2056,6 +2116,44 @@ class GradingAndPairingConfigEditorTests(TestCase):
                 {"row": "Tarde", "value": "martes", "label": "Martes"},
             ]),
         )
+        for application, answers in (
+            (
+                entrepreneur,
+                (
+                    (entrepreneur_industry, "services"),
+                    (entrepreneur_country, "colombia"),
+                    (entrepreneur_age, "1-5-anos"),
+                    (entrepreneur_growth, "I need a practical growth plan."),
+                    (entrepreneur_challenge, "I need to find more customers."),
+                ),
+            ),
+            (
+                mentor,
+                (
+                    (mentor_industry, "services"),
+                    (mentor_country, "colombia"),
+                    (mentor_age, "5-10nanos"),
+                    (mentor_expertise, "I help companies grow their sales."),
+                    (mentor_motivation, "I want to help founders find customers."),
+                ),
+            ),
+            (
+                second_mentor,
+                (
+                    (mentor_industry, "services"),
+                    (mentor_country, "colombia"),
+                    (mentor_age, "5-10nanos"),
+                    (mentor_expertise, "I help companies build growth plans."),
+                    (mentor_motivation, "I want to help founders solve challenges."),
+                ),
+            ),
+        ):
+            for question, value in answers:
+                Answer.objects.create(
+                    application=application,
+                    question=question,
+                    value=value,
+                )
         config = PairingConfig.objects.create(
             group=group,
             availability_required=True,
@@ -2071,19 +2169,46 @@ class GradingAndPairingConfigEditorTests(TestCase):
             required=True,
             output_key="availability",
         )
+        PairingPriorityRule.objects.create(
+            config=config,
+            label="Industry",
+            emprendedora_question_slug="industry",
+            mentora_question_slug="business_industry",
+            comparison_type=PairingPriorityRule.COMPARE_EXACT,
+            weight=10,
+            output_key="industry",
+        )
+        PairingPriorityRule.objects.create(
+            config=config,
+            label="Country",
+            emprendedora_question_slug="country_residence",
+            mentora_question_slug="country_residence",
+            comparison_type=PairingPriorityRule.COMPARE_EXACT,
+            weight=10,
+            output_key="country",
+        )
+        PairingPriorityRule.objects.create(
+            config=config,
+            label="Business age",
+            emprendedora_question_slug="business_age",
+            mentora_question_slug="business_years",
+            comparison_type=PairingPriorityRule.COMPARE_BUSINESS_AGE,
+            weight=10,
+            output_key="biz_age",
+        )
         PairingAIComparison.objects.create(
             config=config,
-            label="Schedule details",
-            emprendedora_question_slug=entrepreneur_schedule.slug,
-            mentora_question_slug=mentor_schedule.slug,
+            label="Expertise and growth",
+            emprendedora_question_slug="growth_how",
+            mentora_question_slug="professional_expertise",
             weight=1,
             output_key="llm1",
         )
         PairingAIComparison.objects.create(
             config=config,
-            label="Second schedule comparison",
-            emprendedora_question_slug=entrepreneur_schedule.slug,
-            mentora_question_slug=mentor_schedule.slug,
+            label="Motivation and challenge",
+            emprendedora_question_slug="biggest_challenge",
+            mentora_question_slug="motivation",
             weight=1,
             output_key="llm2",
         )
@@ -2114,6 +2239,13 @@ class GradingAndPairingConfigEditorTests(TestCase):
         )
         self.assertEqual(result.iloc[0]["matching_availability"], "tue_afternoon")
         self.assertNotEqual(result.iloc[0]["matching_availability"], "NO MATCH FOUND")
+        self.assertEqual(result.iloc[0]["matching_industry"], "services")
+        self.assertEqual(result.iloc[0]["emprendedora_industry"], "services")
+        self.assertEqual(result.iloc[0]["mentora_industry"], "services")
+        self.assertEqual(result.iloc[0]["matching_country"], "colombia")
+        self.assertEqual(result.iloc[0]["business_age_matching"], "mentor_max=10 >= emp_min=1")
+        self.assertEqual(result.iloc[0]["expertise_growth_matching"], "Compatible schedules.")
+        self.assertEqual(result.iloc[0]["motivation_challenge_match"], "Compatible schedules.")
         self.assertEqual(mock_llm.call_count, 4)
         self.assertTrue(
             any(
@@ -2121,6 +2253,14 @@ class GradingAndPairingConfigEditorTests(TestCase):
                 "mentora=current_mentor_schedule" in message
                 for message in logs
             ),
+            logs,
+        )
+        self.assertTrue(
+            any("Resolved legacy standard rule 'Industry'" in message for message in logs),
+            logs,
+        )
+        self.assertTrue(
+            any("Resolved legacy AI comparison 'Expertise and growth'" in message for message in logs),
             logs,
         )
         self.assertEqual(

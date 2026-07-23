@@ -1148,6 +1148,25 @@ TIME_MAP_ES_TO_EN = {
     "noche": "night",
 }
 
+PAIRING_A1_FIELD_PREFIXES = {
+    "E": {
+        "preferred_schedule": ("test",),
+        "industry": ("business_active",),
+        "country_residence": ("pais_donde_vives_ahora_2", "pais_donde_vives_ahora"),
+        "business_age": ("comment",),
+        "growth_how": ("como_crees_que_este_programa_puede_ayudarte_a_crec",),
+        "biggest_challenge": ("cual_es_tu_mayor_desafio_actualmente_como_emprende",),
+    },
+    "M": {
+        "availability_grid": ("en_que_horario_te_resulta_mas_conveniente_particip",),
+        "business_industry": ("industria_de_tu_emprendimiento",),
+        "country_residence": ("pais_donde_vives_ahora",),
+        "business_years": ("cuanto_tiempo_has_estado_operando_o_por_cuanto_tie",),
+        "professional_expertise": ("cual_es_tu_area_de_experiencia_profesional_mas_rel",),
+        "motivation": ("que_te_motiva_a_ser_mentora_en_este_programa_de_cl",),
+    },
+}
+
 
 def _norm_email_list(s: str) -> list[str]:
     if not s:
@@ -1541,26 +1560,55 @@ def _parse_mentor_availability(cell: str) -> set[str]:
     return _parse_availability(cell)
 
 
+def _resolve_pairing_a1_slug(configured_slug: str, available_columns, track: str) -> str:
+    configured_slug = str(configured_slug or "").strip()
+    columns = [str(column) for column in available_columns]
+    if configured_slug in columns:
+        return configured_slug
+    prefixes = PAIRING_A1_FIELD_PREFIXES.get(track, {}).get(configured_slug, ())
+    for prefix in prefixes:
+        exact = next((column for column in columns if column == prefix), None)
+        if exact:
+            return exact
+        prefixed = next((column for column in columns if column.startswith(prefix)), None)
+        if prefixed:
+            return prefixed
+    return configured_slug
+
+
 def _business_age_bucket_to_min_years(emp_val: str) -> int:
-    # emprendedora business_age: lt_1y, 1_3y, 4_6y, 7_10y, gt_10y
-    v = (emp_val or "").strip().lower()
+    v = _availability_word(emp_val).replace("_", "-")
     return {
         "lt_1y": 0,
         "1_3y": 1,
         "4_6y": 4,
         "7_10y": 7,
         "gt_10y": 10,
+        "lt-1y": 0,
+        "1-3y": 1,
+        "4-6y": 4,
+        "7-10y": 7,
+        "gt-10y": 10,
+        "0-1-ano": 0,
+        "1-5-anos": 1,
+        "5-10-anos": 5,
+        "5-10nanos": 5,
+        "10-anos": 10,
     }.get(v, 0)
 
 
 def _mentor_years_to_max_years(mentor_val: str) -> int:
-    # mentora business_years: 0_1, 1_5, 5_10, 10_plus
-    v = (mentor_val or "").strip().lower()
+    v = _availability_word(mentor_val).replace("_", "-")
     return {
-        "0_1": 1,
-        "1_5": 5,
-        "5_10": 10,
-        "10_plus": 99,
+        "0-1": 1,
+        "1-5": 5,
+        "5-10": 10,
+        "10-plus": 99,
+        "0-1-ano": 1,
+        "1-5-anos": 5,
+        "5-10-anos": 10,
+        "5-10nanos": 10,
+        "10-anos": 99,
     }.get(v, 0)
 
 
@@ -1584,6 +1632,7 @@ def _llm_fit_score(
     label: str,
     prompt_template: str = "",
     model_name: str = "",
+    error_callback=None,
 ) -> tuple[int, str]:
     mentor_text = mentor_text or ""
     emp_text = emp_text or ""
@@ -1651,7 +1700,9 @@ Reasoning: <2-3 sentences, concise, in English>
             # small backoff
             time.sleep(0.5 * attempt)
 
-    logger.exception("LLM fit scoring failed (label=%s). Last error: %s", label, last_err)
+    logger.error("LLM fit scoring failed (label=%s). Last error: %s", label, last_err)
+    if error_callback:
+        error_callback(f"{label}: {last_err}")
     return 0, "none"
 
 
@@ -1771,10 +1822,56 @@ def _pair_one_group(
     emp_question_cols = [c for c in emp_df.columns if c not in ID_COLS]
     mentor_question_cols = [c for c in mentor_df.columns if c not in ID_COLS]
 
+    def resolve_configured_fields(items, item_type):
+        resolved_items = []
+        for item in items:
+            resolved = dict(item)
+            original_emp = resolved.get("emprendedora_question_slug") or ""
+            original_mentor = resolved.get("mentora_question_slug") or ""
+            resolved_emp = _resolve_pairing_a1_slug(
+                original_emp,
+                emp_question_cols,
+                "E",
+            )
+            resolved_mentor = _resolve_pairing_a1_slug(
+                original_mentor,
+                mentor_question_cols,
+                "M",
+            )
+            resolved["emprendedora_question_slug"] = resolved_emp
+            resolved["mentora_question_slug"] = resolved_mentor
+            resolved_items.append(resolved)
+            if log_fn and (resolved_emp != original_emp or resolved_mentor != original_mentor):
+                log_fn(
+                    f"♻️ Resolved legacy {item_type} '{item.get('label') or 'rule'}': "
+                    f"{original_emp} → {resolved_emp}; "
+                    f"{original_mentor} → {resolved_mentor}."
+                )
+            if log_fn and (
+                resolved_emp not in emp_question_cols
+                or resolved_mentor not in mentor_question_cols
+            ):
+                log_fn(
+                    f"⚠️ {item_type.title()} '{item.get('label') or 'rule'}' is missing "
+                    "a current A1 question and will not produce a useful score: "
+                    f"emprendedora={resolved_emp or '(blank)'}, "
+                    f"mentora={resolved_mentor or '(blank)'}."
+                )
+        return resolved_items
+
+    priority_rules = resolve_configured_fields(
+        pairing_config.priority_rules,
+        "standard rule",
+    )
+    ai_comparisons = resolve_configured_fields(
+        pairing_config.ai_comparisons,
+        "AI comparison",
+    )
+
     availability_rule = next(
         (
             rule
-            for rule in pairing_config.priority_rules
+            for rule in priority_rules
             if rule.get("comparison_type") == "availability_overlap"
         ),
         {},
@@ -1805,7 +1902,7 @@ def _pair_one_group(
     mentor_suffix_headers = [f"{c}_mentora" for c in mentor_question_cols]
     extra_ai_headers = [
         f"ai_{item.get('output_key') or item.get('label')}"
-        for item in pairing_config.ai_comparisons[2:]
+        for item in ai_comparisons[2:]
     ]
     base_headers = PAIR_HEADERS + extra_ai_headers
     full_headers = base_headers + emp_suffix_headers + mentor_suffix_headers
@@ -1911,6 +2008,8 @@ def _pair_one_group(
     # Cache LLM results so we never re-call for the same pair
     llm_cache = {}  # key: (mentor_email, emp_email, label) -> (score, reasoning)
     llm_cache_lock = threading.Lock()
+    ai_diagnostics = {"populated": 0, "nonzero": 0, "errors": []}
+    ai_diagnostics_lock = threading.Lock()
 
     TOP_K_FOR_LLM = max(1, int(pairing_config.top_k_for_ai or 3))  # only run LLM on top K candidates per emprendedora
     try:
@@ -1922,7 +2021,7 @@ def _pair_one_group(
         log_fn(
             "🤖 AI scoring: "
             f"top {TOP_K_FOR_LLM} candidate(s) × "
-            f"{len(pairing_config.ai_comparisons)} comparison(s), "
+            f"{len(ai_comparisons)} comparison(s), "
             f"up to {AI_MAX_WORKERS} concurrent request(s)."
         )
 
@@ -1948,7 +2047,7 @@ def _pair_one_group(
             "biz_age": "none",
         }
 
-        for rule in pairing_config.priority_rules:
+        for rule in priority_rules:
             comparison_type = rule.get("comparison_type")
             emp_slug = rule.get("emprendedora_question_slug") or ""
             mentor_slug = rule.get("mentora_question_slug") or ""
@@ -1964,18 +2063,27 @@ def _pair_one_group(
                 if matched:
                     score += 100 + weight * len(overlap)
             elif comparison_type == "business_age":
-                emp_min = _business_age_bucket_to_min_years(_row_get(emp_row, emp_slug, ""))
-                mentor_max = _mentor_years_to_max_years(_row_get(mentor_row, mentor_slug, ""))
-                matched = mentor_max >= emp_min
+                emp_raw = _row_get(emp_row, emp_slug, "")
+                mentor_raw = _row_get(mentor_row, mentor_slug, "")
+                emp_min = _business_age_bucket_to_min_years(emp_raw)
+                mentor_max = _mentor_years_to_max_years(mentor_raw)
+                matched = bool(emp_raw and mentor_raw and mentor_max >= emp_min)
                 if matched:
                     score += weight
                     matched_value = f"mentor_max={mentor_max} >= emp_min={emp_min}"
             else:
-                emp_value = _safe_lower(_row_get(emp_row, emp_slug, ""))
-                mentor_value = _safe_lower(_row_get(mentor_row, mentor_slug, ""))
+                emp_raw = _row_get(emp_row, emp_slug, "")
+                mentor_raw = _row_get(mentor_row, mentor_slug, "")
+                emp_value = _safe_lower(emp_raw)
+                mentor_value = _safe_lower(mentor_raw)
+
+                if output_key == "industry":
+                    matches["emp_industry_val"] = emp_raw or ""
+                    matches["mentor_industry_val"] = mentor_raw or ""
 
                 # Preserve the previous country preference behavior for the default country rule.
-                if output_key == "country" and _safe_lower(_row_get(emp_row, "same_country", "")) != "yes":
+                country_preference = _safe_lower(_row_get(emp_row, "same_country", ""))
+                if output_key == "country" and country_preference and country_preference != "yes":
                     matched = False
                 else:
                     matched = bool(emp_value and mentor_value and emp_value == mentor_value)
@@ -2001,14 +2109,40 @@ def _pair_one_group(
         if cached is not None:
             ai_score, explanation = cached
         else:
+            mentor_text = _row_get(
+                mentor_row,
+                item.get("mentora_question_slug") or "",
+                "",
+            )
+            emp_text = _row_get(
+                emp_row,
+                item.get("emprendedora_question_slug") or "",
+                "",
+            )
+            has_populated_answers = bool(
+                str(mentor_text or "").strip() and str(emp_text or "").strip()
+            )
+            if has_populated_answers:
+                with ai_diagnostics_lock:
+                    ai_diagnostics["populated"] += 1
+
+            def record_ai_error(message):
+                with ai_diagnostics_lock:
+                    if len(ai_diagnostics["errors"]) < 5:
+                        ai_diagnostics["errors"].append(str(message))
+
             ai_score, explanation = _llm_fit_score(
                 client,
-                mentor_text=_row_get(mentor_row, item.get("mentora_question_slug") or "", ""),
-                emp_text=_row_get(emp_row, item.get("emprendedora_question_slug") or "", ""),
+                mentor_text=mentor_text,
+                emp_text=emp_text,
                 label=label,
                 prompt_template=item.get("prompt") or "",
                 model_name=pairing_config.model_name,
+                error_callback=record_ai_error,
             )
+            if has_populated_answers and ai_score > 0:
+                with ai_diagnostics_lock:
+                    ai_diagnostics["nonzero"] += 1
             with llm_cache_lock:
                 llm_cache[cache_key] = (ai_score, explanation)
         return {
@@ -2038,7 +2172,7 @@ def _pair_one_group(
         for candidate_index, candidate in enumerate(candidates):
             _base_score, _mentor_email, mentor_row, _base_matches = candidate
             for comparison_index, item in enumerate(
-                pairing_config.ai_comparisons,
+                ai_comparisons,
                 start=1,
             ):
                 tasks.append(
@@ -2082,7 +2216,7 @@ def _pair_one_group(
         matches = matches or {}
         return [
             matches.get(item.get("output_key") or item.get("label"), "none") or "none"
-            for item in pairing_config.ai_comparisons[2:]
+            for item in ai_comparisons[2:]
         ]
 
     pairs = []
@@ -2256,6 +2390,17 @@ def _pair_one_group(
         log_fn(f"📌 Missing emprendedoras (not found in master CSV): {missing_emp[:10]} (total {len(missing_emp)})")
     if missing_mentor and log_fn:
         log_fn(f"📌 Missing mentoras (not found in master CSV): {missing_mentor[:10]} (total {len(missing_mentor)})")
+    if log_fn and ai_comparisons:
+        log_fn(
+            "🤖 AI comparison results: "
+            f"{ai_diagnostics['nonzero']} non-zero score(s) from "
+            f"{ai_diagnostics['populated']} comparison(s) with populated answers."
+        )
+        if ai_diagnostics["errors"]:
+            log_fn(
+                "⚠️ AI request errors: "
+                + " | ".join(ai_diagnostics["errors"])
+            )
     if log_fn:
         log_fn(f"✅ Pairing complete. Output rows: {len(pairs)}.")
 

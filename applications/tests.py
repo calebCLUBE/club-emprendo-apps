@@ -1988,8 +1988,6 @@ class GradingAndPairingConfigEditorTests(TestCase):
         self.assertFalse(any("G912_E_A2" in message or "G912_M_A2" in message for message in logs))
 
     def test_pairing_uses_configured_a1_grid_questions_for_availability(self):
-        import threading
-
         from applications.admin_views import _pair_one_group, _parse_emp_availability
 
         group = FormGroup.objects.create(
@@ -2213,18 +2211,23 @@ class GradingAndPairingConfigEditorTests(TestCase):
             output_key="llm2",
         )
         logs = []
-        concurrent_requests = threading.Barrier(4, timeout=2)
 
-        def score_concurrently(*_args, **_kwargs):
-            concurrent_requests.wait()
-            return 1, "Compatible schedules."
+        def score_in_one_batch(_client, candidates, **_kwargs):
+            return {
+                (candidate["candidate_id"], comparison["index"]): (
+                    1,
+                    "Compatible schedules.",
+                )
+                for candidate in candidates
+                for comparison in candidate["comparisons"]
+            }
 
         with override_settings(OPENAI_API_KEY="test-key"), patch(
             "applications.admin_views.OpenAI"
         ), patch(
-            "applications.admin_views._llm_fit_score",
-            side_effect=score_concurrently,
-        ) as mock_llm:
+            "applications.admin_views._llm_batch_fit_scores",
+            side_effect=score_in_one_batch,
+        ) as mock_batch:
             result = _pair_one_group(
                 group_num=group.number,
                 emp_emails=[entrepreneur.email],
@@ -2246,7 +2249,13 @@ class GradingAndPairingConfigEditorTests(TestCase):
         self.assertEqual(result.iloc[0]["business_age_matching"], "mentor_max=10 >= emp_min=1")
         self.assertEqual(result.iloc[0]["expertise_growth_matching"], "Compatible schedules.")
         self.assertEqual(result.iloc[0]["motivation_challenge_match"], "Compatible schedules.")
-        self.assertEqual(mock_llm.call_count, 4)
+        self.assertEqual(mock_batch.call_count, 1)
+        batch_candidates = mock_batch.call_args.args[1]
+        self.assertEqual(len(batch_candidates), 2)
+        self.assertEqual(
+            sum(len(candidate["comparisons"]) for candidate in batch_candidates),
+            4,
+        )
         self.assertTrue(
             any(
                 "emprendedora=current_entrepreneur_schedule, "
@@ -2263,12 +2272,73 @@ class GradingAndPairingConfigEditorTests(TestCase):
             any("Resolved legacy AI comparison 'Expertise and growth'" in message for message in logs),
             logs,
         )
+        self.assertTrue(
+            any("one AI batch for 2 candidate(s) and 4 comparison(s)" in message for message in logs),
+            logs,
+        )
         self.assertEqual(
             _parse_emp_availability(
                 '[{"row":"Mañana","value":"test","label":"Lunes"}]'
             ),
             {"mon_morning"},
         )
+
+    def test_batched_pairing_ai_parses_all_candidate_scores_from_one_request(self):
+        from applications.admin_views import _llm_batch_fit_scores
+
+        client = Mock()
+        client.chat.completions.create.return_value = SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content=json.dumps({
+                "results": [
+                    {
+                        "candidate_id": "0",
+                        "comparisons": [
+                            {"index": 1, "score": 4, "reasoning": "Strong expertise fit."},
+                            {"index": 2, "score": 3, "reasoning": "Useful motivation fit."},
+                        ],
+                    },
+                    {
+                        "candidate_id": "1",
+                        "comparisons": [
+                            {"index": 1, "score": 2, "reasoning": "Partial expertise fit."},
+                            {"index": 2, "score": 5, "reasoning": "Excellent challenge fit."},
+                        ],
+                    },
+                ],
+            })))]
+        )
+        candidates = [
+            {
+                "candidate_id": "0",
+                "comparisons": [
+                    {
+                        "index": 1,
+                        "label": "Expertise",
+                        "mentor_response": "Sales experience",
+                        "entrepreneur_response": "Needs sales help",
+                    },
+                ],
+            },
+            {
+                "candidate_id": "1",
+                "comparisons": [
+                    {
+                        "index": 1,
+                        "label": "Expertise",
+                        "mentor_response": "Marketing experience",
+                        "entrepreneur_response": "Needs sales help",
+                    },
+                ],
+            },
+        ]
+
+        result = _llm_batch_fit_scores(client, candidates)
+
+        self.assertEqual(result[("0", 1)], (4, "Strong expertise fit."))
+        self.assertEqual(result[("0", 2)], (3, "Useful motivation fit."))
+        self.assertEqual(result[("1", 1)], (2, "Partial expertise fit."))
+        self.assertEqual(result[("1", 2)], (5, "Excellent challenge fit."))
+        client.chat.completions.create.assert_called_once()
 
 
 class HelpTextFormattingTests(TestCase):

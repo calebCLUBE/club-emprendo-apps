@@ -7,7 +7,6 @@ import json
 import re
 import zipfile
 import unicodedata
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Tuple
 from urllib.parse import urlparse
 from xml.sax.saxutils import escape
@@ -1706,6 +1705,66 @@ Reasoning: <2-3 sentences, concise, in English>
     return 0, "none"
 
 
+def _llm_batch_fit_scores(
+    client: OpenAI,
+    candidates: list[dict],
+    model_name: str = "",
+    error_callback=None,
+) -> dict[tuple[str, int], tuple[int, str]]:
+    """Score every shortlisted mentor for one entrepreneur in one API call."""
+    if not candidates:
+        return {}
+
+    prompt = (
+        "You are matching mentors with one entrepreneur for a mentoring program.\n"
+        "Evaluate every comparison independently. Scores are integers from 0 to 5.\n"
+        "Return JSON only, with this exact shape:\n"
+        '{"results":[{"candidate_id":"0","comparisons":'
+        '[{"index":1,"score":4,"reasoning":"Concise explanation"}]}]}\n\n'
+        "Candidates and comparisons:\n"
+        + json.dumps(candidates, ensure_ascii=False)
+    )
+
+    last_err = None
+    for attempt in range(1, 3):
+        try:
+            response = client.chat.completions.create(
+                model=(model_name or "gpt-5.2"),
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0,
+                timeout=30,
+            )
+            content = (response.choices[0].message.content or "").strip()
+            if content.startswith("```"):
+                content = re.sub(r"^```(?:json)?\s*", "", content, flags=re.IGNORECASE)
+                content = re.sub(r"\s*```$", "", content)
+            payload = json.loads(content)
+            scores = {}
+            for candidate in payload.get("results") or []:
+                candidate_id = str(candidate.get("candidate_id", ""))
+                for comparison in candidate.get("comparisons") or []:
+                    index = int(comparison.get("index") or 0)
+                    if not candidate_id or index <= 0:
+                        continue
+                    score = max(0, min(5, int(comparison.get("score") or 0)))
+                    reasoning = str(comparison.get("reasoning") or "").strip() or "none"
+                    scores[(candidate_id, index)] = (
+                        score,
+                        reasoning if score > 0 else "none",
+                    )
+            if not scores:
+                raise ValueError("AI batch response contained no usable scores")
+            return scores
+        except Exception as exc:
+            last_err = exc
+            time.sleep(0.5 * attempt)
+
+    logger.error("Batched LLM pairing failed. Last error: %s", last_err)
+    if error_callback:
+        error_callback(f"Batched AI scoring: {last_err}")
+    return {}
+
+
 
 def _df_col(df, colname: str):
     """
@@ -2005,24 +2064,15 @@ def _pair_one_group(
     # Use only mentors with non-empty normalized email
     unassigned_mentors = set(mentor_rows_by_email.keys())
 
-    # Cache LLM results so we never re-call for the same pair
-    llm_cache = {}  # key: (mentor_email, emp_email, label) -> (score, reasoning)
-    llm_cache_lock = threading.Lock()
     ai_diagnostics = {"populated": 0, "nonzero": 0, "errors": []}
-    ai_diagnostics_lock = threading.Lock()
 
     TOP_K_FOR_LLM = max(1, int(pairing_config.top_k_for_ai or 3))  # only run LLM on top K candidates per emprendedora
-    try:
-        AI_MAX_WORKERS = int(os.getenv("PAIRING_AI_MAX_WORKERS", "6"))
-    except (TypeError, ValueError):
-        AI_MAX_WORKERS = 6
-    AI_MAX_WORKERS = max(1, min(8, AI_MAX_WORKERS))
     if log_fn:
         log_fn(
             "🤖 AI scoring: "
             f"top {TOP_K_FOR_LLM} candidate(s) × "
             f"{len(ai_comparisons)} comparison(s), "
-            f"up to {AI_MAX_WORKERS} concurrent request(s)."
+            "one batched request per emprendedora."
         )
 
     def score_pair_base(emp_row, mentor_row):
@@ -2098,66 +2148,10 @@ def _pair_one_group(
 
         return score, matches
 
-    def evaluate_llm_comparison(emp_row, mentor_row, index, item):
-        emp_email = str(_row_get(emp_row, "email", "")).strip().lower()
-        mentor_email = str(_row_get(mentor_row, "email", "")).strip().lower()
-        output_key = item.get("output_key") or f"llm{index}"
-        label = item.get("label") or output_key
-        cache_key = (mentor_email, emp_email, output_key)
-        with llm_cache_lock:
-            cached = llm_cache.get(cache_key)
-        if cached is not None:
-            ai_score, explanation = cached
-        else:
-            mentor_text = _row_get(
-                mentor_row,
-                item.get("mentora_question_slug") or "",
-                "",
-            )
-            emp_text = _row_get(
-                emp_row,
-                item.get("emprendedora_question_slug") or "",
-                "",
-            )
-            has_populated_answers = bool(
-                str(mentor_text or "").strip() and str(emp_text or "").strip()
-            )
-            if has_populated_answers:
-                with ai_diagnostics_lock:
-                    ai_diagnostics["populated"] += 1
-
-            def record_ai_error(message):
-                with ai_diagnostics_lock:
-                    if len(ai_diagnostics["errors"]) < 5:
-                        ai_diagnostics["errors"].append(str(message))
-
-            ai_score, explanation = _llm_fit_score(
-                client,
-                mentor_text=mentor_text,
-                emp_text=emp_text,
-                label=label,
-                prompt_template=item.get("prompt") or "",
-                model_name=pairing_config.model_name,
-                error_callback=record_ai_error,
-            )
-            if has_populated_answers and ai_score > 0:
-                with ai_diagnostics_lock:
-                    ai_diagnostics["nonzero"] += 1
-            with llm_cache_lock:
-                llm_cache[cache_key] = (ai_score, explanation)
-        return {
-            "index": index,
-            "output_key": output_key,
-            "weighted_score": float(item.get("weight") or 0) * ai_score,
-            "explanation": explanation if ai_score > 0 else "none",
-        }
-
     def score_top_candidates_with_ai(emp_row, candidates):
         """
-        Evaluate independent candidate/comparison requests concurrently.
-
-        Assignment remains sequential outside this function, so a mentor cannot
-        be selected for two emprendedoras.
+        Score the full shortlist in one API request. Assignment remains
+        sequential outside this function, so mentors cannot be selected twice.
         """
         results = [
             {
@@ -2168,44 +2162,95 @@ def _pair_one_group(
             }
             for base_score, mentor_email, mentor_row, base_matches in candidates
         ]
-        tasks = []
+        batch_candidates = []
         for candidate_index, candidate in enumerate(candidates):
             _base_score, _mentor_email, mentor_row, _base_matches = candidate
+            comparisons = []
             for comparison_index, item in enumerate(
                 ai_comparisons,
                 start=1,
             ):
-                tasks.append(
-                    (
-                        candidate_index,
-                        comparison_index,
-                        item,
-                        mentor_row,
-                    )
+                mentor_text = _row_get(
+                    mentor_row,
+                    item.get("mentora_question_slug") or "",
+                    "",
                 )
+                entrepreneur_text = _row_get(
+                    emp_row,
+                    item.get("emprendedora_question_slug") or "",
+                    "",
+                )
+                if not (
+                    str(mentor_text or "").strip()
+                    and str(entrepreneur_text or "").strip()
+                ):
+                    continue
+                ai_diagnostics["populated"] += 1
+                label = item.get("label") or f"Comparison {comparison_index}"
+                instructions = _render_pairing_prompt(
+                    item.get("prompt") or (
+                        "Rate how well the mentor response can help the "
+                        "entrepreneur response for this criterion."
+                    ),
+                    label=label,
+                    mentor_text=mentor_text,
+                    entrepreneur_text=entrepreneur_text,
+                )
+                comparisons.append({
+                    "index": comparison_index,
+                    "label": label,
+                    "instructions": instructions,
+                    "mentor_response": mentor_text,
+                    "entrepreneur_response": entrepreneur_text,
+                })
+            if comparisons:
+                batch_candidates.append({
+                    "candidate_id": str(candidate_index),
+                    "comparisons": comparisons,
+                })
 
-        if tasks:
-            worker_count = min(AI_MAX_WORKERS, len(tasks))
-            with ThreadPoolExecutor(max_workers=worker_count) as executor:
-                future_to_candidate = {
-                    executor.submit(
-                        evaluate_llm_comparison,
-                        emp_row,
-                        mentor_row,
-                        comparison_index,
-                        item,
-                    ): candidate_index
-                    for candidate_index, comparison_index, item, mentor_row in tasks
-                }
-                for future in as_completed(future_to_candidate):
-                    candidate = results[future_to_candidate[future]]
-                    comparison = future.result()
-                    candidate["score"] += comparison["weighted_score"]
-                    candidate["matches"][comparison["output_key"]] = comparison["explanation"]
-                    if comparison["index"] == 1:
-                        candidate["matches"]["llm1"] = comparison["explanation"]
-                    elif comparison["index"] == 2:
-                        candidate["matches"]["llm2"] = comparison["explanation"]
+        def record_ai_error(message):
+            if len(ai_diagnostics["errors"]) < 5:
+                ai_diagnostics["errors"].append(str(message))
+
+        if batch_candidates:
+            started_at = time.monotonic()
+            if log_fn:
+                comparison_count = sum(
+                    len(candidate["comparisons"])
+                    for candidate in batch_candidates
+                )
+                log_fn(
+                    f"⏳ Sending one AI batch for {len(batch_candidates)} candidate(s) "
+                    f"and {comparison_count} comparison(s)."
+                )
+            batch_scores = _llm_batch_fit_scores(
+                client,
+                batch_candidates,
+                model_name=pairing_config.model_name,
+                error_callback=record_ai_error,
+            )
+            if log_fn:
+                log_fn(f"⚡ AI batch finished in {time.monotonic() - started_at:.1f}s.")
+
+            for candidate_index, _candidate in enumerate(candidates):
+                result = results[candidate_index]
+                for comparison_index, item in enumerate(ai_comparisons, start=1):
+                    ai_score, explanation = batch_scores.get(
+                        (str(candidate_index), comparison_index),
+                        (0, "none"),
+                    )
+                    if ai_score > 0:
+                        ai_diagnostics["nonzero"] += 1
+                    output_key = item.get("output_key") or f"llm{comparison_index}"
+                    result["score"] += float(item.get("weight") or 0) * ai_score
+                    result["matches"][output_key] = (
+                        explanation if ai_score > 0 else "none"
+                    )
+                    if comparison_index == 1:
+                        result["matches"]["llm1"] = result["matches"][output_key]
+                    elif comparison_index == 2:
+                        result["matches"]["llm2"] = result["matches"][output_key]
 
         for candidate in results:
             candidate["matches"].setdefault("llm1", "none")

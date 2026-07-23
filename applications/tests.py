@@ -1987,6 +1987,118 @@ class GradingAndPairingConfigEditorTests(TestCase):
         )
         self.assertFalse(any("G912_E_A2" in message or "G912_M_A2" in message for message in logs))
 
+    def test_pairing_uses_configured_a1_grid_questions_for_availability(self):
+        from applications.admin_views import _pair_one_group, _parse_emp_availability
+
+        group = FormGroup.objects.create(
+            number=913,
+            start_day=1,
+            start_month="enero",
+            end_month="abril",
+            year=2026,
+        )
+        entrepreneur_form = FormDefinition.objects.create(
+            slug="G913_E_A1", name="Current entrepreneur application", group=group
+        )
+        mentor_form = FormDefinition.objects.create(
+            slug="G913_M_A1", name="Current mentor application", group=group
+        )
+        entrepreneur_schedule = Question.objects.create(
+            form=entrepreneur_form,
+            text="When can you participate?",
+            slug="current_entrepreneur_schedule",
+            field_type=Question.MULTIPLE_CHOICE_GRID,
+            grid_rows="Mañana\nTarde\nNoche",
+        )
+        mentor_schedule = Question.objects.create(
+            form=mentor_form,
+            text="When can you participate?",
+            slug="current_mentor_schedule",
+            field_type=Question.MULTIPLE_CHOICE_GRID,
+            grid_rows="Mañana\nTarde\nNoche",
+        )
+        entrepreneur = Application.objects.create(
+            form=entrepreneur_form,
+            name="Founder",
+            email="founder@example.com",
+        )
+        mentor = Application.objects.create(
+            form=mentor_form,
+            name="Mentor",
+            email="mentor@example.com",
+        )
+        Answer.objects.create(
+            application=entrepreneur,
+            question=entrepreneur_schedule,
+            value=json.dumps([
+                {"row": "Tarde", "value": "martes", "label": "Martes"},
+            ]),
+        )
+        Answer.objects.create(
+            application=mentor,
+            question=mentor_schedule,
+            value=json.dumps([
+                {"row": "Tarde", "value": "martes", "label": "Martes"},
+                {"row": "Noche", "value": "viernes", "label": "Viernes"},
+            ]),
+        )
+        config = PairingConfig.objects.create(
+            group=group,
+            availability_required=True,
+            top_k_for_ai=1,
+        )
+        PairingPriorityRule.objects.create(
+            config=config,
+            label="Availability",
+            emprendedora_question_slug=entrepreneur_schedule.slug,
+            mentora_question_slug=mentor_schedule.slug,
+            comparison_type=PairingPriorityRule.COMPARE_AVAILABILITY,
+            weight=10,
+            required=True,
+            output_key="availability",
+        )
+        PairingAIComparison.objects.create(
+            config=config,
+            label="Schedule details",
+            emprendedora_question_slug=entrepreneur_schedule.slug,
+            mentora_question_slug=mentor_schedule.slug,
+            weight=1,
+            output_key="llm1",
+        )
+        logs = []
+
+        with override_settings(OPENAI_API_KEY="test-key"), patch(
+            "applications.admin_views.OpenAI"
+        ), patch(
+            "applications.admin_views._llm_fit_score",
+            return_value=(1, "Compatible schedules."),
+        ):
+            result = _pair_one_group(
+                group_num=group.number,
+                emp_emails=[entrepreneur.email],
+                mentor_emails=[mentor.email],
+                log_fn=logs.append,
+            )
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result.iloc[0]["mentora_email"], mentor.email)
+        self.assertEqual(result.iloc[0]["matching_availability"], "tue_afternoon")
+        self.assertNotEqual(result.iloc[0]["matching_availability"], "NO MATCH FOUND")
+        self.assertTrue(
+            any(
+                "emprendedora=current_entrepreneur_schedule, "
+                "mentora=current_mentor_schedule" in message
+                for message in logs
+            ),
+            logs,
+        )
+        self.assertEqual(
+            _parse_emp_availability(
+                '[{"row":"Mañana","value":"test","label":"Lunes"}]'
+            ),
+            {"mon_morning"},
+        )
+
 
 class HelpTextFormattingTests(TestCase):
     def test_pasted_help_text_keeps_paragraphs_and_auto_links_url(self):

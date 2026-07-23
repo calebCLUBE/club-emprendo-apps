@@ -1449,31 +1449,95 @@ def _graded_workbook_bytes(headers: list[str], rows: list[list[str]], percent_co
     return bio.getvalue()
 
 
-def _parse_emp_availability(cell: str) -> set[str]:
-    # expected: "mon_morning, tue_afternoon"
+def _availability_word(value) -> str:
+    text = unicodedata.normalize("NFD", str(value or "").strip().lower())
+    return "".join(ch for ch in text if unicodedata.category(ch) != "Mn")
+
+
+def _canonical_availability_slot(day, time_of_day) -> str:
+    day_token = _availability_word(day)
+    time_token = _availability_word(time_of_day)
+    day_en = {
+        **{_availability_word(key): value for key, value in DAY_MAP_ES_TO_EN.items()},
+        "mon": "mon",
+        "monday": "mon",
+        "tue": "tue",
+        "tuesday": "tue",
+        "wed": "wed",
+        "wednesday": "wed",
+        "thu": "thu",
+        "thursday": "thu",
+        "fri": "fri",
+        "friday": "fri",
+        "sat": "sat",
+        "saturday": "sat",
+        "sun": "sun",
+        "sunday": "sun",
+    }.get(day_token)
+    time_en = {
+        **{_availability_word(key): value for key, value in TIME_MAP_ES_TO_EN.items()},
+        "morning": "morning",
+        "afternoon": "afternoon",
+        "evening": "night",
+        "night": "night",
+    }.get(time_token)
+    return f"{day_en}_{time_en}" if day_en and time_en else ""
+
+
+def _parse_availability(cell) -> set[str]:
+    """
+    Normalize both historical comma-separated values and current grid answers.
+
+    Current A1 grid answers are stored as JSON such as:
+    [{"row": "Tarde", "value": "martes", "label": "Martes"}]
+    """
     if not cell:
         return set()
-    return {x.strip().lower() for x in str(cell).split(",") if x.strip()}
+
+    parsed = cell
+    if isinstance(cell, str):
+        raw_cell = cell.strip()
+        if raw_cell.startswith(("[", "{")):
+            try:
+                parsed = json.loads(raw_cell)
+            except (TypeError, ValueError):
+                parsed = cell
+
+    out = set()
+    if isinstance(parsed, dict):
+        parsed = [parsed]
+    if isinstance(parsed, list):
+        for item in parsed:
+            if not isinstance(item, dict):
+                continue
+            time_of_day = item.get("row") or item.get("time") or item.get("time_of_day")
+            for day in (item.get("value"), item.get("label"), item.get("day"), item.get("column")):
+                slot = _canonical_availability_slot(day, time_of_day)
+                if slot:
+                    out.add(slot)
+                    break
+        return out
+
+    for raw in str(parsed).split(","):
+        token = _availability_word(raw)
+        if not token or "_" not in token:
+            continue
+        first, second = token.split("_", 1)
+        slot = (
+            _canonical_availability_slot(first, second)
+            or _canonical_availability_slot(second, first)
+        )
+        if slot:
+            out.add(slot)
+    return out
+
+
+def _parse_emp_availability(cell: str) -> set[str]:
+    return _parse_availability(cell)
 
 
 def _parse_mentor_availability(cell: str) -> set[str]:
-    # expected: "martes_manana, viernes_noche"
-    if not cell:
-        return set()
-    out = set()
-    for raw in str(cell).split(","):
-        tok = raw.strip().lower()
-        if not tok or "_" not in tok:
-            continue
-        day_es, time_es = tok.split("_", 1)
-        day_es = day_es.strip()
-        time_es = time_es.strip()
-
-        day_en = DAY_MAP_ES_TO_EN.get(day_es)
-        time_en = TIME_MAP_ES_TO_EN.get(time_es)
-        if day_en and time_en:
-            out.add(f"{day_en}_{time_en}")
-    return out
+    return _parse_availability(cell)
 
 
 def _business_age_bucket_to_min_years(emp_val: str) -> int:
@@ -1706,6 +1770,36 @@ def _pair_one_group(
     emp_question_cols = [c for c in emp_df.columns if c not in ID_COLS]
     mentor_question_cols = [c for c in mentor_df.columns if c not in ID_COLS]
 
+    availability_rule = next(
+        (
+            rule
+            for rule in pairing_config.priority_rules
+            if rule.get("comparison_type") == "availability_overlap"
+        ),
+        {},
+    )
+    emp_availability_slug = (
+        availability_rule.get("emprendedora_question_slug") or "preferred_schedule"
+    )
+    mentor_availability_slug = (
+        availability_rule.get("mentora_question_slug") or "availability_grid"
+    )
+    if log_fn:
+        log_fn(
+            "🗓️ Availability fields: "
+            f"emprendedora={emp_availability_slug}, mentora={mentor_availability_slug}"
+        )
+        if emp_availability_slug not in emp_question_cols:
+            log_fn(
+                f"⚠️ Emprendedora availability field '{emp_availability_slug}' "
+                f"is not present in {emp_slug}."
+            )
+        if mentor_availability_slug not in mentor_question_cols:
+            log_fn(
+                f"⚠️ Mentora availability field '{mentor_availability_slug}' "
+                f"is not present in {mentor_slug}."
+            )
+
     emp_suffix_headers = [f"{c}_emprendedora" for c in emp_question_cols]
     mentor_suffix_headers = [f"{c}_mentora" for c in mentor_question_cols]
     extra_ai_headers = [
@@ -1792,12 +1886,16 @@ def _pair_one_group(
     emp_av = {}
     for _, r in emp_df.iterrows():
         email = str(_row_get(r, "email", "")).strip().lower()
-        emp_av[email] = _parse_emp_availability(_row_get(r, "preferred_schedule", ""))
+        emp_av[email] = _parse_emp_availability(
+            _row_get(r, emp_availability_slug, "")
+        )
 
     mentor_av = {}
     for _, r in mentor_df.iterrows():
         email = str(_row_get(r, "email", "")).strip().lower()
-        mentor_av[email] = _parse_mentor_availability(_row_get(r, "availability_grid", ""))
+        mentor_av[email] = _parse_mentor_availability(
+            _row_get(r, mentor_availability_slug, "")
+        )
 
     # Build mentor lookup by email (safe even if duplicates exist)
     mentor_rows_by_email = {}

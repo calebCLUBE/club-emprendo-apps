@@ -2299,11 +2299,15 @@ class GradingAndPairingConfigEditorTests(TestCase):
         self.assertEqual(result.iloc[0]["business_age_matching"], "mentor_max=10 >= emp_min=1")
         self.assertEqual(
             result.iloc[0]["expertise_growth_matching"],
-            "Their responses align on growth and sales for expertise and growth.",
+            "Expertise and growth comparison — Entrepreneur: Normalized participant "
+            "themes; Mentor: Normalized participant themes. "
+            "Specific overlap: growth and sales.",
         )
         self.assertEqual(
             result.iloc[0]["motivation_challenge_match"],
-            "Their responses align on customers and marketing for motivation and challenge.",
+            "Motivation and challenge comparison — Entrepreneur: Normalized participant "
+            "themes; Mentor: Normalized participant themes. "
+            "Specific overlap: customers and marketing.",
         )
         self.assertEqual(mock_dataset_summary.call_count, 1)
         profile_inputs = mock_dataset_summary.call_args.args[1]
@@ -2447,21 +2451,42 @@ class GradingAndPairingConfigEditorTests(TestCase):
 
         self.assertIn("marketing-digital", tags[:4])
 
-    def test_pairing_explanation_hides_internal_fallback_tags(self):
+    def test_pairing_explanation_compares_actual_answers_during_local_fallback(self):
         from applications.admin_views import _pairing_match_explanation
 
         explanation = _pairing_match_explanation(
             "Motivation and challenge",
             [],
+            entrepreneur_summary=(
+                "Prompt-guided local themes: acompanada-herramientas, "
+                "falta-presupuesto"
+            ),
+            mentor_summary="Prompt-guided local themes: compartir-inspirar",
+            entrepreneur_response=(
+                "Necesito herramientas y presupuesto para sentirme acompañada."
+            ),
+            mentor_response=(
+                "Me encanta compartir mi experiencia e inspirar a otras personas."
+            ),
         )
 
         self.assertEqual(
             explanation,
-            "No clear match was found between their responses for "
-            "motivation and challenge.",
+            "Motivation and challenge comparison — Entrepreneur: Necesito herramientas "
+            "y presupuesto para sentirme acompañada; Mentor: Me encanta compartir mi "
+            "experiencia e inspirar a otras personas. "
+            "No specific overlap was identified for this criterion.",
         )
         self.assertNotIn("Prompt-guided local themes", explanation)
         self.assertNotIn("|", explanation)
+
+    def test_pairing_explanation_ignores_generic_shared_theme(self):
+        from applications.admin_views import _normalize_pairing_tags
+
+        self.assertEqual(
+            _normalize_pairing_tags(["parte", "customer-acquisition"]),
+            ["customer-acquisition"],
+        )
 
 
 class HelpTextFormattingTests(TestCase):

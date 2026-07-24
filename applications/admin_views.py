@@ -1641,7 +1641,9 @@ PAIRING_SUMMARY_STOP_WORDS = {
     "tengo", "quiero", "puedo", "ayudar", "apoyar", "mujeres", "emprendedoras",
     "negocio", "negocios", "empresa", "empresas", "experiencia", "programa",
     "mentor", "mentora", "mentoria", "the", "and", "with", "from", "that",
-    "this", "have", "help", "business", "entrepreneur", "mentor",
+    "this", "have", "help", "business", "entrepreneur", "mentor", "parte",
+    "algo", "algun", "alguna", "momento", "mucho", "muchisimo", "varias",
+    "veces", "hacer", "hacia", "sido", "seria",
 }
 
 
@@ -1691,33 +1693,79 @@ def _normalize_pairing_tags(values) -> list[str]:
     seen = set()
     for value in values or []:
         tag = re.sub(r"[^a-z0-9]+", "-", _availability_word(value)).strip("-")
-        if not tag or tag in seen:
+        tag_words = set(tag.split("-"))
+        if (
+            not tag
+            or tag in seen
+            or not tag_words.difference(PAIRING_SUMMARY_STOP_WORDS)
+        ):
             continue
         seen.add(tag)
         out.append(tag)
     return out[:8]
 
 
-def _pairing_match_explanation(label: str, shared_tags: list[str]) -> str:
+def _pairing_explanation_text(
+    summary: str,
+    response: str,
+    limit: int = 240,
+) -> str:
+    clean_summary = " ".join(str(summary or "").split())
+    clean_response = " ".join(str(response or "").split())
+    if (
+        not clean_summary
+        or clean_summary.lower().startswith("prompt-guided local themes:")
+    ):
+        text = clean_response
+    else:
+        text = clean_summary
+    text = text.strip(" \t\r\n.;")
+    if not text:
+        return "No response was available"
+    if len(text) <= limit:
+        return text
+    shortened = text[: limit + 1].rsplit(" ", 1)[0].rstrip(" ,;:")
+    return (shortened or text[:limit].rstrip()) + "…"
+
+
+def _pairing_match_explanation(
+    label: str,
+    shared_tags: list[str],
+    entrepreneur_summary: str = "",
+    mentor_summary: str = "",
+    entrepreneur_response: str = "",
+    mentor_response: str = "",
+) -> str:
     criterion = " ".join(str(label or "this criterion").split()).strip()
-    if not shared_tags:
-        return (
-            "No clear match was found between their responses for "
-            f"{criterion.lower()}."
-        )
+    entrepreneur_text = _pairing_explanation_text(
+        entrepreneur_summary,
+        entrepreneur_response,
+    )
+    mentor_text = _pairing_explanation_text(
+        mentor_summary,
+        mentor_response,
+    )
 
     readable_tags = [
         " ".join(str(tag).replace("-", " ").split())
         for tag in shared_tags[:3]
         if str(tag).strip()
     ]
-    if len(readable_tags) == 1:
+    if not readable_tags:
+        overlap = "No specific overlap was identified for this criterion."
+    elif len(readable_tags) == 1:
         themes = readable_tags[0]
+        overlap = f"Specific overlap: {themes}."
     elif len(readable_tags) == 2:
         themes = " and ".join(readable_tags)
+        overlap = f"Specific overlap: {themes}."
     else:
         themes = ", ".join(readable_tags[:-1]) + f", and {readable_tags[-1]}"
-    return f"Their responses align on {themes} for {criterion.lower()}."
+        overlap = f"Specific overlap: {themes}."
+    return (
+        f"{criterion} comparison — Entrepreneur: {entrepreneur_text}; "
+        f"Mentor: {mentor_text}. {overlap}"
+    )
 
 
 def _llm_dataset_pairing_profiles(
@@ -1743,7 +1791,9 @@ def _llm_dataset_pairing_profiles(
         "'cash-flow-planning'. Avoid broad tags such as 'business', 'growth', "
         "'support', 'experience', or 'motivation' unless the configured prompt "
         "specifically requires them. Reuse identical tags for genuinely related "
-        "mentor capabilities and entrepreneur needs.\n"
+        "mentor capabilities and entrepreneur needs. Also write one concise, concrete "
+        "summary sentence for each response that explains the participant's relevant "
+        "need or capability using the configured criterion; do not merely list tags.\n"
         "The placeholders {{ mentor_text }} and {{ entrepreneur_text }} in a criterion "
         "prompt describe the two roles. Each dataset entry identifies which role its "
         "single response belongs to. Do not score or pair people in this request.\n"
@@ -2396,6 +2446,16 @@ def _pair_one_group(
                 explanation = _pairing_match_explanation(
                     item.get("label") or f"comparison {comparison_index}",
                     shared_tags,
+                    entrepreneur_summary=entrepreneur_profile.get("summary") or "",
+                    mentor_summary=mentor_profile.get("summary") or "",
+                    entrepreneur_response=profile_text_by_key.get(
+                        (f"E:{entrepreneur_email}", comparison_index),
+                        "",
+                    ),
+                    mentor_response=profile_text_by_key.get(
+                        (f"M:{mentor_email}", comparison_index),
+                        "",
+                    ),
                 )
 
                 result["ai_scores"][f"ai:{comparison_index - 1}"] = ai_score

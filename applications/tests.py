@@ -2238,26 +2238,34 @@ class GradingAndPairingConfigEditorTests(TestCase):
         )
         logs = []
 
-        def score_in_one_batch(_client, candidates, **_kwargs):
-            return {
-                (candidate["candidate_id"], comparison["index"]): (
-                    (
-                        5
-                        if "product companies" in comparison["mentor_response"]
-                        else 3
-                    ),
-                    "Compatible schedules.",
-                )
-                for candidate in candidates
-                for comparison in candidate["comparisons"]
-            }
+        def summarize_dataset_once(_client, participants, **_kwargs):
+            profiles = {}
+            for participant in participants:
+                participant_id = participant["participant_id"]
+                is_best_mentor = participant_id == f"M:{lower_priority_mentor.email}"
+                is_entrepreneur = participant_id == f"E:{entrepreneur.email}"
+                for comparison in participant["comparisons"]:
+                    index = comparison["index"]
+                    if is_entrepreneur or is_best_mentor:
+                        tags = (
+                            ["growth", "sales"]
+                            if index == 1
+                            else ["customers", "marketing"]
+                        )
+                    else:
+                        tags = ["operations", "leadership"]
+                    profiles[(participant_id, index)] = {
+                        "tags": tags,
+                        "summary": "Normalized participant themes.",
+                    }
+            return profiles
 
         with override_settings(OPENAI_API_KEY="test-key"), patch(
             "applications.admin_views.OpenAI"
         ), patch(
-            "applications.admin_views._llm_batch_fit_scores",
-            side_effect=score_in_one_batch,
-        ) as mock_batch:
+            "applications.admin_views._llm_dataset_pairing_profiles",
+            side_effect=summarize_dataset_once,
+        ) as mock_dataset_summary:
             result = _pair_one_group(
                 group_num=group.number,
                 emp_emails=[entrepreneur.email],
@@ -2281,14 +2289,20 @@ class GradingAndPairingConfigEditorTests(TestCase):
         self.assertEqual(result.iloc[0]["mentora_industry"], "products")
         self.assertEqual(result.iloc[0]["matching_country"], "none")
         self.assertEqual(result.iloc[0]["business_age_matching"], "mentor_max=10 >= emp_min=1")
-        self.assertEqual(result.iloc[0]["expertise_growth_matching"], "Compatible schedules.")
-        self.assertEqual(result.iloc[0]["motivation_challenge_match"], "Compatible schedules.")
-        self.assertEqual(mock_batch.call_count, 1)
-        batch_candidates = mock_batch.call_args.args[1]
-        self.assertEqual(len(batch_candidates), 3)
         self.assertEqual(
-            sum(len(candidate["comparisons"]) for candidate in batch_candidates),
-            6,
+            result.iloc[0]["expertise_growth_matching"],
+            "Shared summarized themes: growth, sales",
+        )
+        self.assertEqual(
+            result.iloc[0]["motivation_challenge_match"],
+            "Shared summarized themes: customers, marketing",
+        )
+        self.assertEqual(mock_dataset_summary.call_count, 1)
+        profile_inputs = mock_dataset_summary.call_args.args[1]
+        self.assertEqual(len(profile_inputs), 4)
+        self.assertEqual(
+            sum(len(participant["comparisons"]) for participant in profile_inputs),
+            8,
         )
         self.assertTrue(
             any(
@@ -2308,7 +2322,7 @@ class GradingAndPairingConfigEditorTests(TestCase):
         )
         self.assertTrue(
             any(
-                "1 bounded AI batch(es) for 3 candidate(s) and 6 comparison(s)"
+                "Summarizing AI answers once for 4 participants before pairing"
                 in message
                 for message in logs
             ),
@@ -2337,101 +2351,60 @@ class GradingAndPairingConfigEditorTests(TestCase):
             {"mon_morning"},
         )
 
-    def test_batched_pairing_ai_parses_all_candidate_scores_from_one_request(self):
-        import threading
-        import time
-
-        from applications.admin_views import _llm_batch_fit_scores
+    def test_dataset_pairing_ai_summarizes_everyone_in_one_request(self):
+        from applications.admin_views import _llm_dataset_pairing_profiles
 
         client = Mock()
         client.chat.completions.create.return_value = SimpleNamespace(
             choices=[SimpleNamespace(message=SimpleNamespace(content=json.dumps({
-                "results": [
+                "profiles": [
                     {
-                        "candidate_id": "0",
+                        "participant_id": "E:founder@example.com",
                         "comparisons": [
-                            {"index": 1, "score": 4, "reasoning": "Strong expertise fit."},
-                            {"index": 2, "score": 3, "reasoning": "Useful motivation fit."},
+                            {
+                                "index": 1,
+                                "tags": ["Sales", "Digital Marketing"],
+                                "summary": "Needs help growing sales.",
+                            },
                         ],
                     },
                     {
-                        "candidate_id": "1",
+                        "participant_id": "M:mentor@example.com",
                         "comparisons": [
-                            {"index": 1, "score": 2, "reasoning": "Partial expertise fit."},
-                            {"index": 2, "score": 5, "reasoning": "Excellent challenge fit."},
+                            {
+                                "index": 1,
+                                "tags": ["sales", "digital-marketing"],
+                                "summary": "Experienced in sales growth.",
+                            },
                         ],
                     },
                 ],
             })))]
         )
-        candidates = [
+        participants = [
             {
-                "candidate_id": "0",
-                "comparisons": [
-                    {
-                        "index": 1,
-                        "label": "Expertise",
-                        "mentor_response": "Sales experience",
-                        "entrepreneur_response": "Needs sales help",
-                    },
-                ],
+                "participant_id": "E:founder@example.com",
+                "role": "entrepreneur",
+                "comparisons": [{"index": 1, "response": "I need more sales."}],
             },
             {
-                "candidate_id": "1",
-                "comparisons": [
-                    {
-                        "index": 1,
-                        "label": "Expertise",
-                        "mentor_response": "Marketing experience",
-                        "entrepreneur_response": "Needs sales help",
-                    },
-                ],
+                "participant_id": "M:mentor@example.com",
+                "role": "mentor",
+                "comparisons": [{"index": 1, "response": "I grow online sales."}],
             },
         ]
 
-        result = _llm_batch_fit_scores(client, candidates)
+        result = _llm_dataset_pairing_profiles(client, participants)
 
-        self.assertEqual(result[("0", 1)], (4, "Strong expertise fit."))
-        self.assertEqual(result[("0", 2)], (3, "Useful motivation fit."))
-        self.assertEqual(result[("1", 1)], (2, "Partial expertise fit."))
-        self.assertEqual(result[("1", 2)], (5, "Excellent challenge fit."))
+        self.assertEqual(
+            result[("E:founder@example.com", 1)]["tags"],
+            ["sales", "digital-marketing"],
+        )
+        self.assertEqual(
+            result[("M:mentor@example.com", 1)]["tags"],
+            ["sales", "digital-marketing"],
+        )
         client.chat.completions.create.assert_called_once()
-
-        failing_client = Mock()
-        failing_client.chat.completions.create.side_effect = TimeoutError("provider timeout")
-        errors = []
-        failed_result = _llm_batch_fit_scores(
-            failing_client,
-            candidates,
-            error_callback=errors.append,
-        )
-
-        self.assertEqual(failed_result, {})
-        failing_client.chat.completions.create.assert_called_once()
-        self.assertIn("provider timeout", errors[0])
-
-        hanging_client = Mock()
-        release_hanging_request = threading.Event()
-        hanging_client.chat.completions.create.side_effect = (
-            lambda **_kwargs: release_hanging_request.wait(1)
-        )
-        hard_timeout_errors = []
-        started_at = time.monotonic()
-        with patch.dict(
-            "os.environ",
-            {"PAIRING_AI_WALL_TIMEOUT_SECONDS": "0.05"},
-        ):
-            timed_out_result = _llm_batch_fit_scores(
-                hanging_client,
-                candidates,
-                error_callback=hard_timeout_errors.append,
-            )
-        elapsed = time.monotonic() - started_at
-        release_hanging_request.set()
-
-        self.assertEqual(timed_out_result, {})
-        self.assertLess(elapsed, 0.5)
-        self.assertIn("exceeded the 0.05-second pairing deadline", hard_timeout_errors[0])
 
 
 class HelpTextFormattingTests(TestCase):

@@ -8,7 +8,7 @@ import queue
 import re
 import zipfile
 import unicodedata
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from collections import Counter
 from typing import List, Tuple
 from urllib.parse import urlparse
 from xml.sax.saxutils import escape
@@ -1635,114 +1635,62 @@ def _safe_lower(x):
     return (x or "").strip().lower()
 
 
-def _render_pairing_prompt(template: str, *, label: str, mentor_text: str, entrepreneur_text: str) -> str:
-    return (
-        (template or "")
-        .replace("{{ label }}", label or "")
-        .replace("{{ mentor_text }}", mentor_text or "")
-        .replace("{{ entrepreneur_text }}", entrepreneur_text or "")
+PAIRING_SUMMARY_STOP_WORDS = {
+    "para", "como", "con", "que", "una", "uno", "unos", "unas", "por", "del",
+    "las", "los", "esta", "este", "esto", "desde", "sobre", "entre", "tambien",
+    "tengo", "quiero", "puedo", "ayudar", "apoyar", "mujeres", "emprendedoras",
+    "negocio", "negocios", "empresa", "empresas", "experiencia", "programa",
+    "mentor", "mentora", "mentoria", "the", "and", "with", "from", "that",
+    "this", "have", "help", "business", "entrepreneur", "mentor",
+}
+
+
+def _pairing_local_summary_tags(text: str, limit: int = 8) -> list[str]:
+    normalized = _availability_word(text)
+    words = re.findall(r"[a-z0-9]+", normalized)
+    counts = Counter(
+        word
+        for word in words
+        if len(word) >= 4 and word not in PAIRING_SUMMARY_STOP_WORDS
     )
+    return [word for word, _count in counts.most_common(limit)]
 
 
-def _llm_fit_score(
+def _normalize_pairing_tags(values) -> list[str]:
+    out = []
+    seen = set()
+    for value in values or []:
+        tag = re.sub(r"[^a-z0-9]+", "-", _availability_word(value)).strip("-")
+        if not tag or tag in seen:
+            continue
+        seen.add(tag)
+        out.append(tag)
+    return out[:8]
+
+
+def _llm_dataset_pairing_profiles(
     client: OpenAI,
-    mentor_text: str,
-    emp_text: str,
-    label: str,
-    prompt_template: str = "",
+    participants: list[dict],
     model_name: str = "",
     error_callback=None,
-) -> tuple[int, str]:
-    mentor_text = mentor_text or ""
-    emp_text = emp_text or ""
-
-    if not mentor_text.strip() or not emp_text.strip():
-        return 0, "none"
-
-    prompt = _render_pairing_prompt(
-        prompt_template,
-        label=label,
-        mentor_text=mentor_text,
-        entrepreneur_text=emp_text,
-    )
-    if not prompt.strip():
-        prompt = f"""
-You are matching a mentor with an entrepreneur for a program.
-Task: Rate how well the mentor’s text can help the entrepreneur’s needs.
-
-Label: {label}
-
-Mentor text:
-\"\"\"{mentor_text}\"\"\"
-
-Entrepreneur text:
-\"\"\"{emp_text}\"\"\"
-
-Output EXACTLY:
-Score: <0-5>
-Reasoning: <2-3 sentences, concise, in English>
-"""
-
-    # Keep this under your gunicorn timeout pressure
-    REQUEST_TIMEOUT = 20
-    MAX_TRIES = 2
-
-    last_err = None
-    for attempt in range(1, MAX_TRIES + 1):
-        try:
-            r = client.chat.completions.create(
-                model=(model_name or "gpt-5.2"),
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0,
-                timeout=REQUEST_TIMEOUT,
-            )
-            content = (r.choices[0].message.content or "").strip()
-
-            score = 0
-            reasoning = "none"
-            for line in content.splitlines():
-                if line.startswith("Score:"):
-                    try:
-                        score = int(line.split(":", 1)[1].strip())
-                    except Exception:
-                        score = 0
-                elif line.startswith("Reasoning:"):
-                    reasoning = line.split(":", 1)[1].strip() or "none"
-
-            score = max(0, min(5, score))
-            if score == 0:
-                reasoning = "none"
-            return score, reasoning
-
-        except Exception as e:
-            last_err = e
-            # small backoff
-            time.sleep(0.5 * attempt)
-
-    logger.error("LLM fit scoring failed (label=%s). Last error: %s", label, last_err)
-    if error_callback:
-        error_callback(f"{label}: {last_err}")
-    return 0, "none"
-
-
-def _llm_batch_fit_scores(
-    client: OpenAI,
-    candidates: list[dict],
-    model_name: str = "",
-    error_callback=None,
-) -> dict[tuple[str, int], tuple[int, str]]:
-    """Score every tied mentor candidate for one entrepreneur in one API call."""
-    if not candidates:
+) -> dict[tuple[str, int], dict]:
+    """Summarize every AI-relevant answer once using a shared tag vocabulary."""
+    if not participants:
         return {}
 
     prompt = (
-        "You are matching mentors with one entrepreneur for a mentoring program.\n"
-        "Evaluate every comparison independently. Scores are integers from 0 to 5.\n"
-        "Return JSON only, with this exact shape:\n"
-        '{"results":[{"candidate_id":"0","comparisons":'
-        '[{"index":1,"score":4,"reasoning":"Concise explanation"}]}]}\n\n'
-        "Candidates and comparisons:\n"
-        + json.dumps(candidates, ensure_ascii=False)
+        "You are preparing mentor-to-entrepreneur matching data.\n"
+        "For every participant and comparison, summarize the response into 3-8 "
+        "short English theme tags. Reuse the same tags across the entire dataset "
+        "when answers have related meanings, so tags can be compared locally. "
+        "Use each comparison label and instructions to decide which themes matter. "
+        "Do not score or pair people.\n"
+        "Return JSON only in this shape:\n"
+        '{"profiles":[{"participant_id":"E:email","comparisons":'
+        '[{"index":1,"tags":["sales","digital-marketing"],'
+        '"summary":"Needs help increasing online sales."}]}]}\n\n'
+        "Dataset:\n"
+        + json.dumps(participants, ensure_ascii=False)
     )
 
     def make_request():
@@ -1750,29 +1698,28 @@ def _llm_batch_fit_scores(
             model=(model_name or "gpt-5.2"),
             messages=[{"role": "user", "content": prompt}],
             temperature=0,
-            timeout=25,
+            timeout=50,
         )
         content = (response.choices[0].message.content or "").strip()
         if content.startswith("```"):
             content = re.sub(r"^```(?:json)?\s*", "", content, flags=re.IGNORECASE)
             content = re.sub(r"\s*```$", "", content)
         payload = json.loads(content)
-        scores = {}
-        for candidate in payload.get("results") or []:
-            candidate_id = str(candidate.get("candidate_id", ""))
-            for comparison in candidate.get("comparisons") or []:
+        profiles = {}
+        for participant in payload.get("profiles") or []:
+            participant_id = str(participant.get("participant_id") or "").strip()
+            for comparison in participant.get("comparisons") or []:
                 index = int(comparison.get("index") or 0)
-                if not candidate_id or index <= 0:
+                tags = _normalize_pairing_tags(comparison.get("tags"))
+                if not participant_id or index <= 0 or not tags:
                     continue
-                score = max(0, min(5, int(comparison.get("score") or 0)))
-                reasoning = str(comparison.get("reasoning") or "").strip() or "none"
-                scores[(candidate_id, index)] = (
-                    score,
-                    reasoning if score > 0 else "none",
-                )
-        if not scores:
-            raise ValueError("AI batch response contained no usable scores")
-        return scores
+                profiles[(participant_id, index)] = {
+                    "tags": tags,
+                    "summary": str(comparison.get("summary") or "").strip(),
+                }
+        if not profiles:
+            raise ValueError("AI dataset summary contained no usable profiles")
+        return profiles
 
     result_queue = queue.Queue(maxsize=1)
 
@@ -1782,28 +1729,20 @@ def _llm_batch_fit_scores(
         except Exception as exc:
             result_queue.put(("error", exc))
 
-    try:
-        wall_timeout = float(os.getenv("PAIRING_AI_WALL_TIMEOUT_SECONDS", "30"))
-    except (TypeError, ValueError):
-        wall_timeout = 30.0
-    wall_timeout = max(0.05, min(30.0, wall_timeout))
     request_thread = threading.Thread(target=request_worker, daemon=True)
     request_thread.start()
-    request_thread.join(wall_timeout)
-
+    request_thread.join(60)
     if request_thread.is_alive():
-        last_err = TimeoutError(
-            f"AI request exceeded the {wall_timeout:g}-second pairing deadline"
-        )
+        last_err = TimeoutError("AI dataset summary exceeded the 60-second deadline")
     else:
         status, payload = result_queue.get_nowait()
         if status == "success":
             return payload
         last_err = payload
 
-    logger.error("Batched LLM pairing failed. Error: %s", last_err)
+    logger.error("Dataset AI pairing summary failed. Error: %s", last_err)
     if error_callback:
-        error_callback(f"Batched AI scoring: {last_err}")
+        error_callback(f"Dataset AI summary: {last_err}")
     return {}
 
 
@@ -1893,7 +1832,6 @@ def _pair_one_group(
       - _safe_lower(x)
       - _business_age_bucket_to_min_years(emp_val)
       - _mentor_years_to_max_years(mentor_val)
-      - _llm_fit_score(client, mentor_text, emp_text, label)
       - PAIR_HEADERS
     """
 
@@ -2075,14 +2013,15 @@ def _pair_one_group(
     if log_fn:
         log_fn(f"🚦 Starting pairing loop for {len(emp_df)} emprendedoras vs {len(mentor_df)} mentoras.")
 
-    # ALWAYS use OpenAI
     api_key = os.getenv("OPENAI_API_KEY") or getattr(settings, "OPENAI_API_KEY", None)
-    if not api_key:
-        raise RuntimeError("OPENAI_API_KEY not set (required for pairing).")
-    client = OpenAI(
-        api_key=api_key,
-        max_retries=0,
-        timeout=10,
+    client = (
+        OpenAI(
+            api_key=api_key,
+            max_retries=0,
+            timeout=50,
+        )
+        if api_key
+        else None
     )
 
     # Precompute availability (keyed by normalized email)
@@ -2114,8 +2053,6 @@ def _pair_one_group(
         "populated": 0,
         "nonzero": 0,
         "errors": [],
-        "disabled": False,
-        "consecutive_failures": 0,
     }
 
     priority_rules = sorted(
@@ -2163,9 +2100,93 @@ def _pair_one_group(
             )
         )
         log_fn(
-            "🤖 AI criteria run when multiple mentors remain at their position "
-            "in the strict weight order."
+            "🤖 AI-relevant answers are summarized once before pairing; "
+            "all row-by-row compatibility scoring is local."
         )
+
+    profile_inputs = []
+    profile_text_by_key = {}
+    for track, dataframe in (("E", emp_df), ("M", mentor_df)):
+        for _, row in dataframe.iterrows():
+            email = str(_row_get(row, "email", "")).strip().lower()
+            if not email:
+                continue
+            participant_id = f"{track}:{email}"
+            comparisons = []
+            for comparison_index, item in enumerate(ai_comparisons, start=1):
+                slug = (
+                    item.get("emprendedora_question_slug")
+                    if track == "E"
+                    else item.get("mentora_question_slug")
+                ) or ""
+                text = str(_row_get(row, slug, "") or "").strip()
+                if not text:
+                    continue
+                # Bound the one-time request while preserving the substance of
+                # long application answers.
+                text = text[:900]
+                profile_text_by_key[(participant_id, comparison_index)] = text
+                comparisons.append({
+                    "index": comparison_index,
+                    "label": item.get("label") or f"Comparison {comparison_index}",
+                    "instructions": str(item.get("prompt") or "")[:1000],
+                    "response": text,
+                })
+            if comparisons:
+                profile_inputs.append({
+                    "participant_id": participant_id,
+                    "role": "entrepreneur" if track == "E" else "mentor",
+                    "comparisons": comparisons,
+                })
+
+    ai_profiles = {}
+    if profile_inputs and client:
+        if log_fn:
+            log_fn(
+                f"⏳ Summarizing AI answers once for {len(profile_inputs)} "
+                "participants before pairing."
+            )
+        summary_started_at = time.monotonic()
+
+        def record_dataset_error(message):
+            if len(ai_diagnostics["errors"]) < 5:
+                ai_diagnostics["errors"].append(str(message))
+
+        ai_profiles = _llm_dataset_pairing_profiles(
+            client,
+            profile_inputs,
+            model_name=pairing_config.model_name,
+            error_callback=record_dataset_error,
+        )
+        if log_fn:
+            log_fn(
+                f"⚡ Dataset AI summary finished in "
+                f"{time.monotonic() - summary_started_at:.1f}s."
+            )
+    elif profile_inputs and log_fn:
+        log_fn(
+            "⚠️ OPENAI_API_KEY is unavailable. Using local keyword summaries "
+            "for this run."
+        )
+
+    ai_profile_source = "AI"
+    local_profile_count = 0
+    for profile_key, text in profile_text_by_key.items():
+        if profile_key in ai_profiles:
+            continue
+        tags = _pairing_local_summary_tags(text)
+        ai_profiles[profile_key] = {
+            "tags": tags,
+            "summary": "Local keyword summary: " + ", ".join(tags),
+        }
+        local_profile_count += 1
+    if local_profile_count:
+        ai_profile_source = "AI with local fallback" if client else "local fallback"
+        if log_fn:
+            log_fn(
+                f"🧭 Generated {local_profile_count} local fallback profile(s); "
+                "pairing will continue without additional AI calls."
+            )
 
     def score_pair_base(emp_row, mentor_row):
         """
@@ -2245,10 +2266,10 @@ def _pair_one_group(
         return standard_metrics, score, matches
 
     def score_top_candidates_with_ai(emp_row, candidates):
-        """
-        Score all tied standard-rule winners in one API request. Assignment remains
-        sequential outside this function, so mentors cannot be selected twice.
-        """
+        """Score candidate compatibility locally from the one-time profiles."""
+        entrepreneur_email = str(
+            _row_get(emp_row, "email", "")
+        ).strip().lower()
         results = [
             {
                 "score": base_score,
@@ -2259,130 +2280,48 @@ def _pair_one_group(
             }
             for base_score, mentor_email, mentor_row, base_matches in candidates
         ]
-        batch_candidates = []
         for candidate_index, candidate in enumerate(candidates):
-            _base_score, _mentor_email, mentor_row, _base_matches = candidate
-            comparisons = []
-            for comparison_index, item in enumerate(
-                ai_comparisons,
-                start=1,
-            ):
-                mentor_text = _row_get(
-                    mentor_row,
-                    item.get("mentora_question_slug") or "",
-                    "",
+            _base_score, mentor_email, _mentor_row, _base_matches = candidate
+            result = results[candidate_index]
+            for comparison_index, item in enumerate(ai_comparisons, start=1):
+                entrepreneur_profile = ai_profiles.get(
+                    (f"E:{entrepreneur_email}", comparison_index),
+                    {},
                 )
-                entrepreneur_text = _row_get(
-                    emp_row,
-                    item.get("emprendedora_question_slug") or "",
-                    "",
+                mentor_profile = ai_profiles.get(
+                    (f"M:{mentor_email}", comparison_index),
+                    {},
                 )
-                if not (
-                    str(mentor_text or "").strip()
-                    and str(entrepreneur_text or "").strip()
-                ):
-                    continue
-                ai_diagnostics["populated"] += 1
-                label = item.get("label") or f"Comparison {comparison_index}"
-                instructions = _render_pairing_prompt(
-                    item.get("prompt") or (
-                        "Rate how well the mentor response can help the "
-                        "entrepreneur response for this criterion."
-                    ),
-                    label=label,
-                    mentor_text=mentor_text,
-                    entrepreneur_text=entrepreneur_text,
-                )
-                comparisons.append({
-                    "index": comparison_index,
-                    "label": label,
-                    "instructions": instructions,
-                    "mentor_response": mentor_text,
-                    "entrepreneur_response": entrepreneur_text,
-                })
-            if comparisons:
-                batch_candidates.append({
-                    "candidate_id": str(candidate_index),
-                    "comparisons": comparisons,
-                })
-
-        def record_ai_error(message):
-            if len(ai_diagnostics["errors"]) < 5:
-                ai_diagnostics["errors"].append(str(message))
-
-        if batch_candidates and not ai_diagnostics["disabled"]:
-            started_at = time.monotonic()
-            chunk_size = 6
-            candidate_chunks = [
-                batch_candidates[start:start + chunk_size]
-                for start in range(0, len(batch_candidates), chunk_size)
-            ]
-            if log_fn:
-                comparison_count = sum(
-                    len(candidate["comparisons"])
-                    for candidate in batch_candidates
-                )
-                log_fn(
-                    f"⏳ Sending {len(candidate_chunks)} bounded AI batch(es) for "
-                    f"{len(batch_candidates)} candidate(s) and "
-                    f"{comparison_count} comparison(s)."
-                )
-            batch_scores = {}
-            worker_count = min(3, len(candidate_chunks))
-            with ThreadPoolExecutor(max_workers=worker_count) as executor:
-                futures = [
-                    executor.submit(
-                        _llm_batch_fit_scores,
-                        client,
-                        chunk,
-                        model_name=pairing_config.model_name,
-                        error_callback=record_ai_error,
+                entrepreneur_tags = set(entrepreneur_profile.get("tags") or [])
+                mentor_tags = set(mentor_profile.get("tags") or [])
+                shared_tags = sorted(entrepreneur_tags.intersection(mentor_tags))
+                if entrepreneur_tags and mentor_tags:
+                    ai_diagnostics["populated"] += 1
+                    denominator = max(
+                        1,
+                        min(len(entrepreneur_tags), len(mentor_tags)),
                     )
-                    for chunk in candidate_chunks
-                ]
-                for future in as_completed(futures):
-                    batch_scores.update(future.result())
+                    ai_score = min(
+                        5,
+                        round(5 * len(shared_tags) / denominator),
+                    )
+                else:
+                    ai_score = 0
 
-            if batch_scores:
-                ai_diagnostics["consecutive_failures"] = 0
-            else:
-                ai_diagnostics["consecutive_failures"] += 1
-                if ai_diagnostics["consecutive_failures"] >= 2:
-                    ai_diagnostics["disabled"] = True
+                if ai_score > 0:
+                    ai_diagnostics["nonzero"] += 1
+                    explanation = "Shared summarized themes: " + ", ".join(shared_tags)
+                else:
+                    explanation = "none"
 
-            if log_fn:
-                log_fn(f"⚡ AI batch finished in {time.monotonic() - started_at:.1f}s.")
-                if ai_diagnostics["disabled"]:
-                    log_fn(
-                        "⚠️ AI scoring failed for two consecutive pairing steps. "
-                        "AI is disabled for the rest of this run; matching will "
-                        "continue with the remaining weighted criteria."
-                    )
-                elif not batch_scores:
-                    log_fn(
-                        "⚠️ This AI scoring step failed. Pairing will continue "
-                        "and AI will be tried once more on the next applicable pair."
-                    )
-
-            for candidate_index, _candidate in enumerate(candidates):
-                result = results[candidate_index]
-                for comparison_index, item in enumerate(ai_comparisons, start=1):
-                    ai_score, explanation = batch_scores.get(
-                        (str(candidate_index), comparison_index),
-                        (0, "none"),
-                    )
-                    result["ai_scores"][f"ai:{comparison_index - 1}"] = ai_score
-                    if ai_score > 0:
-                        ai_diagnostics["nonzero"] += 1
-                    output_key = item.get("output_key") or f"llm{comparison_index}"
-                    result["score"] += float(item.get("weight") or 0) * ai_score
-                    result["matches"][output_key] = (
-                        explanation if ai_score > 0 else "none"
-                    )
-                    if comparison_index == 1:
-                        result["matches"]["llm1"] = result["matches"][output_key]
-                    elif comparison_index == 2:
-                        result["matches"]["llm2"] = result["matches"][output_key]
+                result["ai_scores"][f"ai:{comparison_index - 1}"] = ai_score
+                output_key = item.get("output_key") or f"llm{comparison_index}"
+                result["score"] += float(item.get("weight") or 0) * ai_score
+                result["matches"][output_key] = explanation
+                if comparison_index == 1:
+                    result["matches"]["llm1"] = explanation
+                elif comparison_index == 2:
+                    result["matches"]["llm2"] = explanation
 
         for candidate in results:
             candidate["matches"].setdefault("llm1", "none")
@@ -2640,13 +2579,13 @@ def _pair_one_group(
         log_fn(f"📌 Missing mentoras (not found in master CSV): {missing_mentor[:10]} (total {len(missing_mentor)})")
     if log_fn and ai_comparisons:
         log_fn(
-            "🤖 AI comparison results: "
+            f"🤖 Local summary comparison results ({ai_profile_source}): "
             f"{ai_diagnostics['nonzero']} non-zero score(s) from "
             f"{ai_diagnostics['populated']} comparison(s) with populated answers."
         )
         if ai_diagnostics["errors"]:
             log_fn(
-                "⚠️ AI request errors: "
+                "⚠️ Dataset summary error; local fallback was used: "
                 + " | ".join(ai_diagnostics["errors"])
             )
     if log_fn:

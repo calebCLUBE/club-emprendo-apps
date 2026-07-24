@@ -2226,6 +2226,10 @@ class GradingAndPairingConfigEditorTests(TestCase):
             emprendedora_question_slug="growth_how",
             mentora_question_slug="professional_expertise",
             weight=40,
+            prompt=(
+                "Compare the entrepreneur's growth needs with the mentor's "
+                "specific growth expertise."
+            ),
             output_key="llm1",
         )
         PairingAIComparison.objects.create(
@@ -2234,6 +2238,10 @@ class GradingAndPairingConfigEditorTests(TestCase):
             emprendedora_question_slug="biggest_challenge",
             mentora_question_slug="motivation",
             weight=30,
+            prompt=(
+                "Compare the entrepreneur's current challenge with the mentor's "
+                "specific motivation for helping."
+            ),
             output_key="llm2",
         )
         logs = []
@@ -2291,15 +2299,25 @@ class GradingAndPairingConfigEditorTests(TestCase):
         self.assertEqual(result.iloc[0]["business_age_matching"], "mentor_max=10 >= emp_min=1")
         self.assertEqual(
             result.iloc[0]["expertise_growth_matching"],
-            "Shared summarized themes: growth, sales",
+            "Prompt-specific shared themes: growth, sales | "
+            "Entrepreneur: Normalized participant themes. | "
+            "Mentor: Normalized participant themes.",
         )
         self.assertEqual(
             result.iloc[0]["motivation_challenge_match"],
-            "Shared summarized themes: customers, marketing",
+            "Prompt-specific shared themes: customers, marketing | "
+            "Entrepreneur: Normalized participant themes. | "
+            "Mentor: Normalized participant themes.",
         )
         self.assertEqual(mock_dataset_summary.call_count, 1)
         profile_inputs = mock_dataset_summary.call_args.args[1]
+        profile_criteria = mock_dataset_summary.call_args.kwargs["criteria"]
         self.assertEqual(len(profile_inputs), 4)
+        self.assertEqual(len(profile_criteria), 2)
+        self.assertIn(
+            "growth",
+            profile_criteria[0]["configured_prompt"].lower(),
+        )
         self.assertEqual(
             sum(len(participant["comparisons"]) for participant in profile_inputs),
             8,
@@ -2394,7 +2412,19 @@ class GradingAndPairingConfigEditorTests(TestCase):
             },
         ]
 
-        result = _llm_dataset_pairing_profiles(client, participants)
+        configured_prompt = (
+            "Compare only customer acquisition and digital sales strategy in "
+            "{{ entrepreneur_text }} and {{ mentor_text }}."
+        )
+        result = _llm_dataset_pairing_profiles(
+            client,
+            participants,
+            criteria=[{
+                "index": 1,
+                "label": "Expertise and growth",
+                "configured_prompt": configured_prompt,
+            }],
+        )
 
         self.assertEqual(
             result[("E:founder@example.com", 1)]["tags"],
@@ -2405,6 +2435,21 @@ class GradingAndPairingConfigEditorTests(TestCase):
             ["sales", "digital-marketing"],
         )
         client.chat.completions.create.assert_called_once()
+        request_prompt = (
+            client.chat.completions.create.call_args.kwargs["messages"][0]["content"]
+        )
+        self.assertIn(configured_prompt, request_prompt)
+        self.assertIn("Those prompts are authoritative", request_prompt)
+
+    def test_local_pairing_summary_prioritizes_prompt_specific_phrases(self):
+        from applications.admin_views import _pairing_local_summary_tags
+
+        tags = _pairing_local_summary_tags(
+            "Necesito mejorar adquisicion de clientes y marketing digital.",
+            "Focus on customer acquisition and digital marketing.",
+        )
+
+        self.assertIn("marketing-digital", tags[:4])
 
 
 class HelpTextFormattingTests(TestCase):

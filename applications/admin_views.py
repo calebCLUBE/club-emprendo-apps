@@ -1645,15 +1645,45 @@ PAIRING_SUMMARY_STOP_WORDS = {
 }
 
 
-def _pairing_local_summary_tags(text: str, limit: int = 8) -> list[str]:
+def _pairing_local_summary_tags(
+    text: str,
+    criterion_prompt: str = "",
+    limit: int = 8,
+) -> list[str]:
     normalized = _availability_word(text)
-    words = re.findall(r"[a-z0-9]+", normalized)
-    counts = Counter(
+    words = [
         word
-        for word in words
+        for word in re.findall(r"[a-z0-9]+", normalized)
         if len(word) >= 4 and word not in PAIRING_SUMMARY_STOP_WORDS
+    ]
+    counts = Counter(
+        words
     )
-    return [word for word, _count in counts.most_common(limit)]
+    prompt_words = {
+        word
+        for word in re.findall(r"[a-z0-9]+", _availability_word(criterion_prompt))
+        if len(word) >= 4 and word not in PAIRING_SUMMARY_STOP_WORDS
+    }
+    phrase_counts = Counter(
+        f"{first}-{second}"
+        for first, second in zip(words, words[1:])
+        if first != second
+    )
+    phrases = sorted(
+        phrase_counts,
+        key=lambda phrase: (
+            not bool(set(phrase.split("-")).intersection(prompt_words)),
+            -phrase_counts[phrase],
+            phrase,
+        ),
+    )
+    tags = phrases[: max(2, limit // 2)]
+    for word, _count in counts.most_common(limit):
+        if word not in tags:
+            tags.append(word)
+        if len(tags) >= limit:
+            break
+    return tags
 
 
 def _normalize_pairing_tags(values) -> list[str]:
@@ -1671,6 +1701,7 @@ def _normalize_pairing_tags(values) -> list[str]:
 def _llm_dataset_pairing_profiles(
     client: OpenAI,
     participants: list[dict],
+    criteria: list[dict] | None = None,
     model_name: str = "",
     error_callback=None,
 ) -> dict[tuple[str, int], dict]:
@@ -1680,15 +1711,27 @@ def _llm_dataset_pairing_profiles(
 
     prompt = (
         "You are preparing mentor-to-entrepreneur matching data.\n"
-        "For every participant and comparison, summarize the response into 3-8 "
-        "short English theme tags. Reuse the same tags across the entire dataset "
-        "when answers have related meanings, so tags can be compared locally. "
-        "Use each comparison label and instructions to decide which themes matter. "
-        "Do not score or pair people.\n"
+        "The criteria below contain the exact matching prompts configured by the "
+        "program administrator. Those prompts are authoritative. For each criterion, "
+        "first infer a specific shared vocabulary from its prompt and the responses. "
+        "Then summarize every participant response only along the dimensions requested "
+        "by that criterion.\n"
+        "Produce 3-8 precise English tags per response. Prefer specific tags such as "
+        "'customer-acquisition', 'social-media-marketing', 'pricing-strategy', or "
+        "'cash-flow-planning'. Avoid broad tags such as 'business', 'growth', "
+        "'support', 'experience', or 'motivation' unless the configured prompt "
+        "specifically requires them. Reuse identical tags for genuinely related "
+        "mentor capabilities and entrepreneur needs.\n"
+        "The placeholders {{ mentor_text }} and {{ entrepreneur_text }} in a criterion "
+        "prompt describe the two roles. Each dataset entry identifies which role its "
+        "single response belongs to. Do not score or pair people in this request.\n"
         "Return JSON only in this shape:\n"
         '{"profiles":[{"participant_id":"E:email","comparisons":'
         '[{"index":1,"tags":["sales","digital-marketing"],'
-        '"summary":"Needs help increasing online sales."}]}]}\n\n'
+        '"summary":"Needs a customer-acquisition plan for online sales."}]}]}\n\n'
+        "Configured criteria:\n"
+        + json.dumps(criteria or [], ensure_ascii=False)
+        + "\n\n"
         "Dataset:\n"
         + json.dumps(participants, ensure_ascii=False)
     )
@@ -2104,6 +2147,17 @@ def _pair_one_group(
             "all row-by-row compatibility scoring is local."
         )
 
+    profile_criteria = [
+        {
+            "index": comparison_index,
+            "label": item.get("label") or f"Comparison {comparison_index}",
+            "configured_prompt": str(item.get("prompt") or "").strip() or (
+                "Identify the specific mentor capabilities that directly address "
+                "the entrepreneur's stated needs for this criterion."
+            ),
+        }
+        for comparison_index, item in enumerate(ai_comparisons, start=1)
+    ]
     profile_inputs = []
     profile_text_by_key = {}
     for track, dataframe in (("E", emp_df), ("M", mentor_df)):
@@ -2129,7 +2183,6 @@ def _pair_one_group(
                 comparisons.append({
                     "index": comparison_index,
                     "label": item.get("label") or f"Comparison {comparison_index}",
-                    "instructions": str(item.get("prompt") or "")[:1000],
                     "response": text,
                 })
             if comparisons:
@@ -2155,6 +2208,7 @@ def _pair_one_group(
         ai_profiles = _llm_dataset_pairing_profiles(
             client,
             profile_inputs,
+            criteria=profile_criteria,
             model_name=pairing_config.model_name,
             error_callback=record_dataset_error,
         )
@@ -2171,13 +2225,20 @@ def _pair_one_group(
 
     ai_profile_source = "AI"
     local_profile_count = 0
+    profile_prompt_by_index = {
+        int(criterion["index"]): str(criterion["configured_prompt"])
+        for criterion in profile_criteria
+    }
     for profile_key, text in profile_text_by_key.items():
         if profile_key in ai_profiles:
             continue
-        tags = _pairing_local_summary_tags(text)
+        tags = _pairing_local_summary_tags(
+            text,
+            profile_prompt_by_index.get(profile_key[1], ""),
+        )
         ai_profiles[profile_key] = {
             "tags": tags,
-            "summary": "Local keyword summary: " + ", ".join(tags),
+            "summary": "Prompt-guided local themes: " + ", ".join(tags),
         }
         local_profile_count += 1
     if local_profile_count:
@@ -2308,11 +2369,26 @@ def _pair_one_group(
                 else:
                     ai_score = 0
 
+                entrepreneur_summary = " ".join(
+                    str(entrepreneur_profile.get("summary") or "").split()
+                )[:220]
+                mentor_summary = " ".join(
+                    str(mentor_profile.get("summary") or "").split()
+                )[:220]
                 if ai_score > 0:
                     ai_diagnostics["nonzero"] += 1
-                    explanation = "Shared summarized themes: " + ", ".join(shared_tags)
+                    explanation_parts = [
+                        "Prompt-specific shared themes: " + ", ".join(shared_tags)
+                    ]
                 else:
-                    explanation = "none"
+                    explanation_parts = ["No shared prompt-specific themes"]
+                if entrepreneur_summary:
+                    explanation_parts.append(
+                        "Entrepreneur: " + entrepreneur_summary
+                    )
+                if mentor_summary:
+                    explanation_parts.append("Mentor: " + mentor_summary)
+                explanation = " | ".join(explanation_parts)
 
                 result["ai_scores"][f"ai:{comparison_index - 1}"] = ai_score
                 output_key = item.get("output_key") or f"llm{comparison_index}"

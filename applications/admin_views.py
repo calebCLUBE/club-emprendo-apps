@@ -1770,41 +1770,64 @@ def _llm_dataset_pairing_profiles(
     model_name: str = "",
     error_callback=None,
 ) -> dict[tuple[str, int], dict]:
-    """Summarize every AI-relevant answer once using a shared tag vocabulary."""
+    """Summarize each criterion dataset in parallel using a shared vocabulary."""
     if not participants:
         return {}
 
-    prompt = (
-        "You are preparing mentor-to-entrepreneur matching data.\n"
-        "The criteria below contain the exact matching prompts configured by the "
-        "program administrator. Those prompts are authoritative. For each criterion, "
-        "first infer a specific shared vocabulary from its prompt and the responses. "
-        "Then summarize every participant response only along the dimensions requested "
-        "by that criterion.\n"
-        "Produce 3-8 precise multiword English tags per response. Never return a "
-        "single word copied from an answer as a tag. Prefer specific tags such as "
-        "'customer-acquisition', 'social-media-marketing', 'pricing-strategy', or "
-        "'cash-flow-planning'. Avoid broad tags such as 'business', 'growth', "
-        "'support', 'experience', or 'motivation' unless the configured prompt "
-        "specifically requires them. Reuse identical tags for genuinely related "
-        "mentor capabilities and entrepreneur needs. Also write one concise, concrete "
-        "summary sentence for each response that explains the participant's relevant "
-        "need or capability using the configured criterion; do not merely list tags.\n"
-        "The placeholders {{ mentor_text }} and {{ entrepreneur_text }} in a criterion "
-        "prompt describe the two roles. Each dataset entry identifies which role its "
-        "single response belongs to. Do not score or pair people in this request.\n"
-        "Return JSON only in this shape:\n"
-        '{"profiles":[{"participant_id":"E:email","comparisons":'
-        '[{"index":1,"tags":["sales","digital-marketing"],'
-        '"summary":"Needs a customer-acquisition plan for online sales."}]}]}\n\n'
-        "Configured criteria:\n"
-        + json.dumps(criteria or [], ensure_ascii=False)
-        + "\n\n"
-        "Dataset:\n"
-        + json.dumps(participants, ensure_ascii=False)
-    )
+    criteria = criteria or []
+    request_batches = []
+    if criteria:
+        for criterion in criteria:
+            criterion_index = int(criterion.get("index") or 0)
+            criterion_participants = []
+            for participant in participants:
+                comparisons = [
+                    comparison
+                    for comparison in participant.get("comparisons") or []
+                    if int(comparison.get("index") or 0) == criterion_index
+                ]
+                if comparisons:
+                    criterion_participants.append({
+                        "participant_id": participant.get("participant_id"),
+                        "role": participant.get("role"),
+                        "comparisons": comparisons,
+                    })
+            if criterion_participants:
+                request_batches.append(([criterion], criterion_participants))
+    else:
+        request_batches.append(([], participants))
 
-    def make_request():
+    def make_request(batch_criteria, batch_participants):
+        prompt = (
+            "You are preparing mentor-to-entrepreneur matching data.\n"
+            "The criterion below contains the exact matching prompt configured by the "
+            "program administrator. That prompt is authoritative. First infer a "
+            "specific shared semantic vocabulary from its prompt and every response. "
+            "Then summarize every participant response only along the dimensions "
+            "requested by that criterion.\n"
+            "Produce 3-8 precise multiword English tags per response. Never return a "
+            "single word copied from an answer as a tag. Prefer specific tags such as "
+            "'customer-acquisition', 'social-media-marketing', 'pricing-strategy', or "
+            "'cash-flow-planning'. Avoid broad tags such as 'business', 'growth', "
+            "'support', 'experience', or 'motivation' unless the configured prompt "
+            "specifically requires them. Reuse identical tags for semantically related "
+            "mentor capabilities and entrepreneur needs even when the original answers "
+            "use different wording or languages. Also write one concise, concrete "
+            "summary sentence for each response that explains the participant's "
+            "relevant need or capability; do not merely list tags.\n"
+            "The placeholders {{ mentor_text }} and {{ entrepreneur_text }} in the "
+            "criterion prompt describe the two roles. Each dataset entry identifies "
+            "which role its response belongs to. Do not score or pair people.\n"
+            "Return JSON only in this shape:\n"
+            '{"profiles":[{"participant_id":"E:email","comparisons":'
+            '[{"index":1,"tags":["sales-growth","digital-marketing"],'
+            '"summary":"Needs a customer-acquisition plan for online sales."}]}]}\n\n'
+            "Configured criterion:\n"
+            + json.dumps(batch_criteria, ensure_ascii=False)
+            + "\n\n"
+            "Complete criterion dataset:\n"
+            + json.dumps(batch_participants, ensure_ascii=False)
+        )
         response = client.chat.completions.create(
             model=(model_name or "gpt-5.2"),
             messages=[{"role": "user", "content": prompt}],
@@ -1832,29 +1855,57 @@ def _llm_dataset_pairing_profiles(
             raise ValueError("AI dataset summary contained no usable profiles")
         return profiles
 
-    result_queue = queue.Queue(maxsize=1)
+    result_queue = queue.Queue(maxsize=max(1, len(request_batches)))
 
-    def request_worker():
+    def request_worker(batch_number, batch_criteria, batch_participants):
         try:
-            result_queue.put(("success", make_request()))
+            result_queue.put((
+                batch_number,
+                "success",
+                make_request(batch_criteria, batch_participants),
+            ))
         except Exception as exc:
-            result_queue.put(("error", exc))
+            result_queue.put((batch_number, "error", exc))
 
-    request_thread = threading.Thread(target=request_worker, daemon=True)
-    request_thread.start()
-    request_thread.join(60)
-    if request_thread.is_alive():
-        last_err = TimeoutError("AI dataset summary exceeded the 60-second deadline")
-    else:
-        status, payload = result_queue.get_nowait()
+    threads = []
+    for batch_number, (batch_criteria, batch_participants) in enumerate(request_batches):
+        request_thread = threading.Thread(
+            target=request_worker,
+            args=(batch_number, batch_criteria, batch_participants),
+            daemon=True,
+        )
+        request_thread.start()
+        threads.append(request_thread)
+
+    profiles = {}
+    errors = []
+    completed_batches = set()
+    deadline = time.monotonic() + 60
+    while len(completed_batches) < len(request_batches):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        try:
+            batch_number, status, payload = result_queue.get(timeout=remaining)
+        except queue.Empty:
+            break
+        completed_batches.add(batch_number)
         if status == "success":
-            return payload
-        last_err = payload
+            profiles.update(payload)
+        else:
+            errors.append(f"criterion batch {batch_number + 1}: {payload}")
 
-    logger.error("Dataset AI pairing summary failed. Error: %s", last_err)
-    if error_callback:
-        error_callback(f"Dataset AI summary: {last_err}")
-    return {}
+    for batch_number in range(len(request_batches)):
+        if batch_number not in completed_batches:
+            errors.append(
+                f"criterion batch {batch_number + 1}: exceeded the "
+                "60-second deadline"
+            )
+    for error in errors:
+        logger.error("Dataset AI pairing summary failed. Error: %s", error)
+        if error_callback:
+            error_callback(f"Dataset AI summary: {error}")
+    return profiles
 
 
 
@@ -2244,7 +2295,7 @@ def _pair_one_group(
                 text = str(_row_get(row, slug, "") or "").strip()
                 if not text:
                     continue
-                # Bound the one-time request while preserving the substance of
+                # Bound the criterion-level request while preserving the substance of
                 # long application answers.
                 text = text[:900]
                 profile_text_by_key[(participant_id, comparison_index)] = text
@@ -2264,8 +2315,9 @@ def _pair_one_group(
     if profile_inputs and client:
         if log_fn:
             log_fn(
-                f"⏳ Summarizing AI answers once for {len(profile_inputs)} "
-                "participants before pairing."
+                f"⏳ Summarizing {len(profile_inputs)} participants across "
+                f"{len(profile_criteria)} AI criterion dataset(s) in parallel "
+                "before pairing."
             )
         summary_started_at = time.monotonic()
 
@@ -2395,7 +2447,7 @@ def _pair_one_group(
         return standard_metrics, score, matches
 
     def score_top_candidates_with_ai(emp_row, candidates):
-        """Score candidate compatibility locally from the one-time profiles."""
+        """Score candidate compatibility locally from the initial profiles."""
         entrepreneur_email = str(
             _row_get(emp_row, "email", "")
         ).strip().lower()

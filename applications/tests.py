@@ -2340,7 +2340,8 @@ class GradingAndPairingConfigEditorTests(TestCase):
         )
         self.assertTrue(
             any(
-                "Summarizing AI answers once for 4 participants before pairing"
+                "Summarizing 4 participants across 2 AI criterion dataset(s) "
+                "in parallel before pairing"
                 in message
                 for message in logs
             ),
@@ -2439,7 +2440,59 @@ class GradingAndPairingConfigEditorTests(TestCase):
             client.chat.completions.create.call_args.kwargs["messages"][0]["content"]
         )
         self.assertIn(configured_prompt, request_prompt)
-        self.assertIn("Those prompts are authoritative", request_prompt)
+        self.assertIn("That prompt is authoritative", request_prompt)
+
+    def test_dataset_pairing_ai_runs_criteria_in_parallel_batches(self):
+        from applications.admin_views import _llm_dataset_pairing_profiles
+
+        client = Mock()
+
+        def criterion_response(**kwargs):
+            prompt = kwargs["messages"][0]["content"]
+            index = 2 if "Compare challenges." in prompt else 1
+            tag = "sales-growth" if index == 1 else "customer-acquisition"
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content=json.dumps({
+                    "profiles": [{
+                        "participant_id": "E:founder@example.com",
+                        "comparisons": [{
+                            "index": index,
+                            "tags": [tag],
+                            "summary": f"Criterion {index} summary.",
+                        }],
+                    }],
+                })))]
+            )
+
+        client.chat.completions.create.side_effect = criterion_response
+        participants = [{
+            "participant_id": "E:founder@example.com",
+            "role": "entrepreneur",
+            "comparisons": [
+                {"index": 1, "response": "I need a sales plan."},
+                {"index": 2, "response": "I need more customers."},
+            ],
+        }]
+        criteria = [
+            {"index": 1, "label": "Growth", "configured_prompt": "Compare growth."},
+            {"index": 2, "label": "Challenge", "configured_prompt": "Compare challenges."},
+        ]
+
+        result = _llm_dataset_pairing_profiles(
+            client,
+            participants,
+            criteria=criteria,
+        )
+
+        self.assertEqual(client.chat.completions.create.call_count, 2)
+        self.assertEqual(
+            result[("E:founder@example.com", 1)]["tags"],
+            ["sales-growth"],
+        )
+        self.assertEqual(
+            result[("E:founder@example.com", 2)]["tags"],
+            ["customer-acquisition"],
+        )
 
     def test_local_pairing_summary_prioritizes_prompt_specific_phrases(self):
         from applications.admin_views import _pairing_local_summary_tags

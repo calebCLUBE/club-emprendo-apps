@@ -2332,6 +2332,9 @@ class GradingAndPairingConfigEditorTests(TestCase):
         )
 
     def test_batched_pairing_ai_parses_all_candidate_scores_from_one_request(self):
+        import threading
+        import time
+
         from applications.admin_views import _llm_batch_fit_scores
 
         client = Mock()
@@ -2400,6 +2403,29 @@ class GradingAndPairingConfigEditorTests(TestCase):
         self.assertEqual(failed_result, {})
         failing_client.chat.completions.create.assert_called_once()
         self.assertIn("provider timeout", errors[0])
+
+        hanging_client = Mock()
+        release_hanging_request = threading.Event()
+        hanging_client.chat.completions.create.side_effect = (
+            lambda **_kwargs: release_hanging_request.wait(1)
+        )
+        hard_timeout_errors = []
+        started_at = time.monotonic()
+        with patch.dict(
+            "os.environ",
+            {"PAIRING_AI_WALL_TIMEOUT_SECONDS": "0.05"},
+        ):
+            timed_out_result = _llm_batch_fit_scores(
+                hanging_client,
+                candidates,
+                error_callback=hard_timeout_errors.append,
+            )
+        elapsed = time.monotonic() - started_at
+        release_hanging_request.set()
+
+        self.assertEqual(timed_out_result, {})
+        self.assertLess(elapsed, 0.5)
+        self.assertIn("exceeded the 0.05-second pairing deadline", hard_timeout_errors[0])
 
 
 class HelpTextFormattingTests(TestCase):

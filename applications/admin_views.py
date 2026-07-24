@@ -4,6 +4,7 @@ import calendar
 import csv
 import io
 import json
+import queue
 import re
 import zipfile
 import unicodedata
@@ -1725,12 +1726,12 @@ def _llm_batch_fit_scores(
         + json.dumps(candidates, ensure_ascii=False)
     )
 
-    try:
+    def make_request():
         response = client.chat.completions.create(
             model=(model_name or "gpt-5.2"),
             messages=[{"role": "user", "content": prompt}],
             temperature=0,
-            timeout=12,
+            timeout=10,
         )
         content = (response.choices[0].message.content or "").strip()
         if content.startswith("```"):
@@ -1753,8 +1754,33 @@ def _llm_batch_fit_scores(
         if not scores:
             raise ValueError("AI batch response contained no usable scores")
         return scores
-    except Exception as exc:
-        last_err = exc
+
+    result_queue = queue.Queue(maxsize=1)
+
+    def request_worker():
+        try:
+            result_queue.put(("success", make_request()))
+        except Exception as exc:
+            result_queue.put(("error", exc))
+
+    try:
+        wall_timeout = float(os.getenv("PAIRING_AI_WALL_TIMEOUT_SECONDS", "15"))
+    except (TypeError, ValueError):
+        wall_timeout = 15.0
+    wall_timeout = max(0.05, min(30.0, wall_timeout))
+    request_thread = threading.Thread(target=request_worker, daemon=True)
+    request_thread.start()
+    request_thread.join(wall_timeout)
+
+    if request_thread.is_alive():
+        last_err = TimeoutError(
+            f"AI request exceeded the {wall_timeout:g}-second pairing deadline"
+        )
+    else:
+        status, payload = result_queue.get_nowait()
+        if status == "success":
+            return payload
+        last_err = payload
 
     logger.error("Batched LLM pairing failed. Error: %s", last_err)
     if error_callback:
@@ -2034,7 +2060,11 @@ def _pair_one_group(
     api_key = os.getenv("OPENAI_API_KEY") or getattr(settings, "OPENAI_API_KEY", None)
     if not api_key:
         raise RuntimeError("OPENAI_API_KEY not set (required for pairing).")
-    client = OpenAI(api_key=api_key)
+    client = OpenAI(
+        api_key=api_key,
+        max_retries=0,
+        timeout=10,
+    )
 
     # Precompute availability (keyed by normalized email)
     emp_av = {}
@@ -2061,7 +2091,12 @@ def _pair_one_group(
     # Use only mentors with non-empty normalized email
     unassigned_mentors = set(mentor_rows_by_email.keys())
 
-    ai_diagnostics = {"populated": 0, "nonzero": 0, "errors": []}
+    ai_diagnostics = {
+        "populated": 0,
+        "nonzero": 0,
+        "errors": [],
+        "disabled": False,
+    }
 
     priority_rules = sorted(
         priority_rules,
@@ -2254,8 +2289,9 @@ def _pair_one_group(
         def record_ai_error(message):
             if len(ai_diagnostics["errors"]) < 5:
                 ai_diagnostics["errors"].append(str(message))
+            ai_diagnostics["disabled"] = True
 
-        if batch_candidates:
+        if batch_candidates and not ai_diagnostics["disabled"]:
             started_at = time.monotonic()
             if log_fn:
                 comparison_count = sum(
@@ -2274,6 +2310,12 @@ def _pair_one_group(
             )
             if log_fn:
                 log_fn(f"⚡ AI batch finished in {time.monotonic() - started_at:.1f}s.")
+                if ai_diagnostics["disabled"]:
+                    log_fn(
+                        "⚠️ AI scoring timed out or failed. AI is disabled for "
+                        "the rest of this run; matching will continue with the "
+                        "remaining weighted criteria."
+                    )
 
             for candidate_index, _candidate in enumerate(candidates):
                 result = results[candidate_index]

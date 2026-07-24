@@ -2256,9 +2256,9 @@ class GradingAndPairingConfigEditorTests(TestCase):
                     index = comparison["index"]
                     if is_entrepreneur or is_best_mentor:
                         tags = (
-                            ["growth", "sales"]
+                            ["growth-strategy", "sales-planning"]
                             if index == 1
-                            else ["customers", "marketing"]
+                            else ["customer-acquisition", "marketing-strategy"]
                         )
                     else:
                         tags = ["operations", "leadership"]
@@ -2301,13 +2301,13 @@ class GradingAndPairingConfigEditorTests(TestCase):
             result.iloc[0]["expertise_growth_matching"],
             "Expertise and growth comparison — Entrepreneur: Normalized participant "
             "themes; Mentor: Normalized participant themes. "
-            "Specific overlap: growth and sales.",
+            "Specific overlap: growth strategy and sales planning.",
         )
         self.assertEqual(
             result.iloc[0]["motivation_challenge_match"],
             "Motivation and challenge comparison — Entrepreneur: Normalized participant "
             "themes; Mentor: Normalized participant themes. "
-            "Specific overlap: customers and marketing.",
+            "Specific overlap: customer acquisition and marketing strategy.",
         )
         self.assertEqual(mock_dataset_summary.call_count, 1)
         profile_inputs = mock_dataset_summary.call_args.args[1]
@@ -2381,7 +2381,7 @@ class GradingAndPairingConfigEditorTests(TestCase):
                         "comparisons": [
                             {
                                 "index": 1,
-                                "tags": ["Sales", "Digital Marketing"],
+                                "tags": ["Sales Growth", "Digital Marketing"],
                                 "summary": "Needs help growing sales.",
                             },
                         ],
@@ -2391,7 +2391,7 @@ class GradingAndPairingConfigEditorTests(TestCase):
                         "comparisons": [
                             {
                                 "index": 1,
-                                "tags": ["sales", "digital-marketing"],
+                                "tags": ["sales-growth", "digital-marketing"],
                                 "summary": "Experienced in sales growth.",
                             },
                         ],
@@ -2428,11 +2428,11 @@ class GradingAndPairingConfigEditorTests(TestCase):
 
         self.assertEqual(
             result[("E:founder@example.com", 1)]["tags"],
-            ["sales", "digital-marketing"],
+            ["sales-growth", "digital-marketing"],
         )
         self.assertEqual(
             result[("M:mentor@example.com", 1)]["tags"],
-            ["sales", "digital-marketing"],
+            ["sales-growth", "digital-marketing"],
         )
         client.chat.completions.create.assert_called_once()
         request_prompt = (
@@ -2484,9 +2484,30 @@ class GradingAndPairingConfigEditorTests(TestCase):
         from applications.admin_views import _normalize_pairing_tags
 
         self.assertEqual(
-            _normalize_pairing_tags(["parte", "customer-acquisition"]),
+            _normalize_pairing_tags([
+                "parte",
+                "mayor",
+                "growth",
+                "customer-acquisition",
+            ]),
             ["customer-acquisition"],
         )
+
+    def test_local_pairing_summary_does_not_match_mayor_across_contexts(self):
+        from applications.admin_views import _pairing_local_summary_tags
+
+        entrepreneur_tags = set(_pairing_local_summary_tags(
+            "Nuestro mayor desafío es conseguir un pequeño capital de trabajo "
+            "para lanzar una nueva línea de productos.",
+        ))
+        mentor_tags = set(_pairing_local_summary_tags(
+            "Me motiva conectar con una comunidad de emprendedoras mayor a nivel "
+            "nacional y brindar un mensaje con propósito.",
+        ))
+
+        self.assertNotIn("mayor", entrepreneur_tags)
+        self.assertNotIn("mayor", mentor_tags)
+        self.assertFalse(entrepreneur_tags.intersection(mentor_tags))
 
 
 class HelpTextFormattingTests(TestCase):

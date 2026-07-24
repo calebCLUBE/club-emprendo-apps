@@ -1643,7 +1643,8 @@ PAIRING_SUMMARY_STOP_WORDS = {
     "mentor", "mentora", "mentoria", "the", "and", "with", "from", "that",
     "this", "have", "help", "business", "entrepreneur", "mentor", "parte",
     "algo", "algun", "alguna", "momento", "mucho", "muchisimo", "varias",
-    "veces", "hacer", "hacia", "sido", "seria",
+    "veces", "hacer", "hacia", "sido", "seria", "mayor", "principal",
+    "actualmente", "necesito", "necesita", "busco", "busca", "gustaria",
 }
 
 
@@ -1658,9 +1659,6 @@ def _pairing_local_summary_tags(
         for word in re.findall(r"[a-z0-9]+", normalized)
         if len(word) >= 4 and word not in PAIRING_SUMMARY_STOP_WORDS
     ]
-    counts = Counter(
-        words
-    )
     prompt_words = {
         word
         for word in re.findall(r"[a-z0-9]+", _availability_word(criterion_prompt))
@@ -1679,13 +1677,9 @@ def _pairing_local_summary_tags(
             phrase,
         ),
     )
-    tags = phrases[: max(2, limit // 2)]
-    for word, _count in counts.most_common(limit):
-        if word not in tags:
-            tags.append(word)
-        if len(tags) >= limit:
-            break
-    return tags
+    # Local fallback intentionally uses only multiword phrases. A single shared
+    # word such as "mayor" is not enough evidence of compatibility.
+    return phrases[:limit]
 
 
 def _normalize_pairing_tags(values) -> list[str]:
@@ -1697,6 +1691,7 @@ def _normalize_pairing_tags(values) -> list[str]:
         if (
             not tag
             or tag in seen
+            or len(tag_words) < 2
             or not tag_words.difference(PAIRING_SUMMARY_STOP_WORDS)
         ):
             continue
@@ -1786,7 +1781,8 @@ def _llm_dataset_pairing_profiles(
         "first infer a specific shared vocabulary from its prompt and the responses. "
         "Then summarize every participant response only along the dimensions requested "
         "by that criterion.\n"
-        "Produce 3-8 precise English tags per response. Prefer specific tags such as "
+        "Produce 3-8 precise multiword English tags per response. Never return a "
+        "single word copied from an answer as a tag. Prefer specific tags such as "
         "'customer-acquisition', 'social-media-marketing', 'pricing-strategy', or "
         "'cash-flow-planning'. Avoid broad tags such as 'business', 'growth', "
         "'support', 'experience', or 'motivation' unless the configured prompt "
@@ -2425,8 +2421,12 @@ def _pair_one_group(
                     (f"M:{mentor_email}", comparison_index),
                     {},
                 )
-                entrepreneur_tags = set(entrepreneur_profile.get("tags") or [])
-                mentor_tags = set(mentor_profile.get("tags") or [])
+                entrepreneur_tags = set(_normalize_pairing_tags(
+                    entrepreneur_profile.get("tags") or []
+                ))
+                mentor_tags = set(_normalize_pairing_tags(
+                    mentor_profile.get("tags") or []
+                ))
                 shared_tags = sorted(entrepreneur_tags.intersection(mentor_tags))
                 if entrepreneur_tags and mentor_tags:
                     ai_diagnostics["populated"] += 1

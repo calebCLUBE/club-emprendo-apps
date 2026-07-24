@@ -2558,7 +2558,9 @@ class GradingAndPairingConfigEditorTests(TestCase):
         self.assertEqual(client.embeddings.create.call_count, 1)
         embedding_inputs = client.embeddings.create.call_args.kwargs["input"]
         self.assertEqual(len(embedding_inputs), 2)
-        self.assertTrue(all(configured_prompt in item for item in embedding_inputs))
+        self.assertTrue(all(configured_prompt not in item for item in embedding_inputs))
+        self.assertIn("Necesito capital de trabajo.", embedding_inputs[0])
+        self.assertIn("Tengo experiencia en finanzas.", embedding_inputs[1])
         self.assertGreater(
             _pairing_cosine_similarity(
                 vectors[("E:founder@example.com", 1)],
@@ -2566,6 +2568,25 @@ class GradingAndPairingConfigEditorTests(TestCase):
             ),
             0.9,
         )
+
+    def test_semantic_score_requires_specific_theme_evidence_for_high_score(self):
+        from applications.admin_views import _pairing_calibrated_semantic_score
+
+        broad_match = _pairing_calibrated_semantic_score(
+            0.92,
+            {"sales-growth", "national-market-positioning"},
+            {"personal-growth", "entrepreneurship-development"},
+            [],
+        )
+        concrete_match = _pairing_calibrated_semantic_score(
+            0.92,
+            {"sales-growth", "national-market-positioning"},
+            {"sales-growth", "national-market-positioning"},
+            ["national-market-positioning", "sales-growth"],
+        )
+
+        self.assertLessEqual(broad_match, 2.5)
+        self.assertGreater(concrete_match, 4.5)
 
     def test_local_pairing_summary_prioritizes_prompt_specific_phrases(self):
         from applications.admin_views import _pairing_local_summary_tags
@@ -2614,6 +2635,8 @@ class GradingAndPairingConfigEditorTests(TestCase):
                 "parte",
                 "mayor",
                 "growth",
+                "personal-growth",
+                "business-development",
                 "customer-acquisition",
             ]),
             ["customer-acquisition"],

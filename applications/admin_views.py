@@ -1647,6 +1647,12 @@ PAIRING_SUMMARY_STOP_WORDS = {
     "actualmente", "necesito", "necesita", "busco", "busca", "gustaria",
 }
 
+PAIRING_GENERIC_THEME_WORDS = {
+    "business", "community", "development", "emprendimiento", "emprendimientos",
+    "empowerment", "entrepreneurship", "growth", "motivation", "personal",
+    "support",
+}
+
 
 def _pairing_local_summary_tags(
     text: str,
@@ -1693,6 +1699,7 @@ def _normalize_pairing_tags(values) -> list[str]:
             or tag in seen
             or len(tag_words) < 2
             or not tag_words.difference(PAIRING_SUMMARY_STOP_WORDS)
+            or not tag_words.difference(PAIRING_GENERIC_THEME_WORDS)
         ):
             continue
         seen.add(tag)
@@ -1777,10 +1784,6 @@ def _pairing_embedding_vectors(
     error_callback=None,
 ) -> dict[tuple[str, int], list[float]]:
     """Embed every configured answer in one batch for semantic comparison."""
-    criterion_by_index = {
-        int(criterion.get("index") or 0): criterion
-        for criterion in (criteria or [])
-    }
     keys = []
     inputs = []
     for participant in participants:
@@ -1791,26 +1794,16 @@ def _pairing_embedding_vectors(
             response = str(comparison.get("response") or "").strip()
             if not participant_id or index <= 0 or not response:
                 continue
-            criterion = criterion_by_index.get(index, {})
             if role == "mentor":
                 role_instruction = (
-                    "Represent the mentor capabilities, experience, approach, and "
-                    "motivation that could address an entrepreneur's need."
+                    "Mentor capability or relevant experience:"
                 )
             else:
                 role_instruction = (
-                    "Represent the entrepreneur's business need, growth goal, or "
-                    "challenge that a mentor should help address."
+                    "Entrepreneur need, goal, or challenge:"
                 )
             inputs.append(
-                "Matching criterion: "
-                + str(criterion.get("label") or comparison.get("label") or index)
-                + "\nConfigured matching prompt: "
-                + str(criterion.get("configured_prompt") or "")[:1200]
-                + "\nRole instruction: "
-                + role_instruction
-                + "\nParticipant answer: "
-                + response
+                role_instruction + "\n" + response
             )
             keys.append((participant_id, index))
     if not inputs:
@@ -1866,6 +1859,34 @@ def _pairing_cosine_similarity(first: list[float], second: list[float]) -> float
     if not first_norm or not second_norm:
         return 0.0
     return max(-1.0, min(1.0, dot_product / (first_norm * second_norm)))
+
+
+def _pairing_calibrated_semantic_score(
+    cosine_similarity: float,
+    entrepreneur_tags: set[str],
+    mentor_tags: set[str],
+    shared_tags: list[str],
+) -> float:
+    """Return a 0-5 score; high scores require concrete thematic evidence."""
+    similarity = max(
+        0.0,
+        min(1.0, (float(cosine_similarity) - 0.30) / 0.50),
+    )
+    if entrepreneur_tags and mentor_tags:
+        overlap_ratio = len(shared_tags) / max(
+            1,
+            min(len(entrepreneur_tags), len(mentor_tags)),
+        )
+        calibrated = 0.65 * similarity + 0.35 * overlap_ratio
+        if not shared_tags:
+            calibrated = min(calibrated, 0.50)
+    elif entrepreneur_tags or mentor_tags:
+        calibrated = min(0.55, 0.55 * similarity)
+    else:
+        # Embeddings can still rank candidates if summaries fail, but an
+        # uncorroborated comparison must not be presented as near-certain.
+        calibrated = min(0.75, 0.75 * similarity)
+    return round(5 * calibrated, 6)
 
 
 def _llm_dataset_pairing_profiles(
@@ -2629,7 +2650,12 @@ def _pair_one_group(
                             mentor_vector,
                         ),
                     )
-                    ai_score = round(5 * semantic_score, 6)
+                    ai_score = _pairing_calibrated_semantic_score(
+                        semantic_score,
+                        entrepreneur_tags,
+                        mentor_tags,
+                        shared_tags,
+                    )
                 elif entrepreneur_tags and mentor_tags:
                     ai_diagnostics["populated"] += 1
                     denominator = max(

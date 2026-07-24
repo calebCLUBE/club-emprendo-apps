@@ -2268,12 +2268,29 @@ class GradingAndPairingConfigEditorTests(TestCase):
                     }
             return profiles
 
+        def embed_dataset_once(_client, participants, **_kwargs):
+            vectors = {}
+            for participant in participants:
+                participant_id = participant["participant_id"]
+                is_semantic_match = participant_id in {
+                    f"E:{entrepreneur.email}",
+                    f"M:{lower_priority_mentor.email}",
+                }
+                for comparison in participant["comparisons"]:
+                    vectors[(participant_id, comparison["index"])] = (
+                        [1.0, 0.0] if is_semantic_match else [0.0, 1.0]
+                    )
+            return vectors
+
         with override_settings(OPENAI_API_KEY="test-key"), patch(
             "applications.admin_views.OpenAI"
         ), patch(
             "applications.admin_views._llm_dataset_pairing_profiles",
             side_effect=summarize_dataset_once,
-        ) as mock_dataset_summary:
+        ) as mock_dataset_summary, patch(
+            "applications.admin_views._pairing_embedding_vectors",
+            side_effect=embed_dataset_once,
+        ) as mock_embedding_vectors:
             result = _pair_one_group(
                 group_num=group.number,
                 emp_emails=[entrepreneur.email],
@@ -2301,15 +2318,16 @@ class GradingAndPairingConfigEditorTests(TestCase):
             result.iloc[0]["expertise_growth_matching"],
             "Expertise and growth comparison — Entrepreneur: Normalized participant "
             "themes; Mentor: Normalized participant themes. "
-            "Specific overlap: growth strategy and sales planning.",
+            "Semantic complementarity: 100/100 based on the configured criterion.",
         )
         self.assertEqual(
             result.iloc[0]["motivation_challenge_match"],
             "Motivation and challenge comparison — Entrepreneur: Normalized participant "
             "themes; Mentor: Normalized participant themes. "
-            "Specific overlap: customer acquisition and marketing strategy.",
+            "Semantic complementarity: 100/100 based on the configured criterion.",
         )
         self.assertEqual(mock_dataset_summary.call_count, 1)
+        self.assertEqual(mock_embedding_vectors.call_count, 1)
         profile_inputs = mock_dataset_summary.call_args.args[1]
         profile_criteria = mock_dataset_summary.call_args.kwargs["criteria"]
         self.assertEqual(len(profile_inputs), 4)
@@ -2340,8 +2358,8 @@ class GradingAndPairingConfigEditorTests(TestCase):
         )
         self.assertTrue(
             any(
-                "Summarizing 4 participants across 2 AI criterion dataset(s) "
-                "in parallel before pairing"
+                "Building semantic matches for 4 participants and summarizing "
+                "2 AI criterion dataset(s) in parallel before pairing"
                 in message
                 for message in logs
             ),
@@ -2492,6 +2510,61 @@ class GradingAndPairingConfigEditorTests(TestCase):
         self.assertEqual(
             result[("E:founder@example.com", 2)]["tags"],
             ["customer-acquisition"],
+        )
+
+    def test_pairing_embeddings_batch_answers_for_semantic_comparison(self):
+        from applications.admin_views import (
+            _pairing_cosine_similarity,
+            _pairing_embedding_vectors,
+        )
+
+        client = Mock()
+        client.embeddings.create.return_value = SimpleNamespace(data=[
+            SimpleNamespace(index=0, embedding=[1.0, 0.0]),
+            SimpleNamespace(index=1, embedding=[0.8, 0.2]),
+        ])
+        participants = [
+            {
+                "participant_id": "E:founder@example.com",
+                "role": "entrepreneur",
+                "comparisons": [{
+                    "index": 1,
+                    "label": "Expertise and growth",
+                    "response": "Necesito capital de trabajo.",
+                }],
+            },
+            {
+                "participant_id": "M:mentor@example.com",
+                "role": "mentor",
+                "comparisons": [{
+                    "index": 1,
+                    "label": "Expertise and growth",
+                    "response": "Tengo experiencia en finanzas.",
+                }],
+            },
+        ]
+        configured_prompt = "Match business needs to complementary mentor expertise."
+
+        vectors = _pairing_embedding_vectors(
+            client,
+            participants,
+            criteria=[{
+                "index": 1,
+                "label": "Expertise and growth",
+                "configured_prompt": configured_prompt,
+            }],
+        )
+
+        self.assertEqual(client.embeddings.create.call_count, 1)
+        embedding_inputs = client.embeddings.create.call_args.kwargs["input"]
+        self.assertEqual(len(embedding_inputs), 2)
+        self.assertTrue(all(configured_prompt in item for item in embedding_inputs))
+        self.assertGreater(
+            _pairing_cosine_similarity(
+                vectors[("E:founder@example.com", 1)],
+                vectors[("M:mentor@example.com", 1)],
+            ),
+            0.9,
         )
 
     def test_local_pairing_summary_prioritizes_prompt_specific_phrases(self):

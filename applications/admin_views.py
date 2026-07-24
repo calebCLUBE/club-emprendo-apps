@@ -1730,6 +1730,7 @@ def _pairing_match_explanation(
     mentor_summary: str = "",
     entrepreneur_response: str = "",
     mentor_response: str = "",
+    semantic_score: float | None = None,
 ) -> str:
     criterion = " ".join(str(label or "this criterion").split()).strip()
     entrepreneur_text = _pairing_explanation_text(
@@ -1746,7 +1747,13 @@ def _pairing_match_explanation(
         for tag in shared_tags[:3]
         if str(tag).strip()
     ]
-    if not readable_tags:
+    if semantic_score is not None:
+        complementarity = max(0, min(100, round(float(semantic_score) * 20)))
+        overlap = (
+            f"Semantic complementarity: {complementarity}/100 based on the "
+            "configured criterion."
+        )
+    elif not readable_tags:
         overlap = "No specific overlap was identified for this criterion."
     elif len(readable_tags) == 1:
         themes = readable_tags[0]
@@ -1761,6 +1768,104 @@ def _pairing_match_explanation(
         f"{criterion} comparison — Entrepreneur: {entrepreneur_text}; "
         f"Mentor: {mentor_text}. {overlap}"
     )
+
+
+def _pairing_embedding_vectors(
+    client: OpenAI,
+    participants: list[dict],
+    criteria: list[dict] | None = None,
+    error_callback=None,
+) -> dict[tuple[str, int], list[float]]:
+    """Embed every configured answer in one batch for semantic comparison."""
+    criterion_by_index = {
+        int(criterion.get("index") or 0): criterion
+        for criterion in (criteria or [])
+    }
+    keys = []
+    inputs = []
+    for participant in participants:
+        participant_id = str(participant.get("participant_id") or "").strip()
+        role = str(participant.get("role") or "").strip().lower()
+        for comparison in participant.get("comparisons") or []:
+            index = int(comparison.get("index") or 0)
+            response = str(comparison.get("response") or "").strip()
+            if not participant_id or index <= 0 or not response:
+                continue
+            criterion = criterion_by_index.get(index, {})
+            if role == "mentor":
+                role_instruction = (
+                    "Represent the mentor capabilities, experience, approach, and "
+                    "motivation that could address an entrepreneur's need."
+                )
+            else:
+                role_instruction = (
+                    "Represent the entrepreneur's business need, growth goal, or "
+                    "challenge that a mentor should help address."
+                )
+            inputs.append(
+                "Matching criterion: "
+                + str(criterion.get("label") or comparison.get("label") or index)
+                + "\nConfigured matching prompt: "
+                + str(criterion.get("configured_prompt") or "")[:1200]
+                + "\nRole instruction: "
+                + role_instruction
+                + "\nParticipant answer: "
+                + response
+            )
+            keys.append((participant_id, index))
+    if not inputs:
+        return {}
+
+    result_queue = queue.Queue(maxsize=1)
+
+    def request_worker():
+        try:
+            response = client.embeddings.create(
+                model="text-embedding-3-small",
+                input=inputs,
+                timeout=50,
+            )
+            ordered = sorted(response.data, key=lambda item: int(item.index))
+            if len(ordered) != len(keys):
+                raise ValueError(
+                    f"Embedding response returned {len(ordered)} vectors for "
+                    f"{len(keys)} inputs"
+                )
+            result_queue.put((
+                "success",
+                {
+                    key: [float(value) for value in item.embedding]
+                    for key, item in zip(keys, ordered)
+                },
+            ))
+        except Exception as exc:
+            result_queue.put(("error", exc))
+
+    request_thread = threading.Thread(target=request_worker, daemon=True)
+    request_thread.start()
+    request_thread.join(60)
+    if request_thread.is_alive():
+        error = TimeoutError("Embedding request exceeded the 60-second deadline")
+    else:
+        status, payload = result_queue.get_nowait()
+        if status == "success":
+            return payload
+        error = payload
+    logger.error("Pairing embeddings failed. Error: %s", error)
+    if error_callback:
+        error_callback(f"Pairing embeddings: {error}")
+    return {}
+
+
+def _pairing_cosine_similarity(first: list[float], second: list[float]) -> float:
+    if not first or not second or len(first) != len(second):
+        return 0.0
+    dot_product = sum(a * b for a, b in zip(first, second))
+    first_norm = sum(value * value for value in first) ** 0.5
+    second_norm = sum(value * value for value in second) ** 0.5
+    if not first_norm or not second_norm:
+        return 0.0
+    return max(-1.0, min(1.0, dot_product / (first_norm * second_norm)))
 
 
 def _llm_dataset_pairing_profiles(
@@ -2262,8 +2367,8 @@ def _pair_one_group(
             )
         )
         log_fn(
-            "🤖 AI-relevant answers are summarized once before pairing; "
-            "all row-by-row compatibility scoring is local."
+            "🤖 AI-relevant answers are embedded and summarized before pairing; "
+            "all mentor-to-entrepreneur compatibility scoring is local."
         )
 
     profile_criteria = [
@@ -2312,10 +2417,12 @@ def _pair_one_group(
                 })
 
     ai_profiles = {}
+    embedding_vectors = {}
     if profile_inputs and client:
         if log_fn:
             log_fn(
-                f"⏳ Summarizing {len(profile_inputs)} participants across "
+                f"⏳ Building semantic matches for {len(profile_inputs)} participants "
+                f"and summarizing "
                 f"{len(profile_criteria)} AI criterion dataset(s) in parallel "
                 "before pairing."
             )
@@ -2325,17 +2432,41 @@ def _pair_one_group(
             if len(ai_diagnostics["errors"]) < 5:
                 ai_diagnostics["errors"].append(str(message))
 
-        ai_profiles = _llm_dataset_pairing_profiles(
-            client,
-            profile_inputs,
-            criteria=profile_criteria,
-            model_name=pairing_config.model_name,
-            error_callback=record_dataset_error,
-        )
+        initial_results = {}
+
+        def load_embeddings():
+            initial_results["embeddings"] = _pairing_embedding_vectors(
+                client,
+                profile_inputs,
+                criteria=profile_criteria,
+                error_callback=record_dataset_error,
+            )
+
+        def load_summaries():
+            initial_results["profiles"] = _llm_dataset_pairing_profiles(
+                client,
+                profile_inputs,
+                criteria=profile_criteria,
+                model_name=pairing_config.model_name,
+                error_callback=record_dataset_error,
+            )
+
+        initial_threads = [
+            threading.Thread(target=load_embeddings, daemon=True),
+            threading.Thread(target=load_summaries, daemon=True),
+        ]
+        for initial_thread in initial_threads:
+            initial_thread.start()
+        for initial_thread in initial_threads:
+            initial_thread.join(65)
+        embedding_vectors = initial_results.get("embeddings", {})
+        ai_profiles = initial_results.get("profiles", {})
         if log_fn:
             log_fn(
-                f"⚡ Dataset AI summary finished in "
-                f"{time.monotonic() - summary_started_at:.1f}s."
+                f"⚡ Initial semantic analysis finished in "
+                f"{time.monotonic() - summary_started_at:.1f}s with "
+                f"{len(embedding_vectors)} vector(s) and "
+                f"{len(ai_profiles)} summary profile(s)."
             )
     elif profile_inputs and log_fn:
         log_fn(
@@ -2480,7 +2611,26 @@ def _pair_one_group(
                     mentor_profile.get("tags") or []
                 ))
                 shared_tags = sorted(entrepreneur_tags.intersection(mentor_tags))
-                if entrepreneur_tags and mentor_tags:
+                entrepreneur_vector = embedding_vectors.get(
+                    (f"E:{entrepreneur_email}", comparison_index),
+                    [],
+                )
+                mentor_vector = embedding_vectors.get(
+                    (f"M:{mentor_email}", comparison_index),
+                    [],
+                )
+                semantic_score = None
+                if entrepreneur_vector and mentor_vector:
+                    ai_diagnostics["populated"] += 1
+                    semantic_score = max(
+                        0.0,
+                        _pairing_cosine_similarity(
+                            entrepreneur_vector,
+                            mentor_vector,
+                        ),
+                    )
+                    ai_score = round(5 * semantic_score, 6)
+                elif entrepreneur_tags and mentor_tags:
                     ai_diagnostics["populated"] += 1
                     denominator = max(
                         1,
@@ -2508,6 +2658,7 @@ def _pair_one_group(
                         (f"M:{mentor_email}", comparison_index),
                         "",
                     ),
+                    semantic_score=ai_score if semantic_score is not None else None,
                 )
 
                 result["ai_scores"][f"ai:{comparison_index - 1}"] = ai_score

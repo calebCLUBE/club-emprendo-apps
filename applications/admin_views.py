@@ -2071,23 +2071,51 @@ def _pair_one_group(
             str(rule.get("label") or ""),
         ),
     )
+    matching_criteria = [
+        {
+            "id": f"standard:{index}",
+            "kind": "standard",
+            "index": index,
+            "label": rule.get("label") or f"Standard rule {index + 1}",
+            "weight": float(rule.get("weight") or 0),
+            "position": int(rule.get("position") or 0),
+        }
+        for index, rule in enumerate(priority_rules)
+    ] + [
+        {
+            "id": f"ai:{index}",
+            "kind": "ai",
+            "index": index,
+            "label": item.get("label") or f"AI comparison {index + 1}",
+            "weight": float(item.get("weight") or 0),
+            "position": int(item.get("position") or 0),
+        }
+        for index, item in enumerate(ai_comparisons)
+    ]
+    matching_criteria.sort(
+        key=lambda criterion: (
+            -criterion["weight"],
+            criterion["position"],
+            criterion["label"],
+        )
+    )
     if log_fn:
         log_fn(
-            "📊 Standard-rule priority: "
+            "📊 Strict matching priority: "
             + " → ".join(
-                f"{rule.get('label') or 'Rule'} ({float(rule.get('weight') or 0):g})"
-                for rule in priority_rules
+                f"{criterion['label']} ({criterion['weight']:g})"
+                for criterion in matching_criteria
             )
         )
         log_fn(
-            "🤖 AI scoring is used only to break ties between mentors with "
-            "the same best standard-rule matches."
+            "🤖 AI criteria run when multiple mentors remain at their position "
+            "in the strict weight order."
         )
 
     def score_pair_base(emp_row, mentor_row):
         """
         Fast scoring without OpenAI. Also enforces required availability overlap.
-        Returns (priority_signature, score, matches_dict). A None signature is invalid.
+        Returns (standard_metrics, score, matches_dict). None metrics are invalid.
         """
         emp_email = str(_row_get(emp_row, "email", "")).strip().lower()
         mentor_email = str(_row_get(mentor_row, "email", "")).strip().lower()
@@ -2097,7 +2125,7 @@ def _pair_one_group(
             return None, -10_000, {"availability": []}
 
         score = 0
-        priority_signature = []
+        standard_metrics = {}
         matches = {
             "availability": overlap,
             "emp_industry_val": _row_get(emp_row, "industry", "") or "",
@@ -2107,7 +2135,7 @@ def _pair_one_group(
             "biz_age": "none",
         }
 
-        for rule in priority_rules:
+        for rule_index, rule in enumerate(priority_rules):
             comparison_type = rule.get("comparison_type")
             emp_slug = rule.get("emprendedora_question_slug") or ""
             mentor_slug = rule.get("mentora_question_slug") or ""
@@ -2120,7 +2148,7 @@ def _pair_one_group(
             if comparison_type == "availability_overlap":
                 matched = bool(overlap)
                 matched_value = overlap if matched else "none"
-                priority_signature.extend((int(matched), len(overlap) if matched else 0))
+                standard_metrics[f"standard:{rule_index}"] = (int(matched),)
                 if matched:
                     score += 100 + weight * len(overlap)
             elif comparison_type == "business_age":
@@ -2129,7 +2157,7 @@ def _pair_one_group(
                 emp_min = _business_age_bucket_to_min_years(emp_raw)
                 mentor_max = _mentor_years_to_max_years(mentor_raw)
                 matched = bool(emp_raw and mentor_raw and mentor_max >= emp_min)
-                priority_signature.append(int(matched))
+                standard_metrics[f"standard:{rule_index}"] = (int(matched),)
                 if matched:
                     score += weight
                     matched_value = f"mentor_max={mentor_max} >= emp_min={emp_min}"
@@ -2149,7 +2177,7 @@ def _pair_one_group(
                     matched = False
                 else:
                     matched = bool(emp_value and mentor_value and emp_value == mentor_value)
-                priority_signature.append(int(matched))
+                standard_metrics[f"standard:{rule_index}"] = (int(matched),)
 
                 if matched:
                     score += weight
@@ -2159,7 +2187,7 @@ def _pair_one_group(
                 return None, -10_000, matches
             matches[output_key] = matched_value
 
-        return tuple(priority_signature), score, matches
+        return standard_metrics, score, matches
 
     def score_top_candidates_with_ai(emp_row, candidates):
         """
@@ -2172,6 +2200,7 @@ def _pair_one_group(
                 "email": mentor_email,
                 "mentor": mentor_row,
                 "matches": dict(base_matches),
+                "ai_scores": {},
             }
             for base_score, mentor_email, mentor_row, base_matches in candidates
         ]
@@ -2253,6 +2282,7 @@ def _pair_one_group(
                         (str(candidate_index), comparison_index),
                         (0, "none"),
                     )
+                    result["ai_scores"][f"ai:{comparison_index - 1}"] = ai_score
                     if ai_score > 0:
                         ai_diagnostics["nonzero"] += 1
                     output_key = item.get("output_key") or f"llm{comparison_index}"
@@ -2268,6 +2298,8 @@ def _pair_one_group(
         for candidate in results:
             candidate["matches"].setdefault("llm1", "none")
             candidate["matches"].setdefault("llm2", "none")
+            for comparison_index, _item in enumerate(ai_comparisons):
+                candidate["ai_scores"].setdefault(f"ai:{comparison_index}", 0)
         return results
 
     def _extra_ai_values(matches: dict | None) -> list[str]:
@@ -2314,17 +2346,16 @@ def _pair_one_group(
             m = mentor_rows_by_email.get(m_email)
             if m is None:
                 continue
-            priority_signature, base_score, base_matches = score_pair_base(e, m)
-            if priority_signature is not None:
-                scored.append(
-                    (
-                        priority_signature,
-                        base_score,
-                        m_email,
-                        m,
-                        base_matches,
-                    )
-                )
+            standard_metrics, base_score, base_matches = score_pair_base(e, m)
+            if standard_metrics is not None:
+                scored.append({
+                    "standard_metrics": standard_metrics,
+                    "score": base_score,
+                    "email": m_email,
+                    "mentor": m,
+                    "matches": base_matches,
+                    "ai_scores": {},
+                })
 
         if not scored:
             # ⚠️ No availability match found — DO NOT FAIL
@@ -2367,47 +2398,79 @@ def _pair_one_group(
                 "llm2": "none",
             }
             best_score = 0
-        scored.sort(key=lambda item: item[2])
-        best_score = -10_000
-        best_email = None
-        best_m = None
-        best_matches = None
 
         if scored:
-            best_priority_signature = max(item[0] for item in scored)
-            tied = [
-                item
-                for item in scored
-                if item[0] == best_priority_signature
-            ]
-            standard_candidates = [
-                (base_score, mentor_email, mentor_row, base_matches)
-                for (
-                    _priority_signature,
-                    base_score,
-                    mentor_email,
-                    mentor_row,
-                    base_matches,
-                ) in tied
-            ]
-            if len(standard_candidates) == 1:
-                best_score, best_email, best_m, best_matches = standard_candidates[0]
-                best_matches.setdefault("llm1", "none")
-                best_matches.setdefault("llm2", "none")
-                if log_fn:
-                    log_fn("✅ One clear standard-rule winner; AI tie-break not needed.")
-            else:
-                if log_fn:
-                    log_fn(
-                        f"⚖️ {len(standard_candidates)} mentors share the best "
-                        "standard-rule values; running one AI tie-break."
+            remaining = sorted(scored, key=lambda candidate: candidate["email"])
+            ai_evaluated = False
+
+            for criterion in matching_criteria:
+                if len(remaining) <= 1:
+                    break
+
+                before_count = len(remaining)
+                if criterion["kind"] == "ai":
+                    if not ai_evaluated:
+                        ai_candidates = [
+                            (
+                                candidate["score"],
+                                candidate["email"],
+                                candidate["mentor"],
+                                candidate["matches"],
+                            )
+                            for candidate in remaining
+                        ]
+                        enriched_by_email = {
+                            candidate["email"]: candidate
+                            for candidate in score_top_candidates_with_ai(
+                                e,
+                                ai_candidates,
+                            )
+                        }
+                        for candidate in remaining:
+                            enriched = enriched_by_email.get(candidate["email"])
+                            if not enriched:
+                                continue
+                            candidate["score"] = enriched["score"]
+                            candidate["matches"] = enriched["matches"]
+                            candidate["ai_scores"] = enriched["ai_scores"]
+                        ai_evaluated = True
+
+                    best_value = max(
+                        candidate["ai_scores"].get(criterion["id"], 0)
+                        for candidate in remaining
                     )
-                for candidate in score_top_candidates_with_ai(e, standard_candidates):
-                    if candidate["score"] > best_score:
-                        best_score = candidate["score"]
-                        best_email = candidate["email"]
-                        best_m = candidate["mentor"]
-                        best_matches = candidate["matches"]
+                    remaining = [
+                        candidate
+                        for candidate in remaining
+                        if candidate["ai_scores"].get(criterion["id"], 0) == best_value
+                    ]
+                else:
+                    best_value = max(
+                        candidate["standard_metrics"].get(criterion["id"], (0,))
+                        for candidate in remaining
+                    )
+                    remaining = [
+                        candidate
+                        for candidate in remaining
+                        if candidate["standard_metrics"].get(
+                            criterion["id"],
+                            (0,),
+                        ) == best_value
+                    ]
+
+                if log_fn and len(remaining) != before_count:
+                    log_fn(
+                        f"🎯 {criterion['label']} ({criterion['weight']:g}) "
+                        f"narrowed {before_count} candidates to {len(remaining)}."
+                    )
+
+            winner = remaining[0]
+            best_score = winner["score"]
+            best_email = winner["email"]
+            best_m = winner["mentor"]
+            best_matches = winner["matches"]
+            best_matches.setdefault("llm1", "none")
+            best_matches.setdefault("llm2", "none")
 
         if best_email is None or best_m is None or best_score < 0:
             # if LLM scoring eliminates all options, fall back to any remaining mentor

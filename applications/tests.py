@@ -2187,7 +2187,7 @@ class GradingAndPairingConfigEditorTests(TestCase):
             emprendedora_question_slug=entrepreneur_schedule.slug,
             mentora_question_slug=mentor_schedule.slug,
             comparison_type=PairingPriorityRule.COMPARE_AVAILABILITY,
-            weight=10,
+            weight=50,
             required=True,
             output_key="availability",
         )
@@ -2197,7 +2197,7 @@ class GradingAndPairingConfigEditorTests(TestCase):
             emprendedora_question_slug="industry",
             mentora_question_slug="business_industry",
             comparison_type=PairingPriorityRule.COMPARE_EXACT,
-            weight=30,
+            weight=20,
             output_key="industry",
         )
         PairingPriorityRule.objects.create(
@@ -2206,7 +2206,7 @@ class GradingAndPairingConfigEditorTests(TestCase):
             emprendedora_question_slug="country_residence",
             mentora_question_slug="country_residence",
             comparison_type=PairingPriorityRule.COMPARE_EXACT,
-            weight=20,
+            weight=10,
             output_key="country",
         )
         PairingPriorityRule.objects.create(
@@ -2215,7 +2215,7 @@ class GradingAndPairingConfigEditorTests(TestCase):
             emprendedora_question_slug="business_age",
             mentora_question_slug="business_years",
             comparison_type=PairingPriorityRule.COMPARE_BUSINESS_AGE,
-            weight=10,
+            weight=5,
             output_key="biz_age",
         )
         PairingAIComparison.objects.create(
@@ -2223,7 +2223,7 @@ class GradingAndPairingConfigEditorTests(TestCase):
             label="Expertise and growth",
             emprendedora_question_slug="growth_how",
             mentora_question_slug="professional_expertise",
-            weight=1,
+            weight=40,
             output_key="llm1",
         )
         PairingAIComparison.objects.create(
@@ -2231,7 +2231,7 @@ class GradingAndPairingConfigEditorTests(TestCase):
             label="Motivation and challenge",
             emprendedora_question_slug="biggest_challenge",
             mentora_question_slug="motivation",
-            weight=1,
+            weight=30,
             output_key="llm2",
         )
         logs = []
@@ -2239,7 +2239,11 @@ class GradingAndPairingConfigEditorTests(TestCase):
         def score_in_one_batch(_client, candidates, **_kwargs):
             return {
                 (candidate["candidate_id"], comparison["index"]): (
-                    1,
+                    (
+                        5
+                        if "product companies" in comparison["mentor_response"]
+                        else 3
+                    ),
                     "Compatible schedules.",
                 )
                 for candidate in candidates
@@ -2264,25 +2268,25 @@ class GradingAndPairingConfigEditorTests(TestCase):
             )
 
         self.assertEqual(len(result), 1)
-        self.assertIn(
+        self.assertEqual(
             result.iloc[0]["mentora_email"],
-            {mentor.email, second_mentor.email},
+            lower_priority_mentor.email,
         )
         self.assertEqual(result.iloc[0]["matching_availability"], "tue_afternoon")
         self.assertNotEqual(result.iloc[0]["matching_availability"], "NO MATCH FOUND")
-        self.assertEqual(result.iloc[0]["matching_industry"], "services")
+        self.assertEqual(result.iloc[0]["matching_industry"], "none")
         self.assertEqual(result.iloc[0]["emprendedora_industry"], "services")
-        self.assertEqual(result.iloc[0]["mentora_industry"], "services")
-        self.assertEqual(result.iloc[0]["matching_country"], "colombia")
+        self.assertEqual(result.iloc[0]["mentora_industry"], "products")
+        self.assertEqual(result.iloc[0]["matching_country"], "none")
         self.assertEqual(result.iloc[0]["business_age_matching"], "mentor_max=10 >= emp_min=1")
         self.assertEqual(result.iloc[0]["expertise_growth_matching"], "Compatible schedules.")
         self.assertEqual(result.iloc[0]["motivation_challenge_match"], "Compatible schedules.")
         self.assertEqual(mock_batch.call_count, 1)
         batch_candidates = mock_batch.call_args.args[1]
-        self.assertEqual(len(batch_candidates), 2)
+        self.assertEqual(len(batch_candidates), 3)
         self.assertEqual(
             sum(len(candidate["comparisons"]) for candidate in batch_candidates),
-            4,
+            6,
         )
         self.assertTrue(
             any(
@@ -2301,19 +2305,21 @@ class GradingAndPairingConfigEditorTests(TestCase):
             logs,
         )
         self.assertTrue(
-            any("one AI batch for 2 candidate(s) and 4 comparison(s)" in message for message in logs),
+            any("one AI batch for 3 candidate(s) and 6 comparison(s)" in message for message in logs),
             logs,
         )
         self.assertTrue(
             any(
-                "2 mentors share the best standard-rule values" in message
+                "Expertise and growth (40) narrowed 3 candidates to 1" in message
                 for message in logs
             ),
             logs,
         )
         self.assertTrue(
             any(
-                "Industry (30) → Country (20)" in message
+                "Availability (50) → Expertise and growth (40) → "
+                "Motivation and challenge (30) → Industry (20) → Country (10)"
+                in message
                 for message in logs
             ),
             logs,

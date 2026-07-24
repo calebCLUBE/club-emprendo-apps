@@ -1304,7 +1304,7 @@ class PairingAIComparisonInline(admin.StackedInline):
     formset = PairingRuleInlineFormSet
     extra = 0
     verbose_name = "AI comparison"
-    verbose_name_plural = "2. AI comparisons used only to break standard-rule ties"
+    verbose_name_plural = "2. AI matching criteria"
     fieldsets = (
         (None, {"fields": (("active", "position"), "label")} ),
         ("Application answers to compare", {
@@ -1331,9 +1331,9 @@ class PairingConfigAdmin(admin.ModelAdmin):
             "fields": ("group", "availability_required"),
             "description": "These rules apply only to the Mentora and Emprendedora A1 applications attached to this Group.",
         }),
-        ("AI tie-break settings", {
+        ("AI matching settings", {
             "fields": ("model_name",),
-            "description": "AI comparisons run only when multiple mentors have the same best standard-rule matches.",
+            "description": "Standard and AI criteria are evaluated together from highest weight to lowest weight.",
         }),
         ("Prompt reference", {
             "fields": (),

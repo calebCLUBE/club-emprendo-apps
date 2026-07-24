@@ -8,6 +8,7 @@ import queue
 import re
 import zipfile
 import unicodedata
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Tuple
 from urllib.parse import urlparse
 from xml.sax.saxutils import escape
@@ -1576,6 +1577,24 @@ def _resolve_pairing_a1_slug(configured_slug: str, available_columns, track: str
     return configured_slug
 
 
+def _canonical_pairing_output_key(rule: dict) -> str:
+    comparison_type = str(rule.get("comparison_type") or "")
+    if comparison_type == "availability_overlap":
+        return "availability"
+    if comparison_type == "business_age":
+        return "biz_age"
+
+    label = _availability_word(rule.get("label"))
+    emp_slug = _availability_word(rule.get("emprendedora_question_slug"))
+    mentor_slug = _availability_word(rule.get("mentora_question_slug"))
+    semantic_text = " ".join((label, emp_slug, mentor_slug))
+    if any(token in semantic_text for token in ("industry", "industria", "business_active")):
+        return "industry"
+    if any(token in semantic_text for token in ("country", "pais")):
+        return "country"
+    return str(rule.get("output_key") or rule.get("label") or comparison_type)
+
+
 def _business_age_bucket_to_min_years(emp_val: str) -> int:
     v = _availability_word(emp_val).replace("_", "-")
     return {
@@ -1731,7 +1750,7 @@ def _llm_batch_fit_scores(
             model=(model_name or "gpt-5.2"),
             messages=[{"role": "user", "content": prompt}],
             temperature=0,
-            timeout=10,
+            timeout=25,
         )
         content = (response.choices[0].message.content or "").strip()
         if content.startswith("```"):
@@ -1764,9 +1783,9 @@ def _llm_batch_fit_scores(
             result_queue.put(("error", exc))
 
     try:
-        wall_timeout = float(os.getenv("PAIRING_AI_WALL_TIMEOUT_SECONDS", "15"))
+        wall_timeout = float(os.getenv("PAIRING_AI_WALL_TIMEOUT_SECONDS", "30"))
     except (TypeError, ValueError):
-        wall_timeout = 15.0
+        wall_timeout = 30.0
     wall_timeout = max(0.05, min(30.0, wall_timeout))
     request_thread = threading.Thread(target=request_worker, daemon=True)
     request_thread.start()
@@ -2096,6 +2115,7 @@ def _pair_one_group(
         "nonzero": 0,
         "errors": [],
         "disabled": False,
+        "consecutive_failures": 0,
     }
 
     priority_rules = sorted(
@@ -2174,7 +2194,7 @@ def _pair_one_group(
             comparison_type = rule.get("comparison_type")
             emp_slug = rule.get("emprendedora_question_slug") or ""
             mentor_slug = rule.get("mentora_question_slug") or ""
-            output_key = rule.get("output_key") or rule.get("label") or comparison_type
+            output_key = _canonical_pairing_output_key(rule)
             weight = float(rule.get("weight") or 0)
             required = bool(rule.get("required"))
             matched = False
@@ -2289,32 +2309,59 @@ def _pair_one_group(
         def record_ai_error(message):
             if len(ai_diagnostics["errors"]) < 5:
                 ai_diagnostics["errors"].append(str(message))
-            ai_diagnostics["disabled"] = True
 
         if batch_candidates and not ai_diagnostics["disabled"]:
             started_at = time.monotonic()
+            chunk_size = 6
+            candidate_chunks = [
+                batch_candidates[start:start + chunk_size]
+                for start in range(0, len(batch_candidates), chunk_size)
+            ]
             if log_fn:
                 comparison_count = sum(
                     len(candidate["comparisons"])
                     for candidate in batch_candidates
                 )
                 log_fn(
-                    f"⏳ Sending one AI batch for {len(batch_candidates)} candidate(s) "
-                    f"and {comparison_count} comparison(s)."
+                    f"⏳ Sending {len(candidate_chunks)} bounded AI batch(es) for "
+                    f"{len(batch_candidates)} candidate(s) and "
+                    f"{comparison_count} comparison(s)."
                 )
-            batch_scores = _llm_batch_fit_scores(
-                client,
-                batch_candidates,
-                model_name=pairing_config.model_name,
-                error_callback=record_ai_error,
-            )
+            batch_scores = {}
+            worker_count = min(3, len(candidate_chunks))
+            with ThreadPoolExecutor(max_workers=worker_count) as executor:
+                futures = [
+                    executor.submit(
+                        _llm_batch_fit_scores,
+                        client,
+                        chunk,
+                        model_name=pairing_config.model_name,
+                        error_callback=record_ai_error,
+                    )
+                    for chunk in candidate_chunks
+                ]
+                for future in as_completed(futures):
+                    batch_scores.update(future.result())
+
+            if batch_scores:
+                ai_diagnostics["consecutive_failures"] = 0
+            else:
+                ai_diagnostics["consecutive_failures"] += 1
+                if ai_diagnostics["consecutive_failures"] >= 2:
+                    ai_diagnostics["disabled"] = True
+
             if log_fn:
                 log_fn(f"⚡ AI batch finished in {time.monotonic() - started_at:.1f}s.")
                 if ai_diagnostics["disabled"]:
                     log_fn(
-                        "⚠️ AI scoring timed out or failed. AI is disabled for "
-                        "the rest of this run; matching will continue with the "
-                        "remaining weighted criteria."
+                        "⚠️ AI scoring failed for two consecutive pairing steps. "
+                        "AI is disabled for the rest of this run; matching will "
+                        "continue with the remaining weighted criteria."
+                    )
+                elif not batch_scores:
+                    log_fn(
+                        "⚠️ This AI scoring step failed. Pairing will continue "
+                        "and AI will be tried once more on the next applicable pair."
                     )
 
             for candidate_index, _candidate in enumerate(candidates):
@@ -2557,12 +2604,16 @@ def _pair_one_group(
         unassigned_mentors.remove(best_email)
 
         overlap = best_matches.get("availability", [])
+        if isinstance(overlap, str):
+            overlap_text = "" if overlap.strip().lower() == "none" else overlap.strip()
+        else:
+            overlap_text = ", ".join(str(slot) for slot in (overlap or []))
         row_vals = [
             _row_get(e, "name", "") or "",
             _row_get(best_m, "name", "") or "",
             e_email,
             best_email,
-            ", ".join(overlap) if overlap else "none",
+            overlap_text or "none",
             best_matches.get("industry", "none") or "none",
             best_matches.get("emp_industry_val", "") or "",
             best_matches.get("mentor_industry_val", "") or "",

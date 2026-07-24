@@ -1294,7 +1294,6 @@ class PairingPriorityRuleInline(admin.StackedInline):
             "description": "Choose one answer from each current Group application. The available answer options appear below each selection.",
         }),
         ("Matching behavior", {"fields": (("comparison_type", "weight", "required"),)}),
-        ("Advanced output", {"fields": ("output_key",), "classes": ("collapse",)}),
     )
 
 
@@ -1311,7 +1310,7 @@ class PairingAIComparisonInline(admin.StackedInline):
             "fields": ("emprendedora_question_slug", "mentora_question_slug"),
             "description": "Choose the written or structured answers the AI should compare for this Group.",
         }),
-        ("Scoring", {"fields": (("weight", "output_key"),)}),
+        ("Scoring", {"fields": ("weight",)}),
         ("AI instructions", {
             "fields": ("prompt",),
             "description": "Optional. Explain what makes these two answers compatible. Leave blank to use the default pairing prompt.",

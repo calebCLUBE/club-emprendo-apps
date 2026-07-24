@@ -2189,7 +2189,9 @@ class GradingAndPairingConfigEditorTests(TestCase):
             comparison_type=PairingPriorityRule.COMPARE_AVAILABILITY,
             weight=50,
             required=True,
-            output_key="availability",
+            # Runtime must not let a stale/swapped output key move schedules
+            # into the industry CSV column.
+            output_key="industry",
         )
         PairingPriorityRule.objects.create(
             config=config,
@@ -2198,7 +2200,7 @@ class GradingAndPairingConfigEditorTests(TestCase):
             mentora_question_slug="business_industry",
             comparison_type=PairingPriorityRule.COMPARE_EXACT,
             weight=20,
-            output_key="industry",
+            output_key="availability",
         )
         PairingPriorityRule.objects.create(
             config=config,
@@ -2305,7 +2307,11 @@ class GradingAndPairingConfigEditorTests(TestCase):
             logs,
         )
         self.assertTrue(
-            any("one AI batch for 3 candidate(s) and 6 comparison(s)" in message for message in logs),
+            any(
+                "1 bounded AI batch(es) for 3 candidate(s) and 6 comparison(s)"
+                in message
+                for message in logs
+            ),
             logs,
         )
         self.assertTrue(

@@ -1698,6 +1698,28 @@ def _normalize_pairing_tags(values) -> list[str]:
     return out[:8]
 
 
+def _pairing_match_explanation(label: str, shared_tags: list[str]) -> str:
+    criterion = " ".join(str(label or "this criterion").split()).strip()
+    if not shared_tags:
+        return (
+            "No clear match was found between their responses for "
+            f"{criterion.lower()}."
+        )
+
+    readable_tags = [
+        " ".join(str(tag).replace("-", " ").split())
+        for tag in shared_tags[:3]
+        if str(tag).strip()
+    ]
+    if len(readable_tags) == 1:
+        themes = readable_tags[0]
+    elif len(readable_tags) == 2:
+        themes = " and ".join(readable_tags)
+    else:
+        themes = ", ".join(readable_tags[:-1]) + f", and {readable_tags[-1]}"
+    return f"Their responses align on {themes} for {criterion.lower()}."
+
+
 def _llm_dataset_pairing_profiles(
     client: OpenAI,
     participants: list[dict],
@@ -2369,26 +2391,12 @@ def _pair_one_group(
                 else:
                     ai_score = 0
 
-                entrepreneur_summary = " ".join(
-                    str(entrepreneur_profile.get("summary") or "").split()
-                )[:220]
-                mentor_summary = " ".join(
-                    str(mentor_profile.get("summary") or "").split()
-                )[:220]
                 if ai_score > 0:
                     ai_diagnostics["nonzero"] += 1
-                    explanation_parts = [
-                        "Prompt-specific shared themes: " + ", ".join(shared_tags)
-                    ]
-                else:
-                    explanation_parts = ["No shared prompt-specific themes"]
-                if entrepreneur_summary:
-                    explanation_parts.append(
-                        "Entrepreneur: " + entrepreneur_summary
-                    )
-                if mentor_summary:
-                    explanation_parts.append("Mentor: " + mentor_summary)
-                explanation = " | ".join(explanation_parts)
+                explanation = _pairing_match_explanation(
+                    item.get("label") or f"comparison {comparison_index}",
+                    shared_tags,
+                )
 
                 result["ai_scores"][f"ai:{comparison_index - 1}"] = ai_score
                 output_key = item.get("output_key") or f"llm{comparison_index}"

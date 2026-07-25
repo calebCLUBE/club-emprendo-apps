@@ -455,6 +455,15 @@
           imageSize.appendChild(option);
         });
 
+      const imageHeightText = document.createElement("span");
+      imageHeightText.className = "ce-rich-image-height";
+      imageHeightText.textContent = "Height auto";
+
+      const resetProportions = document.createElement("button");
+      resetProportions.type = "button";
+      resetProportions.textContent = "Reset proportions";
+      resetProportions.title = "Restore the image's original proportions";
+
       const removeImage = document.createElement("button");
       removeImage.type = "button";
       removeImage.textContent = "Remove";
@@ -492,12 +501,26 @@
         if (save) sync();
       }
 
+      function setSelectedImageHeight(height, save = false) {
+        if (!selectedImage) return;
+        if (height === "auto") {
+          selectedImage.style.height = "auto";
+          imageHeightText.textContent = "Height auto";
+        } else {
+          const boundedHeight = Math.min(1400, Math.max(40, Math.round(height)));
+          selectedImage.style.height = `${boundedHeight}px`;
+          imageHeightText.textContent = `Height ${boundedHeight}px`;
+        }
+        requestAnimationFrame(updateResizeOverlay);
+        if (save) sync();
+      }
+
       ["nw", "ne", "sw", "se"].forEach((corner) => {
         const handle = document.createElement("button");
         handle.type = "button";
         handle.className = `ce-rich-image-handle ce-rich-image-handle--${corner}`;
         handle.dataset.corner = corner;
-        handle.title = "Drag to resize image";
+        handle.title = "Drag horizontally for width and vertically for height; hold Shift to preserve proportions";
         handle.setAttribute("aria-label", `Resize image from ${corner.toUpperCase()} corner`);
         handle.addEventListener("pointerdown", (event) => {
           if (!selectedImage) return;
@@ -516,12 +539,22 @@
           const move = (moveEvent) => {
             if (selectedImage !== image) return;
             const horizontalDelta = horizontalDirection * (moveEvent.clientX - startX);
-            const verticalDelta = verticalDirection * (moveEvent.clientY - startY) * aspectRatio;
-            const pixelDelta = Math.abs(horizontalDelta) >= Math.abs(verticalDelta)
-              ? horizontalDelta
-              : verticalDelta;
             const editorWidth = Math.max(1, editor.getBoundingClientRect().width);
-            setSelectedImageWidth(((startRect.width + pixelDelta) / editorWidth) * 100);
+            let nextWidth = startRect.width + horizontalDelta;
+            let nextHeight = startRect.height
+              + verticalDirection * (moveEvent.clientY - startY);
+            if (moveEvent.shiftKey) {
+              const verticalWidthDelta = (
+                verticalDirection * (moveEvent.clientY - startY) * aspectRatio
+              );
+              const pixelDelta = Math.abs(horizontalDelta) >= Math.abs(verticalWidthDelta)
+                ? horizontalDelta
+                : verticalWidthDelta;
+              nextWidth = startRect.width + pixelDelta;
+              nextHeight = nextWidth / aspectRatio;
+            }
+            setSelectedImageWidth((nextWidth / editorWidth) * 100);
+            setSelectedImageHeight(nextHeight);
           };
           const finish = () => {
             document.removeEventListener("pointermove", move);
@@ -563,6 +596,10 @@
         imageWidthText.textContent = `Width ${width}%`;
         imageSize.value = ["30", "50", "75", "100"].includes(String(width)) ? String(width) : "";
         imageAlignment.value = selectedAlignment(selectedImage);
+        const savedHeight = parseFloat(selectedImage.style.height || "");
+        imageHeightText.textContent = Number.isFinite(savedHeight)
+          ? `Height ${Math.round(savedHeight)}px`
+          : "Height auto";
         requestAnimationFrame(updateResizeOverlay);
       }
 
@@ -686,6 +723,10 @@
         sync();
         requestAnimationFrame(updateResizeOverlay);
       });
+      resetProportions.addEventListener("click", () => {
+        if (!selectedImage) return;
+        setSelectedImageHeight("auto", true);
+      });
       removeImage.addEventListener("click", () => {
         if (!selectedImage) return;
         const image = selectedImage;
@@ -720,7 +761,14 @@
       window.addEventListener("resize", updateResizeOverlay);
       window.addEventListener("scroll", updateResizeOverlay, true);
 
-      imageControls.append(imageSize, imageWidthLabel, imageAlignment, removeImage);
+      imageControls.append(
+        imageSize,
+        imageWidthLabel,
+        imageHeightText,
+        imageAlignment,
+        resetProportions,
+        removeImage,
+      );
       toolbar.append(imageButton, imageControls, imageInput);
     }
 

@@ -107,6 +107,7 @@ body.app-applications.model-formdefinition.change-form select:focus { border-bot
 .ce-rich-image-controls[hidden] { display: none; }
 .ce-rich-image-width { display: inline-flex; align-items: center; gap: 6px; color: #3c4043; font-size: 12px; white-space: nowrap; }
 .ce-rich-image-width input[type="range"] { width: 110px; margin: 0; accent-color: var(--form-purple); }
+.ce-rich-image-height { color: #3c4043; font-size: 12px; white-space: nowrap; }
 .ce-rich-image-resize { position: absolute; z-index: 8; box-sizing: border-box; border: 2px solid var(--form-purple); pointer-events: none; }
 .ce-rich-image-resize[hidden] { display: none; }
 .ce-rich-image-handle { position: absolute; width: 14px; min-width: 14px !important; height: 14px; min-height: 14px !important; padding: 0 !important; border: 2px solid #fff !important; border-radius: 50% !important; background: var(--form-purple) !important; box-shadow: 0 1px 4px rgba(0,0,0,.35); pointer-events: auto; touch-action: none; }

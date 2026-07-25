@@ -237,28 +237,42 @@ def build_application_form(form_slug: str, additional_form_slugs: list[str] | tu
                     )
 
                 elif field_type == Question.BOOLEAN:
-                    # Radio buttons: must include a blank option to avoid preselect
                     choices = [
-                        ("", "— Selecciona —"),
                         ("yes", "Sí"),
                         ("no", "No"),
                     ]
                     field = forms.ChoiceField(
                         choices=choices,
-                        widget=forms.RadioSelect,
-                        initial="",
+                        widget=forms.RadioSelect(
+                            attrs={"class": "ce-yes-no-options"}
+                        ),
+                        initial=None,
                         **common,
                     )
 
                 elif field_type == Question.CHOICE:
                     choices = [(c.value, c.label) for c in q.choices.all().order_by("position", "id")]
-                    choices = [("", "— Selecciona —")] + choices
-                    field = forms.ChoiceField(
-                        choices=choices,
-                        widget=forms.Select,
-                        initial="",
-                        **common,
-                    )
+                    choice_values = {
+                        str(value or "").strip().lower()
+                        for value, _label in choices
+                    }
+                    is_yes_no = len(choices) == 2 and choice_values == {"yes", "no"}
+                    if is_yes_no:
+                        field = forms.ChoiceField(
+                            choices=choices,
+                            widget=forms.RadioSelect(
+                                attrs={"class": "ce-yes-no-options"}
+                            ),
+                            initial=None,
+                            **common,
+                        )
+                    else:
+                        field = forms.ChoiceField(
+                            choices=[("", "— Selecciona —")] + choices,
+                            widget=forms.Select,
+                            initial="",
+                            **common,
+                        )
 
                 elif field_type == Question.MULTI_CHOICE:
                     choices = [(c.value, c.label) for c in q.choices.all().order_by("position", "id")]

@@ -2717,6 +2717,101 @@ class ApplicationEmailValidationTests(TestCase):
         self.assertTrue(valid.is_valid(), valid.errors)
 
 
+class YesNoChoiceRenderingTests(TestCase):
+    def setUp(self):
+        self.form_def = FormDefinition.objects.create(
+            slug="yes_no_rendering",
+            name="Yes/no rendering",
+            is_public=True,
+            accepting_responses=True,
+        )
+        self.question = Question.objects.create(
+            form=self.form_def,
+            text="¿Tienes experiencia previa?",
+            slug="prior_experience",
+            field_type=Question.CHOICE,
+            required=True,
+            position=1,
+        )
+        Choice.objects.create(
+            question=self.question,
+            value="yes",
+            label="Sí",
+            position=1,
+        )
+        Choice.objects.create(
+            question=self.question,
+            value="no",
+            label="No",
+            position=2,
+        )
+
+    def test_yes_no_choice_is_an_unselected_horizontal_radio_group(self):
+        form = build_application_form(self.form_def.slug)()
+        html = str(form["q_prior_experience"])
+
+        self.assertEqual(html.count('type="radio"'), 2)
+        self.assertIn('class="ce-yes-no-options"', html)
+        self.assertNotIn("<select", html)
+        self.assertNotIn("Selecciona", html)
+        self.assertNotIn("checked", html)
+        self.assertIsNone(form["q_prior_experience"].value())
+
+    def test_existing_yes_no_answer_is_still_rendered_as_selected(self):
+        form = build_application_form(self.form_def.slug)(
+            initial={"q_prior_experience": "yes"}
+        )
+        html = str(form["q_prior_experience"])
+
+        self.assertRegex(html, r'value="yes"[^>]*checked')
+
+    def test_non_yes_no_choice_keeps_select_placeholder(self):
+        question = Question.objects.create(
+            form=self.form_def,
+            text="Selecciona una etapa",
+            slug="stage",
+            field_type=Question.CHOICE,
+            required=True,
+            position=2,
+        )
+        Choice.objects.create(
+            question=question,
+            value="starting",
+            label="Iniciando",
+            position=1,
+        )
+        Choice.objects.create(
+            question=question,
+            value="growing",
+            label="Creciendo",
+            position=2,
+        )
+
+        form = build_application_form(self.form_def.slug)()
+        html = str(form["q_stage"])
+
+        self.assertIn("<select", html)
+        self.assertIn("— Selecciona —", html)
+
+    def test_boolean_editor_type_uses_the_same_unselected_radio_layout(self):
+        Question.objects.create(
+            form=self.form_def,
+            text="¿Confirmas?",
+            slug="confirm",
+            field_type=Question.BOOLEAN,
+            required=True,
+            position=2,
+        )
+
+        form = build_application_form(self.form_def.slug)()
+        html = str(form["q_confirm"])
+
+        self.assertEqual(html.count('type="radio"'), 2)
+        self.assertIn('class="ce-yes-no-options"', html)
+        self.assertNotIn("Selecciona", html)
+        self.assertNotIn("checked", html)
+
+
 class MultipleChoiceGridTests(TestCase):
     def setUp(self):
         self.form_def = FormDefinition.objects.create(

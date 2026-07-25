@@ -358,6 +358,32 @@ select:focus {
   margin-right: 0.4rem;
 }
 
+.form-row div.ce-yes-no-options {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem 1.25rem;
+  margin: 0.15rem 0 0;
+  padding: 0;
+}
+
+.form-row div.ce-yes-no-options > div,
+.form-row div.ce-yes-no-options > li {
+  margin: 0;
+}
+
+.form-row div.ce-yes-no-options label {
+  display: inline-flex;
+  align-items: center;
+  margin: 0;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.form-row div.ce-yes-no-options input[type="radio"] {
+  margin: 0 0.45rem 0 0;
+}
+
 /* Required */
 label.required::after {
   content: " *";

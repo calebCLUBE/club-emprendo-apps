@@ -747,7 +747,7 @@ def _sections_from_model(form_def: FormDefinition, form, default_intro: str = ""
     return ordered
 
 
-def _intro_identity_kind(field) -> str:
+def _intro_contact_kind(field) -> str:
     field_name = str(getattr(field, "name", "") or "").lower()
     base_name = re.sub(r"^q_", "", field_name).split("__confirm", 1)[0]
     label = str(getattr(field, "label", "") or "").lower()
@@ -765,33 +765,26 @@ def _intro_identity_kind(field) -> str:
     ):
         return "email"
     if (
-        "cedula" in base_name
-        or base_name in {
-            "dni",
-            "document_number",
-            "identity_document",
-            "numero_documento",
-            "documento_identidad",
-        }
-        or "cédula" in label
-        or "documento de identidad" in label
+        "whatsapp" in base_name
+        or base_name in {"phone", "phone_number", "telefono", "numero_telefono"}
+        or "whatsapp" in label
     ):
-        return "cedula"
+        return "whatsapp"
     return ""
 
 
-def _move_identity_fields_to_intro(sections: list[dict]) -> list:
-    """Remove identity fields from later sections and return them in intro order."""
+def _move_contact_fields_to_intro(sections: list[dict]) -> list:
+    """Remove intro contact fields from later sections and return them in order."""
     collected = []
     source_order = 0
     for section in sections:
         remaining_fields = []
         for field in section.get("fields") or []:
-            identity_kind = _intro_identity_kind(field)
-            if identity_kind:
+            contact_kind = _intro_contact_kind(field)
+            if contact_kind:
                 is_confirmation = "__confirm" in str(field.name)
                 collected.append((
-                    {"name": 0, "email": 1, "cedula": 2}[identity_kind],
+                    {"name": 0, "email": 1, "whatsapp": 2}[contact_kind],
                     int(is_confirmation),
                     source_order,
                     field,
@@ -1233,11 +1226,11 @@ def _handle_application_form(
     intro = str(rendered_description or "").strip()
     if not sections:
         question_fields = list(form)
-        has_intro_identity = any(
-            _intro_identity_kind(field)
+        has_intro_contact = any(
+            _intro_contact_kind(field)
             for field in question_fields
         )
-        if question_fields and (intro or has_intro_identity):
+        if question_fields and (intro or has_intro_contact):
             sections = [{
                 "id": "questions",
                 "title": form_def.default_section_title or "Preguntas",
@@ -1245,13 +1238,13 @@ def _handle_application_form(
                 "fields": question_fields,
             }]
     if sections:
-        intro_identity_fields = _move_identity_fields_to_intro(sections)
-        if intro or intro_identity_fields:
+        intro_contact_fields = _move_contact_fields_to_intro(sections)
+        if intro or intro_contact_fields:
             sections.insert(0, {
                 "id": "form-intro",
                 "title": "Antes de comenzar",
                 "intro": intro,
-                "fields": intro_identity_fields,
+                "fields": intro_contact_fields,
                 "conditions_json": "[]",
                 "is_intro": True,
             })

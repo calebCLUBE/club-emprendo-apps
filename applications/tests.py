@@ -2842,8 +2842,8 @@ class ApplicationProgressRenderingTests(TestCase):
         self.assertNotIn("Sección ${safeCompleted}", html)
 
 
-class ApplicationIntroIdentityTests(TestCase):
-    def test_name_email_and_cedula_are_moved_to_intro_step_once(self):
+class ApplicationIntroContactTests(TestCase):
+    def test_name_email_and_whatsapp_are_moved_to_intro_step_once(self):
         form_def = FormDefinition.objects.create(
             slug="intro_identity_fields",
             name="Application with identity intro",
@@ -2861,7 +2861,7 @@ class ApplicationIntroIdentityTests(TestCase):
             (1, "full_name", "Nombre completo", False),
             (2, "cedula", "Número de cédula", True),
             (3, "email", "Correo electrónico", True),
-            (4, "whatsapp", "Número de WhatsApp", False),
+            (4, "whatsapp", "Número de WhatsApp", True),
         ):
             Question.objects.create(
                 form=form_def,
@@ -2890,22 +2890,24 @@ class ApplicationIntroIdentityTests(TestCase):
             "q_full_name",
             "q_email",
             "q_email__confirm",
-            "q_cedula",
-            "q_cedula__confirm",
+            "q_whatsapp",
+            "q_whatsapp__confirm",
         ]
         for field_name in expected_intro_names:
             self.assertIn(f'name="{field_name}"', intro_html)
             self.assertNotIn(f'name="{field_name}"', personal_html)
             self.assertEqual(html.count(f'name="{field_name}"'), 1)
-        self.assertIn('name="q_whatsapp"', personal_html)
-        self.assertNotIn('name="q_whatsapp"', intro_html)
+        self.assertIn('name="q_cedula"', personal_html)
+        self.assertIn('name="q_cedula__confirm"', personal_html)
+        self.assertNotIn('name="q_cedula"', intro_html)
+        self.assertNotIn('name="q_cedula__confirm"', intro_html)
         self.assertLess(
             intro_html.index('name="q_full_name"'),
             intro_html.index('name="q_email"'),
         )
         self.assertLess(
             intro_html.index('name="q_email"'),
-            intro_html.index('name="q_cedula"'),
+            intro_html.index('name="q_whatsapp"'),
         )
 
 

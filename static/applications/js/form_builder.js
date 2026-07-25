@@ -8,6 +8,7 @@
   const rowFor = (card, name) => card.querySelector("." + name);
   let pendingSectionAfter = null;
   let pendingQuestionAfter = null;
+  let sectionOrganizer = null;
 
   function positionBuilderRail(card) {
     const group = document.querySelector("#questions-group");
@@ -547,23 +548,9 @@
     const label = document.createElement("div");
     label.className = "ce-section-label";
     label.textContent = "Section";
-    const dragHandle = document.createElement("div");
-    dragHandle.className = "ce-drag-handle ce-section-drag-handle";
-    dragHandle.title = "Drag to move section";
-    dragHandle.textContent = "⠿";
     card.prepend(label);
-    card.prepend(dragHandle);
-    dragHandle.addEventListener("dragstart", (event) => {
-      event.dataTransfer?.setData("text/plain", "section");
-      if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
-      card.classList.add("ce-structure-dragging");
-    });
-    dragHandle.addEventListener("dragend", () => {
-      card.classList.remove("ce-structure-dragging");
-      updateStructure();
-    });
-    wirePointerSort(dragHandle, card, ".ce-structure-card", updateStructure);
     card.addEventListener("pointerdown", () => activateCard(card));
+    card.querySelector("input[id$='-title']")?.addEventListener("input", refreshSectionOrganizer);
     const actions = document.createElement("div");
     actions.className = "ce-question-actions ce-section-actions";
     const remove = document.createElement("button");
@@ -574,6 +561,7 @@
       if (deleteInput) deleteInput.checked = true;
       card.hidden = true;
       updateStructure();
+      refreshSectionOrganizer();
     });
     actions.appendChild(remove);
     card.appendChild(actions);
@@ -614,6 +602,140 @@
     });
     sectionsGroup.classList.add("ce-section-source");
     updateStructure();
+  }
+
+  function sectionBlock(sectionCard) {
+    const block = [sectionCard];
+    let sibling = sectionCard.nextElementSibling;
+    while (sibling && !sibling.classList?.contains("ce-section-card")) {
+      if (sibling.classList?.contains("ce-question-card")) block.push(sibling);
+      sibling = sibling.nextElementSibling;
+    }
+    return block;
+  }
+
+  function reorderSectionBlocks(tokens) {
+    const container = questionContainer();
+    if (!container) return;
+    const addRow = Array.from(container.children).find((child) => child.classList?.contains("add-row"));
+    const sectionsByToken = new Map(
+      Array.from(container.querySelectorAll(":scope > .ce-section-card:not([hidden])"))
+        .map((card) => [sectionToken(card), card])
+    );
+    tokens.forEach((token) => {
+      const sectionCard = sectionsByToken.get(token);
+      if (!sectionCard) return;
+      const fragment = document.createDocumentFragment();
+      sectionBlock(sectionCard).forEach((card) => fragment.appendChild(card));
+      container.insertBefore(fragment, addRow || null);
+    });
+    updateStructure();
+  }
+
+  function syncSectionOrganizerOrder() {
+    const rows = Array.from(sectionOrganizer?.querySelectorAll(".ce-section-order-row") || []);
+    reorderSectionBlocks(rows.map((row) => row.dataset.sectionToken || ""));
+    rows.forEach((row, index) => {
+      const number = row.querySelector(".ce-section-order-number");
+      if (number) number.textContent = String(index + 1);
+      const buttons = row.querySelectorAll(".ce-section-order-actions button");
+      if (buttons[0]) buttons[0].disabled = index === 0;
+      if (buttons[1]) buttons[1].disabled = index === rows.length - 1;
+    });
+  }
+
+  function moveSectionOrganizerRow(row, offset) {
+    const sibling = offset < 0 ? row.previousElementSibling : row.nextElementSibling;
+    if (!sibling) return;
+    if (offset < 0) row.parentElement.insertBefore(row, sibling);
+    else row.parentElement.insertBefore(sibling, row);
+    syncSectionOrganizerOrder();
+  }
+
+  function refreshSectionOrganizer() {
+    const body = sectionOrganizer?.querySelector("tbody");
+    const container = questionContainer();
+    if (!body || !container) return;
+    body.replaceChildren();
+    const sections = Array.from(
+      container.querySelectorAll(":scope > .ce-section-card:not([hidden])")
+    );
+    sections.forEach((card, index) => {
+      const row = document.createElement("tr");
+      row.className = "ce-section-order-row";
+      row.dataset.sectionToken = sectionToken(card);
+
+      const numberCell = document.createElement("td");
+      numberCell.className = "ce-section-order-number";
+      numberCell.textContent = String(index + 1);
+
+      const handleCell = document.createElement("td");
+      const handle = document.createElement("button");
+      handle.type = "button";
+      handle.className = "ce-section-order-handle";
+      handle.title = "Drag section and all of its questions";
+      handle.setAttribute("aria-label", handle.title);
+      handle.textContent = "⋮⋮";
+      handleCell.appendChild(handle);
+
+      const titleCell = document.createElement("td");
+      const title = document.createElement("button");
+      title.type = "button";
+      title.className = "ce-section-order-title";
+      title.textContent = card.querySelector("input[id$='-title']")?.value.trim() || "Untitled section";
+      title.title = "Jump to this section";
+      title.addEventListener("click", () => {
+        activateCard(card);
+        card.scrollIntoView({ behavior: "smooth", block: "center" });
+      });
+      titleCell.appendChild(title);
+
+      const actionsCell = document.createElement("td");
+      actionsCell.className = "ce-section-order-actions";
+      const up = document.createElement("button");
+      up.type = "button";
+      up.title = "Move section up";
+      up.setAttribute("aria-label", up.title);
+      up.textContent = "↑";
+      up.disabled = index === 0;
+      up.addEventListener("click", () => moveSectionOrganizerRow(row, -1));
+      const down = document.createElement("button");
+      down.type = "button";
+      down.title = "Move section down";
+      down.setAttribute("aria-label", down.title);
+      down.textContent = "↓";
+      down.disabled = index === sections.length - 1;
+      down.addEventListener("click", () => moveSectionOrganizerRow(row, 1));
+      actionsCell.append(up, down);
+
+      row.append(numberCell, handleCell, titleCell, actionsCell);
+      body.appendChild(row);
+      wirePointerSort(handle, row, ".ce-section-order-row", syncSectionOrganizerOrder);
+    });
+    const empty = sectionOrganizer.querySelector(".ce-section-organizer-empty");
+    if (empty) empty.hidden = sections.length > 0;
+  }
+
+  function addSectionOrganizer() {
+    if (sectionOrganizer || !document.querySelector("#questions-group")) return;
+    sectionOrganizer = document.createElement("aside");
+    sectionOrganizer.className = "ce-section-organizer";
+    sectionOrganizer.setAttribute("aria-label", "Section order");
+    sectionOrganizer.innerHTML = `
+      <div class="ce-section-organizer-header">
+        <h2>Sections</h2>
+        <p>Drag a row to move the section and all its questions together.</p>
+      </div>
+      <div class="ce-section-organizer-scroll">
+        <table>
+          <thead><tr><th>#</th><th></th><th>Section</th><th>Move</th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <p class="ce-section-organizer-empty" hidden>No sections yet.</p>
+      </div>
+    `;
+    (document.querySelector("#content-main") || document.body).prepend(sectionOrganizer);
+    refreshSectionOrganizer();
   }
 
   function simplifyAddButtons() {
@@ -706,16 +828,16 @@
   }
 
   document.addEventListener("DOMContentLoaded", () => {
-    enhanceAll(document); enhanceRichTextareas(document); initializeSectionLayout(); simplifyAddButtons(); addRail(); enableReordering(); setHeaderLinks(); saveState();
+    enhanceAll(document); enhanceRichTextareas(document); initializeSectionLayout(); simplifyAddButtons(); addRail(); addSectionOrganizer(); enableReordering(); setHeaderLinks(); saveState();
     const firstInvalid = document.querySelector("#questions-group .ce-card-invalid");
     if (firstInvalid) window.requestAnimationFrame(() => firstInvalid.scrollIntoView({ block: "center" }));
     document.addEventListener("formset:added", (event) => {
-      placeAddedCard(event.target); enhanceRichTextareas(event.target); simplifyAddButtons();
+      placeAddedCard(event.target); enhanceRichTextareas(event.target); simplifyAddButtons(); refreshSectionOrganizer();
     });
     if (window.django?.jQuery) {
       window.django.jQuery(document).on("formset:added", function (_event, row) {
         placeAddedCard(row?.[0]); enhanceRichTextareas(row?.[0]);
-        simplifyAddButtons();
+        simplifyAddButtons(); refreshSectionOrganizer();
       });
     }
     window.addEventListener("resize", () => positionBuilderRail(null));

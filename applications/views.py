@@ -31,6 +31,25 @@ THANKS_PLACEHOLDER_RE = re.compile(r"{{\s*([a-zA-Z0-9_]+)\s*}}")
 logger = logging.getLogger(__name__)
 
 
+def application_terms(request, form_slug: str, question_id: int):
+    form_def = get_object_or_404(FormDefinition, slug=form_slug)
+    question = get_object_or_404(
+        Question,
+        id=question_id,
+        form=form_def,
+        active=True,
+        field_type=Question.TERMS_ACCEPTANCE,
+    )
+    return render(
+        request,
+        "applications/terms_and_conditions.html",
+        {
+            "form_def": form_def,
+            "question": question,
+        },
+    )
+
+
 def autosave_application_draft(request, form_slug: str):
     if request.method != "POST":
         return JsonResponse({"error": "POST required"}, status=405)

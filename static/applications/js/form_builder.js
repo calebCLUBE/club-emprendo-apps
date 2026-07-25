@@ -1,5 +1,6 @@
 (function () {
   const QUESTION_TYPES_WITH_OPTIONS = new Set(["choice", "multi_choice", "choice_grid"]);
+  const TERMS_ACCEPTANCE_TYPE = "terms_acceptance";
   const ADVANCED_FIELDS = [
     "field-show_if_conditions", "field-end_form_rules", "field-confirm_value", "field-pre_hr",
     "field-pre_text", "field-slug", "field-position", "field-active",
@@ -402,11 +403,13 @@
     const type = card.querySelector("select[id$='-field_type']");
     const optionRow = rowFor(card, "field-answer_options");
     const gridRow = rowFor(card, "field-grid_rows");
+    const termsRow = rowFor(card, "field-terms_content");
     if (!type || !optionRow) return;
     const hasOptions = QUESTION_TYPES_WITH_OPTIONS.has(type.value);
     const isGrid = type.value === "choice_grid";
     optionRow.classList.toggle("ce-builder-hidden", !hasOptions);
     gridRow?.classList.toggle("ce-builder-hidden", !isGrid);
+    termsRow?.classList.toggle("ce-builder-hidden", type.value !== TERMS_ACCEPTANCE_TYPE);
     const optionLabel = optionRow.querySelector(":scope > div > label, :scope > label");
     if (optionLabel) optionLabel.textContent = isGrid ? "Columns" : "Answer options";
     if (hasOptions) optionEditor(optionRow, { itemName: isGrid ? "Column" : "Option" });

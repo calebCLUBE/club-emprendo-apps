@@ -582,6 +582,103 @@ class GradedFileDownloadTests(TestCase):
         self.assertContains(response, "Grade (live)")
 
 
+class TermsAndConditionsQuestionTests(TestCase):
+    def setUp(self):
+        self.form_def = FormDefinition.objects.create(
+            slug="terms_test",
+            name="Terms Test",
+        )
+        self.question = Question.objects.create(
+            form=self.form_def,
+            text="¿Aceptas los términos y condiciones?",
+            slug="terms",
+            field_type=Question.TERMS_ACCEPTANCE,
+            terms_content=(
+                "<div data-ce-rich-text=\"1\"><h2>Uso de información</h2>"
+                "<p>Utilizaremos la información para gestionar la aplicación.</p></div>"
+            ),
+            required=True,
+            position=1,
+        )
+
+    def test_application_renders_unselected_yes_no_and_terms_link(self):
+        response = self.client.get(
+            reverse("apply_by_slug", args=[self.form_def.slug])
+        )
+        html = response.content.decode()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Selecciona")
+        self.assertContains(response, "si aceptas los términos y condiciones.")
+        self.assertContains(response, "Haz clic aquí para ver los detalles.")
+        self.assertContains(
+            response,
+            reverse(
+                "application_terms",
+                kwargs={
+                    "form_slug": self.form_def.slug,
+                    "question_id": self.question.id,
+                },
+            ),
+        )
+        self.assertNotIn('checked="checked"', html)
+        self.assertEqual(html.count('name="q_terms"'), 2)
+
+    def test_terms_page_shows_content_for_the_exact_question(self):
+        response = self.client.get(
+            reverse(
+                "application_terms",
+                kwargs={
+                    "form_slug": self.form_def.slug,
+                    "question_id": self.question.id,
+                },
+            )
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Términos y condiciones")
+        self.assertContains(response, "Uso de información")
+        self.assertContains(
+            response,
+            "Utilizaremos la información para gestionar la aplicación.",
+        )
+
+    def test_terms_page_rejects_question_from_another_application(self):
+        other_form = FormDefinition.objects.create(slug="other_terms", name="Other")
+
+        response = self.client.get(
+            reverse(
+                "application_terms",
+                kwargs={
+                    "form_slug": other_form.slug,
+                    "question_id": self.question.id,
+                },
+            )
+        )
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_admin_requires_terms_page_content(self):
+        form = QuestionAdminForm(
+            data={
+                "form": str(self.form_def.id),
+                "text": "Accept terms",
+                "slug": "accept_terms",
+                "field_type": Question.TERMS_ACCEPTANCE,
+                "terms_content": "",
+                "required": "on",
+                "position": "2",
+                "active": "on",
+                "show_if_conditions": "[]",
+                "end_form_rules": "[]",
+            },
+            instance=Question(),
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("terms_content", form.errors)
+
+
 class ApplicationDraftTrackingTests(TestCase):
     def setUp(self):
         self.form_def = FormDefinition.objects.create(slug="draft_test", name="Draft Test")

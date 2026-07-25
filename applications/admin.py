@@ -76,12 +76,17 @@ def _condition_questions_json(questions) -> str:
                 [{"value": c.value, "label": c.label or c.value} for c in q.choices.all()]
                 if q.field_type in (Question.CHOICE, Question.MULTI_CHOICE)
                 else [{"value": "yes", "label": "Sí"}, {"value": "no", "label": "No"}]
-                if q.field_type == Question.BOOLEAN
+                if q.field_type in (Question.BOOLEAN, Question.TERMS_ACCEPTANCE)
                 else []
             ),
         }
         for q in questions
-        if q.field_type in (Question.CHOICE, Question.MULTI_CHOICE, Question.BOOLEAN)
+        if q.field_type in (
+            Question.CHOICE,
+            Question.MULTI_CHOICE,
+            Question.BOOLEAN,
+            Question.TERMS_ACCEPTANCE,
+        )
     ])
 
 
@@ -160,6 +165,7 @@ class QuestionAdminForm(forms.ModelForm):
                 (Question.LONG_TEXT, "Paragraph"),
                 (Question.INTEGER, "Number"),
                 (Question.BOOLEAN, "Yes / No"),
+                (Question.TERMS_ACCEPTANCE, "Terms and conditions"),
                 (Question.CHOICE, "Dropdown"),
                 (Question.MULTI_CHOICE, "Checkboxes"),
                 (Question.MULTIPLE_CHOICE_GRID, "Multiple choice grid"),
@@ -168,6 +174,12 @@ class QuestionAdminForm(forms.ModelForm):
         if "grid_rows" in self.fields:
             self.fields["grid_rows"].label = "Grid rows"
             self.fields["grid_rows"].help_text = "Enter one row per line. Columns are edited below."
+        if "terms_content" in self.fields:
+            self.fields["terms_content"].label = "Terms and conditions details"
+            self.fields["terms_content"].help_text = (
+                "This full text opens on the linked details page. It is not shown "
+                "inside the application question."
+            )
 
         # Parse existing help_text into admin-friendly pieces
         pre_text, pre_hr, rest = _split_help_text(getattr(self.instance, "help_text", "") or "")
@@ -236,7 +248,7 @@ class QuestionAdminForm(forms.ModelForm):
             self.fields["show_if_question"].widget.attrs["data-show-if-choices-map"] = json.dumps({
                 str(q.id): [
                     (c.value, c.label or c.value) for c in q.choices.all()
-                ] if q.field_type in (Question.CHOICE, Question.MULTI_CHOICE) else [("yes", "si"), ("no", "no")] if q.field_type == Question.BOOLEAN else []
+                ] if q.field_type in (Question.CHOICE, Question.MULTI_CHOICE) else [("yes", "si"), ("no", "no")] if q.field_type in (Question.BOOLEAN, Question.TERMS_ACCEPTANCE) else []
                 for q in show_if_qs
             })
 
@@ -244,7 +256,7 @@ class QuestionAdminForm(forms.ModelForm):
             choice_map: dict[str, list[tuple[str, str]]] = {}
             for q in show_if_qs:
                 opts: list[tuple[str, str]] = []
-                if q.field_type == Question.BOOLEAN:
+                if q.field_type in (Question.BOOLEAN, Question.TERMS_ACCEPTANCE):
                     opts = [("yes", "si"), ("no", "no")]
                 elif q.field_type in (Question.CHOICE, Question.MULTI_CHOICE):
                     opts = [(c.value, c.label or c.value) for c in q.choices.all()]
@@ -276,7 +288,10 @@ class QuestionAdminForm(forms.ModelForm):
             )
 
         answer_options = []
-        if getattr(self.instance, "field_type", None) == Question.BOOLEAN:
+        if getattr(self.instance, "field_type", None) in (
+            Question.BOOLEAN,
+            Question.TERMS_ACCEPTANCE,
+        ):
             answer_options = [{"value": "yes", "label": "Sí"}, {"value": "no", "label": "No"}]
         elif getattr(self.instance, "field_type", None) in (Question.CHOICE, Question.MULTI_CHOICE):
             answer_options = (
@@ -329,6 +344,14 @@ class QuestionAdminForm(forms.ModelForm):
                 self.add_error("grid_rows", "Add at least one grid row.")
             if not columns:
                 self.add_error("answer_options", "Add at least one grid column.")
+        if (
+            cleaned_data.get("field_type") == Question.TERMS_ACCEPTANCE
+            and not (cleaned_data.get("terms_content") or "").strip()
+        ):
+            self.add_error(
+                "terms_content",
+                "Add the terms and conditions that applicants will open from the link.",
+            )
         return cleaned_data
 
     def save(self, commit=True):
@@ -678,6 +701,7 @@ class QuestionInline(admin.StackedInline):
         "grid_rows",
         "answer_options",
         "help_text_clean",
+        "terms_content",
         "section_token",
         "required",
         "show_if_conditions",
@@ -912,6 +936,7 @@ class QuestionAdmin(admin.ModelAdmin):
         "grid_rows",
         "answer_options",
         "help_text_clean",
+        "terms_content",
         "section",
         "required",
         "show_if_conditions",
@@ -1170,7 +1195,7 @@ def _pairing_application_for_group(group, track: str):
 
 
 def _pairing_answer_summary(question: Question) -> str:
-    if question.field_type == Question.BOOLEAN:
+    if question.field_type in (Question.BOOLEAN, Question.TERMS_ACCEPTANCE):
         return "Yes / No"
     if question.field_type in {Question.CHOICE, Question.MULTI_CHOICE, Question.MULTIPLE_CHOICE_GRID}:
         choices = [

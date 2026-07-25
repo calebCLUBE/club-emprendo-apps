@@ -382,6 +382,7 @@ class Question(models.Model):
     LONG_TEXT = "long_text"
     INTEGER = "integer"
     BOOLEAN = "boolean"            # single checkbox
+    TERMS_ACCEPTANCE = "terms_acceptance"  # yes/no with a linked terms page
     CHOICE = "choice"              # single choice (radio/dropdown)
     MULTI_CHOICE = "multi_choice"  # multiple choice (checkbox list)
     MULTIPLE_CHOICE_GRID = "choice_grid"  # independent checkbox choices across a row/column grid
@@ -391,6 +392,7 @@ class Question(models.Model):
         (LONG_TEXT, "Long text"),
         (INTEGER, "Integer"),
         (BOOLEAN, "Yes/No (checkbox)"),
+        (TERMS_ACCEPTANCE, "Terms and conditions acceptance"),
         (CHOICE, "Single choice"),
         (MULTI_CHOICE, "Multiple choice"),
         (MULTIPLE_CHOICE_GRID, "Multiple choice grid"),
@@ -404,6 +406,13 @@ class Question(models.Model):
 
     text = models.CharField(max_length=255)
     help_text = models.TextField(blank=True)
+    terms_content = models.TextField(
+        blank=True,
+        help_text=(
+            "Full terms shown on the linked details page when this is a "
+            "Terms and conditions question."
+        ),
+    )
     field_type = models.CharField(max_length=20, choices=FIELD_TYPES)
     grid_rows = models.TextField(
         blank=True,

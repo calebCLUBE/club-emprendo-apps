@@ -1,0 +1,27 @@
+{% extends "applications/base.html" %}
+{% load app_extras %}
+
+{% block title %}Términos y condiciones · Club Emprendo{% endblock %}
+
+{% block content %}
+  <article class="ce-terms-page">
+    <p class="ce-terms-page__eyebrow">{{ form_def.name }}</p>
+    <h1 class="ce-heading">Términos y condiciones</h1>
+
+    {% if question.terms_content %}
+      <div class="ce-terms-page__content">
+        {{ question.terms_content|format_rich_text }}
+      </div>
+    {% else %}
+      <div class="ce-alert">
+        Los términos y condiciones de esta aplicación todavía no han sido publicados.
+      </div>
+    {% endif %}
+
+    <div class="ce-actions">
+      <button type="button" class="ce-button-primary" onclick="if (history.length > 1) { history.back(); } else { window.location.href='{% url 'apply_by_slug' form_def.slug %}'; }">
+        Volver a la aplicación
+      </button>
+    </div>
+  </article>
+{% endblock %}

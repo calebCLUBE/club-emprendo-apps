@@ -3,6 +3,7 @@ import json
 import re
 import unicodedata
 from django import forms
+from django.urls import reverse
 from .models import FormDefinition, Question
 
 
@@ -236,7 +237,7 @@ def build_application_form(form_slug: str, additional_form_slugs: list[str] | tu
                         **common,
                     )
 
-                elif field_type == Question.BOOLEAN:
+                elif field_type in (Question.BOOLEAN, Question.TERMS_ACCEPTANCE):
                     choices = [
                         ("yes", "Sí"),
                         ("no", "No"),
@@ -249,6 +250,14 @@ def build_application_form(form_slug: str, additional_form_slugs: list[str] | tu
                         initial=None,
                         **common,
                     )
+                    if field_type == Question.TERMS_ACCEPTANCE:
+                        field.terms_url = reverse(
+                            "application_terms",
+                            kwargs={
+                                "form_slug": q.form.slug,
+                                "question_id": q.id,
+                            },
+                        )
 
                 elif field_type == Question.CHOICE:
                     choices = [(c.value, c.label) for c in q.choices.all().order_by("position", "id")]

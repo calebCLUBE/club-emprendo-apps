@@ -255,6 +255,15 @@
       <div class="form-help ce-help-text">{{ field.help_text|format_help_text }}</div>
     {% endif %}
 
+    {% if field.field.terms_url %}
+      <p class="ce-terms-prompt">
+        Selecciona <strong>Sí</strong> si aceptas los términos y condiciones.
+        <a href="{{ field.field.terms_url }}" target="_blank" rel="noopener">
+          Haz clic aquí para ver los detalles.
+        </a>
+      </p>
+    {% endif %}
+
     {{ field }}
 
     {% if field.errors %}

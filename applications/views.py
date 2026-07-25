@@ -1181,11 +1181,29 @@ def _handle_application_form(
     submission_form_defs = [form_def] + ([combined_second_def] if combined_second_def else [])
     terminal_question = None
     terminal_rule = None
+    resume_draft = None
     if request.method == "POST":
         form = ApplicationForm(request.POST)
         terminal_question, terminal_rule = _matching_end_form_rule(request.POST, submission_form_defs)
     else:
-        form = ApplicationForm()
+        raw_draft_token = (request.GET.get("draft") or "").strip()
+        try:
+            parsed_draft_token = uuid.UUID(raw_draft_token) if raw_draft_token else None
+        except (TypeError, ValueError, AttributeError):
+            parsed_draft_token = None
+        if parsed_draft_token:
+            resume_draft = (
+                ApplicationDraft.objects
+                .filter(
+                    token=parsed_draft_token,
+                    form=completion_form_def,
+                    completed_at__isnull=True,
+                )
+                .first()
+            )
+        form = ApplicationForm(
+            initial=dict(resume_draft.answers or {}) if resume_draft else None
+        )
 
     _apply_question_conditions(form)
     if terminal_rule:
@@ -1564,6 +1582,8 @@ def _handle_application_form(
             "rendered_description": rendered_description,
             "sections": sections,
             "m2_gate_field": m2_gate_field,
+            "draft_token": str(resume_draft.token) if resume_draft else "",
+            "draft_current_section": resume_draft.current_section if resume_draft else 1,
         },
     )
 

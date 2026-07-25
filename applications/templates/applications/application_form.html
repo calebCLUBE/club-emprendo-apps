@@ -176,7 +176,8 @@
       if (!panels.length) return;
 
       const stepperItems = Array.from(document.querySelectorAll("[data-stepper-item]"));
-      let current = 0;
+      const savedSection = Number("{{ draft_current_section|default:1 }}") || 1;
+      let current = Math.max(0, Math.min(savedSection - 1, panels.length - 1));
 
       function clearConfirmError(input) {
         input.style.borderColor = "";
@@ -859,7 +860,8 @@
       const form = document.querySelector('form[method="post"]');
       if (!form || new URLSearchParams(window.location.search).get("preview")) return;
       const storageKey = "ce-application-draft:{{ form_def.slug|escapejs }}";
-      let token = window.localStorage.getItem(storageKey) ||
+      const serverDraftToken = "{{ draft_token|default:''|escapejs }}";
+      let token = serverDraftToken || window.localStorage.getItem(storageKey) ||
         (window.crypto?.randomUUID ? window.crypto.randomUUID() : "");
       if (token) window.localStorage.setItem(storageKey, token);
       let timer = null;

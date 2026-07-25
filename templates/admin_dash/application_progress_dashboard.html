@@ -1,26 +1,77 @@
 {% extends "admin/base_site.html" %}
 {% block content %}
 <style>
-  .ce-progress-cards{display:grid;grid-template-columns:repeat(4,minmax(130px,1fr));gap:12px;margin:18px 0}
+  .ce-progress-cards{display:grid;grid-template-columns:repeat(5,minmax(130px,1fr));gap:12px;margin:18px 0}
   .ce-progress-card{padding:16px;border:1px solid #dbe4f0;border-radius:12px;background:#fff}
   .ce-progress-card strong{display:block;font-size:28px;color:#172554}.ce-progress-card span{color:#64748b}
   .ce-progress-filters{display:flex;gap:10px;align-items:end;flex-wrap:wrap;margin:16px 0}.ce-progress-filters label{display:grid;gap:4px}
+  .ce-progress-analytics{display:grid;grid-template-columns:minmax(300px,1.3fr) minmax(260px,1fr);gap:16px;margin:18px 0}
+  .ce-progress-panel{padding:16px;border:1px solid #dbe4f0;border-radius:12px;background:#fff}.ce-progress-panel h2{margin:0 0 12px}
+  .ce-funnel-row{display:grid;grid-template-columns:90px 1fr 52px;gap:10px;align-items:center;margin:8px 0}.ce-funnel-track{height:12px;background:#eef2f7;border-radius:999px;overflow:hidden}.ce-funnel-fill{height:100%;background:#2c3191;border-radius:999px}
+  .ce-reminder-box{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px;border:1px solid #bbd6a7;border-radius:12px;background:#f5fbf1;margin:18px 0}.ce-reminder-box p{margin:4px 0}
+  .ce-section-list{margin:0;padding-left:20px}.ce-section-list li{margin:7px 0}
   .ce-progress-table{width:100%;border-collapse:collapse}.ce-progress-table th,.ce-progress-table td{padding:10px;border-bottom:1px solid #e5e7eb;text-align:left;vertical-align:top}
-  @media(max-width:700px){.ce-progress-cards{grid-template-columns:repeat(2,1fr)}.ce-progress-scroll{overflow:auto}}
+  @media(max-width:800px){.ce-progress-cards{grid-template-columns:repeat(2,1fr)}.ce-progress-analytics{grid-template-columns:1fr}.ce-reminder-box{align-items:flex-start;flex-direction:column}.ce-progress-scroll{overflow:auto}}
 </style>
 <h1>Application Progress</h1>
-<p>Incomplete drafts are marked abandoned after 24 hours without activity. Draft tracking began when this feature was deployed.</p>
+<p>Counts represent the newest draft per person and application. Incomplete drafts are marked abandoned after 24 hours without activity.</p>
 <div class="ce-progress-cards">
   <div class="ce-progress-card"><strong>{{ summary.started }}</strong><span>Started</span></div>
   <div class="ce-progress-card"><strong>{{ summary.completed }}</strong><span>Completed</span></div>
+  <div class="ce-progress-card"><strong>{{ summary.rejected }}</strong><span>Rejected</span></div>
   <div class="ce-progress-card"><strong>{{ summary.abandoned }}</strong><span>Abandoned</span></div>
   <div class="ce-progress-card"><strong>{{ summary.active }}</strong><span>Active now</span></div>
 </div>
 <form method="get" class="ce-progress-filters">
-  <label>Status<select name="status"><option value="abandoned" {% if status_filter == 'abandoned' %}selected{% endif %}>Abandoned</option><option value="active" {% if status_filter == 'active' %}selected{% endif %}>Active</option><option value="completed" {% if status_filter == 'completed' %}selected{% endif %}>Completed</option><option value="all" {% if status_filter == 'all' %}selected{% endif %}>All</option></select></label>
+  <label>Group<select name="group"><option value="">All groups</option>{% for group in group_options %}<option value="{{ group.id }}" {% if group_filter == group.id %}selected{% endif %}>{{ group }}</option>{% endfor %}</select></label>
   <label>Application<select name="form"><option value="">All applications</option>{% for form in form_options %}<option value="{{ form.slug }}" {% if form_filter == form.slug %}selected{% endif %}>{{ form.name }}</option>{% endfor %}</select></label>
+  <label>Status<select name="status"><option value="abandoned" {% if status_filter == 'abandoned' %}selected{% endif %}>Abandoned</option><option value="active" {% if status_filter == 'active' %}selected{% endif %}>Active</option><option value="completed" {% if status_filter == 'completed' %}selected{% endif %}>Completed</option><option value="rejected" {% if status_filter == 'rejected' %}selected{% endif %}>Rejected</option><option value="all" {% if status_filter == 'all' %}selected{% endif %}>All</option></select></label>
   <button class="button" type="submit">Apply</button>
 </form>
+
+{% if group_filter %}
+  <div class="ce-reminder-box">
+    <div>
+      <strong>Incomplete application reminders</strong>
+      <p>{{ reminder_count }} person{{ reminder_count|pluralize }} can receive a reminder for this group{% if form_filter %} and application{% endif %}.</p>
+      <p>Completed and rejected applicants, duplicate drafts, and drafts without an email are excluded.</p>
+    </div>
+    <form method="post" action="{% url 'admin_send_incomplete_application_reminders' %}" onsubmit="return confirm('Send reminder emails to {{ reminder_count }} eligible person(s)?');">
+      {% csrf_token %}
+      <input type="hidden" name="group" value="{{ group_filter }}">
+      <input type="hidden" name="form" value="{{ form_filter }}">
+      <button class="button default" type="submit" {% if not reminder_count %}disabled{% endif %}>Send reminder email</button>
+    </form>
+  </div>
+{% else %}
+  <div class="ce-reminder-box">
+    <div><strong>Select a group to send reminders</strong><p>Reminder recipients are always resolved within one specific group.</p></div>
+  </div>
+{% endif %}
+
+<div class="ce-progress-analytics">
+  <div class="ce-progress-panel">
+    <h2>Progress funnel</h2>
+    {% for stage in funnel %}
+      <div class="ce-funnel-row">
+        <span>{{ stage.label }}</span>
+        <div class="ce-funnel-track"><div class="ce-funnel-fill" style="width:{{ stage.percent }}%"></div></div>
+        <strong>{{ stage.count }}</strong>
+      </div>
+    {% endfor %}
+  </div>
+  <div class="ce-progress-panel">
+    <h2>Where incomplete applicants stopped</h2>
+    <ul class="ce-section-list">
+      {% for item in section_breakdown %}
+        <li><strong>Section {{ item.current }} of {{ item.total }}</strong>: {{ item.count }} person{{ item.count|pluralize }} · average {{ item.average }}%</li>
+      {% empty %}
+        <li>No incomplete applications in this selection.</li>
+      {% endfor %}
+    </ul>
+  </div>
+</div>
+
 <div class="ce-progress-scroll"><table class="ce-progress-table"><thead><tr><th>Applicant</th><th>Application</th><th>Status</th><th>Progress</th><th>Last location</th><th>Last activity</th></tr></thead><tbody>
 {% for row in rows %}<tr><td><strong>{{ row.draft.name|default:"Anonymous" }}</strong>{% if row.draft.email %}<br><a href="mailto:{{ row.draft.email }}">{{ row.draft.email }}</a>{% endif %}</td><td>{{ row.draft.form.name }}</td><td>{{ row.status }}</td><td>{{ row.draft.progress_percent }}%<br>{{ row.draft.answered_questions }} of {{ row.draft.total_questions }} questions</td><td>Section {{ row.draft.current_section }} of {{ row.draft.total_sections }}{% if row.last_question %}<br>{{ row.last_question }}{% endif %}</td><td>{{ row.draft.updated_at|date:"Y-m-d H:i" }}</td></tr>{% empty %}<tr><td colspan="6">No drafts match these filters.</td></tr>{% endfor %}
 </tbody></table></div>

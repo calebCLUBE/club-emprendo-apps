@@ -666,6 +666,172 @@ class ApplicationDraftTrackingTests(TestCase):
         self.assertContains(response, "Section 3 of 5")
         self.assertContains(response, "Tell us about yourself")
 
+    def test_draft_resume_link_restores_saved_answers(self):
+        draft = ApplicationDraft.objects.create(
+            form=self.form_def,
+            answers={"q_about": "Saved introduction answer"},
+            email="person@example.com",
+            progress_percent=20,
+        )
+
+        response = self.client.get(
+            reverse("apply_by_slug", args=[self.form_def.slug]),
+            {"draft": str(draft.token)},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Saved introduction answer")
+        self.assertContains(response, str(draft.token).replace("-", "\\u002D"))
+
+    def test_incomplete_reminder_candidates_exclude_completed_and_rejected_people(self):
+        group = FormGroup.objects.create(
+            number=914,
+            start_month="August",
+            end_month="November",
+            year=2026,
+        )
+        self.form_def.group = group
+        self.form_def.save(update_fields=["group"])
+        ApplicationDraft.objects.create(
+            form=self.form_def,
+            name="Older duplicate",
+            email="eligible@example.com",
+            progress_percent=10,
+        )
+        eligible = ApplicationDraft.objects.create(
+            form=self.form_def,
+            name="Eligible Person",
+            email="eligible@example.com",
+            progress_percent=40,
+        )
+        for email, approved in (
+            ("completed@example.com", True),
+            ("rejected@example.com", False),
+        ):
+            app = Application.objects.create(
+                form=self.form_def,
+                name=email,
+                email=email,
+                approved_for_grading=approved,
+            )
+            ApplicationDraft.objects.create(
+                form=self.form_def,
+                application=app,
+                name=email,
+                email=email,
+                completed_at=timezone.now(),
+            )
+            ApplicationDraft.objects.create(
+                form=self.form_def,
+                name=f"Old {email}",
+                email=email,
+                progress_percent=30,
+            )
+        ApplicationDraft.objects.create(
+            form=self.form_def,
+            name="No Email",
+            email="",
+            progress_percent=50,
+        )
+
+        candidates = (
+            admin_dashboard_views._incomplete_application_reminder_drafts(
+                group.id,
+            )
+        )
+
+        self.assertEqual([draft.id for draft in candidates], [eligible.id])
+
+    @patch("applications.admin_dashboard_views.threading.Thread")
+    def test_group_reminder_button_starts_email_with_secure_resume_link(
+        self,
+        mock_thread,
+    ):
+        group = FormGroup.objects.create(
+            number=915,
+            start_month="August",
+            end_month="November",
+            year=2026,
+        )
+        self.form_def.group = group
+        self.form_def.save(update_fields=["group"])
+        draft = ApplicationDraft.objects.create(
+            form=self.form_def,
+            name="Reminder Person",
+            email="reminder@example.com",
+            progress_percent=45,
+        )
+        user = get_user_model().objects.create_superuser(
+            email="reminder-admin@example.com",
+            password="password",
+        )
+        self.client.force_login(user)
+
+        response = self.client.post(
+            reverse("admin_send_incomplete_application_reminders"),
+            {"group": str(group.id), "form": self.form_def.slug},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        mock_thread.return_value.start.assert_called_once()
+        candidates = mock_thread.call_args.kwargs.get("args", ())[0]
+        self.assertEqual(len(candidates), 1)
+        self.assertEqual(candidates[0]["email"], "reminder@example.com")
+        self.assertIn(f"?draft={draft.token}", candidates[0]["resume_url"])
+        cache.delete(
+            f"admin:incomplete-application-reminders:{group.id}:{self.form_def.slug}"
+        )
+
+    def test_group_dashboard_separates_rejected_and_shows_progress_funnel(self):
+        group = FormGroup.objects.create(
+            number=916,
+            start_month="August",
+            end_month="November",
+            year=2026,
+        )
+        self.form_def.group = group
+        self.form_def.save(update_fields=["group"])
+        ApplicationDraft.objects.create(
+            form=self.form_def,
+            name="Incomplete Person",
+            email="incomplete@example.com",
+            progress_percent=62,
+            current_section=3,
+            total_sections=6,
+        )
+        rejected_app = Application.objects.create(
+            form=self.form_def,
+            name="Rejected Person",
+            email="rejected@example.com",
+            approved_for_grading=False,
+        )
+        ApplicationDraft.objects.create(
+            form=self.form_def,
+            application=rejected_app,
+            name="Rejected Person",
+            email="rejected@example.com",
+            progress_percent=30,
+            completed_at=timezone.now(),
+        )
+        user = get_user_model().objects.create_superuser(
+            email="progress-admin@example.com",
+            password="password",
+        )
+        self.client.force_login(user)
+
+        response = self.client.get(
+            reverse("admin_application_progress_dashboard"),
+            {"group": group.id, "status": "all"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Progress funnel")
+        self.assertContains(response, "Where incomplete applicants stopped")
+        self.assertContains(response, "Rejected")
+        self.assertContains(response, "Section 3 of 6")
+        self.assertEqual(response.context["summary"]["rejected"], 1)
+        self.assertEqual(response.context["reminder_count"], 1)
+
 
 class QuestionAdminFormTests(TestCase):
     def setUp(self):

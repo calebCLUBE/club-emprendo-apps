@@ -1,6 +1,7 @@
 import io
 import os
 import re
+import threading
 import textwrap
 from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -8,13 +9,18 @@ from datetime import date, timedelta
 
 from django.contrib import messages
 from django.contrib.admin.views.decorators import staff_member_required
+from django.conf import settings
 from django.core.cache import cache
+from django.core.mail import EmailMultiAlternatives, get_connection
 from django.db.models import Avg, Count, Q
 from django.db.models.functions import TruncDay, TruncMonth, TruncWeek
 from django.http import HttpResponse
-from django.shortcuts import render
+from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
+from django.urls import reverse
 from django.utils import timezone
+from django.utils.html import escape
+from django.views.decorators.http import require_POST
 
 from .admin_views import _group_label_for_number, _load_database_encuestas_grid
 from .models import Application, ApplicationDraft, FormDefinition, FormGroup, GroupParticipantList, Question
@@ -2518,26 +2524,237 @@ def dashboards_home(request):
     return render(request, "admin_dash/dashboards_home.html")
 
 
+def _application_draft_status(draft, abandoned_before):
+    if draft.completed_at:
+        if draft.application_id and not draft.application.approved_for_grading:
+            return "Rejected"
+        return "Completed"
+    if draft.updated_at <= abandoned_before:
+        return "Abandoned"
+    return "Active"
+
+
+def _dedupe_application_drafts(drafts):
+    """Keep one authoritative draft per form/person; anonymous sessions remain separate."""
+    selected = {}
+    for draft in drafts:
+        email = (draft.email or "").strip().lower()
+        person_key = email or f"token:{draft.token}"
+        key = (draft.form_id, person_key)
+        current = selected.get(key)
+
+        def outcome_rank(item):
+            if not item.completed_at:
+                return 0
+            if item.application_id and not item.application.approved_for_grading:
+                return 1
+            return 2
+
+        if current is None or (
+            outcome_rank(draft),
+            draft.updated_at,
+        ) > (
+            outcome_rank(current),
+            current.updated_at,
+        ):
+            selected[key] = draft
+    return sorted(selected.values(), key=lambda item: item.updated_at, reverse=True)
+
+
+def _incomplete_application_reminder_drafts(group_id: int, form_slug: str = ""):
+    forms = FormDefinition.objects.filter(group_id=group_id)
+    if form_slug:
+        forms = forms.filter(slug=form_slug)
+    form_ids = list(forms.values_list("id", flat=True))
+    if not form_ids:
+        return []
+
+    completed_identities = {
+        (form_id, email.strip().lower())
+        for form_id, email in Application.objects.filter(
+            form_id__in=form_ids,
+        ).exclude(email="").values_list("form_id", "email")
+        if email and email.strip()
+    }
+    completed_identities.update({
+        (form_id, email.strip().lower())
+        for form_id, email in ApplicationDraft.objects.filter(
+            form_id__in=form_ids,
+            completed_at__isnull=False,
+        ).exclude(email="").values_list("form_id", "email")
+        if email and email.strip()
+    })
+
+    incomplete = list(
+        ApplicationDraft.objects
+        .filter(form_id__in=form_ids, completed_at__isnull=True)
+        .exclude(email="")
+        .select_related("form", "form__group")
+        .order_by("-updated_at")
+    )
+    eligible = []
+    seen = set()
+    for draft in incomplete:
+        email = (draft.email or "").strip().lower()
+        identity = (draft.form_id, email)
+        if not email or identity in completed_identities or identity in seen:
+            continue
+        seen.add(identity)
+        eligible.append(draft)
+    return eligible
+
+
+def _send_incomplete_application_reminders_worker(
+    candidates: list[dict],
+    group_label: str,
+    lock_key: str,
+):
+    connection = None
+    sent = 0
+    try:
+        connection = get_connection(fail_silently=False)
+        connection.open()
+        for candidate in candidates:
+            try:
+                applicant_name = escape(candidate.get("name") or "")
+                greeting = f"Hola {applicant_name}," if applicant_name else "Hola,"
+                form_name = escape(candidate["form_name"])
+                resume_url = escape(candidate["resume_url"])
+                subject = f"Recuerda completar tu aplicación — {group_label}"
+                plain_body = (
+                    f"Hola,\n\nComenzaste la aplicación {candidate['form_name']} "
+                    f"pero todavía no la has enviado.\n\nContinúa aquí: "
+                    f"{candidate['resume_url']}\n\nClub Emprendo"
+                )
+                html_body = (
+                    '<div style="font-family:Arial,Helvetica,sans-serif;line-height:1.6;'
+                    'max-width:680px;margin:0 auto;">'
+                    f"<p>{greeting}</p>"
+                    f"<p>Vimos que comenzaste <strong>{form_name}</strong>, pero todavía "
+                    "no has enviado tu aplicación.</p>"
+                    "<p>Puedes continuar desde donde la dejaste usando este enlace:</p>"
+                    f'<p><a href="{resume_url}" style="display:inline-block;padding:11px 18px;'
+                    'background:#163108;color:#fff;text-decoration:none;border-radius:8px;">'
+                    "Continuar mi aplicación</a></p>"
+                    "<p>Si ya no deseas continuar, puedes ignorar este mensaje.</p>"
+                    "<p>Con cariño,<br><strong>Club Emprendo</strong></p></div>"
+                )
+                message = EmailMultiAlternatives(
+                    subject=subject,
+                    body=plain_body,
+                    from_email=getattr(settings, "DEFAULT_FROM_EMAIL", None),
+                    to=[candidate["email"]],
+                    connection=connection,
+                )
+                message.attach_alternative(html_body, "text/html")
+                sent += int(bool(message.send()))
+            except Exception:
+                logger.exception(
+                    "Incomplete application reminder failed for %s in %s",
+                    candidate.get("email"),
+                    group_label,
+                )
+    except Exception:
+        logger.exception(
+            "Incomplete application reminder worker failed for %s after %s sends",
+            group_label,
+            sent,
+        )
+    finally:
+        if connection:
+            try:
+                connection.close()
+            except Exception:
+                pass
+        cache.delete(lock_key)
+
+
+@staff_member_required
+@require_POST
+def send_incomplete_application_reminders(request):
+    try:
+        group_id = int(request.POST.get("group") or 0)
+    except (TypeError, ValueError):
+        group_id = 0
+    group = get_object_or_404(FormGroup, id=group_id)
+    form_slug = (request.POST.get("form") or "").strip()
+    candidates = _incomplete_application_reminder_drafts(group.id, form_slug)
+    next_url = reverse("admin_application_progress_dashboard")
+    query = f"?group={group.id}&status=abandoned"
+    if form_slug:
+        query += f"&form={form_slug}"
+
+    if not candidates:
+        messages.info(
+            request,
+            "No hay personas elegibles: se excluyeron aplicaciones completadas, "
+            "rechazadas y borradores sin correo.",
+        )
+        return redirect(next_url + query)
+
+    group_label = (group.custom_name or "").strip() or f"Group {group.number}"
+    lock_key = f"admin:incomplete-application-reminders:{group.id}:{form_slug or 'all'}"
+    if not cache.add(lock_key, "1", timeout=30 * 60):
+        messages.warning(request, "Ya hay un envío de recordatorios en progreso.")
+        return redirect(next_url + query)
+
+    candidates_payload = [
+        {
+            "email": (draft.email or "").strip().lower(),
+            "name": (draft.name or "").strip(),
+            "form_name": draft.form.name,
+            "resume_url": request.build_absolute_uri(
+                reverse("apply_by_slug", kwargs={"form_slug": draft.form.slug})
+            ) + f"?draft={draft.token}",
+        }
+        for draft in candidates
+    ]
+    threading.Thread(
+        target=_send_incomplete_application_reminders_worker,
+        args=(candidates_payload, group_label, lock_key),
+        daemon=True,
+    ).start()
+    messages.success(
+        request,
+        f"Recordatorios iniciados para {len(candidates_payload)} persona(s) de {group_label}.",
+    )
+    return redirect(next_url + query)
+
+
 @staff_member_required
 def application_progress_dashboard(request):
     now = timezone.now()
     abandoned_before = now - timedelta(hours=24)
     status = (request.GET.get("status") or "abandoned").strip().lower()
     form_slug = (request.GET.get("form") or "").strip()
-    drafts = ApplicationDraft.objects.select_related("form", "application")
+    try:
+        group_id = int(request.GET.get("group") or 0)
+    except (TypeError, ValueError):
+        group_id = 0
+
+    drafts = ApplicationDraft.objects.select_related(
+        "form",
+        "form__group",
+        "application",
+    )
+    if group_id:
+        drafts = drafts.filter(form__group_id=group_id)
     if form_slug:
         drafts = drafts.filter(form__slug=form_slug)
-    if status == "completed":
-        drafts = drafts.filter(completed_at__isnull=False)
-    elif status == "active":
-        drafts = drafts.filter(completed_at__isnull=True, updated_at__gt=abandoned_before)
-    elif status == "all":
-        pass
-    else:
+    people_drafts = _dedupe_application_drafts(list(drafts.order_by("-updated_at")))
+    valid_statuses = {"completed", "rejected", "active", "abandoned", "all"}
+    if status not in valid_statuses:
         status = "abandoned"
-        drafts = drafts.filter(completed_at__isnull=True, updated_at__lte=abandoned_before)
 
-    draft_rows = list(drafts.order_by("-updated_at")[:1000])
+    rows = []
+    for draft in people_drafts:
+        row_status = _application_draft_status(draft, abandoned_before)
+        if status != "all" and row_status.lower() != status:
+            continue
+        rows.append({"draft": draft, "status": row_status})
+    rows = rows[:1000]
+
+    draft_rows = [row["draft"] for row in rows]
     question_form_ids = {draft.form_id for draft in draft_rows if draft.last_question_slug}
     question_slugs = {draft.last_question_slug for draft in draft_rows if draft.last_question_slug}
     question_text = {
@@ -2548,44 +2765,85 @@ def application_progress_dashboard(request):
         ).values_list("form_id", "slug", "text")
     }
 
-    rows = []
-    for draft in draft_rows:
-        if draft.completed_at:
-            row_status = "Completed"
-        elif draft.updated_at <= abandoned_before:
-            row_status = "Abandoned"
-        else:
-            row_status = "Active"
-        rows.append({
-            "draft": draft,
-            "status": row_status,
-            "last_question": question_text.get(
-                (draft.form_id, draft.last_question_slug),
-                draft.last_question_slug,
-            ),
-        })
+    for row in rows:
+        draft = row["draft"]
+        row["last_question"] = question_text.get(
+            (draft.form_id, draft.last_question_slug),
+            draft.last_question_slug,
+        )
 
-    base = ApplicationDraft.objects.all()
-    if form_slug:
-        base = base.filter(form__slug=form_slug)
-    summary = base.aggregate(
-        started=Count("id"),
-        completed=Count("id", filter=Q(completed_at__isnull=False)),
-        abandoned=Count(
-            "id",
-            filter=Q(completed_at__isnull=True, updated_at__lte=abandoned_before),
-        ),
-        active=Count(
-            "id",
-            filter=Q(completed_at__isnull=True, updated_at__gt=abandoned_before),
-        ),
+    all_statuses = [
+        _application_draft_status(draft, abandoned_before)
+        for draft in people_drafts
+    ]
+    summary = {
+        "started": len(people_drafts),
+        "completed": all_statuses.count("Completed"),
+        "rejected": all_statuses.count("Rejected"),
+        "abandoned": all_statuses.count("Abandoned"),
+        "active": all_statuses.count("Active"),
+    }
+    funnel = [
+        {
+            "label": label,
+            "count": sum(
+                1
+                for draft in people_drafts
+                if not draft.completed_at and low <= draft.progress_percent <= high
+            ),
+        }
+        for label, low, high in (
+            ("0–24%", 0, 24),
+            ("25–49%", 25, 49),
+            ("50–74%", 50, 74),
+            ("75–99%", 75, 99),
+        )
+    ]
+    funnel.extend([
+        {"label": "Completed", "count": summary["completed"]},
+        {"label": "Rejected", "count": summary["rejected"]},
+    ])
+    for stage in funnel:
+        stage["percent"] = round(
+            100 * stage["count"] / max(1, summary["started"])
+        )
+    incomplete_sections = defaultdict(list)
+    for draft in people_drafts:
+        if not draft.completed_at:
+            incomplete_sections[(draft.current_section, draft.total_sections)].append(
+                draft.progress_percent
+            )
+    section_breakdown = [
+        {
+            "current": current,
+            "total": total,
+            "count": len(progress_values),
+            "average": round(sum(progress_values) / len(progress_values)),
+        }
+        for (current, total), progress_values in sorted(incomplete_sections.items())
+    ]
+
+    form_options = FormDefinition.objects.filter(drafts__isnull=False)
+    if group_id:
+        form_options = form_options.filter(group_id=group_id)
+    reminder_count = (
+        len(_incomplete_application_reminder_drafts(group_id, form_slug))
+        if group_id
+        else 0
     )
     return render(request, "admin_dash/application_progress_dashboard.html", {
         "rows": rows,
         "summary": summary,
+        "funnel": funnel,
+        "section_breakdown": section_breakdown,
+        "reminder_count": reminder_count,
         "status_filter": status,
         "form_filter": form_slug,
-        "form_options": FormDefinition.objects.filter(drafts__isnull=False).distinct().order_by("name"),
+        "group_filter": group_id,
+        "group_options": FormGroup.objects.filter(
+            forms__drafts__isnull=False,
+        ).distinct().order_by("-number"),
+        "form_options": form_options.distinct().order_by("name"),
     })
 
 

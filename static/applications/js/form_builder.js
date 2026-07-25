@@ -554,6 +554,10 @@
           event.stopPropagation();
           const image = selectedImage;
           const startRect = image.getBoundingClientRect();
+          const startWidthPercent = Math.min(
+            160,
+            Math.max(10, parseFloat(image.style.width || "") || 100),
+          );
           const startX = event.clientX;
           const startY = event.clientY;
           const aspectRatio = startRect.height ? startRect.width / startRect.height : 1;
@@ -573,14 +577,16 @@
               const pixelDelta = Math.abs(horizontalDelta) >= Math.abs(verticalWidthDelta)
                 ? horizontalDelta
                 : verticalWidthDelta;
-              const nextWidth = startRect.width + pixelDelta;
-              setSelectedImageWidth((nextWidth / editorWidth) * 100);
+              setSelectedImageWidth(
+                startWidthPercent + ((pixelDelta / editorWidth) * 100),
+              );
               setSelectedImageHeight("auto");
             } else {
-              const nextWidth = startRect.width + horizontalDelta;
               const nextHeight = startRect.height
                 + verticalDirection * (moveEvent.clientY - startY);
-              setSelectedImageWidth((nextWidth / editorWidth) * 100);
+              setSelectedImageWidth(
+                startWidthPercent + ((horizontalDelta / editorWidth) * 100),
+              );
               setSelectedImageHeight(nextHeight);
             }
           };

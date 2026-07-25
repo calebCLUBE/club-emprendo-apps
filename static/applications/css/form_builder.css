@@ -4,7 +4,7 @@ body.app-applications.model-formdefinition.change-form #container { background: 
 body.app-applications.model-formdefinition.change-form #header,
 body.app-applications.model-formdefinition.change-form .breadcrumbs { display: none; }
 body.app-applications.model-formdefinition.change-form #content {
-  width: min(770px, calc(100% - 32px)); max-width: none; margin: 0 auto; padding: 116px 0 110px;
+  width: min(970px, calc(100% - 32px)); max-width: none; margin: 0 auto; padding: 116px 0 110px;
 }
 .ce-builder-heading {
   position: fixed; inset: 0 0 auto; z-index: 50; height: 72px; box-sizing: border-box;
@@ -93,19 +93,22 @@ body.app-applications.model-formdefinition.change-form select:focus { border-bot
 .field-answer_options > div { width: 100%; }
 .ce-options-source { display: none !important; }
 .ce-rich-source { display: none !important; }
-.ce-rich-editor { position: relative; width: min(100%, 900px); border: 1px solid #dadce0; border-radius: 6px; background: #fff; overflow: visible; }
+.ce-rich-editor { position: relative; width: 100%; max-width: 100%; border: 1px solid #dadce0; border-radius: 6px; background: #fff; overflow: visible; }
 .ce-rich-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 8px; border-bottom: 1px solid #dadce0; background: #f8f9fa; }
 .ce-rich-toolbar button, .ce-rich-toolbar select { min-height: 32px; margin: 0; border: 1px solid #dadce0 !important; border-radius: 4px !important; background: #fff !important; padding: 5px 8px !important; color: #3c4043; }
 .ce-rich-toolbar button { min-width: 34px; cursor: pointer; }
 .ce-rich-content { display: flow-root; min-height: 92px; padding: 11px 12px; color: #202124; font: 14px/1.45 Arial,sans-serif; outline: none; white-space: normal; }
 .ce-rich-content:focus { box-shadow: inset 0 -2px var(--form-purple); }
-.ce-rich-content img { max-width: 100%; cursor: pointer; }
+.ce-rich-content img { max-width: 100% !important; cursor: pointer; }
 .ce-rich-content img:not([data-ce-free-resize="1"]) { height: auto !important; }
 .ce-rich-content img[data-ce-align="center"][data-ce-oversize="1"] { position: relative; left: 50%; transform: translateX(-50%); }
 .ce-rich-content img.ce-rich-image-selected { outline: 3px solid var(--form-purple); outline-offset: 2px; }
 .ce-rich-content.ce-rich-drop-active { background: #f3e8ff; box-shadow: inset 0 0 0 2px var(--form-purple); }
 .ce-rich-image-input { display: none !important; }
-.ce-rich-image-controls { display: inline-flex; align-items: center; gap: 6px; padding-left: 6px; border-left: 1px solid #dadce0; }
+.ce-rich-image-controls {
+  display: flex; flex: 1 1 100%; flex-wrap: wrap; align-items: center; gap: 8px;
+  width: 100%; box-sizing: border-box; padding: 7px 0 0; border-top: 1px solid #e1e3e6;
+}
 .ce-rich-image-controls[hidden] { display: none; }
 .ce-rich-image-width { display: inline-flex; align-items: center; gap: 6px; color: #3c4043; font-size: 12px; white-space: nowrap; }
 .ce-rich-image-width input[type="range"] { width: 110px; margin: 0; accent-color: var(--form-purple); }
@@ -234,7 +237,9 @@ body.app-applications.model-formdefinition.change-form .submit-row input[name="_
 body.app-applications.model-formdefinition.change-form .submit-row input[name="_save"]:hover { background: var(--form-purple-dark); }
 @media (min-width: 1180px) {
   body.app-applications.model-formdefinition.change-form #content {
-    margin-right: 0; margin-left: calc(50% - 540px);
+    width: min(970px, calc(100% - 370px));
+    margin-right: 0;
+    margin-left: max(16px, calc(50% - 650px));
   }
   .ce-section-organizer {
     position: fixed; z-index: 40; top: 132px; right: 20px; bottom: 92px; width: 290px; margin: 0;

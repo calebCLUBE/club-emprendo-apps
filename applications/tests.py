@@ -768,10 +768,24 @@ class ApplicationPageImageTests(TestCase):
         self.assertContains(response, 'name="approval_image_upload"')
         self.assertContains(response, "Intro page image")
         self.assertContains(response, "Approval page image")
+        self.assertContains(response, 'name="intro_image_position"')
+        self.assertContains(response, 'name="intro_image_alignment"')
+        self.assertContains(response, 'name="intro_image_width"')
+        self.assertContains(response, 'name="thanks_approved_image_position"')
+        self.assertContains(response, 'name="thanks_approved_image_alignment"')
+        self.assertContains(response, 'name="thanks_approved_image_width"')
 
     def test_intro_image_renders_on_the_intro_step(self):
         self.form_def.intro_image_data = "data:image/webp;base64,INTROIMAGE"
-        self.form_def.save(update_fields=["intro_image_data"])
+        self.form_def.intro_image_position = "below"
+        self.form_def.intro_image_alignment = "right"
+        self.form_def.intro_image_width = "small"
+        self.form_def.save(update_fields=[
+            "intro_image_data",
+            "intro_image_position",
+            "intro_image_alignment",
+            "intro_image_width",
+        ])
 
         response = self.client.get(
             reverse("apply_by_slug", args=[self.form_def.slug])
@@ -779,14 +793,29 @@ class ApplicationPageImageTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "ce-page-image--intro")
+        self.assertContains(response, "ce-page-image--small")
+        self.assertContains(response, "ce-page-image--align-right")
         self.assertContains(response, "data:image/webp;base64,INTROIMAGE")
         self.assertContains(response, "Antes de comenzar")
+        html = response.content.decode()
+        self.assertGreater(
+            html.index("data:image/webp;base64,INTROIMAGE"),
+            html.index("Antes de comenzar"),
+        )
 
     def test_approval_image_renders_from_small_session_reference(self):
         self.form_def.thanks_approved_image_data = (
             "data:image/webp;base64,APPROVALIMAGE"
         )
-        self.form_def.save(update_fields=["thanks_approved_image_data"])
+        self.form_def.thanks_approved_image_position = "below"
+        self.form_def.thanks_approved_image_alignment = "left"
+        self.form_def.thanks_approved_image_width = "medium"
+        self.form_def.save(update_fields=[
+            "thanks_approved_image_data",
+            "thanks_approved_image_position",
+            "thanks_approved_image_alignment",
+            "thanks_approved_image_width",
+        ])
         payload = _thanks_override_payload(
             form_def=self.form_def,
             kind="a1",
@@ -805,8 +834,15 @@ class ApplicationPageImageTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "ce-page-image--approval")
+        self.assertContains(response, "ce-page-image--medium")
+        self.assertContains(response, "ce-page-image--align-left")
         self.assertContains(response, "data:image/webp;base64,APPROVALIMAGE")
         self.assertContains(response, "Tu aplicación fue recibida.")
+        html = response.content.decode()
+        self.assertGreater(
+            html.index("data:image/webp;base64,APPROVALIMAGE"),
+            html.index("Tu aplicación fue recibida."),
+        )
 
 
 class ApplicationDraftTrackingTests(TestCase):

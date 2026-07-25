@@ -6,8 +6,8 @@
 
 {% block content %}
 
-  {% if not sections and form_def.intro_image_data %}
-    <img class="ce-page-image ce-page-image--intro"
+  {% if not sections and form_def.intro_image_data and form_def.intro_image_position != "below" %}
+    <img class="ce-page-image ce-page-image--intro ce-page-image--{{ form_def.intro_image_width }} ce-page-image--align-{{ form_def.intro_image_alignment }}"
          src="{{ form_def.intro_image_data }}"
          alt=""
          loading="eager">
@@ -17,6 +17,13 @@
     <div class="form-intro">
       {{ rendered_description|format_rich_text }}
     </div>
+  {% endif %}
+
+  {% if not sections and form_def.intro_image_data and form_def.intro_image_position == "below" %}
+    <img class="ce-page-image ce-page-image--intro ce-page-image--{{ form_def.intro_image_width }} ce-page-image--align-{{ form_def.intro_image_alignment }}"
+         src="{{ form_def.intro_image_data }}"
+         alt=""
+         loading="eager">
   {% endif %}
 
   <div class="ce-form-header">
@@ -86,8 +93,8 @@
                data-show-if-value-2="{{ section.show_if_value_2|default:'' }}"
                style="{% if not forloop.first %}display:none;{% endif %}">
             <div style="margin-bottom:14px;">
-              {% if section.image_data %}
-                <img class="ce-page-image ce-page-image--intro"
+              {% if section.image_data and section.image_position != "below" %}
+                <img class="ce-page-image ce-page-image--intro ce-page-image--{{ section.image_width }} ce-page-image--align-{{ section.image_alignment }}"
                      src="{{ section.image_data }}"
                      alt=""
                      loading="eager">
@@ -95,6 +102,12 @@
               <h2 class="ce-heading" style="margin:0 0 6px 0;">{{ section.title }}</h2>
               {% if section.intro %}
                 <div class="ce-muted ce-section-intro" style="margin:0;">{{ section.intro|format_rich_text }}</div>
+              {% endif %}
+              {% if section.image_data and section.image_position == "below" %}
+                <img class="ce-page-image ce-page-image--intro ce-page-image--{{ section.image_width }} ce-page-image--align-{{ section.image_alignment }}"
+                     src="{{ section.image_data }}"
+                     alt=""
+                     loading="eager">
               {% endif %}
             </div>
 

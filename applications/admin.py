@@ -730,9 +730,31 @@ class FormDefinitionAdminForm(forms.ModelForm):
                 'border-radius:8px;object-fit:contain;">',
                 form_obj.thanks_approved_image_data,
             )
+        for field_name, label in (
+            ("intro_image_position", "Intro image placement"),
+            ("intro_image_alignment", "Intro image alignment"),
+            ("intro_image_width", "Intro image width"),
+            ("thanks_approved_image_position", "Approval image placement"),
+            ("thanks_approved_image_alignment", "Approval image alignment"),
+            ("thanks_approved_image_width", "Approval image width"),
+        ):
+            if field_name in self.fields:
+                self.fields[field_name].label = label
+                self.fields[field_name].required = False
 
     def clean(self):
         cleaned_data = super().clean()
+        for field_name, default in (
+            ("intro_image_position", "above"),
+            ("intro_image_alignment", "center"),
+            ("intro_image_width", "full"),
+            ("thanks_approved_image_position", "above"),
+            ("thanks_approved_image_alignment", "center"),
+            ("thanks_approved_image_width", "full"),
+        ):
+            if not cleaned_data.get(field_name):
+                cleaned_data[field_name] = default
+                setattr(self.instance, field_name, default)
         for field_name, attr_name in (
             ("intro_image_upload", "_encoded_intro_image"),
             ("approval_image_upload", "_encoded_approval_image"),
@@ -872,6 +894,9 @@ class FormDefinitionAdmin(admin.ModelAdmin):
         "description",
         "intro_image_upload",
         "remove_intro_image",
+        "intro_image_position",
+        "intro_image_alignment",
+        "intro_image_width",
         "is_master",
         "group",
         "is_public",
@@ -883,6 +908,9 @@ class FormDefinitionAdmin(admin.ModelAdmin):
         "thanks_approved_message",
         "approval_image_upload",
         "remove_approval_image",
+        "thanks_approved_image_position",
+        "thanks_approved_image_alignment",
+        "thanks_approved_image_width",
         "thanks_rejected_title",
         "thanks_rejected_message",
     )
@@ -944,8 +972,14 @@ class FormDefinitionAdmin(admin.ModelAdmin):
                 "fields": (
                     "intro_image_upload",
                     "remove_intro_image",
+                    "intro_image_position",
+                    "intro_image_alignment",
+                    "intro_image_width",
                     "approval_image_upload",
                     "remove_approval_image",
+                    "thanks_approved_image_position",
+                    "thanks_approved_image_alignment",
+                    "thanks_approved_image_width",
                 ),
                 "description": (
                     "Upload an image for the application intro page and/or the "

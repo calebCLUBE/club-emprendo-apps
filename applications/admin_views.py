@@ -3858,6 +3858,9 @@ def _clone_form(master_fd: FormDefinition, group: FormGroup) -> FormDefinition:
         )
         or "",
         intro_image_data=getattr(master_fd, "intro_image_data", "") or "",
+        intro_image_position=getattr(master_fd, "intro_image_position", "above") or "above",
+        intro_image_alignment=getattr(master_fd, "intro_image_alignment", "center") or "center",
+        intro_image_width=getattr(master_fd, "intro_image_width", "full") or "full",
         thanks_approved_title=_fill_placeholders(
             getattr(master_fd, "thanks_approved_title", ""),
             group_num,
@@ -3882,6 +3885,15 @@ def _clone_form(master_fd: FormDefinition, group: FormGroup) -> FormDefinition:
         or "",
         thanks_approved_image_data=(
             getattr(master_fd, "thanks_approved_image_data", "") or ""
+        ),
+        thanks_approved_image_position=(
+            getattr(master_fd, "thanks_approved_image_position", "above") or "above"
+        ),
+        thanks_approved_image_alignment=(
+            getattr(master_fd, "thanks_approved_image_alignment", "center") or "center"
+        ),
+        thanks_approved_image_width=(
+            getattr(master_fd, "thanks_approved_image_width", "full") or "full"
         ),
         approval_email_name=getattr(master_fd, "approval_email_name", "") or "",
         thanks_rejected_title=_fill_placeholders(

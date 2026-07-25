@@ -117,6 +117,35 @@ class FormDefinition(models.Model):
         editable=False,
         help_text="Optimized intro-page image stored as a data URI.",
     )
+    IMAGE_POSITION_CHOICES = [
+        ("above", "Above page content"),
+        ("below", "Below page content"),
+    ]
+    IMAGE_ALIGNMENT_CHOICES = [
+        ("left", "Left"),
+        ("center", "Center"),
+        ("right", "Right"),
+    ]
+    IMAGE_WIDTH_CHOICES = [
+        ("small", "Small"),
+        ("medium", "Medium"),
+        ("full", "Full width"),
+    ]
+    intro_image_position = models.CharField(
+        max_length=10,
+        choices=IMAGE_POSITION_CHOICES,
+        default="above",
+    )
+    intro_image_alignment = models.CharField(
+        max_length=10,
+        choices=IMAGE_ALIGNMENT_CHOICES,
+        default="center",
+    )
+    intro_image_width = models.CharField(
+        max_length=10,
+        choices=IMAGE_WIDTH_CHOICES,
+        default="full",
+    )
 
     # master vs group copy
     is_master = models.BooleanField(default=False)
@@ -171,6 +200,21 @@ class FormDefinition(models.Model):
         default="",
         editable=False,
         help_text="Optimized approval-page image stored as a data URI.",
+    )
+    thanks_approved_image_position = models.CharField(
+        max_length=10,
+        choices=IMAGE_POSITION_CHOICES,
+        default="above",
+    )
+    thanks_approved_image_alignment = models.CharField(
+        max_length=10,
+        choices=IMAGE_ALIGNMENT_CHOICES,
+        default="center",
+    )
+    thanks_approved_image_width = models.CharField(
+        max_length=10,
+        choices=IMAGE_WIDTH_CHOICES,
+        default="full",
     )
     approval_email_name = models.CharField(
         max_length=120,

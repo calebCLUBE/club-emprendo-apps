@@ -203,6 +203,31 @@ form {
   max-height: 400px;
 }
 
+.ce-page-image--small {
+  width: min(100%, 360px);
+}
+
+.ce-page-image--medium {
+  width: min(100%, 620px);
+}
+
+.ce-page-image--full {
+  width: 100%;
+}
+
+.ce-page-image--align-left {
+  margin-right: auto;
+}
+
+.ce-page-image--align-center {
+  margin-right: auto;
+  margin-left: auto;
+}
+
+.ce-page-image--align-right {
+  margin-left: auto;
+}
+
 .form-row {
   margin-bottom: 1.1rem;
 }

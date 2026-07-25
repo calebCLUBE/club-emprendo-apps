@@ -6,8 +6,8 @@
 
 {% block content %}
 
-  {% if approval_image_data %}
-    <img class="ce-page-image ce-page-image--approval"
+  {% if approval_image_data and approval_image_position != "below" %}
+    <img class="ce-page-image ce-page-image--approval ce-page-image--{{ approval_image_width }} ce-page-image--align-{{ approval_image_alignment }}"
          src="{{ approval_image_data }}"
          alt=""
          loading="eager">
@@ -155,6 +155,13 @@
 
     {% endif %}
 
+  {% endif %}
+
+  {% if approval_image_data and approval_image_position == "below" %}
+    <img class="ce-page-image ce-page-image--approval ce-page-image--{{ approval_image_width }} ce-page-image--align-{{ approval_image_alignment }}"
+         src="{{ approval_image_data }}"
+         alt=""
+         loading="eager">
   {% endif %}
 
 {% endblock %}

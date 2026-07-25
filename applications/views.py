@@ -944,13 +944,24 @@ def _hydrate_approval_image(payload: dict) -> dict:
     except (TypeError, ValueError):
         form_id = 0
     if form_id:
-        payload["approval_image_data"] = (
+        image_settings = (
             FormDefinition.objects
             .filter(id=form_id)
-            .values_list("thanks_approved_image_data", flat=True)
+            .values(
+                "thanks_approved_image_data",
+                "thanks_approved_image_position",
+                "thanks_approved_image_alignment",
+                "thanks_approved_image_width",
+            )
             .first()
-            or ""
         )
+        if image_settings:
+            payload.update({
+                "approval_image_data": image_settings["thanks_approved_image_data"],
+                "approval_image_position": image_settings["thanks_approved_image_position"],
+                "approval_image_alignment": image_settings["thanks_approved_image_alignment"],
+                "approval_image_width": image_settings["thanks_approved_image_width"],
+            })
     return payload
 
 
@@ -1311,6 +1322,9 @@ def _handle_application_form(
                 "title": "Antes de comenzar",
                 "intro": intro,
                 "image_data": form_def.intro_image_data,
+                "image_position": form_def.intro_image_position,
+                "image_alignment": form_def.intro_image_alignment,
+                "image_width": form_def.intro_image_width,
                 "fields": intro_contact_fields,
                 "conditions_json": "[]",
                 "is_intro": True,

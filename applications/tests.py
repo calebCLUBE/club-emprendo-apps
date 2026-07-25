@@ -658,12 +658,12 @@ class TermsAndConditionsQuestionTests(TestCase):
 
         self.assertEqual(response.status_code, 404)
 
-    def test_admin_requires_terms_page_content(self):
+    def test_admin_fills_complete_terms_defaults_when_fields_are_blank(self):
         form = QuestionAdminForm(
             data={
                 "form": str(self.form_def.id),
-                "text": "Accept terms",
-                "slug": "accept_terms",
+                "text": "",
+                "slug": "",
                 "field_type": Question.TERMS_ACCEPTANCE,
                 "terms_content": "",
                 "required": "on",
@@ -675,8 +675,12 @@ class TermsAndConditionsQuestionTests(TestCase):
             instance=Question(),
         )
 
-        self.assertFalse(form.is_valid())
-        self.assertIn("terms_content", form.errors)
+        self.assertTrue(form.is_valid(), form.errors)
+        saved = form.save()
+        self.assertEqual(saved.text, "¿Aceptas los términos y condiciones?")
+        self.assertIn("Términos y condiciones de participación", saved.terms_content)
+        self.assertIn("Uso de la información", saved.terms_content)
+        self.assertEqual(saved.slug, "aceptas_los_terminos_y_condiciones")
 
 
 class ApplicationDraftTrackingTests(TestCase):

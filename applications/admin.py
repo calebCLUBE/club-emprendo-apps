@@ -30,6 +30,27 @@ from .models import (
     TaskType,
 )
 
+DEFAULT_TERMS_QUESTION_TEXT = "¿Aceptas los términos y condiciones?"
+DEFAULT_TERMS_CONTENT = """<div data-ce-rich-text="1">
+<h2>Términos y condiciones de participación</h2>
+<p>Al seleccionar “Sí” y enviar esta aplicación, confirmo que he leído y acepto los siguientes términos:</p>
+<h3>1. Información de la aplicación</h3>
+<p>Declaro que la información proporcionada es verdadera, completa y corresponde a mi situación actual. Entiendo que información falsa o incompleta puede afectar mi participación.</p>
+<h3>2. Uso de la información</h3>
+<p>Autorizo a Club Emprendo a recopilar, almacenar y utilizar la información de esta aplicación para gestionar el proceso de selección, la participación en el programa, las comunicaciones relacionadas, el acompañamiento y la evaluación de resultados.</p>
+<p>La información podrá ser consultada por el equipo autorizado de Club Emprendo y por personas o proveedores que apoyen la operación del programa cuando sea necesario para estos fines.</p>
+<h3>3. Comunicaciones</h3>
+<p>Acepto recibir mensajes relacionados con mi aplicación y participación mediante correo electrónico, WhatsApp u otros datos de contacto que haya proporcionado.</p>
+<h3>4. Selección y participación</h3>
+<p>Entiendo que enviar una aplicación no garantiza mi selección. Si soy seleccionada, me comprometo a participar de buena fe, respetar las reglas del programa y mantener una conducta respetuosa con participantes, mentoras y equipo organizador.</p>
+<h3>5. Confidencialidad y respeto</h3>
+<p>Me comprometo a tratar con respeto la información personal, comercial o confidencial compartida por otras participantes durante el programa y a no utilizarla fuera de las actividades autorizadas.</p>
+<h3>6. Actualización o retiro</h3>
+<p>Puedo solicitar la corrección de mis datos o comunicar que deseo retirarme mediante los canales oficiales de Club Emprendo. Entiendo que retirar la autorización necesaria para gestionar el programa puede impedir que continúe participando.</p>
+<h3>7. Aceptación</h3>
+<p>Confirmo que tuve la oportunidad de consultar estos términos antes de responder y que mi selección de “Sí” representa mi aceptación.</p>
+</div>"""
+
 
 # =========================
 # PRE BLOCK PARSE / PACK
@@ -158,6 +179,9 @@ class QuestionAdminForm(forms.ModelForm):
         # Existing slugs stay stable; new ones are generated in clean().
         if "slug" in self.fields:
             self.fields["slug"].required = False
+        if "text" in self.fields:
+            # Terms questions receive their complete default wording in clean().
+            self.fields["text"].required = False
 
         if "field_type" in self.fields:
             self.fields["field_type"].choices = [
@@ -180,6 +204,15 @@ class QuestionAdminForm(forms.ModelForm):
                 "This full text opens on the linked details page. It is not shown "
                 "inside the application question."
             )
+            if (
+                not (getattr(self.instance, "terms_content", "") or "").strip()
+                and not self.is_bound
+                and (
+                    not getattr(self.instance, "pk", None)
+                    or getattr(self.instance, "field_type", None) == Question.TERMS_ACCEPTANCE
+                )
+            ):
+                self.fields["terms_content"].initial = DEFAULT_TERMS_CONTENT
 
         # Parse existing help_text into admin-friendly pieces
         pre_text, pre_hr, rest = _split_help_text(getattr(self.instance, "help_text", "") or "")
@@ -320,6 +353,22 @@ class QuestionAdminForm(forms.ModelForm):
 
     def clean(self):
         cleaned_data = super().clean()
+        field_type = cleaned_data.get("field_type")
+        text = (cleaned_data.get("text") or "").strip()
+        if field_type == Question.TERMS_ACCEPTANCE:
+            if not text:
+                cleaned_data["text"] = DEFAULT_TERMS_QUESTION_TEXT
+                self.instance.text = DEFAULT_TERMS_QUESTION_TEXT
+            if not (cleaned_data.get("terms_content") or "").strip():
+                cleaned_data["terms_content"] = DEFAULT_TERMS_CONTENT
+                self.instance.terms_content = DEFAULT_TERMS_CONTENT
+        else:
+            if not text:
+                self.add_error("text", "Enter the question.")
+            # Do not store the hidden default policy on ordinary questions.
+            cleaned_data["terms_content"] = ""
+            self.instance.terms_content = ""
+
         if not (cleaned_data.get("slug") or "").strip():
             text = (cleaned_data.get("text") or "").strip()
             if text:
@@ -344,14 +393,6 @@ class QuestionAdminForm(forms.ModelForm):
                 self.add_error("grid_rows", "Add at least one grid row.")
             if not columns:
                 self.add_error("answer_options", "Add at least one grid column.")
-        if (
-            cleaned_data.get("field_type") == Question.TERMS_ACCEPTANCE
-            and not (cleaned_data.get("terms_content") or "").strip()
-        ):
-            self.add_error(
-                "terms_content",
-                "Add the terms and conditions that applicants will open from the link.",
-            )
         return cleaned_data
 
     def save(self, commit=True):

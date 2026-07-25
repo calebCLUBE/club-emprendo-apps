@@ -1,6 +1,7 @@
 (function () {
   const QUESTION_TYPES_WITH_OPTIONS = new Set(["choice", "multi_choice", "choice_grid"]);
   const TERMS_ACCEPTANCE_TYPE = "terms_acceptance";
+  const DEFAULT_TERMS_QUESTION_TEXT = "¿Aceptas los términos y condiciones?";
   const ADVANCED_FIELDS = [
     "field-show_if_conditions", "field-end_form_rules", "field-confirm_value", "field-pre_hr",
     "field-pre_text", "field-slug", "field-position", "field-active",
@@ -410,6 +411,13 @@
     optionRow.classList.toggle("ce-builder-hidden", !hasOptions);
     gridRow?.classList.toggle("ce-builder-hidden", !isGrid);
     termsRow?.classList.toggle("ce-builder-hidden", type.value !== TERMS_ACCEPTANCE_TYPE);
+    if (type.value === TERMS_ACCEPTANCE_TYPE) {
+      const questionText = card.querySelector("input[id$='-text']");
+      if (questionText && !questionText.value.trim()) {
+        questionText.value = DEFAULT_TERMS_QUESTION_TEXT;
+        questionText.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+    }
     const optionLabel = optionRow.querySelector(":scope > div > label, :scope > label");
     if (optionLabel) optionLabel.textContent = isGrid ? "Columns" : "Answer options";
     if (hasOptions) optionEditor(optionRow, { itemName: isGrid ? "Column" : "Option" });

@@ -497,7 +497,10 @@
               canvas.width = width;
               canvas.height = height;
               canvas.getContext("2d").drawImage(source, 0, 0, width, height);
-              resolve(canvas.toDataURL("image/webp", 0.84));
+              resolve({
+                src: canvas.toDataURL("image/webp", 0.84),
+                portrait: height > width,
+              });
             };
             source.src = String(reader.result || "");
           };
@@ -507,7 +510,8 @@
 
       async function insertImage(file, insertionRange = savedRange) {
         try {
-          const src = await optimizeImage(file);
+          const optimized = await optimizeImage(file);
+          const defaultWidth = optimized.portrait ? 30 : 50;
           editor.focus();
           const range = insertionRange && editor.contains(insertionRange.commonAncestorContainer)
             ? insertionRange
@@ -517,9 +521,9 @@
             range.collapse(false);
           }
           const image = document.createElement("img");
-          image.src = src;
+          image.src = optimized.src;
           image.alt = "";
-          image.style.width = "50%";
+          image.style.width = `${defaultWidth}%`;
           image.style.maxWidth = "100%";
           image.style.height = "auto";
           applyAlignment(image, "center");

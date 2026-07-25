@@ -6,11 +6,13 @@ from django.contrib.auth import get_user_model
 from django.contrib import admin as django_admin
 from django.core import mail
 from django.core.cache import cache
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
 from django.utils import timezone
 import json
 import re
-from io import StringIO
+from io import BytesIO, StringIO
+from PIL import Image
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
@@ -20,6 +22,7 @@ from applications.grader_m import MENTORA_EXACT_OUTPUT_COLUMNS
 from applications import meta_marketing
 from applications.admin import (
     FormDefinitionAdmin,
+    FormDefinitionAdminForm,
     PairingRuleAdminForm,
     QuestionAdminForm,
     QuestionInlineFormSet,
@@ -681,6 +684,102 @@ class TermsAndConditionsQuestionTests(TestCase):
         self.assertIn("Términos y condiciones de participación", saved.terms_content)
         self.assertIn("Uso de la información", saved.terms_content)
         self.assertEqual(saved.slug, "aceptas_los_terminos_y_condiciones")
+
+
+class ApplicationPageImageTests(TestCase):
+    @staticmethod
+    def _uploaded_image(name="page-image.png"):
+        buffer = BytesIO()
+        Image.new("RGB", (640, 360), color=(72, 106, 59)).save(
+            buffer,
+            format="PNG",
+        )
+        return SimpleUploadedFile(
+            name,
+            buffer.getvalue(),
+            content_type="image/png",
+        )
+
+    def setUp(self):
+        self.form_def = FormDefinition.objects.create(
+            slug="page_image_test",
+            name="Page Image Test",
+            thanks_approved_message="Tu aplicación fue recibida.",
+        )
+        Question.objects.create(
+            form=self.form_def,
+            text="Optional response",
+            slug="optional_response",
+            field_type=Question.SHORT_TEXT,
+            required=False,
+            position=1,
+        )
+
+    def test_editor_optimizes_and_stores_both_page_images(self):
+        form = FormDefinitionAdminForm(
+            data={
+                "slug": self.form_def.slug,
+                "name": self.form_def.name,
+                "description": "",
+                "default_section_title": "Questions",
+                "thanks_approved_title": "",
+                "thanks_approved_message": self.form_def.thanks_approved_message,
+                "approval_email_name": "",
+                "thanks_rejected_title": "",
+                "thanks_rejected_message": "",
+            },
+            files={
+                "intro_image_upload": self._uploaded_image("intro.png"),
+                "approval_image_upload": self._uploaded_image("approval.png"),
+            },
+            instance=self.form_def,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        saved = form.save()
+        self.assertTrue(saved.intro_image_data.startswith("data:image/webp;base64,"))
+        self.assertTrue(
+            saved.thanks_approved_image_data.startswith("data:image/webp;base64,")
+        )
+
+    def test_intro_image_renders_on_the_intro_step(self):
+        self.form_def.intro_image_data = "data:image/webp;base64,INTROIMAGE"
+        self.form_def.save(update_fields=["intro_image_data"])
+
+        response = self.client.get(
+            reverse("apply_by_slug", args=[self.form_def.slug])
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "ce-page-image--intro")
+        self.assertContains(response, "data:image/webp;base64,INTROIMAGE")
+        self.assertContains(response, "Antes de comenzar")
+
+    def test_approval_image_renders_from_small_session_reference(self):
+        self.form_def.thanks_approved_image_data = (
+            "data:image/webp;base64,APPROVALIMAGE"
+        )
+        self.form_def.save(update_fields=["thanks_approved_image_data"])
+        payload = _thanks_override_payload(
+            form_def=self.form_def,
+            kind="a1",
+            approved=True,
+            disqualified=False,
+            group_num="",
+            track="",
+        )
+        self.assertEqual(payload["approval_image_form_id"], self.form_def.id)
+        self.assertNotIn("approval_image_data", payload)
+        session = self.client.session
+        session["ce_thanks_payload"] = payload
+        session.save()
+
+        response = self.client.get(reverse("application_thanks"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "ce-page-image--approval")
+        self.assertContains(response, "data:image/webp;base64,APPROVALIMAGE")
+        self.assertContains(response, "Tu aplicación fue recibida.")
 
 
 class ApplicationDraftTrackingTests(TestCase):

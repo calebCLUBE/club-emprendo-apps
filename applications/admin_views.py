@@ -3857,6 +3857,7 @@ def _clone_form(master_fd: FormDefinition, group: FormGroup) -> FormDefinition:
             respond_month=respond_month,
         )
         or "",
+        intro_image_data=getattr(master_fd, "intro_image_data", "") or "",
         thanks_approved_title=_fill_placeholders(
             getattr(master_fd, "thanks_approved_title", ""),
             group_num,
@@ -3879,6 +3880,9 @@ def _clone_form(master_fd: FormDefinition, group: FormGroup) -> FormDefinition:
             respond_month=respond_month,
         )
         or "",
+        thanks_approved_image_data=(
+            getattr(master_fd, "thanks_approved_image_data", "") or ""
+        ),
         approval_email_name=getattr(master_fd, "approval_email_name", "") or "",
         thanks_rejected_title=_fill_placeholders(
             getattr(master_fd, "thanks_rejected_title", ""),

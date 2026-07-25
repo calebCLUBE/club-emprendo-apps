@@ -6,6 +6,13 @@
 
 {% block content %}
 
+  {% if approval_image_data %}
+    <img class="ce-page-image ce-page-image--approval"
+         src="{{ approval_image_data }}"
+         alt=""
+         loading="eager">
+  {% endif %}
+
   {% if custom_message_body %}
     {% if custom_message_title %}
       <div class="ce-form-header">

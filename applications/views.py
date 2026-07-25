@@ -889,10 +889,17 @@ def _thanks_override_payload(
     disqualified: bool,
     group_num: str,
     track: str,
-) -> dict[str, str]:
+) -> dict[str, object]:
     is_positive = bool(approved)
     if kind in {"mentor_final", "emprendedora_final"}:
         is_positive = not bool(disqualified)
+    payload: dict[str, object] = {}
+    if (
+        is_positive
+        and form_def
+        and str(getattr(form_def, "thanks_approved_image_data", "") or "").strip()
+    ):
+        payload["approval_image_form_id"] = form_def.id
 
     raw_title = (
         (form_def.thanks_approved_title if is_positive else form_def.thanks_rejected_title)
@@ -905,7 +912,7 @@ def _thanks_override_payload(
         else ""
     )
     if not str(raw_message or "").strip():
-        return {}
+        return payload
 
     track_value = (track or "").strip() or _track_from_slug(getattr(form_def, "slug", "") or "")
     rendered_title = _render_thanks_text_template(
@@ -921,13 +928,30 @@ def _thanks_override_payload(
         form_name=getattr(form_def, "name", "") or "",
     ).strip()
     if not rendered_message:
-        return {}
+        return payload
 
-    return {
+    payload.update({
         "custom_message_title": rendered_title,
         "custom_message_body": rendered_message,
         "custom_message_variant": "alert" if kind == "a1" and is_positive else "intro",
-    }
+    })
+    return payload
+
+
+def _hydrate_approval_image(payload: dict) -> dict:
+    try:
+        form_id = int(payload.get("approval_image_form_id") or 0)
+    except (TypeError, ValueError):
+        form_id = 0
+    if form_id:
+        payload["approval_image_data"] = (
+            FormDefinition.objects
+            .filter(id=form_id)
+            .values_list("thanks_approved_image_data", flat=True)
+            .first()
+            or ""
+        )
+    return payload
 
 
 def _slug_uses_combined_flow(slug: str) -> bool:
@@ -1102,6 +1126,7 @@ def _uses_managed_completion(form_def: FormDefinition | None) -> bool:
             "approval_email_name",
             "thanks_approved_title",
             "thanks_approved_message",
+            "thanks_approved_image_data",
             "thanks_rejected_title",
             "thanks_rejected_message",
         )
@@ -1267,7 +1292,11 @@ def _handle_application_form(
             _intro_contact_kind(field)
             for field in question_fields
         )
-        if question_fields and (intro or has_intro_contact):
+        if question_fields and (
+            intro
+            or has_intro_contact
+            or bool(form_def.intro_image_data)
+        ):
             sections = [{
                 "id": "questions",
                 "title": form_def.default_section_title or "Preguntas",
@@ -1276,11 +1305,12 @@ def _handle_application_form(
             }]
     if sections:
         intro_contact_fields = _move_contact_fields_to_intro(sections)
-        if intro or intro_contact_fields:
+        if intro or intro_contact_fields or form_def.intro_image_data:
             sections.insert(0, {
                 "id": "form-intro",
                 "title": "Antes de comenzar",
                 "intro": intro,
+                "image_data": form_def.intro_image_data,
                 "fields": intro_contact_fields,
                 "conditions_json": "[]",
                 "is_intro": True,
@@ -1585,7 +1615,11 @@ def _handle_application_form(
             app.save(update_fields=["approved_for_grading"])
 
         if combined_flow:
-            return render(request, "applications/thanks.html", thanks_payload)
+            return render(
+                request,
+                "applications/thanks.html",
+                _hydrate_approval_image(thanks_payload),
+            )
         request.session["ce_thanks_payload"] = thanks_payload
         return redirect("application_thanks")
 
@@ -1780,7 +1814,11 @@ def apply_by_slug(request, form_slug):
 
 def application_thanks(request):
     payload = request.session.pop("ce_thanks_payload", None) or {}
-    return render(request, "applications/thanks.html", payload)
+    return render(
+        request,
+        "applications/thanks.html",
+        _hydrate_approval_image(payload),
+    )
 
 
 def survey_by_slug(request, form_slug):

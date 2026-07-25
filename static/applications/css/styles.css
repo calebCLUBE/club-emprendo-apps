@@ -188,6 +188,21 @@ form {
   margin: 0;
 }
 
+.ce-page-image {
+  display: block;
+  width: 100%;
+  max-height: 460px;
+  margin: 0 0 1.25rem;
+  border-radius: var(--ce-radius-lg);
+  object-fit: contain;
+  background: #fff;
+  box-shadow: var(--ce-shadow-soft);
+}
+
+.ce-page-image--intro {
+  max-height: 400px;
+}
+
 .form-row {
   margin-bottom: 1.1rem;
 }

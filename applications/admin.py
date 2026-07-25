@@ -1,13 +1,17 @@
 # applications/admin.py
 from django.contrib import admin
+from django.core.exceptions import ValidationError
 from django.urls import reverse
 from django.utils.html import format_html
 from django.utils.text import slugify
+import base64
+import io
 import re
 from django import forms
 from django.forms.models import BaseInlineFormSet
 import json
 from django.http import HttpResponseRedirect
+from PIL import Image, ImageOps, UnidentifiedImageError
 
 from .forms_admin import TaskTypeAdminForm
 from .models import (
@@ -624,9 +628,58 @@ class StoredEmailInline(admin.StackedInline):
 class FormDefinitionAdminForm(forms.ModelForm):
     """Expose the normal-completion email as a named stored-email dropdown."""
 
+    intro_image_upload = forms.ImageField(
+        required=False,
+        label="Intro page image",
+        help_text="Optional. JPG, PNG, WebP, or GIF; optimized automatically after upload.",
+        widget=forms.ClearableFileInput(attrs={"accept": "image/jpeg,image/png,image/webp,image/gif"}),
+    )
+    remove_intro_image = forms.BooleanField(
+        required=False,
+        label="Remove current intro image",
+    )
+    approval_image_upload = forms.ImageField(
+        required=False,
+        label="Approval page image",
+        help_text="Optional. Shown only when the applicant reaches an approved outcome.",
+        widget=forms.ClearableFileInput(attrs={"accept": "image/jpeg,image/png,image/webp,image/gif"}),
+    )
+    remove_approval_image = forms.BooleanField(
+        required=False,
+        label="Remove current approval image",
+    )
+
     class Meta:
         model = FormDefinition
         fields = "__all__"
+
+    @staticmethod
+    def _optimized_image_data(upload) -> str:
+        if upload.size > 10 * 1024 * 1024:
+            raise ValidationError("Choose an image smaller than 10 MB.")
+        try:
+            upload.seek(0)
+            with Image.open(upload) as source:
+                if source.width * source.height > 25_000_000:
+                    raise ValidationError(
+                        "The image dimensions are too large. Use an image under 25 megapixels."
+                    )
+                image = ImageOps.exif_transpose(source)
+                image.thumbnail((1800, 1800), Image.Resampling.LANCZOS)
+                has_alpha = image.mode in {"RGBA", "LA"} or (
+                    image.mode == "P" and "transparency" in image.info
+                )
+                image = image.convert("RGBA" if has_alpha else "RGB")
+                output = io.BytesIO()
+                image.save(output, format="WEBP", quality=84, method=6)
+        except (UnidentifiedImageError, OSError, ValueError) as exc:
+            raise ValidationError("Upload a valid JPG, PNG, WebP, or GIF image.") from exc
+        encoded = output.getvalue()
+        if len(encoded) > 3 * 1024 * 1024:
+            raise ValidationError(
+                "The optimized image is still too large. Choose a smaller image."
+            )
+        return f"data:image/webp;base64,{base64.b64encode(encoded).decode('ascii')}"
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -663,6 +716,50 @@ class FormDefinitionAdminForm(forms.ModelForm):
         self.fields["thanks_rejected_message"].help_text = (
             "Shared by every answer rule that ends this application. Line breaks are preserved."
         )
+        if form_obj and form_obj.intro_image_data:
+            self.fields["intro_image_upload"].help_text = format_html(
+                'Current image:<br><img src="{}" alt="" '
+                'style="display:block;max-width:260px;max-height:150px;margin-top:8px;'
+                'border-radius:8px;object-fit:contain;">',
+                form_obj.intro_image_data,
+            )
+        if form_obj and form_obj.thanks_approved_image_data:
+            self.fields["approval_image_upload"].help_text = format_html(
+                'Current image:<br><img src="{}" alt="" '
+                'style="display:block;max-width:260px;max-height:150px;margin-top:8px;'
+                'border-radius:8px;object-fit:contain;">',
+                form_obj.thanks_approved_image_data,
+            )
+
+    def clean(self):
+        cleaned_data = super().clean()
+        for field_name, attr_name in (
+            ("intro_image_upload", "_encoded_intro_image"),
+            ("approval_image_upload", "_encoded_approval_image"),
+        ):
+            upload = cleaned_data.get(field_name)
+            if not upload:
+                continue
+            try:
+                setattr(self, attr_name, self._optimized_image_data(upload))
+            except ValidationError as exc:
+                self.add_error(field_name, exc)
+        return cleaned_data
+
+    def save(self, commit=True):
+        obj = super().save(commit=False)
+        if self.cleaned_data.get("remove_intro_image"):
+            obj.intro_image_data = ""
+        elif hasattr(self, "_encoded_intro_image"):
+            obj.intro_image_data = self._encoded_intro_image
+        if self.cleaned_data.get("remove_approval_image"):
+            obj.thanks_approved_image_data = ""
+        elif hasattr(self, "_encoded_approval_image"):
+            obj.thanks_approved_image_data = self._encoded_approval_image
+        if commit:
+            obj.save()
+            self.save_m2m()
+        return obj
 
 
 class QuestionInlineFormSet(BaseInlineFormSet):
@@ -824,6 +921,8 @@ class FormDefinitionAdmin(admin.ModelAdmin):
             name for name in (
                 "name",
                 "description",
+                "intro_image_upload",
+                "remove_intro_image",
                 "accepting_responses",
             ) if name in fields
         ]
@@ -840,7 +939,12 @@ class FormDefinitionAdmin(admin.ModelAdmin):
         return (
             (None, {"fields": basics}),
             ("Approval page", {
-                "fields": ("thanks_approved_title", "thanks_approved_message"),
+                "fields": (
+                    "thanks_approved_title",
+                    "thanks_approved_message",
+                    "approval_image_upload",
+                    "remove_approval_image",
+                ),
                 "classes": ("collapse",),
                 "description": "Default page shown after a completed application is sent.",
             }),

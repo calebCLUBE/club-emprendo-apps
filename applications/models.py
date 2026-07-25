@@ -111,6 +111,12 @@ class FormDefinition(models.Model):
     slug = models.SlugField(unique=True)  # e.g. "E_A1" or "G6_E_A1"
     name = models.CharField(max_length=200)
     description = models.TextField(blank=True)
+    intro_image_data = models.TextField(
+        blank=True,
+        default="",
+        editable=False,
+        help_text="Optimized intro-page image stored as a data URI.",
+    )
 
     # master vs group copy
     is_master = models.BooleanField(default=False)
@@ -159,6 +165,12 @@ class FormDefinition(models.Model):
             "Optional custom body shown on pass/approved thank-you page. "
             "Supports placeholders like {{ group_num }}, {{ group_label }}, {{ track_label }}, {{ form_name }}."
         ),
+    )
+    thanks_approved_image_data = models.TextField(
+        blank=True,
+        default="",
+        editable=False,
+        help_text="Optimized approval-page image stored as a data URI.",
     )
     approval_email_name = models.CharField(
         max_length=120,

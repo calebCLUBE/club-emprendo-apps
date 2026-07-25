@@ -747,6 +747,69 @@ def _sections_from_model(form_def: FormDefinition, form, default_intro: str = ""
     return ordered
 
 
+def _intro_identity_kind(field) -> str:
+    field_name = str(getattr(field, "name", "") or "").lower()
+    base_name = re.sub(r"^q_", "", field_name).split("__confirm", 1)[0]
+    label = str(getattr(field, "label", "") or "").lower()
+
+    if (
+        base_name in {"full_name", "name", "nombre", "nombre_completo"}
+        or base_name.endswith("_full_name")
+        or base_name.endswith("_nombre_completo")
+    ):
+        return "name"
+    if (
+        base_name in {"email", "correo", "correo_electronico", "email_address"}
+        or base_name.endswith("_email")
+        or base_name.endswith("_correo_electronico")
+    ):
+        return "email"
+    if (
+        "cedula" in base_name
+        or base_name in {
+            "dni",
+            "document_number",
+            "identity_document",
+            "numero_documento",
+            "documento_identidad",
+        }
+        or "cédula" in label
+        or "documento de identidad" in label
+    ):
+        return "cedula"
+    return ""
+
+
+def _move_identity_fields_to_intro(sections: list[dict]) -> list:
+    """Remove identity fields from later sections and return them in intro order."""
+    collected = []
+    source_order = 0
+    for section in sections:
+        remaining_fields = []
+        for field in section.get("fields") or []:
+            identity_kind = _intro_identity_kind(field)
+            if identity_kind:
+                is_confirmation = "__confirm" in str(field.name)
+                collected.append((
+                    {"name": 0, "email": 1, "cedula": 2}[identity_kind],
+                    int(is_confirmation),
+                    source_order,
+                    field,
+                ))
+            else:
+                remaining_fields.append(field)
+            source_order += 1
+        section["fields"] = remaining_fields
+
+    sections[:] = [
+        section
+        for section in sections
+        if section.get("fields") or section.get("is_intro")
+    ]
+    collected.sort(key=lambda item: item[:3])
+    return [item[3] for item in collected]
+
+
 def _group_num_from_slug(slug: str) -> str:
     m = GROUP_SLUG_RE.match(slug or "")
     return m.group("num") if m else ""
@@ -1168,22 +1231,27 @@ def _handle_application_form(
                 })
 
     intro = str(rendered_description or "").strip()
-    if intro:
-        if not sections:
-            question_fields = list(form)
-            if question_fields:
-                sections = [{
-                    "id": "questions",
-                    "title": form_def.default_section_title or "Preguntas",
-                    "intro": "",
-                    "fields": question_fields,
-                }]
-        if sections:
+    if not sections:
+        question_fields = list(form)
+        has_intro_identity = any(
+            _intro_identity_kind(field)
+            for field in question_fields
+        )
+        if question_fields and (intro or has_intro_identity):
+            sections = [{
+                "id": "questions",
+                "title": form_def.default_section_title or "Preguntas",
+                "intro": "",
+                "fields": question_fields,
+            }]
+    if sections:
+        intro_identity_fields = _move_identity_fields_to_intro(sections)
+        if intro or intro_identity_fields:
             sections.insert(0, {
                 "id": "form-intro",
                 "title": "Antes de comenzar",
                 "intro": intro,
-                "fields": [],
+                "fields": intro_identity_fields,
                 "conditions_json": "[]",
                 "is_intro": True,
             })

@@ -2842,6 +2842,73 @@ class ApplicationProgressRenderingTests(TestCase):
         self.assertNotIn("Sección ${safeCompleted}", html)
 
 
+class ApplicationIntroIdentityTests(TestCase):
+    def test_name_email_and_cedula_are_moved_to_intro_step_once(self):
+        form_def = FormDefinition.objects.create(
+            slug="intro_identity_fields",
+            name="Application with identity intro",
+            description="Lee esta introducción antes de comenzar.",
+            is_public=True,
+            accepting_responses=True,
+            manual_open_override=True,
+        )
+        personal = Section.objects.create(
+            form=form_def,
+            title="Datos personales",
+            position=1,
+        )
+        for position, slug, text, confirm in (
+            (1, "full_name", "Nombre completo", False),
+            (2, "cedula", "Número de cédula", True),
+            (3, "email", "Correo electrónico", True),
+            (4, "whatsapp", "Número de WhatsApp", False),
+        ):
+            Question.objects.create(
+                form=form_def,
+                section=personal,
+                text=text,
+                slug=slug,
+                field_type=Question.SHORT_TEXT,
+                required=True,
+                confirm_value=confirm,
+                position=position,
+            )
+
+        response = self.client.get(
+            reverse("apply_by_slug", kwargs={"form_slug": form_def.slug}),
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        html = response.content.decode("utf-8")
+        intro_start = html.index('data-section-index="0"')
+        personal_start = html.index('data-section-index="1"')
+        intro_html = html[intro_start:personal_start]
+        personal_html = html[personal_start:]
+
+        expected_intro_names = [
+            "q_full_name",
+            "q_email",
+            "q_email__confirm",
+            "q_cedula",
+            "q_cedula__confirm",
+        ]
+        for field_name in expected_intro_names:
+            self.assertIn(f'name="{field_name}"', intro_html)
+            self.assertNotIn(f'name="{field_name}"', personal_html)
+            self.assertEqual(html.count(f'name="{field_name}"'), 1)
+        self.assertIn('name="q_whatsapp"', personal_html)
+        self.assertNotIn('name="q_whatsapp"', intro_html)
+        self.assertLess(
+            intro_html.index('name="q_full_name"'),
+            intro_html.index('name="q_email"'),
+        )
+        self.assertLess(
+            intro_html.index('name="q_email"'),
+            intro_html.index('name="q_cedula"'),
+        )
+
+
 class MultipleChoiceGridTests(TestCase):
     def setUp(self):
         self.form_def = FormDefinition.objects.create(

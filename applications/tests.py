@@ -3165,6 +3165,7 @@ class HelpTextFormattingTests(TestCase):
         rendered = str(format_rich_text(
             '<div data-ce-rich-text="1"><p>Before</p>'
             '<img src="data:image/webp;base64,UklGRg==" alt="Example" '
+            'data-ce-align="center" data-ce-width="75" '
             'style="display:block;width:50%;max-width:100%;height:auto;'
             'margin-left:auto;margin-right:0px" onerror="alert(1)">'
             '<p>After</p></div>'
@@ -3172,6 +3173,8 @@ class HelpTextFormattingTests(TestCase):
 
         self.assertIn('src="data:image/webp;base64,UklGRg=="', rendered)
         self.assertIn('alt="Example"', rendered)
+        self.assertIn('data-ce-align="center"', rendered)
+        self.assertIn('data-ce-width="75"', rendered)
         self.assertIn("width:50%", rendered.replace(" ", ""))
         self.assertIn("margin-right:0px", rendered.replace(" ", ""))
         self.assertNotIn("onerror", rendered)

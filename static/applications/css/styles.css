@@ -429,6 +429,27 @@ form {
   margin: 0 0 1.25rem 1.5rem !important;
 }
 
+.form-intro img[data-ce-align="center"],
+.ce-section-intro img[data-ce-align="center"],
+.form-intro img[style*="margin-left: auto"][style*="margin-right: auto"],
+.ce-section-intro img[style*="margin-left: auto"][style*="margin-right: auto"] {
+  display: block;
+  float: none !important;
+  margin: 1.25rem auto !important;
+}
+
+.form-intro img[data-ce-align="left"],
+.ce-section-intro img[data-ce-align="left"] {
+  float: left;
+  margin: 0 1.5rem 1.25rem 0 !important;
+}
+
+.form-intro img[data-ce-align="right"],
+.ce-section-intro img[data-ce-align="right"] {
+  float: right;
+  margin: 0 0 1.25rem 1.5rem !important;
+}
+
 @media (max-width: 768px) {
   .form-intro img,
   .ce-section-intro img {

@@ -313,7 +313,7 @@
           return;
         }
         Array.from(image.attributes).forEach((attr) => {
-          if (!["src", "alt", "title", "style"].includes(attr.name.toLowerCase())) {
+          if (!["src", "alt", "title", "style", "data-ce-align", "data-ce-width"].includes(attr.name.toLowerCase())) {
             image.removeAttribute(attr.name);
           }
         });
@@ -444,12 +444,25 @@
           imageAlignment.appendChild(option);
         });
 
+      const imageSize = document.createElement("select");
+      imageSize.title = "Selected image size";
+      [["", "Image size"], ["30", "Small (30%)"], ["50", "Medium (50%)"], ["75", "Large (75%)"], ["100", "Full width (100%)"]]
+        .forEach(([value, label]) => {
+          const option = document.createElement("option");
+          option.value = value;
+          option.textContent = label;
+          imageSize.appendChild(option);
+        });
+
       const removeImage = document.createElement("button");
       removeImage.type = "button";
       removeImage.textContent = "Remove";
       removeImage.title = "Remove selected image";
 
       function selectedAlignment(image) {
+        if (["left", "center", "right"].includes(image.dataset.ceAlign || "")) {
+          return image.dataset.ceAlign;
+        }
         if (image.style.cssFloat === "right") return "right";
         if (image.style.cssFloat === "left") return "left";
         if (image.style.marginLeft === "auto" && image.style.marginRight === "0px") return "right";
@@ -466,10 +479,12 @@
         const width = Math.min(100, Math.max(10, Math.round(parseFloat(selectedImage.style.width || "50"))));
         imageWidth.value = String(width);
         imageWidthText.textContent = `Width ${width}%`;
+        imageSize.value = ["30", "50", "75", "100"].includes(String(width)) ? String(width) : "";
         imageAlignment.value = selectedAlignment(selectedImage);
       }
 
       function applyAlignment(image, alignment) {
+        image.dataset.ceAlign = alignment;
         image.style.display = "block";
         image.style.cssFloat = alignment === "center" ? "none" : alignment;
         image.style.marginLeft = alignment === "right" || alignment === "center" ? "auto" : "0px";
@@ -530,6 +545,7 @@
           image.src = optimized.src;
           image.alt = "";
           image.style.width = `${defaultWidth}%`;
+          image.dataset.ceWidth = String(defaultWidth);
           image.style.maxWidth = "100%";
           image.style.height = "auto";
           applyAlignment(image, optimized.portrait ? "right" : "center");
@@ -573,10 +589,20 @@
       imageWidth.addEventListener("input", () => {
         if (!selectedImage) return;
         selectedImage.style.width = `${imageWidth.value}%`;
+        selectedImage.dataset.ceWidth = imageWidth.value;
         imageWidthText.textContent = `Width ${imageWidth.value}%`;
+        imageSize.value = ["30", "50", "75", "100"].includes(imageWidth.value) ? imageWidth.value : "";
       });
       imageWidth.addEventListener("change", () => {
         if (!selectedImage) return;
+        sync();
+      });
+      imageSize.addEventListener("change", () => {
+        if (!selectedImage || !imageSize.value) return;
+        selectedImage.style.width = `${imageSize.value}%`;
+        selectedImage.dataset.ceWidth = imageSize.value;
+        imageWidth.value = imageSize.value;
+        imageWidthText.textContent = `Width ${imageSize.value}%`;
         sync();
       });
       imageAlignment.addEventListener("change", () => {
@@ -616,7 +642,7 @@
         insertImage(file, range);
       });
 
-      imageControls.append(imageWidthLabel, imageAlignment, removeImage);
+      imageControls.append(imageSize, imageWidthLabel, imageAlignment, removeImage);
       toolbar.append(imageButton, imageControls, imageInput);
     }
 

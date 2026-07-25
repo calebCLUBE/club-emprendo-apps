@@ -37,6 +37,13 @@ _ALLOWED_TAGS = [
 def _allow_image_attribute(tag, name, value):
     if name in {"alt", "style", "title"}:
         return True
+    if name == "data-ce-align":
+        return str(value or "") in {"left", "center", "right"}
+    if name == "data-ce-width":
+        try:
+            return 10 <= int(value) <= 100
+        except (TypeError, ValueError):
+            return False
     if name != "src":
         return False
     return bool(re.match(

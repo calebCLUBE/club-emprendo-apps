@@ -161,15 +161,13 @@
       if (!root) return;
       const fill = root.querySelector("[data-progress-fill]");
       const label = root.querySelector("[data-progress-label]");
-      window.ceSetApplicationProgress = function (completed, total, sectionMode) {
+      window.ceSetApplicationProgress = function (completed, total) {
         const safeTotal = Math.max(Number(total) || 0, 1);
         const safeCompleted = Math.max(0, Math.min(Number(completed) || 0, safeTotal));
         const percent = Math.round((safeCompleted / safeTotal) * 100);
         fill.style.width = percent + "%";
         root.setAttribute("aria-valuenow", String(percent));
-        label.textContent = sectionMode
-          ? `Sección ${safeCompleted} de ${safeTotal} · ${percent}%`
-          : `${percent}%`;
+        label.textContent = `${percent}%`;
       };
     })();
 
@@ -444,7 +442,7 @@
         const vis = visiblePanels();
         if (!vis.length) return;
         current = Math.max(0, Math.min(idx, vis.length - 1));
-        window.ceSetApplicationProgress?.(current + 1, vis.length, true);
+        window.ceSetApplicationProgress?.(current + 1, vis.length);
         panels.forEach((p, i) => {
           const show = vis.includes(p);
           p.style.display = show && vis[current] === p ? "" : "none";
@@ -549,7 +547,7 @@
         const questions = Array.from(form.querySelectorAll(".form-question"))
           .filter((block) => block.style.display !== "none");
         const completed = questions.filter(hasValue).length;
-        window.ceSetApplicationProgress?.(completed, questions.length, false);
+        window.ceSetApplicationProgress?.(completed, questions.length);
       }
 
       form.addEventListener("input", () => setTimeout(updateProgress, 0));

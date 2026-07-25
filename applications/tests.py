@@ -2812,6 +2812,36 @@ class YesNoChoiceRenderingTests(TestCase):
         self.assertNotIn("checked", html)
 
 
+class ApplicationProgressRenderingTests(TestCase):
+    def test_progress_label_only_displays_percentage(self):
+        form_def = FormDefinition.objects.create(
+            slug="percentage_only_progress",
+            name="Percentage-only progress",
+            is_public=True,
+            accepting_responses=True,
+            manual_open_override=True,
+        )
+        Question.objects.create(
+            form=form_def,
+            text="Nombre",
+            slug="name",
+            field_type=Question.SHORT_TEXT,
+            required=True,
+            position=1,
+        )
+
+        response = self.client.get(
+            reverse("apply_by_slug", kwargs={"form_slug": form_def.slug}),
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        html = response.content.decode("utf-8")
+        self.assertIn("<span data-progress-label>0%</span>", html)
+        self.assertIn("label.textContent = `${percent}%`;", html)
+        self.assertNotIn("Sección ${safeCompleted}", html)
+
+
 class MultipleChoiceGridTests(TestCase):
     def setUp(self):
         self.form_def = FormDefinition.objects.create(

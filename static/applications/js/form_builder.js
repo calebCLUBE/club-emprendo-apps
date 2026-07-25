@@ -450,6 +450,8 @@
       removeImage.title = "Remove selected image";
 
       function selectedAlignment(image) {
+        if (image.style.cssFloat === "right") return "right";
+        if (image.style.cssFloat === "left") return "left";
         if (image.style.marginLeft === "auto" && image.style.marginRight === "0px") return "right";
         if (image.style.marginLeft === "auto" && image.style.marginRight === "auto") return "center";
         return "left";
@@ -469,8 +471,12 @@
 
       function applyAlignment(image, alignment) {
         image.style.display = "block";
-        image.style.marginLeft = alignment === "left" ? "0px" : "auto";
-        image.style.marginRight = alignment === "right" ? "0px" : "auto";
+        image.style.cssFloat = alignment === "center" ? "none" : alignment;
+        image.style.marginLeft = alignment === "right" || alignment === "center" ? "auto" : "0px";
+        image.style.marginRight = alignment === "left" || alignment === "center" ? "auto" : "0px";
+        image.style.marginBottom = alignment === "center" ? "1rem" : "1.25rem";
+        if (alignment === "left") image.style.marginRight = "1.5rem";
+        if (alignment === "right") image.style.marginLeft = "1.5rem";
       }
 
       function optimizeImage(file) {
@@ -526,7 +532,7 @@
           image.style.width = `${defaultWidth}%`;
           image.style.maxWidth = "100%";
           image.style.height = "auto";
-          applyAlignment(image, "center");
+          applyAlignment(image, optimized.portrait ? "right" : "center");
           range.deleteContents();
           range.insertNode(image);
           const spacer = document.createElement("br");

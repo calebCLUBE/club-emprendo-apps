@@ -48,6 +48,7 @@ from applications.emprendedora_a1_autograde import (
     emprendedora_a1_passes,
 )
 from applications.views import (
+    _hydrate_approval_image,
     _mentor_a1_autograde_and_email,
     _mentor_a1_is_eligible,
     _schedule_a1_to_a2_reminder,
@@ -803,6 +804,23 @@ class ApplicationPageImageTests(TestCase):
             html.index("Antes de comenzar"),
         )
 
+    def test_inline_intro_image_suppresses_duplicate_standalone_image(self):
+        self.form_def.description = (
+            '<div data-ce-rich-text="1"><p>Welcome</p>'
+            '<img src="data:image/webp;base64,INLINEIMAGE" '
+            'style="width: 30%; float: right;"></div>'
+        )
+        self.form_def.intro_image_data = "data:image/webp;base64,STANDALONEIMAGE"
+        self.form_def.save(update_fields=["description", "intro_image_data"])
+
+        response = self.client.get(
+            reverse("apply_by_slug", args=[self.form_def.slug])
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "data:image/webp;base64,INLINEIMAGE")
+        self.assertNotContains(response, "data:image/webp;base64,STANDALONEIMAGE")
+
     def test_approval_image_renders_from_small_session_reference(self):
         self.form_def.thanks_approved_image_data = (
             "data:image/webp;base64,APPROVALIMAGE"
@@ -843,6 +861,24 @@ class ApplicationPageImageTests(TestCase):
             html.index("data:image/webp;base64,APPROVALIMAGE"),
             html.index("Tu aplicación fue recibida."),
         )
+
+    def test_inline_approval_image_suppresses_duplicate_standalone_image(self):
+        payload = {
+            "custom_message_body": (
+                '<div data-ce-rich-text="1"><p>Received</p>'
+                '<img src="data:image/webp;base64,INLINEAPPROVAL"></div>'
+            ),
+            "approval_image_form_id": self.form_def.id,
+        }
+        self.form_def.thanks_approved_image_data = (
+            "data:image/webp;base64,STANDALONEAPPROVAL"
+        )
+        self.form_def.save(update_fields=["thanks_approved_image_data"])
+
+        hydrated = _hydrate_approval_image(payload)
+
+        self.assertNotIn("approval_image_data", hydrated)
+        self.assertNotIn("approval_image_form_id", hydrated)
 
 
 class ApplicationDraftTrackingTests(TestCase):

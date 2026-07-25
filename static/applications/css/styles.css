@@ -190,13 +190,12 @@ form {
 
 .ce-page-image {
   display: block;
-  width: 100%;
+  width: auto;
+  max-width: 100%;
+  height: auto;
   max-height: 460px;
   margin: 0 0 1.25rem;
-  border-radius: var(--ce-radius-lg);
   object-fit: contain;
-  background: #fff;
-  box-shadow: var(--ce-shadow-soft);
 }
 
 .ce-page-image--intro {
@@ -212,7 +211,8 @@ form {
 }
 
 .ce-page-image--full {
-  width: 100%;
+  width: auto;
+  max-width: 100%;
 }
 
 .ce-page-image--align-left {
@@ -404,6 +404,39 @@ form {
 .ce-terms-page__content img {
   max-width: 100%;
   height: auto;
+}
+
+.form-intro,
+.ce-section-intro,
+.ce-alert,
+.ce-terms-page__content {
+  display: flow-root;
+}
+
+.form-intro img[style*="float: left"],
+.ce-section-intro img[style*="float: left"],
+.form-intro img[style*="margin-left: 0px"],
+.ce-section-intro img[style*="margin-left: 0px"] {
+  float: left;
+  margin: 0 1.5rem 1.25rem 0 !important;
+}
+
+.form-intro img[style*="float: right"],
+.ce-section-intro img[style*="float: right"],
+.form-intro img[style*="margin-right: 0px"],
+.ce-section-intro img[style*="margin-right: 0px"] {
+  float: right;
+  margin: 0 0 1.25rem 1.5rem !important;
+}
+
+@media (max-width: 768px) {
+  .form-intro img,
+  .ce-section-intro img {
+    float: none !important;
+    display: block;
+    width: min(82%, 360px) !important;
+    margin: 1rem auto 1.5rem !important;
+  }
 }
 
 input[type="text"],

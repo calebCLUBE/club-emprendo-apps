@@ -939,6 +939,9 @@ def _thanks_override_payload(
 
 
 def _hydrate_approval_image(payload: dict) -> dict:
+    if "<img" in render_rich_text(payload.get("custom_message_body") or "").lower():
+        payload.pop("approval_image_form_id", None)
+        return payload
     try:
         form_id = int(payload.get("approval_image_form_id") or 0)
     except (TypeError, ValueError):
@@ -1297,6 +1300,7 @@ def _handle_application_form(
                 })
 
     intro = str(rendered_description or "").strip()
+    intro_has_inline_image = "<img" in render_rich_text(intro).lower()
     if not sections:
         question_fields = list(form)
         has_intro_contact = any(
@@ -1321,7 +1325,9 @@ def _handle_application_form(
                 "id": "form-intro",
                 "title": "Antes de comenzar",
                 "intro": intro,
-                "image_data": form_def.intro_image_data,
+                # An inline image is intentionally the sole intro image. Showing
+                # the legacy page image too produces a large duplicate above it.
+                "image_data": "" if intro_has_inline_image else form_def.intro_image_data,
                 "image_position": form_def.intro_image_position,
                 "image_alignment": form_def.intro_image_alignment,
                 "image_width": form_def.intro_image_width,
@@ -1647,6 +1653,7 @@ def _handle_application_form(
             "combined_flow": combined_flow,
             "display_form_name": None,
             "rendered_description": rendered_description,
+            "intro_has_inline_image": intro_has_inline_image,
             "sections": sections,
             "m2_gate_field": m2_gate_field,
             "draft_token": str(resume_draft.token) if resume_draft else "",

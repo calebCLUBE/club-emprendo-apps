@@ -15,10 +15,12 @@ RICH_TEXT_RE = re.compile(
 _CSS_SANITIZER = CSSSanitizer(
     allowed_css_properties=[
         "display",
+        "float",
         "font-size",
         "font-weight",
         "height",
         "line-height",
+        "margin-bottom",
         "margin-left",
         "margin-right",
         "max-width",

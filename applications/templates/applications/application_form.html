@@ -6,7 +6,7 @@
 
 {% block content %}
 
-  {% if not sections and form_def.intro_image_data and form_def.intro_image_position != "below" %}
+  {% if not sections and not intro_has_inline_image and form_def.intro_image_data and form_def.intro_image_position != "below" %}
     <img class="ce-page-image ce-page-image--intro ce-page-image--{{ form_def.intro_image_width }} ce-page-image--align-{{ form_def.intro_image_alignment }}"
          src="{{ form_def.intro_image_data }}"
          alt=""
@@ -19,7 +19,7 @@
     </div>
   {% endif %}
 
-  {% if not sections and form_def.intro_image_data and form_def.intro_image_position == "below" %}
+  {% if not sections and not intro_has_inline_image and form_def.intro_image_data and form_def.intro_image_position == "below" %}
     <img class="ce-page-image ce-page-image--intro ce-page-image--{{ form_def.intro_image_width }} ce-page-image--align-{{ form_def.intro_image_alignment }}"
          src="{{ form_def.intro_image_data }}"
          alt=""

@@ -13,18 +13,44 @@ RICH_TEXT_RE = re.compile(
 )
 
 _CSS_SANITIZER = CSSSanitizer(
-    allowed_css_properties=["font-size", "line-height", "font-weight", "text-align"],
+    allowed_css_properties=[
+        "display",
+        "font-size",
+        "font-weight",
+        "height",
+        "line-height",
+        "margin-left",
+        "margin-right",
+        "max-width",
+        "text-align",
+        "width",
+    ],
 )
 _ALLOWED_TAGS = [
-    "a", "b", "br", "div", "em", "font", "i", "li", "ol", "p", "span",
+    "a", "b", "br", "div", "em", "font", "i", "img", "li", "ol", "p", "span",
     "strong", "u", "ul",
 ]
+
+
+def _allow_image_attribute(tag, name, value):
+    if name in {"alt", "style", "title"}:
+        return True
+    if name != "src":
+        return False
+    return bool(re.match(
+        r"^data:image/(?:png|jpe?g|webp|gif);base64,[a-zA-Z0-9+/=\s]+$",
+        str(value or ""),
+        flags=re.IGNORECASE,
+    ))
+
+
 _ALLOWED_ATTRIBUTES = {
     "a": ["href", "title", "target", "rel"],
     "font": ["size"],
     "div": ["style"],
     "p": ["style"],
     "span": ["style"],
+    "img": _allow_image_attribute,
 }
 _FONT_SIZE_MAP = {
     "1": "0.75em", "2": "0.875em", "3": "1em", "4": "1.25em",
@@ -52,7 +78,7 @@ def render_rich_text(value) -> str:
         body,
         tags=_ALLOWED_TAGS,
         attributes=_ALLOWED_ATTRIBUTES,
-        protocols=["http", "https", "mailto"],
+        protocols=["http", "https", "mailto", "data"],
         css_sanitizer=_CSS_SANITIZER,
         strip=True,
     )

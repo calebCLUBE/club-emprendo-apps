@@ -267,6 +267,11 @@
   function enhanceRichTextarea(textarea) {
     if (!textarea || textarea.dataset.richEditor === "1") return;
     const fieldName = String(textarea.name || "");
+    const supportsInlineImages = (
+      fieldName === "description"
+      || fieldName.endsWith("-description")
+      || fieldName === "thanks_approved_message"
+    );
     if (
       fieldName.endsWith("-answer_options")
       || fieldName.endsWith("-grid_rows")
@@ -293,10 +298,24 @@
     if (match) {
       const template = document.createElement("template");
       template.innerHTML = match[1];
-      template.content.querySelectorAll("script,style,iframe,object,embed,img,video,audio").forEach((node) => node.remove());
+      template.content.querySelectorAll("script,style,iframe,object,embed,video,audio").forEach((node) => node.remove());
       template.content.querySelectorAll("*").forEach((node) => {
         Array.from(node.attributes).forEach((attr) => {
           if (attr.name.toLowerCase().startsWith("on")) node.removeAttribute(attr.name);
+        });
+      });
+      template.content.querySelectorAll("img").forEach((image) => {
+        if (
+          !supportsInlineImages
+          || !/^data:image\/(?:png|jpe?g|webp|gif);base64,/i.test(image.getAttribute("src") || "")
+        ) {
+          image.remove();
+          return;
+        }
+        Array.from(image.attributes).forEach((attr) => {
+          if (!["src", "alt", "title", "style"].includes(attr.name.toLowerCase())) {
+            image.removeAttribute(attr.name);
+          }
         });
       });
       editor.appendChild(template.content.cloneNode(true));
@@ -306,6 +325,7 @@
     }
 
     let savedRange = null;
+    let selectedImage = null;
     function rememberSelection() {
       const selection = window.getSelection();
       if (selection?.rangeCount && editor.contains(selection.anchorNode)) {
@@ -329,7 +349,9 @@
         while (font.firstChild) span.appendChild(font.firstChild);
         font.replaceWith(span);
       });
+      selectedImage?.classList.remove("ce-rich-image-selected");
       textarea.value = `<div data-ce-rich-text="1">${editor.innerHTML}</div>`;
+      selectedImage?.classList.add("ce-rich-image-selected");
       textarea.dispatchEvent(new Event("change", { bubbles: true }));
       rememberSelection();
     }
@@ -379,12 +401,222 @@
     });
 
     toolbar.append(size, bold, spacing);
+
+    if (supportsInlineImages) {
+      const imageInput = document.createElement("input");
+      imageInput.type = "file";
+      imageInput.accept = "image/png,image/jpeg,image/webp,image/gif";
+      imageInput.className = "ce-rich-image-input";
+
+      const imageButton = document.createElement("button");
+      imageButton.type = "button";
+      imageButton.className = "ce-rich-image-button";
+      imageButton.textContent = "Image";
+      imageButton.title = "Insert an image, or drag one directly into the text";
+      imageButton.addEventListener("mousedown", rememberSelection);
+      imageButton.addEventListener("click", () => imageInput.click());
+
+      const imageControls = document.createElement("span");
+      imageControls.className = "ce-rich-image-controls";
+      imageControls.hidden = true;
+
+      const imageWidthLabel = document.createElement("label");
+      imageWidthLabel.className = "ce-rich-image-width";
+      imageWidthLabel.title = "Drag to resize the selected image";
+      const imageWidthText = document.createElement("span");
+      imageWidthText.textContent = "Width 50%";
+      const imageWidth = document.createElement("input");
+      imageWidth.type = "range";
+      imageWidth.min = "10";
+      imageWidth.max = "100";
+      imageWidth.step = "5";
+      imageWidth.value = "50";
+      imageWidth.title = "Selected image width";
+      imageWidthLabel.append(imageWidthText, imageWidth);
+
+      const imageAlignment = document.createElement("select");
+      imageAlignment.title = "Selected image alignment";
+      [["left", "Align left"], ["center", "Align center"], ["right", "Align right"]]
+        .forEach(([value, label]) => {
+          const option = document.createElement("option");
+          option.value = value;
+          option.textContent = label;
+          imageAlignment.appendChild(option);
+        });
+
+      const removeImage = document.createElement("button");
+      removeImage.type = "button";
+      removeImage.textContent = "Remove";
+      removeImage.title = "Remove selected image";
+
+      function selectedAlignment(image) {
+        if (image.style.marginLeft === "auto" && image.style.marginRight === "0px") return "right";
+        if (image.style.marginLeft === "auto" && image.style.marginRight === "auto") return "center";
+        return "left";
+      }
+
+      function selectImage(image) {
+        selectedImage?.classList.remove("ce-rich-image-selected");
+        selectedImage = image && editor.contains(image) ? image : null;
+        imageControls.hidden = !selectedImage;
+        if (!selectedImage) return;
+        selectedImage.classList.add("ce-rich-image-selected");
+        const width = Math.min(100, Math.max(10, Math.round(parseFloat(selectedImage.style.width || "50"))));
+        imageWidth.value = String(width);
+        imageWidthText.textContent = `Width ${width}%`;
+        imageAlignment.value = selectedAlignment(selectedImage);
+      }
+
+      function applyAlignment(image, alignment) {
+        image.style.display = "block";
+        image.style.marginLeft = alignment === "left" ? "0px" : "auto";
+        image.style.marginRight = alignment === "right" ? "0px" : "auto";
+      }
+
+      function optimizeImage(file) {
+        return new Promise((resolve, reject) => {
+          if (!file || !/^image\/(?:png|jpeg|webp|gif)$/i.test(file.type || "")) {
+            reject(new Error("Choose a PNG, JPEG, WebP, or GIF image."));
+            return;
+          }
+          if (file.size > 12 * 1024 * 1024) {
+            reject(new Error("The image must be smaller than 12 MB."));
+            return;
+          }
+          const reader = new FileReader();
+          reader.onerror = () => reject(new Error("The image could not be read."));
+          reader.onload = () => {
+            const source = new window.Image();
+            source.onerror = () => reject(new Error("The image could not be opened."));
+            source.onload = () => {
+              const maxDimension = 1400;
+              const scale = Math.min(1, maxDimension / Math.max(source.naturalWidth, source.naturalHeight));
+              const width = Math.max(1, Math.round(source.naturalWidth * scale));
+              const height = Math.max(1, Math.round(source.naturalHeight * scale));
+              const canvas = document.createElement("canvas");
+              canvas.width = width;
+              canvas.height = height;
+              canvas.getContext("2d").drawImage(source, 0, 0, width, height);
+              resolve(canvas.toDataURL("image/webp", 0.84));
+            };
+            source.src = String(reader.result || "");
+          };
+          reader.readAsDataURL(file);
+        });
+      }
+
+      async function insertImage(file, insertionRange = savedRange) {
+        try {
+          const src = await optimizeImage(file);
+          editor.focus();
+          const range = insertionRange && editor.contains(insertionRange.commonAncestorContainer)
+            ? insertionRange
+            : document.createRange();
+          if (!insertionRange || !editor.contains(insertionRange.commonAncestorContainer)) {
+            range.selectNodeContents(editor);
+            range.collapse(false);
+          }
+          const image = document.createElement("img");
+          image.src = src;
+          image.alt = "";
+          image.style.width = "50%";
+          image.style.maxWidth = "100%";
+          image.style.height = "auto";
+          applyAlignment(image, "center");
+          range.deleteContents();
+          range.insertNode(image);
+          const spacer = document.createElement("br");
+          image.after(spacer);
+          range.setStartAfter(spacer);
+          range.collapse(true);
+          const selection = window.getSelection();
+          selection.removeAllRanges();
+          selection.addRange(range);
+          savedRange = range.cloneRange();
+          selectImage(image);
+          sync();
+        } catch (error) {
+          window.alert(error.message || "The image could not be inserted.");
+        } finally {
+          imageInput.value = "";
+        }
+      }
+
+      function rangeFromPoint(event) {
+        if (document.caretRangeFromPoint) return document.caretRangeFromPoint(event.clientX, event.clientY);
+        if (document.caretPositionFromPoint) {
+          const position = document.caretPositionFromPoint(event.clientX, event.clientY);
+          if (position) {
+            const range = document.createRange();
+            range.setStart(position.offsetNode, position.offset);
+            range.collapse(true);
+            return range;
+          }
+        }
+        return savedRange;
+      }
+
+      imageInput.addEventListener("change", () => {
+        const range = savedRange?.cloneRange();
+        if (imageInput.files?.[0]) insertImage(imageInput.files[0], range);
+      });
+      imageWidth.addEventListener("input", () => {
+        if (!selectedImage) return;
+        selectedImage.style.width = `${imageWidth.value}%`;
+        imageWidthText.textContent = `Width ${imageWidth.value}%`;
+      });
+      imageWidth.addEventListener("change", () => {
+        if (!selectedImage) return;
+        sync();
+      });
+      imageAlignment.addEventListener("change", () => {
+        if (!selectedImage) return;
+        applyAlignment(selectedImage, imageAlignment.value);
+        sync();
+      });
+      removeImage.addEventListener("click", () => {
+        if (!selectedImage) return;
+        const image = selectedImage;
+        selectImage(null);
+        image.remove();
+        sync();
+      });
+      editor.addEventListener("click", (event) => {
+        selectImage(event.target instanceof HTMLImageElement ? event.target : null);
+      });
+      editor.addEventListener("dragover", (event) => {
+        if (!Array.from(event.dataTransfer?.items || []).some((item) => item.kind === "file" && item.type.startsWith("image/"))) return;
+        event.preventDefault();
+        editor.classList.add("ce-rich-drop-active");
+      });
+      editor.addEventListener("dragleave", () => editor.classList.remove("ce-rich-drop-active"));
+      editor.addEventListener("drop", (event) => {
+        editor.classList.remove("ce-rich-drop-active");
+        const file = Array.from(event.dataTransfer?.files || []).find((item) => item.type.startsWith("image/"));
+        if (!file) return;
+        event.preventDefault();
+        const range = rangeFromPoint(event);
+        insertImage(file, range?.cloneRange());
+      });
+      editor.addEventListener("paste", (event) => {
+        const file = Array.from(event.clipboardData?.files || []).find((item) => item.type.startsWith("image/"));
+        if (!file) return;
+        event.preventDefault();
+        const range = savedRange?.cloneRange();
+        insertImage(file, range);
+      });
+
+      imageControls.append(imageWidthLabel, imageAlignment, removeImage);
+      toolbar.append(imageButton, imageControls, imageInput);
+    }
+
     shell.append(toolbar, editor);
     textarea.insertAdjacentElement("afterend", shell);
     editor.addEventListener("input", sync);
     editor.addEventListener("keyup", rememberSelection);
     editor.addEventListener("mouseup", rememberSelection);
     editor.addEventListener("paste", (event) => {
+      if (event.defaultPrevented) return;
       event.preventDefault();
       document.execCommand("insertText", false, event.clipboardData?.getData("text/plain") || "");
     });

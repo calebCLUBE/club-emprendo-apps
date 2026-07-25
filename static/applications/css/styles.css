@@ -398,6 +398,14 @@ form {
   margin-bottom: 0;
 }
 
+.form-intro img,
+.ce-section-intro img,
+.ce-alert img,
+.ce-terms-page__content img {
+  max-width: 100%;
+  height: auto;
+}
+
 input[type="text"],
 input[type="email"],
 input[type="number"],

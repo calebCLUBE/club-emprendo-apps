@@ -3125,6 +3125,33 @@ class HelpTextFormattingTests(TestCase):
         self.assertIn('<span style="font-size: 1.5em;"><strong>Important</strong></span>', rendered)
         self.assertNotIn("<script", rendered)
 
+    def test_toolbar_rich_text_keeps_safe_inline_images_and_sizing(self):
+        rendered = str(format_rich_text(
+            '<div data-ce-rich-text="1"><p>Before</p>'
+            '<img src="data:image/webp;base64,UklGRg==" alt="Example" '
+            'style="display:block;width:50%;max-width:100%;height:auto;'
+            'margin-left:auto;margin-right:0px" onerror="alert(1)">'
+            '<p>After</p></div>'
+        ))
+
+        self.assertIn('src="data:image/webp;base64,UklGRg=="', rendered)
+        self.assertIn('alt="Example"', rendered)
+        self.assertIn("width:50%", rendered.replace(" ", ""))
+        self.assertIn("margin-right:0px", rendered.replace(" ", ""))
+        self.assertNotIn("onerror", rendered)
+
+    def test_toolbar_rich_text_rejects_unsafe_image_sources(self):
+        rendered = str(format_rich_text(
+            '<div data-ce-rich-text="1">'
+            '<img src="javascript:alert(1)" onload="alert(2)">'
+            '<img src="data:text/html;base64,PHNjcmlwdD4=">'
+            '</div>'
+        ))
+
+        self.assertNotIn("javascript:", rendered)
+        self.assertNotIn("data:text/html", rendered)
+        self.assertNotIn("onload", rendered)
+
 
 class ApplicationEmailValidationTests(TestCase):
     def test_email_and_correo_questions_reject_random_text(self):

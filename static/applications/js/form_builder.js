@@ -313,7 +313,10 @@
           return;
         }
         Array.from(image.attributes).forEach((attr) => {
-          if (!["src", "alt", "title", "style", "data-ce-align", "data-ce-width", "data-ce-oversize"].includes(attr.name.toLowerCase())) {
+          if (![
+            "src", "alt", "title", "style", "data-ce-align", "data-ce-width",
+            "data-ce-oversize", "data-ce-free-resize",
+          ].includes(attr.name.toLowerCase())) {
             image.removeAttribute(attr.name);
           }
         });
@@ -467,6 +470,13 @@
       imageHeightText.className = "ce-rich-image-height";
       imageHeightText.textContent = "Height auto";
 
+      const lockProportionsLabel = document.createElement("label");
+      lockProportionsLabel.className = "ce-rich-image-lock";
+      const lockProportions = document.createElement("input");
+      lockProportions.type = "checkbox";
+      lockProportions.checked = true;
+      lockProportionsLabel.append(lockProportions, document.createTextNode("Lock proportions"));
+
       const resetProportions = document.createElement("button");
       resetProportions.type = "button";
       resetProportions.textContent = "Reset proportions";
@@ -519,10 +529,12 @@
         if (!selectedImage) return;
         if (height === "auto") {
           selectedImage.style.height = "auto";
+          delete selectedImage.dataset.ceFreeResize;
           imageHeightText.textContent = "Height auto";
         } else {
           const boundedHeight = Math.min(2400, Math.max(40, Math.round(height)));
           selectedImage.style.height = `${boundedHeight}px`;
+          selectedImage.dataset.ceFreeResize = "1";
           imageHeightText.textContent = `Height ${boundedHeight}px`;
         }
         requestAnimationFrame(updateResizeOverlay);
@@ -534,7 +546,7 @@
         handle.type = "button";
         handle.className = `ce-rich-image-handle ce-rich-image-handle--${corner}`;
         handle.dataset.corner = corner;
-        handle.title = "Drag horizontally for width and vertically for height; hold Shift to preserve proportions";
+        handle.title = "Drag to resize; uncheck Lock proportions to stretch width and height independently";
         handle.setAttribute("aria-label", `Resize image from ${corner.toUpperCase()} corner`);
         handle.addEventListener("pointerdown", (event) => {
           if (!selectedImage) return;
@@ -554,21 +566,23 @@
             if (selectedImage !== image) return;
             const horizontalDelta = horizontalDirection * (moveEvent.clientX - startX);
             const editorWidth = Math.max(1, editor.getBoundingClientRect().width);
-            let nextWidth = startRect.width + horizontalDelta;
-            let nextHeight = startRect.height
-              + verticalDirection * (moveEvent.clientY - startY);
-            if (moveEvent.shiftKey) {
+            if (lockProportions.checked) {
               const verticalWidthDelta = (
                 verticalDirection * (moveEvent.clientY - startY) * aspectRatio
               );
               const pixelDelta = Math.abs(horizontalDelta) >= Math.abs(verticalWidthDelta)
                 ? horizontalDelta
                 : verticalWidthDelta;
-              nextWidth = startRect.width + pixelDelta;
-              nextHeight = nextWidth / aspectRatio;
+              const nextWidth = startRect.width + pixelDelta;
+              setSelectedImageWidth((nextWidth / editorWidth) * 100);
+              setSelectedImageHeight("auto");
+            } else {
+              const nextWidth = startRect.width + horizontalDelta;
+              const nextHeight = startRect.height
+                + verticalDirection * (moveEvent.clientY - startY);
+              setSelectedImageWidth((nextWidth / editorWidth) * 100);
+              setSelectedImageHeight(nextHeight);
             }
-            setSelectedImageWidth((nextWidth / editorWidth) * 100);
-            setSelectedImageHeight(nextHeight);
           };
           const finish = () => {
             document.removeEventListener("pointermove", move);
@@ -616,6 +630,8 @@
         imageWidthText.textContent = `Width ${width}%`;
         imageSize.value = ["30", "50", "75", "100", "125", "150"].includes(String(width)) ? String(width) : "";
         imageAlignment.value = selectedAlignment(selectedImage);
+        lockProportions.checked = selectedImage.dataset.ceFreeResize !== "1";
+        if (lockProportions.checked) selectedImage.style.height = "auto";
         const savedHeight = parseFloat(selectedImage.style.height || "");
         imageHeightText.textContent = Number.isFinite(savedHeight)
           ? `Height ${Math.round(savedHeight)}px`
@@ -728,6 +744,7 @@
       });
       imageWidth.addEventListener("input", () => {
         setSelectedImageWidth(Number(imageWidth.value));
+        if (lockProportions.checked) setSelectedImageHeight("auto");
       });
       imageWidth.addEventListener("change", () => {
         if (!selectedImage) return;
@@ -735,7 +752,9 @@
       });
       imageSize.addEventListener("change", () => {
         if (!selectedImage || !imageSize.value) return;
-        setSelectedImageWidth(Number(imageSize.value), true);
+        lockProportions.checked = true;
+        setSelectedImageWidth(Number(imageSize.value));
+        setSelectedImageHeight("auto", true);
       });
       imageAlignment.addEventListener("change", () => {
         if (!selectedImage) return;
@@ -745,6 +764,11 @@
       });
       resetProportions.addEventListener("click", () => {
         if (!selectedImage) return;
+        lockProportions.checked = true;
+        setSelectedImageHeight("auto", true);
+      });
+      lockProportions.addEventListener("change", () => {
+        if (!selectedImage || !lockProportions.checked) return;
         setSelectedImageHeight("auto", true);
       });
       removeImage.addEventListener("click", () => {
@@ -785,6 +809,7 @@
         imageSize,
         imageWidthLabel,
         imageHeightText,
+        lockProportionsLabel,
         imageAlignment,
         resetProportions,
         removeImage,

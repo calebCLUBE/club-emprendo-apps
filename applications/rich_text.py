@@ -46,6 +46,8 @@ def _allow_image_attribute(tag, name, value):
             return False
     if name == "data-ce-oversize":
         return str(value or "") == "1"
+    if name == "data-ce-free-resize":
+        return str(value or "") == "1"
     if name != "src":
         return False
     return bool(re.match(

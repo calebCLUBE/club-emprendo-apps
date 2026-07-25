@@ -99,7 +99,8 @@ body.app-applications.model-formdefinition.change-form select:focus { border-bot
 .ce-rich-toolbar button { min-width: 34px; cursor: pointer; }
 .ce-rich-content { display: flow-root; min-height: 92px; padding: 11px 12px; color: #202124; font: 14px/1.45 Arial,sans-serif; outline: none; white-space: normal; }
 .ce-rich-content:focus { box-shadow: inset 0 -2px var(--form-purple); }
-.ce-rich-content img { max-width: 100%; height: auto; cursor: pointer; }
+.ce-rich-content img { max-width: 100%; cursor: pointer; }
+.ce-rich-content img:not([data-ce-free-resize="1"]) { height: auto !important; }
 .ce-rich-content img[data-ce-align="center"][data-ce-oversize="1"] { position: relative; left: 50%; transform: translateX(-50%); }
 .ce-rich-content img.ce-rich-image-selected { outline: 3px solid var(--form-purple); outline-offset: 2px; }
 .ce-rich-content.ce-rich-drop-active { background: #f3e8ff; box-shadow: inset 0 0 0 2px var(--form-purple); }
@@ -109,6 +110,8 @@ body.app-applications.model-formdefinition.change-form select:focus { border-bot
 .ce-rich-image-width { display: inline-flex; align-items: center; gap: 6px; color: #3c4043; font-size: 12px; white-space: nowrap; }
 .ce-rich-image-width input[type="range"] { width: 110px; margin: 0; accent-color: var(--form-purple); }
 .ce-rich-image-height { color: #3c4043; font-size: 12px; white-space: nowrap; }
+.ce-rich-image-lock { display: inline-flex; align-items: center; gap: 4px; color: #3c4043; font-size: 12px; white-space: nowrap; }
+.ce-rich-image-lock input { margin: 0; accent-color: var(--form-purple); }
 .ce-rich-image-resize { position: absolute; z-index: 8; box-sizing: border-box; border: 2px solid var(--form-purple); pointer-events: none; }
 .ce-rich-image-resize[hidden] { display: none; }
 .ce-rich-image-handle { position: absolute; width: 14px; min-width: 14px !important; height: 14px; min-height: 14px !important; padding: 0 !important; border: 2px solid #fff !important; border-radius: 50% !important; background: var(--form-purple) !important; box-shadow: 0 1px 4px rgba(0,0,0,.35); pointer-events: auto; touch-action: none; }

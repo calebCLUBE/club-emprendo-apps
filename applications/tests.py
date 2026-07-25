@@ -3196,12 +3196,14 @@ class HelpTextFormattingTests(TestCase):
             '<div data-ce-rich-text="1">'
             '<img src="data:image/webp;base64,UklGRg==" '
             'data-ce-align="center" data-ce-width="150" data-ce-oversize="1" '
+            'data-ce-free-resize="1" '
             'style="width:150%;max-width:none;height:1800px">'
             '</div>'
         ))
 
         self.assertIn('data-ce-width="150"', rendered)
         self.assertIn('data-ce-oversize="1"', rendered)
+        self.assertIn('data-ce-free-resize="1"', rendered)
         self.assertIn("width:150%", rendered.replace(" ", ""))
         self.assertIn("height:1800px", rendered.replace(" ", ""))
 

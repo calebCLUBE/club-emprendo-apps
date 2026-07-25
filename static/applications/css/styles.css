@@ -403,7 +403,13 @@ form {
 .ce-alert img,
 .ce-terms-page__content img {
   max-width: 100%;
-  height: auto;
+}
+
+.form-intro img:not([data-ce-free-resize="1"]),
+.ce-section-intro img:not([data-ce-free-resize="1"]),
+.ce-alert img:not([data-ce-free-resize="1"]),
+.ce-terms-page__content img:not([data-ce-free-resize="1"]) {
+  height: auto !important;
 }
 
 .form-intro,

@@ -326,6 +326,7 @@
 
     let savedRange = null;
     let selectedImage = null;
+    let resizeOverlay = null;
     function rememberSelection() {
       const selection = window.getSelection();
       if (selection?.rangeCount && editor.contains(selection.anchorNode)) {
@@ -459,6 +460,84 @@
       removeImage.textContent = "Remove";
       removeImage.title = "Remove selected image";
 
+      resizeOverlay = document.createElement("div");
+      resizeOverlay.className = "ce-rich-image-resize";
+      resizeOverlay.hidden = true;
+
+      function updateResizeOverlay() {
+        if (!selectedImage || !editor.contains(selectedImage) || !shell.isConnected) {
+          resizeOverlay.hidden = true;
+          return;
+        }
+        const imageRect = selectedImage.getBoundingClientRect();
+        const shellRect = shell.getBoundingClientRect();
+        resizeOverlay.hidden = false;
+        resizeOverlay.style.left = `${imageRect.left - shellRect.left}px`;
+        resizeOverlay.style.top = `${imageRect.top - shellRect.top}px`;
+        resizeOverlay.style.width = `${imageRect.width}px`;
+        resizeOverlay.style.height = `${imageRect.height}px`;
+      }
+
+      function setSelectedImageWidth(width, save = false) {
+        if (!selectedImage) return;
+        const boundedWidth = Math.min(100, Math.max(10, Math.round(width)));
+        selectedImage.style.width = `${boundedWidth}%`;
+        selectedImage.dataset.ceWidth = String(boundedWidth);
+        imageWidth.value = String(boundedWidth);
+        imageWidthText.textContent = `Width ${boundedWidth}%`;
+        imageSize.value = ["30", "50", "75", "100"].includes(String(boundedWidth))
+          ? String(boundedWidth)
+          : "";
+        requestAnimationFrame(updateResizeOverlay);
+        if (save) sync();
+      }
+
+      ["nw", "ne", "sw", "se"].forEach((corner) => {
+        const handle = document.createElement("button");
+        handle.type = "button";
+        handle.className = `ce-rich-image-handle ce-rich-image-handle--${corner}`;
+        handle.dataset.corner = corner;
+        handle.title = "Drag to resize image";
+        handle.setAttribute("aria-label", `Resize image from ${corner.toUpperCase()} corner`);
+        handle.addEventListener("pointerdown", (event) => {
+          if (!selectedImage) return;
+          event.preventDefault();
+          event.stopPropagation();
+          const image = selectedImage;
+          const startRect = image.getBoundingClientRect();
+          const startX = event.clientX;
+          const startY = event.clientY;
+          const aspectRatio = startRect.height ? startRect.width / startRect.height : 1;
+          const horizontalDirection = corner.includes("e") ? 1 : -1;
+          const verticalDirection = corner.includes("s") ? 1 : -1;
+          handle.setPointerCapture?.(event.pointerId);
+          document.body.classList.add("ce-rich-image-resizing");
+
+          const move = (moveEvent) => {
+            if (selectedImage !== image) return;
+            const horizontalDelta = horizontalDirection * (moveEvent.clientX - startX);
+            const verticalDelta = verticalDirection * (moveEvent.clientY - startY) * aspectRatio;
+            const pixelDelta = Math.abs(horizontalDelta) >= Math.abs(verticalDelta)
+              ? horizontalDelta
+              : verticalDelta;
+            const editorWidth = Math.max(1, editor.getBoundingClientRect().width);
+            setSelectedImageWidth(((startRect.width + pixelDelta) / editorWidth) * 100);
+          };
+          const finish = () => {
+            document.removeEventListener("pointermove", move);
+            document.removeEventListener("pointerup", finish);
+            document.removeEventListener("pointercancel", finish);
+            document.body.classList.remove("ce-rich-image-resizing");
+            if (selectedImage === image) sync();
+            requestAnimationFrame(updateResizeOverlay);
+          };
+          document.addEventListener("pointermove", move);
+          document.addEventListener("pointerup", finish);
+          document.addEventListener("pointercancel", finish);
+        });
+        resizeOverlay.appendChild(handle);
+      });
+
       function selectedAlignment(image) {
         if (["left", "center", "right"].includes(image.dataset.ceAlign || "")) {
           return image.dataset.ceAlign;
@@ -474,13 +553,17 @@
         selectedImage?.classList.remove("ce-rich-image-selected");
         selectedImage = image && editor.contains(image) ? image : null;
         imageControls.hidden = !selectedImage;
-        if (!selectedImage) return;
+        if (!selectedImage) {
+          resizeOverlay.hidden = true;
+          return;
+        }
         selectedImage.classList.add("ce-rich-image-selected");
         const width = Math.min(100, Math.max(10, Math.round(parseFloat(selectedImage.style.width || "50"))));
         imageWidth.value = String(width);
         imageWidthText.textContent = `Width ${width}%`;
         imageSize.value = ["30", "50", "75", "100"].includes(String(width)) ? String(width) : "";
         imageAlignment.value = selectedAlignment(selectedImage);
+        requestAnimationFrame(updateResizeOverlay);
       }
 
       function applyAlignment(image, alignment) {
@@ -587,11 +670,7 @@
         if (imageInput.files?.[0]) insertImage(imageInput.files[0], range);
       });
       imageWidth.addEventListener("input", () => {
-        if (!selectedImage) return;
-        selectedImage.style.width = `${imageWidth.value}%`;
-        selectedImage.dataset.ceWidth = imageWidth.value;
-        imageWidthText.textContent = `Width ${imageWidth.value}%`;
-        imageSize.value = ["30", "50", "75", "100"].includes(imageWidth.value) ? imageWidth.value : "";
+        setSelectedImageWidth(Number(imageWidth.value));
       });
       imageWidth.addEventListener("change", () => {
         if (!selectedImage) return;
@@ -599,16 +678,13 @@
       });
       imageSize.addEventListener("change", () => {
         if (!selectedImage || !imageSize.value) return;
-        selectedImage.style.width = `${imageSize.value}%`;
-        selectedImage.dataset.ceWidth = imageSize.value;
-        imageWidth.value = imageSize.value;
-        imageWidthText.textContent = `Width ${imageSize.value}%`;
-        sync();
+        setSelectedImageWidth(Number(imageSize.value), true);
       });
       imageAlignment.addEventListener("change", () => {
         if (!selectedImage) return;
         applyAlignment(selectedImage, imageAlignment.value);
         sync();
+        requestAnimationFrame(updateResizeOverlay);
       });
       removeImage.addEventListener("click", () => {
         if (!selectedImage) return;
@@ -641,12 +717,15 @@
         const range = savedRange?.cloneRange();
         insertImage(file, range);
       });
+      window.addEventListener("resize", updateResizeOverlay);
+      window.addEventListener("scroll", updateResizeOverlay, true);
 
       imageControls.append(imageSize, imageWidthLabel, imageAlignment, removeImage);
       toolbar.append(imageButton, imageControls, imageInput);
     }
 
     shell.append(toolbar, editor);
+    if (resizeOverlay) shell.appendChild(resizeOverlay);
     textarea.insertAdjacentElement("afterend", shell);
     editor.addEventListener("input", sync);
     editor.addEventListener("keyup", rememberSelection);

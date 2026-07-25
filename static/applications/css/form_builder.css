@@ -93,7 +93,7 @@ body.app-applications.model-formdefinition.change-form select:focus { border-bot
 .field-answer_options > div { width: 100%; }
 .ce-options-source { display: none !important; }
 .ce-rich-source { display: none !important; }
-.ce-rich-editor { width: min(100%, 680px); border: 1px solid #dadce0; border-radius: 6px; background: #fff; overflow: hidden; }
+.ce-rich-editor { position: relative; width: min(100%, 680px); border: 1px solid #dadce0; border-radius: 6px; background: #fff; overflow: hidden; }
 .ce-rich-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 8px; border-bottom: 1px solid #dadce0; background: #f8f9fa; }
 .ce-rich-toolbar button, .ce-rich-toolbar select { min-height: 32px; margin: 0; border: 1px solid #dadce0 !important; border-radius: 4px !important; background: #fff !important; padding: 5px 8px !important; color: #3c4043; }
 .ce-rich-toolbar button { min-width: 34px; cursor: pointer; }
@@ -107,6 +107,14 @@ body.app-applications.model-formdefinition.change-form select:focus { border-bot
 .ce-rich-image-controls[hidden] { display: none; }
 .ce-rich-image-width { display: inline-flex; align-items: center; gap: 6px; color: #3c4043; font-size: 12px; white-space: nowrap; }
 .ce-rich-image-width input[type="range"] { width: 110px; margin: 0; accent-color: var(--form-purple); }
+.ce-rich-image-resize { position: absolute; z-index: 8; box-sizing: border-box; border: 2px solid var(--form-purple); pointer-events: none; }
+.ce-rich-image-resize[hidden] { display: none; }
+.ce-rich-image-handle { position: absolute; width: 14px; min-width: 14px !important; height: 14px; min-height: 14px !important; padding: 0 !important; border: 2px solid #fff !important; border-radius: 50% !important; background: var(--form-purple) !important; box-shadow: 0 1px 4px rgba(0,0,0,.35); pointer-events: auto; touch-action: none; }
+.ce-rich-image-handle--nw { top: 0; left: 0; cursor: nwse-resize; transform: translate(-50%,-50%); }
+.ce-rich-image-handle--ne { top: 0; right: 0; cursor: nesw-resize; transform: translate(50%,-50%); }
+.ce-rich-image-handle--sw { bottom: 0; left: 0; cursor: nesw-resize; transform: translate(-50%,50%); }
+.ce-rich-image-handle--se { right: 0; bottom: 0; cursor: nwse-resize; transform: translate(50%,50%); }
+body.ce-rich-image-resizing { cursor: nwse-resize !important; user-select: none !important; }
 .ce-options-editor { max-width: 640px; }
 .ce-grid-options .field-grid_rows,
 .ce-grid-options .field-answer_options { display: inline-block; vertical-align: top; width: calc(50% - 3px); box-sizing: border-box; }

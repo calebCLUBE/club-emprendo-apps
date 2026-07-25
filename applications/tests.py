@@ -3191,6 +3191,20 @@ class HelpTextFormattingTests(TestCase):
         self.assertNotIn("data:text/html", rendered)
         self.assertNotIn("onload", rendered)
 
+    def test_toolbar_rich_text_keeps_safe_oversized_image_metadata(self):
+        rendered = str(format_rich_text(
+            '<div data-ce-rich-text="1">'
+            '<img src="data:image/webp;base64,UklGRg==" '
+            'data-ce-align="center" data-ce-width="150" data-ce-oversize="1" '
+            'style="width:150%;max-width:none;height:1800px">'
+            '</div>'
+        ))
+
+        self.assertIn('data-ce-width="150"', rendered)
+        self.assertIn('data-ce-oversize="1"', rendered)
+        self.assertIn("width:150%", rendered.replace(" ", ""))
+        self.assertIn("height:1800px", rendered.replace(" ", ""))
+
 
 class ApplicationEmailValidationTests(TestCase):
     def test_email_and_correo_questions_reject_random_text(self):

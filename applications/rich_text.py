@@ -41,9 +41,11 @@ def _allow_image_attribute(tag, name, value):
         return str(value or "") in {"left", "center", "right"}
     if name == "data-ce-width":
         try:
-            return 10 <= int(value) <= 100
+            return 10 <= int(value) <= 160
         except (TypeError, ValueError):
             return False
+    if name == "data-ce-oversize":
+        return str(value or "") == "1"
     if name != "src":
         return False
     return bool(re.match(

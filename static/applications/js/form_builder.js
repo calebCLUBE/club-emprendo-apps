@@ -313,7 +313,7 @@
           return;
         }
         Array.from(image.attributes).forEach((attr) => {
-          if (!["src", "alt", "title", "style", "data-ce-align", "data-ce-width"].includes(attr.name.toLowerCase())) {
+          if (!["src", "alt", "title", "style", "data-ce-align", "data-ce-width", "data-ce-oversize"].includes(attr.name.toLowerCase())) {
             image.removeAttribute(attr.name);
           }
         });
@@ -429,7 +429,7 @@
       const imageWidth = document.createElement("input");
       imageWidth.type = "range";
       imageWidth.min = "10";
-      imageWidth.max = "100";
+      imageWidth.max = "160";
       imageWidth.step = "5";
       imageWidth.value = "50";
       imageWidth.title = "Selected image width";
@@ -447,7 +447,15 @@
 
       const imageSize = document.createElement("select");
       imageSize.title = "Selected image size";
-      [["", "Image size"], ["30", "Small (30%)"], ["50", "Medium (50%)"], ["75", "Large (75%)"], ["100", "Full width (100%)"]]
+      [
+        ["", "Image size"],
+        ["30", "Small (30%)"],
+        ["50", "Medium (50%)"],
+        ["75", "Large (75%)"],
+        ["100", "Full width (100%)"],
+        ["125", "Extra large (125%)"],
+        ["150", "Maximum page size (150%)"],
+      ]
         .forEach(([value, label]) => {
           const option = document.createElement("option");
           option.value = value;
@@ -489,12 +497,18 @@
 
       function setSelectedImageWidth(width, save = false) {
         if (!selectedImage) return;
-        const boundedWidth = Math.min(100, Math.max(10, Math.round(width)));
+        const boundedWidth = Math.min(160, Math.max(10, Math.round(width)));
         selectedImage.style.width = `${boundedWidth}%`;
+        selectedImage.style.maxWidth = boundedWidth > 100 ? "none" : "100%";
         selectedImage.dataset.ceWidth = String(boundedWidth);
+        if (boundedWidth > 100) {
+          selectedImage.dataset.ceOversize = "1";
+        } else {
+          delete selectedImage.dataset.ceOversize;
+        }
         imageWidth.value = String(boundedWidth);
         imageWidthText.textContent = `Width ${boundedWidth}%`;
-        imageSize.value = ["30", "50", "75", "100"].includes(String(boundedWidth))
+        imageSize.value = ["30", "50", "75", "100", "125", "150"].includes(String(boundedWidth))
           ? String(boundedWidth)
           : "";
         requestAnimationFrame(updateResizeOverlay);
@@ -507,7 +521,7 @@
           selectedImage.style.height = "auto";
           imageHeightText.textContent = "Height auto";
         } else {
-          const boundedHeight = Math.min(1400, Math.max(40, Math.round(height)));
+          const boundedHeight = Math.min(2400, Math.max(40, Math.round(height)));
           selectedImage.style.height = `${boundedHeight}px`;
           imageHeightText.textContent = `Height ${boundedHeight}px`;
         }
@@ -591,10 +605,16 @@
           return;
         }
         selectedImage.classList.add("ce-rich-image-selected");
-        const width = Math.min(100, Math.max(10, Math.round(parseFloat(selectedImage.style.width || "50"))));
+        const width = Math.min(160, Math.max(10, Math.round(parseFloat(selectedImage.style.width || "50"))));
+        if (width > 100) {
+          selectedImage.dataset.ceOversize = "1";
+          selectedImage.style.maxWidth = "none";
+        } else {
+          delete selectedImage.dataset.ceOversize;
+        }
         imageWidth.value = String(width);
         imageWidthText.textContent = `Width ${width}%`;
-        imageSize.value = ["30", "50", "75", "100"].includes(String(width)) ? String(width) : "";
+        imageSize.value = ["30", "50", "75", "100", "125", "150"].includes(String(width)) ? String(width) : "";
         imageAlignment.value = selectedAlignment(selectedImage);
         const savedHeight = parseFloat(selectedImage.style.height || "");
         imageHeightText.textContent = Number.isFinite(savedHeight)

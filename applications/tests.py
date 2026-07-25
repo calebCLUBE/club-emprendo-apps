@@ -742,6 +742,33 @@ class ApplicationPageImageTests(TestCase):
             saved.thanks_approved_image_data.startswith("data:image/webp;base64,")
         )
 
+    @override_settings(
+        STORAGES={
+            "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+            "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
+        }
+    )
+    def test_editor_visibly_renders_both_upload_controls(self):
+        user = get_user_model().objects.create_superuser(
+            email="page-images-admin@example.com",
+            password="test-password",
+        )
+        self.client.force_login(user)
+
+        response = self.client.get(
+            reverse(
+                "admin:applications_formdefinition_change",
+                args=[self.form_def.id],
+            )
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Page images")
+        self.assertContains(response, 'name="intro_image_upload"')
+        self.assertContains(response, 'name="approval_image_upload"')
+        self.assertContains(response, "Intro page image")
+        self.assertContains(response, "Approval page image")
+
     def test_intro_image_renders_on_the_intro_step(self):
         self.form_def.intro_image_data = "data:image/webp;base64,INTROIMAGE"
         self.form_def.save(update_fields=["intro_image_data"])

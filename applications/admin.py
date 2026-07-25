@@ -870,6 +870,8 @@ class FormDefinitionAdmin(admin.ModelAdmin):
         "slug",
         "name",
         "description",
+        "intro_image_upload",
+        "remove_intro_image",
         "is_master",
         "group",
         "is_public",
@@ -879,6 +881,8 @@ class FormDefinitionAdmin(admin.ModelAdmin):
     thanks_fields = (
         "thanks_approved_title",
         "thanks_approved_message",
+        "approval_image_upload",
+        "remove_approval_image",
         "thanks_rejected_title",
         "thanks_rejected_message",
     )
@@ -921,8 +925,6 @@ class FormDefinitionAdmin(admin.ModelAdmin):
             name for name in (
                 "name",
                 "description",
-                "intro_image_upload",
-                "remove_intro_image",
                 "accepting_responses",
             ) if name in fields
         ]
@@ -938,12 +940,22 @@ class FormDefinitionAdmin(admin.ModelAdmin):
         links = [name for name in self.link_fields if name in fields]
         return (
             (None, {"fields": basics}),
+            ("Page images", {
+                "fields": (
+                    "intro_image_upload",
+                    "remove_intro_image",
+                    "approval_image_upload",
+                    "remove_approval_image",
+                ),
+                "description": (
+                    "Upload an image for the application intro page and/or the "
+                    "approved completion page."
+                ),
+            }),
             ("Approval page", {
                 "fields": (
                     "thanks_approved_title",
                     "thanks_approved_message",
-                    "approval_image_upload",
-                    "remove_approval_image",
                 ),
                 "classes": ("collapse",),
                 "description": "Default page shown after a completed application is sent.",

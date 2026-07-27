@@ -2529,6 +2529,12 @@ class GradingAndPairingConfigEditorTests(TestCase):
             slug="numero_de_whatsapp_con_indicativo",
             field_type=Question.SHORT_TEXT,
         )
+        Question.objects.create(
+            form=mentor_form,
+            text="New WhatsApp field without historical answers",
+            slug="whatsapp",
+            field_type=Question.SHORT_TEXT,
+        )
         entrepreneur_age = Question.objects.create(
             form=entrepreneur_form,
             text="Business age",

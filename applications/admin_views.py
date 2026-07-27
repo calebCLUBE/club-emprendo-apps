@@ -2246,33 +2246,59 @@ def _pair_one_group(
                 f"is not present in {mentor_slug}."
             )
 
-    emp_whatsapp_slug = _resolve_pairing_a1_slug(
+    def resolve_promoted_field_slugs(canonical_slug, columns, track, dataframe):
+        """Return equivalent slugs with the most populated sources first."""
+        prefixes = (
+            canonical_slug,
+            *PAIRING_A1_FIELD_PREFIXES.get(track, {}).get(canonical_slug, ()),
+        )
+        candidates = []
+        for column in columns:
+            if any(column == prefix or column.startswith(prefix) for prefix in prefixes):
+                candidates.append(column)
+        if not candidates:
+            return [canonical_slug]
+
+        def populated_count(column):
+            values = _df_col(dataframe, column).fillna("").astype(str).str.strip()
+            return int(values.ne("").sum())
+
+        return sorted(
+            candidates,
+            key=lambda column: (-populated_count(column), candidates.index(column)),
+        )
+
+    emp_whatsapp_slugs = resolve_promoted_field_slugs(
         "whatsapp",
         emp_question_cols,
         "E",
+        emp_df,
     )
-    emp_country_slug = _resolve_pairing_a1_slug(
+    emp_country_slugs = resolve_promoted_field_slugs(
         "country_residence",
         emp_question_cols,
         "E",
+        emp_df,
     )
-    mentor_whatsapp_slug = _resolve_pairing_a1_slug(
+    mentor_whatsapp_slugs = resolve_promoted_field_slugs(
         "whatsapp",
         mentor_question_cols,
         "M",
+        mentor_df,
     )
-    mentor_country_slug = _resolve_pairing_a1_slug(
+    mentor_country_slugs = resolve_promoted_field_slugs(
         "country_residence",
         mentor_question_cols,
         "M",
+        mentor_df,
     )
 
     # Name/email come from the application identity fields. WhatsApp and
     # residence country are promoted from their live question columns into the
     # fixed front section. Every other active question stays in application
     # order after the matching columns.
-    emp_front_question_slugs = {emp_whatsapp_slug, emp_country_slug}
-    mentor_front_question_slugs = {mentor_whatsapp_slug, mentor_country_slug}
+    emp_front_question_slugs = set(emp_whatsapp_slugs + emp_country_slugs)
+    mentor_front_question_slugs = set(mentor_whatsapp_slugs + mentor_country_slugs)
     emp_export_question_cols = [
         column
         for column in emp_question_cols
@@ -3029,17 +3055,29 @@ def _pair_one_group(
 
     result = pd.DataFrame(pairs, columns=full_headers)
     promoted_question_columns = {
-        "whatsapp_emprendedora": f"{emp_whatsapp_slug}_emprendedora",
-        "country_residence_emprendedora": f"{emp_country_slug}_emprendedora",
-        "whatsapp_mentora": f"{mentor_whatsapp_slug}_mentora",
-        "country_residence_mentora": f"{mentor_country_slug}_mentora",
+        "whatsapp_emprendedora": [
+            f"{slug}_emprendedora" for slug in emp_whatsapp_slugs
+        ],
+        "country_residence_emprendedora": [
+            f"{slug}_emprendedora" for slug in emp_country_slugs
+        ],
+        "whatsapp_mentora": [
+            f"{slug}_mentora" for slug in mentor_whatsapp_slugs
+        ],
+        "country_residence_mentora": [
+            f"{slug}_mentora" for slug in mentor_country_slugs
+        ],
     }
-    for output_column, source_column in promoted_question_columns.items():
-        result[output_column] = (
-            result[source_column]
+    for output_column, source_columns in promoted_question_columns.items():
+        source_values = [
+            result[source_column].copy()
+            for source_column in source_columns
             if source_column in result.columns
-            else ""
-        )
+        ]
+        result[output_column] = ""
+        for values in source_values:
+            blank = result[output_column].fillna("").astype(str).str.strip().eq("")
+            result.loc[blank, output_column] = values.loc[blank]
     return result.loc[:, output_headers]
 
 

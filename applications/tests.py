@@ -2532,8 +2532,8 @@ class GradingAndPairingConfigEditorTests(TestCase):
         mentor_whatsapp = Question.objects.create(
             form=mentor_form,
             text="Número de WhatsApp para recibir información",
-            slug="contacto_principal_mentora",
-            field_type=Question.SHORT_TEXT,
+            slug="numero_de_whatsapp_con_indicativo_de_pais_ej_57_pa",
+            field_type=Question.LONG_TEXT,
         )
         Question.objects.create(
             form=mentor_form,
@@ -2826,7 +2826,7 @@ class GradingAndPairingConfigEditorTests(TestCase):
             result.columns[16:],
         )
         self.assertNotIn(
-            "contacto_principal_mentora_mentora",
+            "numero_de_whatsapp_con_indicativo_de_pais_ej_57_pa_mentora",
             result.columns[16:],
         )
         self.assertNotIn(

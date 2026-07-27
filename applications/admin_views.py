@@ -2268,7 +2268,8 @@ def _pair_one_group(
             if (
                 canonical_slug == "whatsapp"
                 and question
-                and question.field_type not in {Question.SHORT_TEXT, Question.INTEGER}
+                and question.field_type
+                not in {Question.SHORT_TEXT, Question.LONG_TEXT, Question.INTEGER}
             ):
                 continue
             if any(column == prefix or column.startswith(prefix) for prefix in prefixes):
@@ -2278,7 +2279,11 @@ def _pair_one_group(
             for question in questions_by_slug.values():
                 if question.slug not in columns or question.slug in candidates:
                     continue
-                if question.field_type not in {Question.SHORT_TEXT, Question.INTEGER}:
+                if question.field_type not in {
+                    Question.SHORT_TEXT,
+                    Question.LONG_TEXT,
+                    Question.INTEGER,
+                }:
                     continue
                 searchable = _availability_word(
                     f"{question.slug} {question.text or ''}"

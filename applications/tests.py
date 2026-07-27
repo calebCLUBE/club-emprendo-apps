@@ -2533,7 +2533,9 @@ class GradingAndPairingConfigEditorTests(TestCase):
             form=mentor_form,
             text="Número de WhatsApp para recibir información",
             slug="numero_de_whatsapp_con_indicativo_de_pais_ej_57_pa",
-            field_type=Question.LONG_TEXT,
+            # Imported Group 15 fields can carry an unexpected type. The exact
+            # slug and phone-shaped value must still win.
+            field_type=Question.CHOICE,
         )
         Question.objects.create(
             form=mentor_form,
@@ -2837,6 +2839,14 @@ class GradingAndPairingConfigEditorTests(TestCase):
         self.assertIn(
             "cual_es_tu_area_de_experiencia_profesional_mas_rel_mentora",
             result.columns[16:],
+        )
+        self.assertTrue(
+            any(
+                "numero_de_whatsapp_con_indicativo_de_pais_ej_57_pa "
+                "(3 phone value(s))" in message
+                for message in logs
+            ),
+            logs,
         )
         self.assertEqual(
             result.iloc[0]["mentora_email"],

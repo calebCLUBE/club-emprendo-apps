@@ -2264,14 +2264,9 @@ def _pair_one_group(
         }
         candidates = []
         for column in columns:
-            question = questions_by_slug.get(column)
-            if (
-                canonical_slug == "whatsapp"
-                and question
-                and question.field_type
-                not in {Question.SHORT_TEXT, Question.LONG_TEXT, Question.INTEGER}
-            ):
-                continue
+            # Explicit canonical/legacy slug matches are trusted regardless of
+            # the imported field type. Phone-like value validation below still
+            # prevents choice answers such as "Sí" from being exported.
             if any(column == prefix or column.startswith(prefix) for prefix in prefixes):
                 candidates.append(column)
         if canonical_slug == "whatsapp":
@@ -2333,6 +2328,23 @@ def _pair_one_group(
         mentor_df,
         mentor_fd,
     )
+    if log_fn:
+        whatsapp_source_details = []
+        for slug in mentor_whatsapp_slugs:
+            if slug not in mentor_df.columns:
+                whatsapp_source_details.append(f"{slug} (column missing)")
+                continue
+            values = _df_col(mentor_df, slug).fillna("").astype(str).str.strip()
+            valid_phone_count = int(
+                values.str.replace(r"\D", "", regex=True).str.len().ge(7).sum()
+            )
+            whatsapp_source_details.append(
+                f"{slug} ({valid_phone_count} phone value(s))"
+            )
+        log_fn(
+            "📱 Mentor WhatsApp source(s): "
+            + ", ".join(whatsapp_source_details)
+        )
 
     # Name/email come from the application identity fields. WhatsApp and
     # residence country are promoted from their live question columns into the

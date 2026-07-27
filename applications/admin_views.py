@@ -2246,7 +2246,13 @@ def _pair_one_group(
                 f"is not present in {mentor_slug}."
             )
 
-    def resolve_promoted_field_slugs(canonical_slug, columns, track, dataframe):
+    def resolve_promoted_field_slugs(
+        canonical_slug,
+        columns,
+        track,
+        dataframe,
+        form_definition,
+    ):
         """Return equivalent slugs with the most populated sources first."""
         prefixes = (
             canonical_slug,
@@ -2256,6 +2262,16 @@ def _pair_one_group(
         for column in columns:
             if any(column == prefix or column.startswith(prefix) for prefix in prefixes):
                 candidates.append(column)
+        if canonical_slug == "whatsapp":
+            contact_tokens = ("whatsapp", "telefono", "celular", "phone", "movil")
+            for question in form_definition.questions.filter(active=True):
+                if question.slug not in columns or question.slug in candidates:
+                    continue
+                searchable = _availability_word(
+                    f"{question.slug} {question.text or ''}"
+                )
+                if any(token in searchable for token in contact_tokens):
+                    candidates.append(question.slug)
         if not candidates:
             return [canonical_slug]
 
@@ -2273,24 +2289,28 @@ def _pair_one_group(
         emp_question_cols,
         "E",
         emp_df,
+        emp_fd,
     )
     emp_country_slugs = resolve_promoted_field_slugs(
         "country_residence",
         emp_question_cols,
         "E",
         emp_df,
+        emp_fd,
     )
     mentor_whatsapp_slugs = resolve_promoted_field_slugs(
         "whatsapp",
         mentor_question_cols,
         "M",
         mentor_df,
+        mentor_fd,
     )
     mentor_country_slugs = resolve_promoted_field_slugs(
         "country_residence",
         mentor_question_cols,
         "M",
         mentor_df,
+        mentor_fd,
     )
 
     # Name/email come from the application identity fields. WhatsApp and

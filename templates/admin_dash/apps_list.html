@@ -1,356 +1,352 @@
 {% extends "admin/base_site.html" %}
-{% load static %}
+{% load inline_static %}
 
 {% block content %}
-<div class="ce-admin-wrap">
-  <style>
-    .ce-dd {
-      border: 1px solid #ddd;
-      border-radius: 10px;
-      background: #fff;
-      margin: 12px 0;
-      overflow: hidden;
-    }
-    .ce-dd > summary {
-      cursor: pointer;
-      padding: 12px 14px;
-      font-weight: 600;
-      background: #f7f7f7;
-      list-style: none;
-    }
-    .ce-dd > summary::-webkit-details-marker {
-      display: none;
-    }
-    .ce-dd > summary::before {
-      content: "▸ ";
-      color: #666;
-    }
-    .ce-dd[open] > summary::before {
-      content: "▾ ";
-    }
-    .ce-dd-body {
-      padding: 12px 14px;
-    }
-    .ce-form-item {
-      border: 1px solid #eee;
-      border-radius: 8px;
-      margin: 8px 0;
-      background: #fafafa;
-    }
-    .ce-form-item summary {
-      background: #fff;
-      padding: 10px 12px;
-    }
-    .ce-actions {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-      align-items: center;
-      margin-top: 10px;
-    }
-    .ce-meta {
-      color: #666;
-      font-size: 12px;
-    }
-    .ce-email-box {
-      width: 100%;
-      margin-top: 10px;
-      padding: 10px;
-      border: 1px solid #e5e7eb;
-      border-radius: 8px;
-      background: #fff;
-    }
-    .ce-email-box textarea {
-      width: 100%;
-      min-height: 86px;
-      box-sizing: border-box;
-      margin: 6px 0 8px;
-    }
-  </style>
+<style>{% inline_static 'admin_workspace.css' %}</style>
 
-  <h1>Applications</h1>
+<main class="ce-workspace">
+  <header class="ce-work-header">
+    <div>
+      <p class="ce-work-eyebrow">Application management</p>
+      <h1 class="ce-work-title">Groups & applications</h1>
+      <p class="ce-work-lede">
+        Create groups, manage application availability, update schedules, and contact applicants
+        from one workspace.
+      </p>
+    </div>
+    <nav class="ce-work-actions" aria-label="Group page links">
+      <a class="ce-work-btn ce-work-btn--secondary" href="{% url 'admin_profiles_participants' %}">Participants</a>
+      <a class="ce-work-btn ce-work-btn--quiet" href="/admin/">Admin home</a>
+    </nav>
+  </header>
 
   {% if has_combined_groups %}
-    <details class="ce-dd" open>
-      <summary>Application links</summary>
-      <div class="ce-dd-body">
-        <div class="ce-actions">
-          <a class="button default" href="{% url 'apply_emprendedora_combined' %}" target="_blank" rel="noopener">
-            Open Emprendedoras application
+    <section class="ce-work-panel">
+      <div class="ce-work-panel__head">
+        <div>
+          <h2 class="ce-work-panel__title">Public application links</h2>
+          <p class="ce-work-panel__hint">Use these links for current recruitment.</p>
+        </div>
+        <div class="ce-work-actions">
+          <a class="ce-work-btn" href="{% url 'apply_emprendedora_combined' %}" target="_blank" rel="noopener">
+            Open Emprendedoras
           </a>
-          <a class="button default" href="{% url 'apply_mentora_combined' %}" target="_blank" rel="noopener">
-            Open Mentoras application
+          <a class="ce-work-btn ce-work-btn--secondary" href="{% url 'apply_mentora_combined' %}" target="_blank" rel="noopener">
+            Open Mentoras
           </a>
         </div>
       </div>
-    </details>
+    </section>
   {% endif %}
 
-  <details class="ce-dd" open>
-    <summary>Master applications</summary>
-    <div class="ce-dd-body">
-      <div style="display:flex; gap:12px; flex-wrap:wrap;">
+  <section class="ce-work-panel">
+    <div class="ce-work-panel__head">
+      <div>
+        <h2 class="ce-work-panel__title">Master applications</h2>
+        <p class="ce-work-panel__hint">New groups are created from these templates.</p>
+      </div>
+    </div>
+    <div class="ce-work-panel__body">
+      <div class="ce-work-form-list">
         {% for fd in masters %}
-          <div style="display:flex; flex-direction:column; gap:6px;">
-            <a class="ce-admin-tile" href="/admin/applications/formdefinition/{{ fd.id }}/change/">
-              <div class="ce-admin-tile-title">{{ fd.combined_display_name|default:fd.name }}</div>
-              <div class="ce-admin-tile-sub">Master application</div>
-            </a>
-            <div class="ce-actions" style="margin-top:0;">
-              <a class="button default" href="{% url 'apply_by_slug' form_slug=fd.slug %}?preview=1" target="_blank" rel="noopener">
+          <article class="ce-work-form-card">
+            <div class="ce-work-form-card__head">
+              <div>
+                <div class="ce-work-form-card__name">{{ fd.combined_display_name|default:fd.name }}</div>
+                <div class="ce-work-form-card__slug">{{ fd.slug }}</div>
+              </div>
+              <span class="ce-work-status ce-work-status--muted">Template</span>
+            </div>
+            <div class="ce-work-actions">
+              <a class="ce-work-btn" href="/admin/applications/formdefinition/{{ fd.id }}/change/">Edit template</a>
+              <a class="ce-work-btn ce-work-btn--secondary" href="{% url 'apply_by_slug' form_slug=fd.slug %}?preview=1" target="_blank" rel="noopener">
                 Preview
               </a>
             </div>
-          </div>
+          </article>
         {% empty %}
-          <p>No master forms found yet.</p>
+          <div class="ce-work-empty">No master applications were found.</div>
         {% endfor %}
       </div>
     </div>
-  </details>
+  </section>
 
-  <details class="ce-dd">
-    <summary>Create group</summary>
-    <div class="ce-dd-body">
+  <details class="ce-work-details" {% if create_group_form.errors %}open{% endif %}>
+    <summary>Create a new group</summary>
+    <div class="ce-work-details__body">
+      <p class="ce-work-muted" style="margin-top:0;">
+        This creates the group and its current Emprendedora and Mentora applications.
+      </p>
       <form method="post" action="{% url 'admin_create_group' %}">
         {% csrf_token %}
-
         {% if create_group_form.non_field_errors %}
-          <div class="errornote">
-            {{ create_group_form.non_field_errors }}
-          </div>
+          <div class="errornote">{{ create_group_form.non_field_errors }}</div>
         {% endif %}
-
-        {{ create_group_form.as_p }}
-        <button type="submit" class="default">Create group</button>
+        <div class="ce-work-date-grid ce-create-group-fields">
+          {% for field in create_group_form %}
+            <div class="ce-work-field">
+              {{ field.label_tag }}
+              {{ field }}
+              {% if field.help_text %}<div class="ce-work-muted">{{ field.help_text }}</div>{% endif %}
+              {{ field.errors }}
+            </div>
+          {% endfor %}
+        </div>
+        <div class="ce-work-actions" style="margin-top:16px;">
+          <button type="submit" class="ce-work-btn">Create group</button>
+        </div>
       </form>
     </div>
   </details>
 
-  <h2 style="margin-top:18px;">Groups</h2>
+  <section class="ce-work-panel">
+    <div class="ce-work-panel__head">
+      <div>
+        <h2 class="ce-work-panel__title">Groups</h2>
+        <p class="ce-work-panel__hint">Newest groups appear first. Open one to manage it.</p>
+      </div>
+      <div class="ce-work-field ce-work-search">
+        <label for="group-search">Find a group</label>
+        <input class="ce-work-input" id="group-search" type="search" placeholder="Search by group name or number">
+      </div>
+    </div>
+    <div class="ce-work-panel__body">
+      <div class="ce-work-group-list" id="group-list">
+        {% for g, forms in group_list %}
+          <details
+            class="ce-work-group"
+            data-group-search="{% if g.display_label %}{{ g.display_label|lower }}{% else %}group {{ g.number }} {{ g.custom_name|default:''|lower }}{% endif %}"
+            {% if forloop.first %}open{% endif %}
+          >
+            <summary>
+              <div>
+                <div class="ce-work-group__name">
+                  {% if g.display_label %}
+                    {{ g.display_label }}
+                  {% elif g.custom_name %}
+                    {{ g.custom_name }}
+                  {% else %}
+                    Group {{ g.number }}
+                  {% endif %}
+                </div>
+                <div class="ce-work-group__meta">
+                  {{ g.start_day }} {{ g.start_month }} – {{ g.end_month }} {{ g.year }}
+                  {% if g.use_combined_application %} · Combined application{% endif %}
+                </div>
+              </div>
+              <div class="ce-work-group__count">{{ forms|length }} application{{ forms|length|pluralize }}</div>
+              <div class="ce-work-group__chevron">⌄</div>
+            </summary>
 
-  {% for g, forms in group_list %}
-    <details class="ce-dd" {% if forloop.first %}open{% endif %}>
-      <summary>
-        {% if g.number %}
-          {% if g.display_label %}
-            {{ g.display_label }}
-          {% elif g.custom_name %}
-            {{ g.custom_name }}
-          {% else %}
-            Group {{ g.number }}
-          {% endif %}
-          <small style="color:#666; font-weight:normal;">
-            ({{ g.start_day }} {{ g.start_month }} - {{ g.end_month }} {{ g.year }})
-          </small>
-        {% else %}
-          Group {{ g }}
-          <small style="color:#b45309; font-weight:normal;">
-            (orphan group - missing FormGroup dates)
-          </small>
-        {% endif %}
-      </summary>
+            <div class="ce-work-group__body">
+              <div class="ce-work-actions">
+                <form
+                  method="post"
+                  action="{% url 'admin_rename_group' group_num=g.number %}"
+                  onsubmit="
+                    var current = '{{ g.custom_name|default_if_none:''|escapejs }}';
+                    var next = window.prompt('Edit group name (leave empty to reset default):', current);
+                    if (next === null) return false;
+                    this.querySelector('input[name=custom_name]').value = next;
+                    return true;
+                  "
+                >
+                  {% csrf_token %}
+                  <input type="hidden" name="custom_name" value="{{ g.custom_name|default_if_none:'' }}">
+                  <button type="submit" class="ce-work-btn ce-work-btn--secondary">Rename group</button>
+                </form>
+                <a class="ce-work-btn ce-work-btn--secondary" href="{% url 'admin_profiles_participants' %}?group={{ g.number }}">
+                  Manage participants
+                </a>
+              </div>
 
-      <div class="ce-dd-body">
-        <form
-          method="post"
-          action="{% url 'admin_rename_group' group_num=g.number %}"
-          style="margin-bottom:10px;"
-          onsubmit="
-            var current = '{{ g.custom_name|default_if_none:''|escapejs }}';
-            var next = window.prompt('Edit group name (leave empty to reset default):', current);
-            if (next === null) { return false; }
-            this.querySelector('input[name=custom_name]').value = next;
-            return true;
-          "
-        >
-          {% csrf_token %}
-          <input type="hidden" name="custom_name" value="{{ g.custom_name|default_if_none:'' }}">
-          <button type="submit" class="button">Edit name</button>
-        </form>
+              <div class="ce-work-divider"></div>
 
-        <form
-          method="post"
-          action="{% url 'admin_update_group' group_num=g.number %}"
-          style="display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap; margin-bottom:10px;"
-        >
-          {% csrf_token %}
-          <div>
-            <label class="inline">Start day</label><br>
-            <input
-              type="number"
-              min="1"
-              max="31"
-              name="start_day"
-              value="{{ g.start_day }}"
-              class="vTextField"
-              style="width:90px;"
-            >
-          </div>
-          <div>
-            <label class="inline">End month</label><br>
-            <select name="end_month" class="vTextField">
-              {% for month_value, month_label in month_choices %}
-                <option value="{{ month_value }}" {% if g.end_month|lower == month_value %}selected{% endif %}>{{ month_label }}</option>
-              {% endfor %}
-            </select>
-          </div>
-          <div>
-            <button type="submit" class="button default">Save start/end</button>
-          </div>
-        </form>
-
-        <form
-          method="post"
-          action="{% url 'admin_delete_group' group_num=g.number|default:g %}"
-          style="margin-bottom:10px;"
-          onsubmit="return confirm('Delete Group {{ g.number|default:g }} and ALL its forms? This cannot be undone.');"
-        >
-          {% csrf_token %}
-          <button type="submit" class="deletelink">Delete group</button>
-        </form>
-
-        <details class="ce-dd" open>
-          <summary>Forms ({{ forms|length }})</summary>
-          <div class="ce-dd-body">
-            {% if forms %}
-              {% for fd in forms %}
-                <details class="ce-form-item">
-                  <summary>
-                    {% if g.use_combined_application %}
-                      <strong>{{ fd.combined_display_name }}</strong>
-                    {% else %}
-                      <strong>{{ fd.slug }}</strong> - {{ fd.name }}
-                    {% endif %}
-                  </summary>
-                  <div class="ce-dd-body" style="padding-top:0;">
-                    <div>
-                      <a href="/admin/applications/formdefinition/{{ fd.id }}/change/">Edit</a>
-                      &nbsp;|&nbsp;
-                      <a href="/apply/{{ fd.slug }}/" target="_blank" rel="noopener">Open link</a>
+              <h3 class="ce-work-panel__title" style="font-size:15px; margin-bottom:11px;">Applications</h3>
+              <div class="ce-work-form-list">
+                {% for fd in forms %}
+                  <article class="ce-work-form-card">
+                    <div class="ce-work-form-card__head">
+                      <div>
+                        <div class="ce-work-form-card__name">
+                          {% if g.use_combined_application %}{{ fd.combined_display_name }}{% else %}{{ fd.name }}{% endif %}
+                        </div>
+                        <div class="ce-work-form-card__slug">{{ fd.slug }}</div>
+                      </div>
+                      {% if fd.is_public %}
+                        <span class="ce-work-status">Open</span>
+                      {% else %}
+                        <span class="ce-work-status ce-work-status--muted">Closed</span>
+                      {% endif %}
                     </div>
 
-                    <div class="ce-actions">
-                      {% if fd.slug and "_A2" in fd.slug %}
-                        <form method="post" action="{% url 'admin_send_second_stage_reminders' fd.slug %}" style="display:inline;"
-                          onsubmit="if(!confirm('Send reminders for {{ fd.slug }}?')) return false; var b=this.querySelector('button[type=submit]'); if(b){b.disabled=true;b.textContent='Sending...';} return true;">
-                          {% csrf_token %}
-                          <button type="submit" class="button">Send reminders</button>
-                        </form>
-                      {% endif %}
-
-                      <form method="post" action="{% url 'admin_toggle_form_open' fd.slug %}" style="display:inline;">
+                    <div class="ce-work-actions">
+                      <a class="ce-work-btn" href="/admin/applications/formdefinition/{{ fd.id }}/change/">Edit</a>
+                      <a class="ce-work-btn ce-work-btn--secondary" href="/apply/{{ fd.slug }}/" target="_blank" rel="noopener">Preview</a>
+                      <form method="post" action="{% url 'admin_toggle_form_open' fd.slug %}">
                         {% csrf_token %}
                         {% if fd.is_public %}
-                          <button type="submit" class="button"
-                            onclick="return confirm('Close {{ fd.slug }} so it stops accepting submissions?');">
-                            Close
-                          </button>
+                          <button
+                            type="submit"
+                            class="ce-work-btn ce-work-btn--quiet"
+                            onclick="return confirm('Close {{ fd.slug }} so it stops accepting submissions?');"
+                          >Close application</button>
                         {% else %}
-                          <button type="submit" class="button default"
-                            onclick="return confirm('Open {{ fd.slug }} so it accepts submissions again?');">
-                            Open
-                          </button>
+                          <button
+                            type="submit"
+                            class="ce-work-btn ce-work-btn--secondary"
+                            onclick="return confirm('Open {{ fd.slug }} so it accepts submissions again?');"
+                          >Open application</button>
                         {% endif %}
                       </form>
+                      {% if fd.slug and "_A2" in fd.slug %}
+                        <form
+                          method="post"
+                          action="{% url 'admin_send_second_stage_reminders' fd.slug %}"
+                          onsubmit="if(!confirm('Send reminders for {{ fd.slug }}?')) return false; var b=this.querySelector('button[type=submit]'); if(b){b.disabled=true;b.textContent='Sending…';} return true;"
+                        >
+                          {% csrf_token %}
+                          <button type="submit" class="ce-work-btn ce-work-btn--quiet">Send reminders</button>
+                        </form>
+                      {% endif %}
                     </div>
 
-                    <form
-                      method="post"
-                      action="{% url 'admin_send_application_update_email' fd.slug %}"
-                      class="ce-email-box"
-                      onsubmit="if(!confirm('Enviar este correo a todas las personas que llenaron {{ fd.slug }}?')) return false; var b=this.querySelector('button[type=submit]'); if(b){b.disabled=true;b.textContent='Enviando...';} return true;"
-                    >
-                      {% csrf_token %}
-                      <input type="hidden" name="next" value="{{ request.get_full_path }}">
-                      <label for="application-email-{{ fd.id }}"><strong>Enviar correo a quienes llenaron esta aplicación</strong></label>
-                      <textarea
-                        id="application-email-{{ fd.id }}"
-                        name="message_body"
-                        placeholder="Escribe aquí el mensaje que quieres enviar..."
-                        required
-                      ></textarea>
-                      <button type="submit" class="button">Enviar correo</button>
-                      <span class="ce-meta">Remitente: contacto@clubemprendo.org</span>
-                    </form>
-                  </div>
-                </details>
-              {% endfor %}
-            {% else %}
-              <p><em>No forms in this group yet.</em></p>
-            {% endif %}
-          </div>
-        </details>
+                    <details class="ce-work-details" style="margin:0;">
+                      <summary>Email applicants</summary>
+                      <div class="ce-work-details__body">
+                        <form
+                          method="post"
+                          action="{% url 'admin_send_application_update_email' fd.slug %}"
+                          onsubmit="if(!confirm('Enviar este correo a todas las personas que llenaron {{ fd.slug }}?')) return false; var b=this.querySelector('button[type=submit]'); if(b){b.disabled=true;b.textContent='Enviando…';} return true;"
+                        >
+                          {% csrf_token %}
+                          <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                          <div class="ce-work-field">
+                            <label for="application-email-{{ fd.id }}">Message</label>
+                            <textarea
+                              class="ce-work-input"
+                              id="application-email-{{ fd.id }}"
+                              name="message_body"
+                              placeholder="Escribe aquí el mensaje…"
+                              required
+                            ></textarea>
+                          </div>
+                          <p class="ce-work-muted">From contacto@clubemprendo.org</p>
+                          <button type="submit" class="ce-work-btn">Send email</button>
+                        </form>
+                      </div>
+                    </details>
+                  </article>
+                {% empty %}
+                  <div class="ce-work-empty">This group has no applications.</div>
+                {% endfor %}
+              </div>
 
-        <details class="ce-dd" style="margin-top:10px;">
-          <summary>Group schedule and reminders</summary>
-          <div class="ce-dd-body">
-            <form method="post" action="{% url 'admin_update_group' group_num=g.number %}" style="display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap;">
-              {% csrf_token %}
-              <div>
-                <label class="inline">Día de inicio</label><br>
-                <input type="number" min="1" max="31" name="start_day" value="{{ g.start_day }}" class="vTextField" style="width:90px;">
-              </div>
-              <div>
-                <label class="inline">Mes inicio</label><br>
-                <select name="start_month" class="vTextField">
-                  {% for month_value, month_label in month_choices %}
-                    <option value="{{ month_value }}" {% if g.start_month|lower == month_value %}selected{% endif %}>{{ month_label }}</option>
-                  {% endfor %}
-                </select>
-              </div>
-              <div>
-                <label class="inline">Mes fin</label><br>
-                <select name="end_month" class="vTextField">
-                  {% for month_value, month_label in month_choices %}
-                    <option value="{{ month_value }}" {% if g.end_month|lower == month_value %}selected{% endif %}>{{ month_label }}</option>
-                  {% endfor %}
-                </select>
-              </div>
-              <div>
-                <label class="inline">Año</label><br>
-                <input type="number" min="2000" max="2100" name="year" value="{{ g.year }}" class="vTextField" style="width:110px;">
-              </div>
-              <div>
-                <label class="inline">Fecha límite A2</label><br>
-                <input type="date" name="a2_deadline" value="{{ g.a2_deadline|date:'Y-m-d' }}" class="vDateField">
-              </div>
-              <div>
-                <label class="inline">Abrir en</label><br>
-                <input type="datetime-local" name="open_at" value="{{ g.open_at|date:'Y-m-d\\TH:i' }}" class="vDateTimeField">
-              </div>
-              <div>
-                <label class="inline">Cerrar en</label><br>
-                <input type="datetime-local" name="close_at" value="{{ g.close_at|date:'Y-m-d\\TH:i' }}" class="vDateTimeField">
-              </div>
-              <div>
-                <label class="inline">Reminder #1</label><br>
-                <input type="datetime-local" name="reminder_1_at" value="{{ g.reminder_1_at|date:'Y-m-d\\TH:i' }}" class="vDateTimeField">
-              </div>
-              <div>
-                <label class="inline">Reminder #2</label><br>
-                <input type="datetime-local" name="reminder_2_at" value="{{ g.reminder_2_at|date:'Y-m-d\\TH:i' }}" class="vDateTimeField">
-              </div>
-              <div>
-                <label class="inline">Reminder #3</label><br>
-                <input type="datetime-local" name="reminder_3_at" value="{{ g.reminder_3_at|date:'Y-m-d\\TH:i' }}" class="vDateTimeField">
-              </div>
-              <div>
-                <button type="submit" class="button default">Guardar fechas</button>
-              </div>
-            </form>
-            <div class="ce-meta" style="margin-top:8px;">
-              Los valores Día/Mes inicio/Mes fin/Año definen lo que ves como rango del grupo (por ejemplo: April–April).
-              Apertura/cierre cambian visibilidad automática.
-              Reminder #1/#2/#3 envían recordatorios A2 automáticamente cuando llega cada fecha/hora.
+              <details class="ce-work-details" style="margin-top:16px;">
+                <summary>Schedule, availability & reminders</summary>
+                <div class="ce-work-details__body">
+                  <form method="post" action="{% url 'admin_update_group' group_num=g.number %}">
+                    {% csrf_token %}
+                    <div class="ce-work-date-grid">
+                      <div class="ce-work-field">
+                        <label>Start day</label>
+                        <input class="ce-work-input" type="number" min="1" max="31" name="start_day" value="{{ g.start_day }}">
+                      </div>
+                      <div class="ce-work-field">
+                        <label>Start month</label>
+                        <select class="ce-work-input" name="start_month">
+                          {% for month_value, month_label in month_choices %}
+                            <option value="{{ month_value }}" {% if g.start_month|lower == month_value %}selected{% endif %}>{{ month_label }}</option>
+                          {% endfor %}
+                        </select>
+                      </div>
+                      <div class="ce-work-field">
+                        <label>End month</label>
+                        <select class="ce-work-input" name="end_month">
+                          {% for month_value, month_label in month_choices %}
+                            <option value="{{ month_value }}" {% if g.end_month|lower == month_value %}selected{% endif %}>{{ month_label }}</option>
+                          {% endfor %}
+                        </select>
+                      </div>
+                      <div class="ce-work-field">
+                        <label>Year</label>
+                        <input class="ce-work-input" type="number" min="2000" max="2100" name="year" value="{{ g.year }}">
+                      </div>
+                      <div class="ce-work-field">
+                        <label>A2 deadline</label>
+                        <input class="ce-work-input" type="date" name="a2_deadline" value="{{ g.a2_deadline|date:'Y-m-d' }}">
+                      </div>
+                      <div class="ce-work-field">
+                        <label>Automatically open</label>
+                        <input class="ce-work-input" type="datetime-local" name="open_at" value="{{ g.open_at|date:'Y-m-d\\TH:i' }}">
+                      </div>
+                      <div class="ce-work-field">
+                        <label>Automatically close</label>
+                        <input class="ce-work-input" type="datetime-local" name="close_at" value="{{ g.close_at|date:'Y-m-d\\TH:i' }}">
+                      </div>
+                      <div class="ce-work-field">
+                        <label>Reminder 1</label>
+                        <input class="ce-work-input" type="datetime-local" name="reminder_1_at" value="{{ g.reminder_1_at|date:'Y-m-d\\TH:i' }}">
+                      </div>
+                      <div class="ce-work-field">
+                        <label>Reminder 2</label>
+                        <input class="ce-work-input" type="datetime-local" name="reminder_2_at" value="{{ g.reminder_2_at|date:'Y-m-d\\TH:i' }}">
+                      </div>
+                      <div class="ce-work-field">
+                        <label>Reminder 3</label>
+                        <input class="ce-work-input" type="datetime-local" name="reminder_3_at" value="{{ g.reminder_3_at|date:'Y-m-d\\TH:i' }}">
+                      </div>
+                    </div>
+                    <div class="ce-work-actions" style="margin-top:15px;">
+                      <button type="submit" class="ce-work-btn">Save schedule</button>
+                    </div>
+                  </form>
+                </div>
+              </details>
+
+              <details class="ce-work-details ce-work-danger" style="margin-top:14px;">
+                <summary>Danger zone</summary>
+                <div class="ce-work-details__body">
+                  <p class="ce-work-muted" style="margin-top:0;">
+                    Deleting a group also deletes all of its application forms. This cannot be undone.
+                  </p>
+                  <form
+                    method="post"
+                    action="{% url 'admin_delete_group' group_num=g.number %}"
+                    onsubmit="return confirm('Delete Group {{ g.number }} and ALL its forms? This cannot be undone.');"
+                  >
+                    {% csrf_token %}
+                    <button type="submit" class="ce-work-btn ce-work-btn--danger">Delete group</button>
+                  </form>
+                </div>
+              </details>
             </div>
-          </div>
-        </details>
+          </details>
+        {% empty %}
+          <div class="ce-work-empty">No groups have been created yet.</div>
+        {% endfor %}
       </div>
-    </details>
-  {% empty %}
-    <p>No groups yet.</p>
-  {% endfor %}
+      <div class="ce-work-empty" id="group-search-empty" hidden>No groups match your search.</div>
+    </div>
+  </section>
+</main>
 
-</div>
+<script>
+  (() => {
+    const input = document.getElementById("group-search");
+    const groups = Array.from(document.querySelectorAll("#group-list > .ce-work-group"));
+    const empty = document.getElementById("group-search-empty");
+    if (!input) return;
+    input.addEventListener("input", () => {
+      const query = input.value.trim().toLowerCase();
+      let visible = 0;
+      groups.forEach((group) => {
+        const matches = !query || (group.dataset.groupSearch || "").includes(query);
+        group.hidden = !matches;
+        if (matches) visible += 1;
+      });
+      empty.hidden = visible !== 0;
+    });
+  })();
+</script>
 {% endblock %}

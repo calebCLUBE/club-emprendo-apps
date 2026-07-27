@@ -1,190 +1,151 @@
 {% extends "admin/base_site.html" %}
-{% load static inline_static %}
+{% load inline_static %}
 
 {% block content %}
-<link rel="stylesheet" href="{% static 'vendor/x-data-spreadsheet/xspreadsheet.css' %}">
-<div class="ce-admin-wrap">
-  <div class="ce-admin-card ce-admin-card--wide">
-    <style>
-      /* Keep toolbar text/icons readable across Django admin theme overrides */
-      .x-spreadsheet-toolbar,
-      .x-spreadsheet-bottombar,
-      .x-spreadsheet-toolbar .x-spreadsheet-toolbar-btn,
-      .x-spreadsheet-toolbar .x-spreadsheet-dropdown-title,
-      .x-spreadsheet-menu > li,
-      .x-spreadsheet-menu > li.active,
-      .x-spreadsheet-form-input input,
-      .x-spreadsheet-form-select,
-      .x-spreadsheet-form-select .input-text,
-      .x-spreadsheet-item,
-      .x-spreadsheet-header {
-        color: #1f2937 !important;
-      }
-      .x-spreadsheet-icon .x-spreadsheet-icon-img {
-        opacity: 0.72;
-      }
+<style>{% inline_static 'admin_workspace.css' %}</style>
 
-      .ce-actions {
-        display: flex;
-        gap: 8px;
-        flex-wrap: wrap;
-        margin: 12px 0 16px;
-      }
-      .ce-btn {
-        display: inline-block;
-        padding: 8px 12px;
-        border-radius: 8px;
-        border: 1px solid #223413;
-        background: #223413;
-        color: #fff !important;
-        text-decoration: none;
-        font-weight: 600;
-      }
-      .ce-btn--ghost {
-        background: #fff;
-        color: #223413 !important;
-      }
-      .ce-btn--danger {
-        background: #8f1f1f;
-        border-color: #8f1f1f;
-      }
-      .ce-panel {
-        margin-top: 10px;
-        padding: 12px;
-        border: 1px solid #e4e4e4;
-        border-radius: 10px;
-        background: #fff;
-      }
-      .ce-groups {
-        display: flex;
-        gap: 8px;
-        flex-wrap: wrap;
-      }
-      .ce-form-grid {
-        display: grid;
-        gap: 12px;
-        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-      }
-      .ce-form-grid label {
-        display: block;
-        font-weight: 600;
-        margin-bottom: 4px;
-      }
-      .ce-form-grid textarea {
-        width: 100%;
-        min-height: 160px;
-        box-sizing: border-box;
-        padding: 10px;
-        border: 1px solid #d2d2d2;
-        border-radius: 8px;
-        resize: vertical;
-        font-family: inherit;
-        line-height: 1.35;
-      }
-      .ce-link-input {
-        width: min(100%, 900px);
-        box-sizing: border-box;
-        padding: 10px;
-        border: 1px solid #d2d2d2;
-        border-radius: 8px;
-      }
-      .ce-muted {
-        color: #666;
-        font-size: 12px;
-        margin-top: 4px;
-      }
-      .ce-kpis {
-        display: flex;
-        gap: 12px;
-        flex-wrap: wrap;
-        margin: 10px 0 0;
-      }
-      .ce-kpi {
-        border: 1px solid #ececec;
-        border-radius: 10px;
-        padding: 10px;
-        min-width: 180px;
-      }
-      .ce-kpi-k {
-        font-size: 12px;
-        color: #666;
-      }
-      .ce-kpi-v {
-        margin-top: 4px;
-        font-size: 24px;
-        line-height: 1.1;
-        font-weight: 700;
-      }
-      .ce-sheet-block {
-        margin-top: 14px;
-      }
-      .ce-sheet-head {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        gap: 12px;
-        flex-wrap: wrap;
-        margin-bottom: 8px;
-      }
-      .ce-sheet-wrap {
-        border: 1px solid #d8d8d8;
-        border-radius: 10px;
-        overflow: hidden;
-        background: #fff;
-      }
-      .ce-sheet-canvas {
-        width: 100%;
-        min-height: 520px;
-      }
-      .ce-sheet-help {
-        margin-top: 6px;
-        color: #555;
-        font-size: 12px;
-      }
-    </style>
-
-    <h1 style="margin:0;">Profiles · Participants</h1>
-    <div class="ce-actions">
-      <a class="ce-btn ce-btn--ghost" href="{% url 'admin_profiles_list' %}">Back to profiles</a>
-      <a class="ce-btn ce-btn--ghost" href="/admin/">Admin home</a>
-      <a class="ce-btn ce-btn--ghost" href="{% url 'admin_emparejamiento_home' %}">Emparejamiento</a>
-    </div>
-
-    <section class="ce-panel">
-      <div style="font-weight:700; margin-bottom:8px;">Select group</div>
-      <div class="ce-groups">
-        {% for g in groups %}
-          <a class="ce-btn {% if selected_group and selected_group.number == g.number %}{% else %}ce-btn--ghost{% endif %}" href="{% url 'admin_profiles_participants' %}?group={{ g.number }}">
-            Group {{ g.number }}
-          </a>
-        {% empty %}
-          <div class="ce-muted">No groups available yet.</div>
-        {% endfor %}
-      </div>
-      <div class="ce-muted" style="margin-top:12px;">
+<main class="ce-workspace">
+  <header class="ce-work-header">
+    <div>
+      <p class="ce-work-eyebrow">Profiles</p>
+      <h1 class="ce-work-title">Participants</h1>
+      <p class="ce-work-lede">
+        Manage each group’s participant source, open its workbook, and run completion checks.
         The participant database is assembled only from each group's linked Google Sheet.
-        Select a group to link or refresh its workbook. Unlinked groups are not included in
-        aggregate participant profiles or impact reporting.
+      </p>
+    </div>
+    <nav class="ce-work-actions" aria-label="Participant page links">
+      <a class="ce-work-btn ce-work-btn--secondary" href="{% url 'admin_profiles_list' %}">All profiles</a>
+      <a class="ce-work-btn ce-work-btn--secondary" href="{% url 'admin_emparejamiento_home' %}">Emparejamiento</a>
+      <a class="ce-work-btn ce-work-btn--quiet" href="/admin/">Admin home</a>
+    </nav>
+  </header>
+
+  <section class="ce-work-panel">
+    <div class="ce-work-panel__body">
+      <form class="ce-work-picker" method="get">
+        <div class="ce-work-field">
+          <label for="participant-group">Group</label>
+          <select class="ce-work-input" id="participant-group" name="group" onchange="this.form.submit()">
+            <option value="">Choose a group…</option>
+            {% for g in groups %}
+              <option value="{{ g.number }}" {% if selected_group and selected_group.number == g.number %}selected{% endif %}>
+                Group {{ g.number }}{% if g.custom_name %} · {{ g.custom_name }}{% endif %}
+              </option>
+            {% endfor %}
+          </select>
+        </div>
+        <button class="ce-work-btn" type="submit">Open group</button>
+      </form>
+      {% if not groups %}
+        <p class="ce-work-muted">No active groups are available yet.</p>
+      {% endif %}
+    </div>
+  </section>
+
+  {% if selected_group %}
+    <section class="ce-work-panel">
+      <div class="ce-work-panel__head">
+        <div>
+          <h2 class="ce-work-panel__title">
+            Group {{ selected_group.number }}
+            {% if selected_group.custom_name %} · {{ selected_group.custom_name }}{% endif %}
+          </h2>
+          <p class="ce-work-panel__hint">
+            {% if linked_google_sheet_url %}
+              Connected to a group-owned Google Sheet.
+            {% else %}
+              No Google Sheet is connected yet.
+            {% endif %}
+          </p>
+        </div>
+        {% if linked_google_sheet_url %}
+          <span class="ce-work-status">Connected</span>
+        {% else %}
+          <span class="ce-work-status ce-work-status--warning">Setup needed</span>
+        {% endif %}
       </div>
-    </section>
-
-    {% if selected_group %}
-      <section class="ce-panel">
-        <div style="font-weight:700; margin-bottom:8px;">
-          Group {{ selected_group.number }} participant lists
+      <div class="ce-work-panel__body">
+        <div class="ce-work-summary">
+          <div class="ce-work-stat">
+            <div class="ce-work-stat__label">Mentoras</div>
+            <div class="ce-work-stat__value" data-row-count="mentoras">{{ mentoras_count }}</div>
+            <div class="ce-work-stat__detail">participant rows</div>
+          </div>
+          <div class="ce-work-stat">
+            <div class="ce-work-stat__label">Emprendedoras</div>
+            <div class="ce-work-stat__value" data-row-count="emprendedoras">{{ emprendedoras_count }}</div>
+            <div class="ce-work-stat__detail">participant rows</div>
+          </div>
+          <div class="ce-work-stat">
+            <div class="ce-work-stat__label">Workbook</div>
+            <div class="ce-work-stat__value" style="font-size:20px;">
+              {% if linked_google_sheet_url %}Linked{% else %}Not linked{% endif %}
+            </div>
+            <div class="ce-work-stat__detail">
+              {% if linked_google_sheet_last_synced_at %}
+                Synced {{ linked_google_sheet_last_synced_at|date:"M j, Y · H:i" }}
+              {% else %}
+                No sync recorded
+              {% endif %}
+            </div>
+          </div>
+          <div class="ce-work-stat">
+            <div class="ce-work-stat__label">Total participants</div>
+            <div class="ce-work-stat__value">{{ mentoras_count|add:emprendedoras_count }}</div>
+            <div class="ce-work-stat__detail">across both tabs</div>
+          </div>
         </div>
-        <div class="ce-muted">
-          This group's linked multi-tab Google Sheet is its participant-data source.
-        </div>
 
-        <div class="ce-panel" style="margin-top:12px;">
-          <div style="font-weight:700; margin-bottom:8px;">Linked participant Google Sheet</div>
+        <div class="ce-work-actions">
+          <a class="ce-work-btn" href="{% url 'admin_profiles_participants_track_sheet' selected_group.number 'all' %}">
+            Open participant workbook
+          </a>
+          {% if linked_google_sheet_url %}
+            <form method="post">
+              {% csrf_token %}
+              <input type="hidden" name="group" value="{{ selected_group.number }}">
+              <input type="hidden" name="google_sheet_url" value="{{ linked_google_sheet_url }}">
+              <button class="ce-work-btn ce-work-btn--secondary" type="submit" name="action" value="sync_linked_google_sheet">
+                Refresh from Google
+              </button>
+            </form>
+            <a class="ce-work-btn ce-work-btn--secondary" href="{{ linked_google_sheet_url }}" target="_blank" rel="noopener">
+              Open Google Sheet
+            </a>
+          {% endif %}
           <form method="post">
             {% csrf_token %}
             <input type="hidden" name="group" value="{{ selected_group.number }}">
-            <label for="google_sheet_url" style="display:block; font-weight:600; margin-bottom:4px;">Google Sheet link</label>
+            <button class="ce-work-btn ce-work-btn--secondary" type="submit" name="action" value="check_dropbox">
+              Check Acta
+            </button>
+          </form>
+          {% if has_list %}
+            <a class="ce-work-btn ce-work-btn--quiet" href="{% url 'admin_profiles_participants_download' selected_group.number %}">
+              Download XLSX
+            </a>
+          {% endif %}
+        </div>
+
+        {% if linked_google_sheet_sync_error %}
+          <div class="ce-work-callout" style="margin-top:14px; border-left-color:#a22b2b; background:#fff4f4;">
+            <strong>Last sync failed.</strong> {{ linked_google_sheet_sync_error }}
+          </div>
+        {% endif %}
+      </div>
+    </section>
+
+    <details class="ce-work-details" {% if not linked_google_sheet_url %}open{% endif %}>
+      <summary>Google Sheet connection</summary>
+      <div class="ce-work-details__body">
+        <form method="post">
+          {% csrf_token %}
+          <input type="hidden" name="group" value="{{ selected_group.number }}">
+          <div class="ce-work-field">
+            <label for="google_sheet_url">Google Sheet link</label>
             <input
-              class="ce-link-input"
+              class="ce-work-input"
               id="google_sheet_url"
               name="google_sheet_url"
               type="url"
@@ -192,115 +153,105 @@
               placeholder="https://docs.google.com/spreadsheets/d/.../edit"
               value="{{ linked_google_sheet_url }}"
             >
-            <div class="ce-muted">
-              Use tabs named G{{ selected_group.number }} M, G{{ selected_group.number }} E, and optionally G{{ selected_group.number }} Emparejamiento. A workbook may contain other groups, but only G{{ selected_group.number }} tabs are connected to this participant database. Google supplies ordinary cell values; website check buttons exclusively control checkbox values and mirror them back to Google.
-            </div>
-            <div class="ce-actions" style="margin-top:10px;">
-              <button class="ce-btn" type="submit" name="action" value="save_google_sheet_link">
-                {% if linked_google_sheet_url %}Save link and refresh{% else %}Link and import workbook{% endif %}
-              </button>
-              {% if linked_google_sheet_url %}
-                <button class="ce-btn ce-btn--ghost" type="submit" name="action" value="sync_linked_google_sheet">Refresh linked workbook</button>
-                <a class="ce-btn ce-btn--ghost" href="{{ linked_google_sheet_url }}" target="_blank" rel="noopener">Open Google Sheet</a>
-                <button class="ce-btn ce-btn--danger" type="submit" name="action" value="unlink_google_sheet" formnovalidate onclick="return confirm('Unlink this Google Sheet? Cached participant rows will remain on the website.');">Unlink</button>
-              {% endif %}
-            </div>
-          </form>
-          {% if linked_google_sheet_last_synced_at %}
-            <div class="ce-muted">Last synced: {{ linked_google_sheet_last_synced_at|date:"Y-m-d H:i" }}</div>
-          {% endif %}
-          {% if linked_google_sheet_sync_error %}
-            <div class="ce-muted" style="color:#8f1f1f;">Last sync error: {{ linked_google_sheet_sync_error }}</div>
-          {% endif %}
-        </div>
-
-        <div class="ce-kpis">
-          <div class="ce-kpi">
-            <div class="ce-kpi-k">Mentoras rows</div>
-            <div class="ce-kpi-v" data-row-count="mentoras">{{ mentoras_count }}</div>
           </div>
-          <div class="ce-kpi">
-            <div class="ce-kpi-k">Emprendedoras rows</div>
-            <div class="ce-kpi-v" data-row-count="emprendedoras">{{ emprendedoras_count }}</div>
+          <div class="ce-work-callout" style="margin-top:12px;">
+            Use tabs named <strong>G{{ selected_group.number }} M</strong>,
+            <strong>G{{ selected_group.number }} E</strong>, and optionally
+            <strong>G{{ selected_group.number }} Emparejamiento</strong>. Other groups may exist
+            in the workbook; only tabs beginning with G{{ selected_group.number }} are imported.
+            Ordinary cells come from Google, while website checks own and mirror checkbox values.
           </div>
-        </div>
+          <div class="ce-work-actions" style="margin-top:14px;">
+            <button class="ce-work-btn" type="submit" name="action" value="save_google_sheet_link">
+              {% if linked_google_sheet_url %}Save link and refresh{% else %}Connect and import{% endif %}
+            </button>
+            {% if linked_google_sheet_url %}
+              <button
+                class="ce-work-btn ce-work-btn--danger"
+                type="submit"
+                name="action"
+                value="unlink_google_sheet"
+                formnovalidate
+                onclick="return confirm('Unlink this Google Sheet? Cached participant rows will remain on the website.');"
+              >Unlink Sheet</button>
+            {% endif %}
+          </div>
+        </form>
+      </div>
+    </details>
 
-        <div class="ce-actions" style="margin-top:12px;">
+    {% if not linked_google_sheet_url %}
+      <details class="ce-work-details">
+        <summary>Manual participant import</summary>
+        <div class="ce-work-details__body">
+          <p class="ce-work-muted" style="margin-top:0;">
+            Use this only when the group does not have a Google Sheet. Connecting a Sheet is the recommended workflow.
+          </p>
           <form method="post">
             {% csrf_token %}
             <input type="hidden" name="group" value="{{ selected_group.number }}">
-            <button class="ce-btn" type="submit" name="action" value="check_dropbox">
-              Check Acta
-            </button>
+            <div class="ce-work-grid-2">
+              <div class="ce-work-field">
+                <label for="mentoras_emails">Mentoras emails</label>
+                <textarea class="ce-work-input" id="mentoras_emails" name="mentoras_emails" placeholder="One email per line">{{ mentoras_emails_text }}</textarea>
+              </div>
+              <div class="ce-work-field">
+                <label for="emprendedoras_emails">Emprendedoras emails</label>
+                <textarea class="ce-work-input" id="emprendedoras_emails" name="emprendedoras_emails" placeholder="One email per line">{{ emprendedoras_emails_text }}</textarea>
+              </div>
+            </div>
+            <div class="ce-work-actions" style="margin-top:14px;">
+              <button class="ce-work-btn" type="submit" name="action" value="build_from_emails">Create from emails</button>
+            </div>
           </form>
-          <form method="post" onsubmit="return confirm('Delete Group {{ selected_group.number }} from the Participants page? This will clear participant-sheet data, hide the group here, and keep all submissions/database records.');">
+
+          <div class="ce-work-divider"></div>
+
+          <form method="post">
             {% csrf_token %}
             <input type="hidden" name="group" value="{{ selected_group.number }}">
-            <button class="ce-btn ce-btn--danger" type="submit" name="action" value="clear_group_participants">
-              Delete group from Participants
-            </button>
+            <div class="ce-work-grid-2">
+              <div class="ce-work-field">
+                <label for="mentoras_cedulas">Mentoras cédulas</label>
+                <textarea class="ce-work-input" id="mentoras_cedulas" name="mentoras_cedulas" placeholder="One cédula per line"></textarea>
+              </div>
+              <div class="ce-work-field">
+                <label for="emprendedoras_cedulas">Emprendedoras cédulas</label>
+                <textarea class="ce-work-input" id="emprendedoras_cedulas" name="emprendedoras_cedulas" placeholder="One cédula per line"></textarea>
+              </div>
+            </div>
+            <p class="ce-work-muted">Existing participants are skipped by cédula or email.</p>
+            <div class="ce-work-actions" style="margin-top:14px;">
+              <button class="ce-work-btn" type="submit" name="action" value="add_from_cedulas">Add by cédula</button>
+            </div>
           </form>
         </div>
-        <div class="ce-muted">
-          This archives/hides the group in Participants only. Submissions, answers, forms, and database records are preserved.
-        </div>
-
-        {% if not linked_google_sheet_url %}
-        <form method="post" style="margin-top:12px;">
-          {% csrf_token %}
-          <input type="hidden" name="group" value="{{ selected_group.number }}">
-          <div class="ce-form-grid">
-            <div>
-              <label for="mentoras_emails">Mentoras emails (one per line or comma-separated)</label>
-              <textarea id="mentoras_emails" name="mentoras_emails" placeholder="mentora1@email.com&#10;mentora2@email.com">{{ mentoras_emails_text }}</textarea>
-            </div>
-            <div>
-              <label for="emprendedoras_emails">Emprendedoras emails (one per line or comma-separated)</label>
-              <textarea id="emprendedoras_emails" name="emprendedoras_emails" placeholder="emprendedora1@email.com&#10;emprendedora2@email.com">{{ emprendedoras_emails_text }}</textarea>
-            </div>
-          </div>
-          <div class="ce-actions" style="margin-top:12px;">
-            <button class="ce-btn" type="submit" name="action" value="build_from_emails">Create sheets from email lists</button>
-          </div>
-        </form>
-        <form method="post" style="margin-top:12px;">
-          {% csrf_token %}
-          <input type="hidden" name="group" value="{{ selected_group.number }}">
-          <div class="ce-form-grid">
-            <div>
-              <label for="mentoras_cedulas">Mentoras cedulas (one per line or comma-separated)</label>
-              <textarea id="mentoras_cedulas" name="mentoras_cedulas" placeholder="1234567890&#10;0987654321"></textarea>
-            </div>
-            <div>
-              <label for="emprendedoras_cedulas">Emprendedoras cedulas (one per line or comma-separated)</label>
-              <textarea id="emprendedoras_cedulas" name="emprendedoras_cedulas" placeholder="1234567890&#10;0987654321"></textarea>
-            </div>
-          </div>
-          <div class="ce-muted">
-            This appends participants by cedula and skips rows that already exist in the participant sheet (by cedula or email).
-          </div>
-          <div class="ce-actions" style="margin-top:12px;">
-            <button class="ce-btn" type="submit" name="action" value="add_from_cedulas">Add participants by cedula</button>
-          </div>
-        </form>
-        {% endif %}
-
-        <div class="ce-panel" style="margin-top:12px;">
-          <div style="font-weight:700; margin-bottom:8px;">Participant sheets</div>
-          <div class="ce-muted">Open Mentoras and Emprendedoras in one workbook with separate tabs.</div>
-          <div class="ce-actions" style="margin-top:10px;">
-            <a class="ce-btn" href="{% url 'admin_profiles_participants_track_sheet' selected_group.number 'all' %}">
-              Open participant workbook
-            </a>
-            {% if has_list %}
-              <a class="ce-btn ce-btn--ghost" href="{% url 'admin_profiles_participants_download' selected_group.number %}">
-                Download XLSX
-              </a>
-            {% endif %}
-          </div>
-        </div>
-      </section>
+      </details>
     {% endif %}
-  </div>
-</div>
+
+    <details class="ce-work-details ce-work-danger">
+      <summary>Danger zone</summary>
+      <div class="ce-work-details__body">
+        <p class="ce-work-muted" style="margin-top:0;">
+          Removing this group clears its participant-sheet data and hides it from Participants.
+          Submissions, answers, forms, and database records are preserved.
+        </p>
+        <form method="post" onsubmit="return confirm('Remove Group {{ selected_group.number }} from Participants? Participant-sheet data will be cleared, while submissions and forms remain.');">
+          {% csrf_token %}
+          <input type="hidden" name="group" value="{{ selected_group.number }}">
+          <button class="ce-work-btn ce-work-btn--danger" type="submit" name="action" value="clear_group_participants">
+            Remove group from Participants
+          </button>
+        </form>
+      </div>
+    </details>
+  {% else %}
+    <section class="ce-work-panel">
+      <div class="ce-work-empty">
+        <strong>Choose a group to begin.</strong>
+        <div class="ce-work-muted">You’ll see its connection, participant counts, workbook, and checks here.</div>
+      </div>
+    </section>
+  {% endif %}
+</main>
 {% endblock %}

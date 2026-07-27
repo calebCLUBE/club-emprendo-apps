@@ -1117,13 +1117,9 @@ def start_grading_job(request, form_slug: str):
 
 PAIR_HEADERS = [
     "emprendedora_name",
-    "whatsapp_emprendedora",
-    "emprendedora_email",
-    "country_residence_emprendedora",
     "mentora_name",
-    "whatsapp_mentora",
+    "emprendedora_email",
     "mentora_email",
-    "country_residence_mentora",
     "matching_availability",
     "matching_industry",
     "emprendedora_industry",
@@ -1132,72 +1128,6 @@ PAIR_HEADERS = [
     "business_age_matching",
     "expertise_growth_matching",
     "motivation_challenge_match",
-    "cedula_emprendedora",
-    "full_name_emprendedora",
-    "city_residence_emprendedora",
-    "pais_nacimiento_emprendedora",
-    "age_range_emprendedora",
-    "participated_before_emprendedora",
-    "privacy_accept_emprendedora",
-    "business_name_emprendedora",
-    "industry_emprendedora",
-    "business_description_emprendedora",
-    "business_age_emprendedora",
-    "has_employees_emprendedora",
-    "growth_how_emprendedora",
-    "biggest_challenge_emprendedora",
-    "commit_3_months_emprendedora",
-    "hours_per_week_emprendedora",
-    "prior_mentoring_emprendedora",
-    "reviewed_pdf_emprendedora",
-    "internet_access_emprendedora",
-    "preferred_schedule_emprendedora",
-    "req_basic_surveys_emprendedora",
-    "req_avail_period_emprendedora",
-    "req_avail_2hrs_week_emprendedora",
-    "req_avail_kickoff_emprendedora",
-    "req_basic_woman_emprendedora",
-    "req_basic_latam_emprendedora",
-    "req_basic_punctual_emprendedora",
-    "req_basic_training_emprendedora",
-    "additional_comments_emprendedora",
-    "confirmo_proceso_emprendedora",
-    "id_number_mentora",
-    "full_name_mentora",
-    "country_birth_mentora",
-    "age_range_mentora",
-    "prior_participation_mentora",
-    "privacy_ack_mentora",
-    "req_basic_woman_mentora",
-    "req_basic_latam_mentora",
-    "req_basic_business_exp_mentora",
-    "req_basic_punctual_mentora",
-    "req_basic_internet_device_mentora",
-    "req_basic_training_mentora",
-    "city_residence_mentora",
-    "req_avail_period_mentora",
-    "req_avail_2hrs_week_mentora",
-    "req_avail_kickoff_mentora",
-    "volunteer_ack_mentora",
-    "req_explain_mentora",
-    "read_pdf_mentora",
-    "owned_business_mentora",
-    "business_name_mentora",
-    "business_industry_mentora",
-    "business_description_mentora",
-    "business_location_mentora",
-    "business_years_mentora",
-    "has_employees_mentora",
-    "professional_expertise_mentora",
-    "motivation_mentora",
-    "why_good_mentor_mentora",
-    "mentoring_exp_as_mentor_mentora",
-    "mentoring_exp_as_student_mentora",
-    "mentoring_exp_detail_mentora",
-    "weekly_time_mentora",
-    "availability_grid_mentora",
-    "additional_comments_mentora",
-    "confirma_proceso_mentora",
 ]
 
 # ---- availability mapping ----
@@ -2301,23 +2231,7 @@ def _pair_one_group(
         f"ai_{item.get('output_key') or item.get('label')}"
         for item in ai_comparisons[2:]
     ]
-    # Rows are assembled with this internal schema so the pairing algorithm can
-    # continue to include every live question. The returned file is normalized
-    # to PAIR_HEADERS at the export boundary below.
-    base_headers = [
-        "emprendedora_name",
-        "mentora_name",
-        "emprendedora_email",
-        "mentora_email",
-        "matching_availability",
-        "matching_industry",
-        "emprendedora_industry",
-        "mentora_industry",
-        "matching_country",
-        "business_age_matching",
-        "expertise_growth_matching",
-        "motivation_challenge_match",
-    ] + extra_ai_headers
+    base_headers = PAIR_HEADERS + extra_ai_headers
     full_headers = base_headers + emp_suffix_headers + mentor_suffix_headers
 
     # normalize incoming email lists once
@@ -2354,12 +2268,12 @@ def _pair_one_group(
         if log_fn:
             log_fn(f"⚠️ No emprendedoras found for the given emails in {emp_slug}. Returning empty pairing file.")
         import pandas as pd
-        return pd.DataFrame(columns=PAIR_HEADERS)
+        return pd.DataFrame(columns=full_headers)
     if mentor_df.empty:
         if log_fn:
             log_fn(f"⚠️ No mentoras found for the given emails in {mentor_slug}. Returning empty pairing file.")
         import pandas as pd
-        return pd.DataFrame(columns=PAIR_HEADERS)
+        return pd.DataFrame(columns=full_headers)
 
     # validate all emails found
     found_emp = set(emp_email_col.tolist())
@@ -3050,39 +2964,7 @@ def _pair_one_group(
     if log_fn:
         log_fn(f"✅ Pairing complete. Output rows: {len(pairs)}.")
 
-    result = pd.DataFrame(pairs, columns=full_headers)
-
-    # A few historical/current forms use different slugs for the same requested
-    # export field. Copy those values into the canonical output names without
-    # changing the exact public header contract.
-    export_aliases = {
-        "confirmo_proceso_emprendedora": [
-            "selection_process_accept_emprendedora",
-            "confirma_proceso_emprendedora",
-        ],
-        "confirma_proceso_mentora": [
-            "selection_process_accept_mentora",
-            "confirmo_proceso_mentora",
-        ],
-        "cedula_emprendedora": ["id_number_emprendedora"],
-        "id_number_mentora": ["cedula_mentora"],
-        "pais_nacimiento_emprendedora": ["country_birth_emprendedora"],
-        "country_birth_mentora": ["pais_nacimiento_mentora"],
-        "availability_grid_mentora": ["preferred_schedule_mentora"],
-    }
-    for canonical, aliases in export_aliases.items():
-        if canonical not in result.columns:
-            result[canonical] = ""
-        for alias in aliases:
-            if alias not in result.columns:
-                continue
-            blank = result[canonical].fillna("").astype(str).str.strip().eq("")
-            result.loc[blank, canonical] = result.loc[blank, alias]
-
-    for header in PAIR_HEADERS:
-        if header not in result.columns:
-            result[header] = ""
-    return result.loc[:, PAIR_HEADERS]
+    return pd.DataFrame(pairs, columns=full_headers)
 
 
 

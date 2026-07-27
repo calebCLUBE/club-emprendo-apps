@@ -29,6 +29,7 @@ from applications.admin import (
     SectionAdminForm,
 )
 from applications.admin_views import (
+    PAIR_HEADERS,
     _build_second_stage_reminder_payload,
     _clone_form,
     _combined_application_entries,
@@ -2445,13 +2446,101 @@ class GradingAndPairingConfigEditorTests(TestCase):
         )
 
         self.assertTrue(result.empty)
-        self.assertIn("current_entrepreneur_answer_emprendedora", result.columns)
-        self.assertIn("current_mentor_answer_mentora", result.columns)
+        self.assertEqual(list(result.columns), PAIR_HEADERS)
         self.assertTrue(
             any("G912_E_A1 and G912_M_A1" in message for message in logs),
             logs,
         )
         self.assertFalse(any("G912_E_A2" in message or "G912_M_A2" in message for message in logs))
+
+    def test_pairing_output_headers_match_required_contract_exactly(self):
+        self.assertEqual(
+            PAIR_HEADERS,
+            [
+                "emprendedora_name",
+                "whatsapp_emprendedora",
+                "emprendedora_email",
+                "country_residence_emprendedora",
+                "mentora_name",
+                "whatsapp_mentora",
+                "mentora_email",
+                "country_residence_mentora",
+                "matching_availability",
+                "matching_industry",
+                "emprendedora_industry",
+                "mentora_industry",
+                "matching_country",
+                "business_age_matching",
+                "expertise_growth_matching",
+                "motivation_challenge_match",
+                "cedula_emprendedora",
+                "full_name_emprendedora",
+                "city_residence_emprendedora",
+                "pais_nacimiento_emprendedora",
+                "age_range_emprendedora",
+                "participated_before_emprendedora",
+                "privacy_accept_emprendedora",
+                "business_name_emprendedora",
+                "industry_emprendedora",
+                "business_description_emprendedora",
+                "business_age_emprendedora",
+                "has_employees_emprendedora",
+                "growth_how_emprendedora",
+                "biggest_challenge_emprendedora",
+                "commit_3_months_emprendedora",
+                "hours_per_week_emprendedora",
+                "prior_mentoring_emprendedora",
+                "reviewed_pdf_emprendedora",
+                "internet_access_emprendedora",
+                "preferred_schedule_emprendedora",
+                "req_basic_surveys_emprendedora",
+                "req_avail_period_emprendedora",
+                "req_avail_2hrs_week_emprendedora",
+                "req_avail_kickoff_emprendedora",
+                "req_basic_woman_emprendedora",
+                "req_basic_latam_emprendedora",
+                "req_basic_punctual_emprendedora",
+                "req_basic_training_emprendedora",
+                "additional_comments_emprendedora",
+                "confirmo_proceso_emprendedora",
+                "id_number_mentora",
+                "full_name_mentora",
+                "country_birth_mentora",
+                "age_range_mentora",
+                "prior_participation_mentora",
+                "privacy_ack_mentora",
+                "req_basic_woman_mentora",
+                "req_basic_latam_mentora",
+                "req_basic_business_exp_mentora",
+                "req_basic_punctual_mentora",
+                "req_basic_internet_device_mentora",
+                "req_basic_training_mentora",
+                "city_residence_mentora",
+                "req_avail_period_mentora",
+                "req_avail_2hrs_week_mentora",
+                "req_avail_kickoff_mentora",
+                "volunteer_ack_mentora",
+                "req_explain_mentora",
+                "read_pdf_mentora",
+                "owned_business_mentora",
+                "business_name_mentora",
+                "business_industry_mentora",
+                "business_description_mentora",
+                "business_location_mentora",
+                "business_years_mentora",
+                "has_employees_mentora",
+                "professional_expertise_mentora",
+                "motivation_mentora",
+                "why_good_mentor_mentora",
+                "mentoring_exp_as_mentor_mentora",
+                "mentoring_exp_as_student_mentora",
+                "mentoring_exp_detail_mentora",
+                "weekly_time_mentora",
+                "availability_grid_mentora",
+                "additional_comments_mentora",
+                "confirma_proceso_mentora",
+            ],
+        )
 
     def test_pairing_uses_configured_a1_grid_questions_for_availability(self):
         from applications.admin_views import _pair_one_group, _parse_emp_availability
@@ -2768,6 +2857,7 @@ class GradingAndPairingConfigEditorTests(TestCase):
             )
 
         self.assertEqual(len(result), 1)
+        self.assertEqual(list(result.columns), PAIR_HEADERS)
         self.assertEqual(
             result.iloc[0]["mentora_email"],
             lower_priority_mentor.email,

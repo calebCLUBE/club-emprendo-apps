@@ -2258,14 +2258,27 @@ def _pair_one_group(
             canonical_slug,
             *PAIRING_A1_FIELD_PREFIXES.get(track, {}).get(canonical_slug, ()),
         )
+        questions_by_slug = {
+            question.slug: question
+            for question in form_definition.questions.filter(active=True)
+        }
         candidates = []
         for column in columns:
+            question = questions_by_slug.get(column)
+            if (
+                canonical_slug == "whatsapp"
+                and question
+                and question.field_type not in {Question.SHORT_TEXT, Question.INTEGER}
+            ):
+                continue
             if any(column == prefix or column.startswith(prefix) for prefix in prefixes):
                 candidates.append(column)
         if canonical_slug == "whatsapp":
             contact_tokens = ("whatsapp", "telefono", "celular", "phone", "movil")
-            for question in form_definition.questions.filter(active=True):
+            for question in questions_by_slug.values():
                 if question.slug not in columns or question.slug in candidates:
+                    continue
+                if question.field_type not in {Question.SHORT_TEXT, Question.INTEGER}:
                     continue
                 searchable = _availability_word(
                     f"{question.slug} {question.text or ''}"
@@ -2277,6 +2290,9 @@ def _pair_one_group(
 
         def populated_count(column):
             values = _df_col(dataframe, column).fillna("").astype(str).str.strip()
+            if canonical_slug == "whatsapp":
+                digit_count = values.str.replace(r"\D", "", regex=True).str.len()
+                return int(digit_count.ge(7).sum())
             return int(values.ne("").sum())
 
         return sorted(
@@ -3097,6 +3113,12 @@ def _pair_one_group(
         result[output_column] = ""
         for values in source_values:
             blank = result[output_column].fillna("").astype(str).str.strip().eq("")
+            if output_column.startswith("whatsapp_"):
+                candidate = values.fillna("").astype(str).str.strip()
+                has_phone_number = (
+                    candidate.str.replace(r"\D", "", regex=True).str.len().ge(7)
+                )
+                blank &= has_phone_number
             result.loc[blank, output_column] = values.loc[blank]
     return result.loc[:, output_headers]
 

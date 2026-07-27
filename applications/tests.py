@@ -2523,6 +2523,12 @@ class GradingAndPairingConfigEditorTests(TestCase):
             slug="whatsapp",
             field_type=Question.SHORT_TEXT,
         )
+        mentor_whatsapp_consent = Question.objects.create(
+            form=mentor_form,
+            text="¿Aceptas recibir información por WhatsApp?",
+            slug="contacto_whatsapp_autorizado",
+            field_type=Question.CHOICE,
+        )
         mentor_whatsapp = Question.objects.create(
             form=mentor_form,
             text="Número de WhatsApp para recibir información",
@@ -2637,6 +2643,7 @@ class GradingAndPairingConfigEditorTests(TestCase):
                 (
                     (mentor_industry, "services"),
                     (mentor_country, "colombia"),
+                    (mentor_whatsapp_consent, "Sí"),
                     (mentor_whatsapp, "+57 300 444 5566"),
                     (mentor_age, "5-10nanos"),
                     (mentor_expertise, "I help companies grow their sales."),
@@ -2648,6 +2655,7 @@ class GradingAndPairingConfigEditorTests(TestCase):
                 (
                     (mentor_industry, "services"),
                     (mentor_country, "colombia"),
+                    (mentor_whatsapp_consent, "Sí"),
                     (mentor_whatsapp, "+57 300 777 8899"),
                     (mentor_age, "5-10nanos"),
                     (mentor_expertise, "I help companies build growth plans."),
@@ -2659,6 +2667,7 @@ class GradingAndPairingConfigEditorTests(TestCase):
                 (
                     (mentor_industry, "products"),
                     (mentor_country, "peru"),
+                    (mentor_whatsapp_consent, "Sí"),
                     (mentor_whatsapp, "+51 900 123 456"),
                     (mentor_age, "5-10nanos"),
                     (mentor_expertise, "I help product companies."),

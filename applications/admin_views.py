@@ -1117,6 +1117,25 @@ def start_grading_job(request, form_slug: str):
 
 PAIR_HEADERS = [
     "emprendedora_name",
+    "whatsapp_emprendedora",
+    "emprendedora_email",
+    "country_residence_emprendedora",
+    "mentora_name",
+    "whatsapp_mentora",
+    "mentora_email",
+    "country_residence_mentora",
+    "matching_availability",
+    "matching_industry",
+    "emprendedora_industry",
+    "mentora_industry",
+    "matching_country",
+    "business_age_matching",
+    "expertise_growth_matching",
+    "motivation_challenge_match",
+]
+
+PAIR_INTERNAL_HEADERS = [
+    "emprendedora_name",
     "mentora_name",
     "emprendedora_email",
     "mentora_email",
@@ -1151,6 +1170,7 @@ TIME_MAP_ES_TO_EN = {
 
 PAIRING_A1_FIELD_PREFIXES = {
     "E": {
+        "whatsapp": ("numero_de_whatsapp", "numero_whatsapp"),
         "preferred_schedule": ("test",),
         "industry": ("business_active",),
         "country_residence": ("pais_donde_vives_ahora_2", "pais_donde_vives_ahora"),
@@ -1159,6 +1179,7 @@ PAIRING_A1_FIELD_PREFIXES = {
         "biggest_challenge": ("cual_es_tu_mayor_desafio_actualmente_como_emprende",),
     },
     "M": {
+        "whatsapp": ("numero_de_whatsapp", "numero_whatsapp"),
         "availability_grid": ("en_que_horario_te_resulta_mas_conveniente_particip",),
         "business_industry": ("industria_de_tu_emprendimiento",),
         "country_residence": ("pais_donde_vives_ahora",),
@@ -2225,14 +2246,56 @@ def _pair_one_group(
                 f"is not present in {mentor_slug}."
             )
 
+    emp_whatsapp_slug = _resolve_pairing_a1_slug(
+        "whatsapp",
+        emp_question_cols,
+        "E",
+    )
+    emp_country_slug = _resolve_pairing_a1_slug(
+        "country_residence",
+        emp_question_cols,
+        "E",
+    )
+    mentor_whatsapp_slug = _resolve_pairing_a1_slug(
+        "whatsapp",
+        mentor_question_cols,
+        "M",
+    )
+    mentor_country_slug = _resolve_pairing_a1_slug(
+        "country_residence",
+        mentor_question_cols,
+        "M",
+    )
+
+    # Name/email come from the application identity fields. WhatsApp and
+    # residence country are promoted from their live question columns into the
+    # fixed front section. Every other active question stays in application
+    # order after the matching columns.
+    emp_front_question_slugs = {emp_whatsapp_slug, emp_country_slug}
+    mentor_front_question_slugs = {mentor_whatsapp_slug, mentor_country_slug}
+    emp_export_question_cols = [
+        column
+        for column in emp_question_cols
+        if column not in emp_front_question_slugs
+        and f"{column}_emprendedora" not in PAIR_HEADERS
+    ]
+    mentor_export_question_cols = [
+        column
+        for column in mentor_question_cols
+        if column not in mentor_front_question_slugs
+        and f"{column}_mentora" not in PAIR_HEADERS
+    ]
     emp_suffix_headers = [f"{c}_emprendedora" for c in emp_question_cols]
     mentor_suffix_headers = [f"{c}_mentora" for c in mentor_question_cols]
+    emp_export_headers = [f"{c}_emprendedora" for c in emp_export_question_cols]
+    mentor_export_headers = [f"{c}_mentora" for c in mentor_export_question_cols]
     extra_ai_headers = [
         f"ai_{item.get('output_key') or item.get('label')}"
         for item in ai_comparisons[2:]
     ]
-    base_headers = PAIR_HEADERS + extra_ai_headers
+    base_headers = PAIR_INTERNAL_HEADERS + extra_ai_headers
     full_headers = base_headers + emp_suffix_headers + mentor_suffix_headers
+    output_headers = PAIR_HEADERS + emp_export_headers + mentor_export_headers
 
     # normalize incoming email lists once
     emp_emails_norm = [str(x).strip().lower() for x in (emp_emails or []) if str(x).strip()]
@@ -2268,12 +2331,12 @@ def _pair_one_group(
         if log_fn:
             log_fn(f"⚠️ No emprendedoras found for the given emails in {emp_slug}. Returning empty pairing file.")
         import pandas as pd
-        return pd.DataFrame(columns=full_headers)
+        return pd.DataFrame(columns=output_headers)
     if mentor_df.empty:
         if log_fn:
             log_fn(f"⚠️ No mentoras found for the given emails in {mentor_slug}. Returning empty pairing file.")
         import pandas as pd
-        return pd.DataFrame(columns=full_headers)
+        return pd.DataFrame(columns=output_headers)
 
     # validate all emails found
     found_emp = set(emp_email_col.tolist())
@@ -2964,7 +3027,20 @@ def _pair_one_group(
     if log_fn:
         log_fn(f"✅ Pairing complete. Output rows: {len(pairs)}.")
 
-    return pd.DataFrame(pairs, columns=full_headers)
+    result = pd.DataFrame(pairs, columns=full_headers)
+    promoted_question_columns = {
+        "whatsapp_emprendedora": f"{emp_whatsapp_slug}_emprendedora",
+        "country_residence_emprendedora": f"{emp_country_slug}_emprendedora",
+        "whatsapp_mentora": f"{mentor_whatsapp_slug}_mentora",
+        "country_residence_mentora": f"{mentor_country_slug}_mentora",
+    }
+    for output_column, source_column in promoted_question_columns.items():
+        result[output_column] = (
+            result[source_column]
+            if source_column in result.columns
+            else ""
+        )
+    return result.loc[:, output_headers]
 
 
 

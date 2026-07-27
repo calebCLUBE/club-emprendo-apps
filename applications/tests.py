@@ -2402,7 +2402,7 @@ class GradingAndPairingConfigEditorTests(TestCase):
         self.assertIn("emprendedora_question_slug", cross_group_form.errors)
 
     def test_pairing_job_uses_current_a1_forms_instead_of_retired_a2_forms(self):
-        from applications.admin_views import _pair_one_group
+        from applications.admin_views import PAIR_HEADERS, _pair_one_group
 
         group = FormGroup.objects.create(
             number=912,
@@ -2445,8 +2445,14 @@ class GradingAndPairingConfigEditorTests(TestCase):
         )
 
         self.assertTrue(result.empty)
-        self.assertIn("current_entrepreneur_answer_emprendedora", result.columns)
-        self.assertIn("current_mentor_answer_mentora", result.columns)
+        self.assertEqual(
+            list(result.columns),
+            PAIR_HEADERS
+            + [
+                "current_entrepreneur_answer_emprendedora",
+                "current_mentor_answer_mentora",
+            ],
+        )
         self.assertTrue(
             any("G912_E_A1 and G912_M_A1" in message for message in logs),
             logs,
@@ -2454,7 +2460,11 @@ class GradingAndPairingConfigEditorTests(TestCase):
         self.assertFalse(any("G912_E_A2" in message or "G912_M_A2" in message for message in logs))
 
     def test_pairing_uses_configured_a1_grid_questions_for_availability(self):
-        from applications.admin_views import _pair_one_group, _parse_emp_availability
+        from applications.admin_views import (
+            PAIR_HEADERS,
+            _pair_one_group,
+            _parse_emp_availability,
+        )
 
         group = FormGroup.objects.create(
             number=913,
@@ -2505,6 +2515,18 @@ class GradingAndPairingConfigEditorTests(TestCase):
             form=mentor_form,
             text="Country",
             slug="pais_donde_vives_ahora",
+            field_type=Question.SHORT_TEXT,
+        )
+        entrepreneur_whatsapp = Question.objects.create(
+            form=entrepreneur_form,
+            text="WhatsApp",
+            slug="whatsapp",
+            field_type=Question.SHORT_TEXT,
+        )
+        mentor_whatsapp = Question.objects.create(
+            form=mentor_form,
+            text="WhatsApp",
+            slug="numero_de_whatsapp_con_indicativo",
             field_type=Question.SHORT_TEXT,
         )
         entrepreneur_age = Question.objects.create(
@@ -2598,6 +2620,7 @@ class GradingAndPairingConfigEditorTests(TestCase):
                 (
                     (entrepreneur_industry, "services"),
                     (entrepreneur_country, "colombia"),
+                    (entrepreneur_whatsapp, "+57 300 111 2233"),
                     (entrepreneur_age, "1-5-anos"),
                     (entrepreneur_growth, "I need a practical growth plan."),
                     (entrepreneur_challenge, "I need to find more customers."),
@@ -2608,6 +2631,7 @@ class GradingAndPairingConfigEditorTests(TestCase):
                 (
                     (mentor_industry, "services"),
                     (mentor_country, "colombia"),
+                    (mentor_whatsapp, "+57 300 444 5566"),
                     (mentor_age, "5-10nanos"),
                     (mentor_expertise, "I help companies grow their sales."),
                     (mentor_motivation, "I want to help founders find customers."),
@@ -2618,6 +2642,7 @@ class GradingAndPairingConfigEditorTests(TestCase):
                 (
                     (mentor_industry, "services"),
                     (mentor_country, "colombia"),
+                    (mentor_whatsapp, "+57 300 777 8899"),
                     (mentor_age, "5-10nanos"),
                     (mentor_expertise, "I help companies build growth plans."),
                     (mentor_motivation, "I want to help founders solve challenges."),
@@ -2628,6 +2653,7 @@ class GradingAndPairingConfigEditorTests(TestCase):
                 (
                     (mentor_industry, "products"),
                     (mentor_country, "peru"),
+                    (mentor_whatsapp, "+51 900 123 456"),
                     (mentor_age, "5-10nanos"),
                     (mentor_expertise, "I help product companies."),
                     (mentor_motivation, "I want to help entrepreneurs."),
@@ -2768,6 +2794,35 @@ class GradingAndPairingConfigEditorTests(TestCase):
             )
 
         self.assertEqual(len(result), 1)
+        self.assertEqual(list(result.columns[:16]), PAIR_HEADERS)
+        self.assertEqual(
+            result.iloc[0]["whatsapp_emprendedora"],
+            "+57 300 111 2233",
+        )
+        self.assertEqual(
+            result.iloc[0]["country_residence_emprendedora"],
+            "colombia",
+        )
+        self.assertEqual(result.iloc[0]["whatsapp_mentora"], "+51 900 123 456")
+        self.assertEqual(result.iloc[0]["country_residence_mentora"], "peru")
+        self.assertNotIn("whatsapp_emprendedora", result.columns[16:])
+        self.assertNotIn(
+            "pais_donde_vives_ahora_2_emprendedora",
+            result.columns[16:],
+        )
+        self.assertNotIn(
+            "numero_de_whatsapp_con_indicativo_mentora",
+            result.columns[16:],
+        )
+        self.assertNotIn(
+            "pais_donde_vives_ahora_mentora",
+            result.columns[16:],
+        )
+        self.assertIn("business_active_emprendedora", result.columns[16:])
+        self.assertIn(
+            "cual_es_tu_area_de_experiencia_profesional_mas_rel_mentora",
+            result.columns[16:],
+        )
         self.assertEqual(
             result.iloc[0]["mentora_email"],
             lower_priority_mentor.email,

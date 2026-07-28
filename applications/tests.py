@@ -3496,6 +3496,11 @@ class ApplicationProgressRenderingTests(TestCase):
         self.assertIn("<span data-progress-label>0%</span>", html)
         self.assertIn("label.textContent = `${percent}%`;", html)
         self.assertNotIn("Sección ${safeCompleted}", html)
+        self.assertIn(
+            "<em>Guardamos temporalmente tu progreso para entender dónde "
+            "se interrumpen las aplicaciones incompletas.</em>",
+            html,
+        )
 
 
 class ApplicationIntroContactTests(TestCase):

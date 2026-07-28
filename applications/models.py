@@ -225,6 +225,15 @@ class FormDefinition(models.Model):
             "triggering an end-application rule."
         ),
     )
+    rejection_email_name = models.CharField(
+        max_length=120,
+        blank=True,
+        default="",
+        help_text=(
+            "Default stored email sent when an answer ends the application. "
+            "An individual ending rule may override it."
+        ),
+    )
     thanks_rejected_title = models.CharField(
         max_length=200,
         blank=True,

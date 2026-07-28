@@ -3982,6 +3982,7 @@ def _ensure_test_grading_form(role: str) -> FormDefinition:
         is_public=False,             # keep it out of public view
         accepting_responses=False,   # prevent real submissions
         approval_email_name=getattr(master_fd, "approval_email_name", "") or "",
+        rejection_email_name=getattr(master_fd, "rejection_email_name", "") or "",
     )
 
     for template in master_fd.stored_emails.all().order_by("position", "id"):
@@ -4139,6 +4140,7 @@ def _clone_form(master_fd: FormDefinition, group: FormGroup) -> FormDefinition:
             getattr(master_fd, "thanks_approved_image_width", "full") or "full"
         ),
         approval_email_name=getattr(master_fd, "approval_email_name", "") or "",
+        rejection_email_name=getattr(master_fd, "rejection_email_name", "") or "",
         thanks_rejected_title=_fill_placeholders(
             getattr(master_fd, "thanks_rejected_title", ""),
             group_num,

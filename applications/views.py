@@ -1076,15 +1076,21 @@ def _matching_end_form_rule(post_data, form_defs):
     return None, None
 
 
-def _send_stored_email_for_rule(app, question, rule):
+def _send_stored_email_for_rule(app, question, rule, default_form_def=None):
     email_name = str(rule.get("email_name") or "").strip()
+    email_form_def = question.form
+    if not email_name:
+        email_form_def = default_form_def or question.form
+        email_name = str(
+            getattr(email_form_def, "rejection_email_name", "") or ""
+        ).strip()
     recipient = (app.email or "").strip()
     if not email_name or not recipient:
         return False
-    template = question.form.stored_emails.filter(name=email_name).first()
+    template = email_form_def.stored_emails.filter(name=email_name).first()
     if not template:
         return False
-    replacements = build_form_email_context(form_def=question.form)
+    replacements = build_form_email_context(form_def=email_form_def)
     replacements.update({"name": app.name or "", "email": recipient})
     subject = " ".join(render_email_template(template.subject, replacements).splitlines()).strip()
     body = render_email_template(template.body, replacements)
@@ -1138,6 +1144,7 @@ def _uses_managed_completion(form_def: FormDefinition | None) -> bool:
         str(getattr(form_def, field_name, "") or "").strip()
         for field_name in (
             "approval_email_name",
+            "rejection_email_name",
             "thanks_approved_title",
             "thanks_approved_message",
             "thanks_approved_image_data",
@@ -1458,7 +1465,12 @@ def _handle_application_form(
 
         if terminal_rule and terminal_question:
             try:
-                _send_stored_email_for_rule(app, terminal_question, terminal_rule)
+                _send_stored_email_for_rule(
+                    app,
+                    terminal_question,
+                    terminal_rule,
+                    completion_form_def,
+                )
             except Exception:
                 logger.exception("Stored terminal email failed for application %s", app.pk)
             rejection_form_def = completion_form_def

@@ -705,6 +705,27 @@ class FormDefinitionAdminForm(forms.ModelForm):
             ),
             choices=[("", "— Do not send an approval email —")] + [(name, name) for name in names],
         )
+        if self.is_bound:
+            rejection_current = str(
+                self.data.get(self.add_prefix("rejection_email_name")) or ""
+            ).strip()
+        elif form_obj:
+            rejection_current = str(form_obj.rejection_email_name or "").strip()
+        else:
+            rejection_current = ""
+        rejection_names = list(names)
+        if rejection_current and rejection_current not in rejection_names:
+            rejection_names.append(rejection_current)
+        self.fields["rejection_email_name"] = forms.ChoiceField(
+            required=False,
+            label="Default rejection email",
+            help_text=(
+                "Sent when an answer ends the application unless that ending "
+                "selects a different stored email."
+            ),
+            choices=[("", "— Do not send a rejection email —")]
+            + [(name, name) for name in rejection_names],
+        )
 
         self.fields["thanks_approved_title"].label = "Page title"
         self.fields["thanks_approved_message"].label = "Page message"
@@ -1004,6 +1025,13 @@ class FormDefinitionAdmin(admin.ModelAdmin):
                 "classes": ("collapse",),
                 "description": (
                     "Shared final page used whenever a question's answer ends the application."
+                ),
+            }),
+            ("Rejection email", {
+                "fields": ("rejection_email_name",),
+                "classes": ("collapse",),
+                "description": (
+                    "Default stored email sent when an answer ends the application."
                 ),
             }),
             ("Form settings", {"fields": settings, "classes": ("collapse",)}),

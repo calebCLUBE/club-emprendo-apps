@@ -1496,10 +1496,15 @@ class QuestionAdminFormTests(TestCase):
         self.assertContains(response, "Approval page")
         self.assertContains(response, "Approval email")
         self.assertContains(response, "Rejection page")
+        self.assertContains(response, "Rejection email")
         self.assertContains(response, 'name="approval_email_name"')
+        self.assertContains(response, 'name="rejection_email_name"')
         self.assertContains(response, "Requirements rejection")
         self.assertContains(response, "End the application based on this answer")
-        self.assertContains(response, "Uses the shared Rejection page configured at the top of the editor.")
+        self.assertContains(
+            response,
+            "Uses the shared Rejection page and default Rejection email configured at the top of the editor",
+        )
         self.assertNotContains(response, "Final page message")
         self.assertNotContains(response, "Confirmation messages")
         self.assertNotContains(response, "Email messages")
@@ -3901,7 +3906,7 @@ class TerminalAnswerRuleTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(mail.outbox), 0)
 
-    def test_a1_rejection_rule_still_sends_its_selected_email(self):
+    def test_a1_rejection_rule_uses_form_default_rejection_email(self):
         form_def = FormDefinition.objects.create(
             slug="G992_E_A1",
             name="Configured entrepreneur rejection",
@@ -3909,6 +3914,7 @@ class TerminalAnswerRuleTests(TestCase):
             accepting_responses=True,
             manual_open_override=True,
             approval_email_name="",
+            rejection_email_name="Rechazo E",
         )
         Question.objects.create(
             form=form_def,
@@ -3932,7 +3938,7 @@ class TerminalAnswerRuleTests(TestCase):
             position=3,
             end_form_rules=[{
                 "value": "no",
-                "email_name": "Rechazo E",
+                "email_name": "",
                 "page_title": "Not eligible",
                 "page_message": "The application ended.",
             }],
@@ -4251,10 +4257,14 @@ class GroupFormNamingTests(TestCase):
             use_combined_application=True,
         )
 
+        self.master_m_a1.rejection_email_name = "Default rejection"
+        self.master_m_a1.save(update_fields=["rejection_email_name"])
+
         clone = _clone_form(self.master_m_a1, group)
 
         self.assertEqual(clone.slug, "april_group_M_A1")
         self.assertEqual(clone.name, "april_group_m_1")
+        self.assertEqual(clone.rejection_email_name, "Default rejection")
 
     def test_sync_group_form_names_updates_existing_group_forms_after_rename(self):
         group = FormGroup.objects.create(

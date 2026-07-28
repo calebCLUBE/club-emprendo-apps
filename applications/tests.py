@@ -2532,7 +2532,7 @@ class GradingAndPairingConfigEditorTests(TestCase):
         mentor_whatsapp = Question.objects.create(
             form=mentor_form,
             text="Número de WhatsApp para recibir información",
-            slug="numero_de_whatsapp_con_indicativo_de_pais_ej_57_pa",
+            slug="numero_de_whatsapp_incluye_el_indicativo_de_tu_pai",
             # Imported Group 15 fields can carry an unexpected type. The exact
             # slug and phone-shaped value must still win.
             field_type=Question.CHOICE,
@@ -2598,6 +2598,26 @@ class GradingAndPairingConfigEditorTests(TestCase):
             form=mentor_form,
             name="Lower Priority Mentor",
             email="lower.priority.mentor@example.com",
+        )
+        fallback_mentor_form = FormDefinition.objects.create(
+            slug="M_A1",
+            name="Mentor application used before the group clone",
+        )
+        fallback_mentor_whatsapp = Question.objects.create(
+            form=fallback_mentor_form,
+            text="Número de WhatsApp",
+            slug="numero_de_whatsapp_con_indicativo_de_pais_ej_57_pa",
+            field_type=Question.CHOICE,
+        )
+        fallback_mentor = Application.objects.create(
+            form=fallback_mentor_form,
+            name="Lower Priority Mentor",
+            email=lower_priority_mentor.email.upper(),
+        )
+        Answer.objects.create(
+            application=fallback_mentor,
+            question=fallback_mentor_whatsapp,
+            value="+51 900 123 456",
         )
         Answer.objects.create(
             application=entrepreneur,
@@ -2670,7 +2690,6 @@ class GradingAndPairingConfigEditorTests(TestCase):
                     (mentor_industry, "products"),
                     (mentor_country, "peru"),
                     (mentor_whatsapp_consent, "Sí"),
-                    (mentor_whatsapp, "+51 900 123 456"),
                     (mentor_age, "5-10nanos"),
                     (mentor_expertise, "I help product companies."),
                     (mentor_motivation, "I want to help entrepreneurs."),
@@ -2828,7 +2847,7 @@ class GradingAndPairingConfigEditorTests(TestCase):
             result.columns[16:],
         )
         self.assertNotIn(
-            "numero_de_whatsapp_con_indicativo_de_pais_ej_57_pa_mentora",
+            "numero_de_whatsapp_incluye_el_indicativo_de_tu_pai_mentora",
             result.columns[16:],
         )
         self.assertNotIn(
@@ -2842,8 +2861,16 @@ class GradingAndPairingConfigEditorTests(TestCase):
         )
         self.assertTrue(
             any(
-                "numero_de_whatsapp_con_indicativo_de_pais_ej_57_pa "
-                "(3 phone value(s))" in message
+                "numero_de_whatsapp_incluye_el_indicativo_de_tu_pai "
+                "(2 phone value(s))" in message
+                for message in logs
+            ),
+            logs,
+        )
+        self.assertTrue(
+            any(
+                "Mentor WhatsApp cross-form fallback: 1 output row(s) recovered"
+                in message
                 for message in logs
             ),
             logs,

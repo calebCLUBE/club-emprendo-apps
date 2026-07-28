@@ -3137,6 +3137,73 @@ def _pair_one_group(
                 )
                 blank &= has_phone_number
             result.loc[blank, output_column] = values.loc[blank]
+
+    # Group 15-era submissions can be split between the group clone and another
+    # mentor A1 form. If the group form has no number, recover the same selected
+    # mentor's phone by normalized email from her other A1 submission. Prefer
+    # the exact historical slug used by that application generation.
+    preferred_mentor_whatsapp_slug = (
+        "numero_de_whatsapp_con_indicativo_de_pais_ej_57_pa"
+    )
+    mentor_phone_fallbacks = {}
+    mentor_phone_ranks = {}
+    fallback_answers = (
+        Answer.objects.annotate(
+            application_email_normalized=Lower("application__email"),
+        )
+        .filter(
+            application_email_normalized__in=mentor_emails_norm,
+            application__form__slug__endswith="M_A1",
+        )
+        .select_related("application", "application__form", "question")
+        .order_by("application__created_at", "application_id", "id")
+    )
+    for answer in fallback_answers:
+        raw_value = str(answer.value or "").strip()
+        if len(re.sub(r"\D", "", raw_value)) < 7:
+            continue
+        question_slug = str(answer.question.slug or "")
+        searchable = _availability_word(
+            f"{question_slug} {answer.question.text or ''}"
+        )
+        if not any(
+            token in searchable
+            for token in ("whatsapp", "telefono", "celular", "phone", "movil")
+        ):
+            continue
+        email_key = str(answer.application.email or "").strip().lower()
+        if not email_key:
+            continue
+        rank = (
+            int(question_slug == preferred_mentor_whatsapp_slug),
+            answer.application.created_at.timestamp(),
+            answer.application_id,
+            answer.id,
+        )
+        if rank >= mentor_phone_ranks.get(email_key, (0, 0.0, 0, 0)):
+            mentor_phone_ranks[email_key] = rank
+            mentor_phone_fallbacks[email_key] = raw_value
+
+    blank_mentor_phone = (
+        result["whatsapp_mentora"].fillna("").astype(str).str.strip().eq("")
+    )
+    fallback_values = (
+        result["mentora_email"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+        .str.lower()
+        .map(mentor_phone_fallbacks)
+        .fillna("")
+    )
+    use_fallback = blank_mentor_phone & fallback_values.ne("")
+    result.loc[use_fallback, "whatsapp_mentora"] = fallback_values.loc[use_fallback]
+    if log_fn:
+        log_fn(
+            "📱 Mentor WhatsApp cross-form fallback: "
+            f"{int(use_fallback.sum())} output row(s) recovered; "
+            f"{len(mentor_phone_fallbacks)} selected mentor email(s) available."
+        )
     return result.loc[:, output_headers]
 
 

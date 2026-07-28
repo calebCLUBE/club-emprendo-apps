@@ -1192,6 +1192,39 @@ class QuestionAdminFormTests(TestCase):
         question = form.save()
         self.assertEqual(question.slug, "cual_es_tu_experiencia_profesional")
 
+    def test_question_help_text_preserves_resizable_inline_image(self):
+        rich_help = (
+            '<div data-ce-rich-text="1"><p>Review this example:</p>'
+            '<img src="data:image/webp;base64,UklGRg==" '
+            'data-ce-align="center" data-ce-width="75" data-ce-free-resize="1" '
+            'style="display:block;width:75%;max-width:100%;height:420px;'
+            'margin-left:auto;margin-right:auto"></div>'
+        )
+        form = QuestionAdminForm(
+            data={
+                "form": str(self.form_def.id),
+                "text": "Question with visual guidance",
+                "slug": "visual_guidance",
+                "field_type": Question.SHORT_TEXT,
+                "required": "on",
+                "position": "2",
+                "active": "on",
+                "help_text_clean": rich_help,
+                "show_if_conditions": "[]",
+                "end_form_rules": "[]",
+            },
+            instance=Question(),
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        question = form.save()
+        self.assertEqual(question.help_text, rich_help)
+        rendered = str(format_help_text(question.help_text))
+        self.assertIn('data-ce-align="center"', rendered)
+        self.assertIn('data-ce-width="75"', rendered)
+        self.assertIn('data-ce-free-resize="1"', rendered)
+        self.assertIn("height:420px", rendered.replace(" ", ""))
+
     @override_settings(
         STORAGES={
             "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},

@@ -271,6 +271,8 @@
       fieldName === "description"
       || fieldName.endsWith("-description")
       || fieldName === "thanks_approved_message"
+      || fieldName === "help_text_clean"
+      || fieldName.endsWith("-help_text_clean")
     );
     if (
       fieldName.endsWith("-answer_options")

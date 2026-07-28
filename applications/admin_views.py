@@ -3153,7 +3153,10 @@ def _pair_one_group(
         )
         .filter(
             application_email_normalized__in=mentor_emails_norm,
-            application__form__slug__endswith="M_A1",
+        )
+        .filter(
+            Q(application__form__slug__endswith="M_A1")
+            | Q(application__form__slug__endswith="M_A2")
         )
         .select_related("application", "application__form", "question")
         .order_by("application__created_at", "application_id", "id")

@@ -2600,8 +2600,8 @@ class GradingAndPairingConfigEditorTests(TestCase):
             email="lower.priority.mentor@example.com",
         )
         fallback_mentor_form = FormDefinition.objects.create(
-            slug="M_A1",
-            name="Mentor application used before the group clone",
+            slug="M_A2",
+            name="Historical mentor application after second-stage migration",
         )
         fallback_mentor_whatsapp = Question.objects.create(
             form=fallback_mentor_form,

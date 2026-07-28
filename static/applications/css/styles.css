@@ -521,6 +521,25 @@ select:focus {
   box-shadow: 0 0 0 2px rgba(22, 49, 8, 0.12);
 }
 
+/*
+ * iOS Safari automatically zooms the page when a form control with text
+ * smaller than 16px receives focus. Keep the compact desktop sizing, but use
+ * Safari's no-zoom threshold on phones.
+ */
+@media (max-width: 768px) {
+  input[type="text"],
+  input[type="email"],
+  input[type="number"],
+  input[type="tel"],
+  input[type="url"],
+  input[type="search"],
+  input[type="password"],
+  textarea,
+  select {
+    font-size: 16px;
+  }
+}
+
 /* Radios & checkboxes */
 .form-row ul {
   list-style: none;

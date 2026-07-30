@@ -765,6 +765,8 @@ class ApplicationPageImageTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Page images")
+        self.assertContains(response, 'name="intro_page_title"')
+        self.assertContains(response, "Intro page title")
         self.assertContains(response, 'name="intro_image_upload"')
         self.assertContains(response, 'name="approval_image_upload"')
         self.assertContains(response, "Intro page image")
@@ -803,6 +805,19 @@ class ApplicationPageImageTests(TestCase):
             html.index("data:image/webp;base64,INTROIMAGE"),
             html.index("Antes de comenzar"),
         )
+
+    def test_custom_intro_page_title_renders_on_public_application(self):
+        self.form_def.intro_page_title = "Información importante"
+        self.form_def.description = "Lee esto antes de continuar."
+        self.form_def.save(update_fields=["intro_page_title", "description"])
+
+        response = self.client.get(
+            reverse("apply_by_slug", args=[self.form_def.slug])
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Información importante")
+        self.assertNotContains(response, ">Antes de comenzar</h2>")
 
     def test_inline_intro_image_suppresses_duplicate_standalone_image(self):
         self.form_def.description = (
@@ -4305,13 +4320,17 @@ class GroupFormNamingTests(TestCase):
         )
 
         self.master_m_a1.rejection_email_name = "Default rejection"
-        self.master_m_a1.save(update_fields=["rejection_email_name"])
+        self.master_m_a1.intro_page_title = "Antes de aplicar al grupo"
+        self.master_m_a1.save(
+            update_fields=["rejection_email_name", "intro_page_title"]
+        )
 
         clone = _clone_form(self.master_m_a1, group)
 
         self.assertEqual(clone.slug, "april_group_M_A1")
         self.assertEqual(clone.name, "april_group_m_1")
         self.assertEqual(clone.rejection_email_name, "Default rejection")
+        self.assertEqual(clone.intro_page_title, "Antes de aplicar al grupo")
 
     def test_sync_group_form_names_updates_existing_group_forms_after_rename(self):
         group = FormGroup.objects.create(

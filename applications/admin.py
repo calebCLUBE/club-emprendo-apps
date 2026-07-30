@@ -737,6 +737,10 @@ class FormDefinitionAdminForm(forms.ModelForm):
         self.fields["thanks_rejected_message"].help_text = (
             "Shared by every answer rule that ends this application. Line breaks are preserved."
         )
+        self.fields["intro_page_title"].label = "Intro page title"
+        self.fields["intro_page_title"].help_text = (
+            'Heading shown above the introduction. The default is "Antes de comenzar".'
+        )
         if form_obj and form_obj.intro_image_data:
             self.fields["intro_image_upload"].help_text = format_html(
                 'Current image:<br><img src="{}" alt="" '
@@ -912,6 +916,7 @@ class FormDefinitionAdmin(admin.ModelAdmin):
     base_fields = (
         "slug",
         "name",
+        "intro_page_title",
         "description",
         "intro_image_upload",
         "remove_intro_image",
@@ -973,6 +978,7 @@ class FormDefinitionAdmin(admin.ModelAdmin):
         basics = [
             name for name in (
                 "name",
+                "intro_page_title",
                 "description",
                 "accepting_responses",
             ) if name in fields

@@ -111,6 +111,12 @@ class FormDefinition(models.Model):
     slug = models.SlugField(unique=True)  # e.g. "E_A1" or "G6_E_A1"
     name = models.CharField(max_length=200)
     description = models.TextField(blank=True)
+    intro_page_title = models.CharField(
+        max_length=200,
+        blank=True,
+        default="Antes de comenzar",
+        help_text="Título mostrado encima del contenido de la página de introducción.",
+    )
     intro_image_data = models.TextField(
         blank=True,
         default="",

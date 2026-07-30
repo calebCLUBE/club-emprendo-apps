@@ -3977,6 +3977,7 @@ def _ensure_test_grading_form(role: str) -> FormDefinition:
         slug=test_slug,
         name=f"TEST — {master_fd.name}",
         description=(master_fd.description or "") + "\n\n(Imported test CSV submissions.)",
+        intro_page_title=master_fd.intro_page_title or "Antes de comenzar",
         is_master=False,
         group=None,
         is_public=False,             # keep it out of public view
@@ -4101,6 +4102,17 @@ def _clone_form(master_fd: FormDefinition, group: FormGroup) -> FormDefinition:
             respond_month=respond_month,
         )
         or "",
+        intro_page_title=_fill_placeholders(
+            getattr(master_fd, "intro_page_title", "Antes de comenzar"),
+            group_num,
+            start_day,
+            start_month,
+            end_month,
+            year,
+            respond_day=respond_day,
+            respond_month=respond_month,
+        )
+        or "Antes de comenzar",
         intro_image_data=getattr(master_fd, "intro_image_data", "") or "",
         intro_image_position=getattr(master_fd, "intro_image_position", "above") or "above",
         intro_image_alignment=getattr(master_fd, "intro_image_alignment", "center") or "center",

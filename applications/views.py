@@ -1330,7 +1330,7 @@ def _handle_application_form(
         if intro or intro_contact_fields or form_def.intro_image_data:
             sections.insert(0, {
                 "id": "form-intro",
-                "title": "Antes de comenzar",
+                "title": form_def.intro_page_title or "Antes de comenzar",
                 "intro": intro,
                 # An inline image is intentionally the sole intro image. Showing
                 # the legacy page image too produces a large duplicate above it.

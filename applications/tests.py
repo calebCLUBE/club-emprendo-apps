@@ -3607,22 +3607,14 @@ class MultipleChoiceGridTests(TestCase):
         self.assertNotIn('type="radio"', html)
         self.assertEqual(html.count('class="ce-grid-choice__mark"'), 4)
 
-    def test_grid_repeats_column_labels_for_mobile_card_layout(self):
+    def test_grid_keeps_semantic_row_and_column_table(self):
         form = build_application_form(self.form_def.slug)()
         html = str(form["q_area_grid"])
 
-        self.assertEqual(
-            html.count('class="ce-grid-choice__mobile-label"'),
-            4,
-        )
-        self.assertEqual(
-            html.count('<span class="ce-grid-choice__mobile-label">Bajo</span>'),
-            2,
-        )
-        self.assertEqual(
-            html.count('<span class="ce-grid-choice__mobile-label">Alto</span>'),
-            2,
-        )
+        self.assertIn('class="ce-grid-question__table"', html)
+        self.assertEqual(html.count('scope="col"'), 3)
+        self.assertEqual(html.count('scope="row"'), 2)
+        self.assertNotIn("ce-grid-choice__mobile-label", html)
 
     def test_required_grid_accepts_one_checkbox_anywhere_and_multiple_per_row(self):
         ApplicationForm = build_application_form(self.form_def.slug)

@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import unicodedata
 from collections import defaultdict
 from functools import lru_cache
 from io import BytesIO
@@ -51,7 +52,12 @@ from .models import (
     ParticipantSheetVersion,
     ParticipantEmailStatus,
 )
-from .participant_statuses import PARTICIPANT_STATUS_SHEET_OPTIONS
+from .participant_statuses import (
+    PARTICIPANT_STATUS_GRADUATED,
+    PARTICIPANT_STATUS_SHEET_LABELS,
+    PARTICIPANT_STATUS_SHEET_OPTIONS,
+    normalize_participant_status,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1936,6 +1942,332 @@ def _participant_list_email_keys() -> set[str]:
     return out
 
 
+def _normalize_participant_name(value: str | None) -> str:
+    raw = unicodedata.normalize("NFKD", str(value or "").strip().casefold())
+    without_marks = "".join(char for char in raw if not unicodedata.combining(char))
+    return " ".join(re.sub(r"[^a-z0-9]+", " ", without_marks).split())
+
+
+def _participant_history_occurrences() -> list[dict]:
+    occurrences: dict[tuple, dict] = {}
+    participant_lists = (
+        GroupParticipantList.objects.select_related("group")
+        .only(
+            "group__number",
+            "mentoras_emails_text",
+            "emprendedoras_emails_text",
+            "mentoras_sheet_rows",
+            "emprendedoras_sheet_rows",
+        )
+        .order_by("group__number")
+    )
+    track_specs = (
+        (
+            "M",
+            "Mentora",
+            "mentoras_sheet_rows",
+            "mentoras_emails_text",
+            MENTORAS_HEADERS,
+        ),
+        (
+            "E",
+            "Emprendedora",
+            "emprendedoras_sheet_rows",
+            "emprendedoras_emails_text",
+            EMPRENDEDORAS_HEADERS,
+        ),
+    )
+    for participant_list in participant_lists:
+        group_num = int(participant_list.group.number)
+        for role_code, role_label, rows_field, emails_field, headers in track_specs:
+            rows = _normalize_sheet_rows(
+                getattr(participant_list, rows_field, []),
+                headers,
+            )
+            if not rows:
+                rows = [
+                    ["", "", index, "", "", email]
+                    for index, email in enumerate(
+                        _norm_email_list(getattr(participant_list, emails_field, "")),
+                        start=1,
+                    )
+                ]
+            for row in rows:
+                values = list(row)
+                values += [""] * max(0, 6 - len(values))
+                status_raw = str(values[1] or "").strip()
+                name = str(values[3] or "").strip()
+                identity = str(values[4] or "").strip()
+                email = str(values[5] or "").strip()
+                email_norm = _normalize_email(email)
+                identity_norm = _normalize_identity(identity)
+                name_norm = _normalize_participant_name(name)
+                if not (email_norm or identity_norm or name_norm):
+                    continue
+                status_code = normalize_participant_status(status_raw)
+                status_display = (
+                    PARTICIPANT_STATUS_SHEET_LABELS.get(status_code)
+                    or status_raw
+                    or "Sin estatus"
+                )
+                person_token = (
+                    f"email:{email_norm}"
+                    if email_norm
+                    else f"id:{identity_norm}"
+                    if identity_norm
+                    else f"name:{name_norm}"
+                )
+                occurrence = {
+                    "group_num": group_num,
+                    "role_code": role_code,
+                    "role_label": role_label,
+                    "status_code": status_code,
+                    "status_display": status_display,
+                    "graduated": status_code in PARTICIPANT_STATUS_GRADUATED,
+                    "name": name,
+                    "name_norm": name_norm,
+                    "identity": identity,
+                    "identity_norm": identity_norm,
+                    "email": email,
+                    "email_norm": email_norm,
+                    "person_token": person_token,
+                }
+                occurrence_key = (
+                    group_num,
+                    role_code,
+                    person_token,
+                )
+                occurrences[occurrence_key] = occurrence
+    return list(occurrences.values())
+
+
+def _participant_lookup_parts(raw_line: str) -> dict[str, set[str]]:
+    line = str(raw_line or "").strip()
+    cells = [line]
+    cells.extend(
+        part.strip()
+        for part in re.split(r"[\t;|]+", line)
+        if part.strip() and part.strip() != line
+    )
+    emails: set[str] = set()
+    identities: set[str] = set()
+    names: set[str] = set()
+    for cell in cells:
+        for email_match in re.findall(
+            r"[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}",
+            cell,
+            flags=re.IGNORECASE,
+        ):
+            normalized_email = _normalize_email(email_match)
+            if normalized_email:
+                emails.add(normalized_email)
+        if re.fullmatch(r"[\d\s().+\-]{5,}", cell):
+            normalized_identity = _normalize_identity(cell)
+            if normalized_identity:
+                identities.add(normalized_identity)
+        if "@" not in cell and not re.fullmatch(r"[\d\s().+\-]{5,}", cell):
+            normalized_name = _normalize_participant_name(cell)
+            if normalized_name:
+                names.add(normalized_name)
+    return {"emails": emails, "identities": identities, "names": names}
+
+
+def _participant_history_lookup(
+    raw_lookup: str,
+    *,
+    current_group: int | None = None,
+    history_filter: str = "all",
+    status_filter: str = "",
+) -> dict:
+    submitted_lines: list[str] = []
+    seen_lines: set[str] = set()
+    for raw_line in str(raw_lookup or "").splitlines():
+        line = raw_line.strip()
+        line_key = line.casefold()
+        if not line or line_key in seen_lines:
+            continue
+        seen_lines.add(line_key)
+        submitted_lines.append(line)
+        if len(submitted_lines) >= 500:
+            break
+
+    occurrences = _participant_history_occurrences()
+    email_index: dict[str, list[dict]] = defaultdict(list)
+    identity_index: dict[str, list[dict]] = defaultdict(list)
+    name_index: dict[str, list[dict]] = defaultdict(list)
+    for occurrence in occurrences:
+        if occurrence["email_norm"]:
+            email_index[occurrence["email_norm"]].append(occurrence)
+        if occurrence["identity_norm"]:
+            identity_index[occurrence["identity_norm"]].append(occurrence)
+        if occurrence["name_norm"]:
+            name_index[occurrence["name_norm"]].append(occurrence)
+
+    results: list[dict] = []
+    for submitted in submitted_lines:
+        lookup_parts = _participant_lookup_parts(submitted)
+        matched: list[dict] = []
+        match_basis = ""
+        for email in lookup_parts["emails"]:
+            matched.extend(email_index.get(email, []))
+        if matched:
+            match_basis = "email"
+        else:
+            for identity in lookup_parts["identities"]:
+                matched.extend(identity_index.get(identity, []))
+            if matched:
+                match_basis = "cédula"
+        if not matched:
+            for name in lookup_parts["names"]:
+                matched.extend(name_index.get(name, []))
+            if matched:
+                match_basis = "nombre"
+
+        unique_matches = {
+            (
+                row["group_num"],
+                row["role_code"],
+                row["person_token"],
+            ): row
+            for row in matched
+        }
+        matched = list(unique_matches.values())
+
+        person_tokens = {row["person_token"] for row in matched}
+        ambiguous = match_basis == "nombre" and len(person_tokens) > 1
+        if not matched or ambiguous:
+            results.append(
+                {
+                    "submitted": submitted,
+                    "found": False,
+                    "ambiguous": ambiguous,
+                    "match_basis": match_basis,
+                    "database_name": "",
+                    "database_email": "",
+                    "mentor_groups": [],
+                    "prior_mentor_groups": [],
+                    "previous_mentor_count": 0,
+                    "entrepreneur_groups": [],
+                    "became_mentor": False,
+                    "graduated": False,
+                    "graduated_groups": [],
+                    "latest_status": (
+                        "Varias personas tienen este nombre; usa email o cédula."
+                        if ambiguous
+                        else "No encontrada"
+                    ),
+                    "status_codes": set(),
+                    "history": [],
+                }
+            )
+            continue
+
+        matched.sort(
+            key=lambda row: (
+                row["group_num"],
+                1 if row["role_code"] == "M" else 0,
+            )
+        )
+        mentor_groups = sorted(
+            {row["group_num"] for row in matched if row["role_code"] == "M"}
+        )
+        entrepreneur_groups = sorted(
+            {row["group_num"] for row in matched if row["role_code"] == "E"}
+        )
+        effective_current_group = current_group
+        if effective_current_group is None and mentor_groups:
+            effective_current_group = mentor_groups[-1]
+        prior_mentor_groups = [
+            group_num
+            for group_num in mentor_groups
+            if group_num != effective_current_group
+        ]
+        graduated_groups = sorted(
+            {row["group_num"] for row in matched if row["graduated"]}
+        )
+        status_rows = [row for row in reversed(matched) if row["status_code"]]
+        latest = matched[-1]
+        latest_status = (
+            status_rows[0]["status_display"] if status_rows else "Sin estatus"
+        )
+        database_name = next(
+            (row["name"] for row in reversed(matched) if row["name"]),
+            submitted,
+        )
+        database_email = next(
+            (row["email"] for row in reversed(matched) if row["email"]),
+            "",
+        )
+        history = [
+            {
+                "group_num": row["group_num"],
+                "role_label": row["role_label"],
+                "status_display": row["status_display"],
+            }
+            for row in matched
+        ]
+        became_mentor = any(
+            entrepreneur_group < mentor_group
+            for entrepreneur_group in entrepreneur_groups
+            for mentor_group in mentor_groups
+        )
+        results.append(
+            {
+                "submitted": submitted,
+                "found": True,
+                "ambiguous": False,
+                "match_basis": match_basis,
+                "database_name": database_name,
+                "database_email": database_email,
+                "mentor_groups": mentor_groups,
+                "prior_mentor_groups": prior_mentor_groups,
+                "previous_mentor_count": len(prior_mentor_groups),
+                "entrepreneur_groups": entrepreneur_groups,
+                "became_mentor": became_mentor,
+                "graduated": bool(graduated_groups),
+                "graduated_groups": graduated_groups,
+                "latest_status": latest_status,
+                "status_codes": {
+                    row["status_code"] for row in matched if row["status_code"]
+                },
+                "history": history,
+                "latest_group": latest["group_num"],
+            }
+        )
+
+    all_results = results
+    if history_filter == "prior_mentor":
+        results = [row for row in results if row["previous_mentor_count"] > 0]
+    elif history_filter == "entrepreneur_to_mentor":
+        results = [row for row in results if row["became_mentor"]]
+    elif history_filter == "graduated":
+        results = [row for row in results if row["graduated"]]
+    elif history_filter == "not_graduated":
+        results = [row for row in results if row["found"] and not row["graduated"]]
+    elif history_filter == "unmatched":
+        results = [row for row in results if not row["found"]]
+
+    if status_filter:
+        results = [
+            row for row in results if status_filter in row.get("status_codes", set())
+        ]
+
+    return {
+        "results": results,
+        "submitted_count": len(all_results),
+        "visible_count": len(results),
+        "matched_count": sum(1 for row in all_results if row["found"]),
+        "unmatched_count": sum(1 for row in all_results if not row["found"]),
+        "prior_mentor_count": sum(
+            1 for row in all_results if row["previous_mentor_count"] > 0
+        ),
+        "entrepreneur_to_mentor_count": sum(
+            1 for row in all_results if row["became_mentor"]
+        ),
+        "graduated_count": sum(1 for row in all_results if row["graduated"]),
+    }
+
+
 def _number_sheet_rows(rows: list[list], number_col: int = 2) -> list[list]:
     out: list[list] = []
     for idx, row in enumerate(rows, start=1):
@@ -3433,6 +3765,43 @@ def profiles_list(request):
     page_obj = paginator.get_page(request.GET.get("page"))
     page_params = request.GET.copy()
     page_params.pop("page", None)
+    participant_group_options = list(
+        GroupParticipantList.objects.order_by("-group__number")
+        .values_list("group__number", flat=True)
+    )
+    history_lookup_text = ""
+    history_filter = "all"
+    history_status_filter = ""
+    history_current_group = ""
+    history_report = None
+    if request.method == "POST" and request.POST.get("action") == "participant_history":
+        history_lookup_text = request.POST.get("participant_lookup", "")
+        history_filter = (request.POST.get("history_filter") or "all").strip()
+        if history_filter not in {
+            "all",
+            "prior_mentor",
+            "entrepreneur_to_mentor",
+            "graduated",
+            "not_graduated",
+            "unmatched",
+        }:
+            history_filter = "all"
+        history_status_filter = normalize_participant_status(
+            request.POST.get("history_status") or ""
+        )
+        history_current_group = (request.POST.get("history_current_group") or "").strip()
+        current_group_num = (
+            int(history_current_group)
+            if history_current_group.isdigit()
+            else None
+        )
+        history_report = _participant_history_lookup(
+            history_lookup_text,
+            current_group=current_group_num,
+            history_filter=history_filter,
+            status_filter=history_status_filter,
+        )
+
     context = {
         "profiles": page_obj.object_list,
         "page_obj": page_obj,
@@ -3447,6 +3816,19 @@ def profiles_list(request):
         "graded_profiles": payload["graded_profiles"],
         "participated_profiles": payload["participated_profiles"],
         "contract_signed_profiles": payload["contract_signed_profiles"],
+        "participant_group_options": participant_group_options,
+        "history_lookup_text": history_lookup_text,
+        "history_filter": history_filter,
+        "history_status_filter": history_status_filter,
+        "history_current_group": history_current_group,
+        "history_status_options": [
+            {
+                "code": normalize_participant_status(label),
+                "label": label,
+            }
+            for label in PARTICIPANT_STATUS_SHEET_OPTIONS
+        ],
+        "history_report": history_report,
     }
     return render(request, "admin_dash/profiles_list.html", context)
 

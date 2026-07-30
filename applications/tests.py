@@ -1745,6 +1745,153 @@ class ProfileMemoryBoundedBuildTests(TestCase):
         self.assertNotIn("unused-essay", profiles[0]["search_text"])
 
 
+class ParticipantHistoryLookupTests(TestCase):
+    @staticmethod
+    def _row(status, name, identity, email):
+        return [
+            "",
+            status,
+            1,
+            name,
+            identity,
+            email,
+            "",
+            "",
+            "",
+            False,
+            False,
+            False,
+            False,
+            False,
+            False,
+            False,
+            False,
+            False,
+        ]
+
+    def setUp(self):
+        self.user = get_user_model().objects.create_superuser(
+            email="participant-history@example.com",
+            password="test-password",
+        )
+        self.client.force_login(self.user)
+        group_12 = FormGroup.objects.create(
+            number=12,
+            start_day=1,
+            start_month="enero",
+            end_month="abril",
+            year=2025,
+        )
+        group_14 = FormGroup.objects.create(
+            number=14,
+            start_day=1,
+            start_month="mayo",
+            end_month="agosto",
+            year=2025,
+        )
+        group_15 = FormGroup.objects.create(
+            number=15,
+            start_day=1,
+            start_month="enero",
+            end_month="abril",
+            year=2026,
+        )
+        GroupParticipantList.objects.create(
+            group=group_12,
+            emprendedoras_sheet_rows=[
+                self._row(
+                    "Graduada",
+                    "Ana Pérez",
+                    "101010",
+                    "ana@example.com",
+                )
+            ],
+        )
+        GroupParticipantList.objects.create(
+            group=group_14,
+            mentoras_sheet_rows=[
+                self._row(
+                    "Graduada",
+                    "Ana Pérez",
+                    "101010",
+                    "ana@example.com",
+                )
+            ],
+        )
+        GroupParticipantList.objects.create(
+            group=group_15,
+            mentoras_sheet_rows=[
+                self._row(
+                    "Activa",
+                    "Ana Pérez",
+                    "101010",
+                    "ana@example.com",
+                ),
+                self._row(
+                    "Activa",
+                    "Nombre Duplicado",
+                    "202020",
+                    "first@example.com",
+                ),
+                self._row(
+                    "Activa",
+                    "Nombre Duplicado",
+                    "303030",
+                    "second@example.com",
+                ),
+            ],
+        )
+
+    def test_lookup_reports_prior_mentor_graduation_and_role_transition(self):
+        report = admin_profiles_views._participant_history_lookup(
+            "ana@example.com",
+            current_group=15,
+        )
+
+        self.assertEqual(report["matched_count"], 1)
+        row = report["results"][0]
+        self.assertEqual(row["mentor_groups"], [14, 15])
+        self.assertEqual(row["prior_mentor_groups"], [14])
+        self.assertEqual(row["previous_mentor_count"], 1)
+        self.assertEqual(row["entrepreneur_groups"], [12])
+        self.assertTrue(row["became_mentor"])
+        self.assertTrue(row["graduated"])
+        self.assertEqual(row["graduated_groups"], [12, 14])
+        self.assertEqual(row["latest_status"], "Activa")
+
+    def test_name_collision_requires_email_or_identity(self):
+        report = admin_profiles_views._participant_history_lookup(
+            "Nombre Duplicado",
+            current_group=15,
+        )
+
+        self.assertEqual(report["matched_count"], 0)
+        self.assertEqual(report["unmatched_count"], 1)
+        self.assertTrue(report["results"][0]["ambiguous"])
+        self.assertIn("Varias personas", report["results"][0]["latest_status"])
+
+    def test_profiles_page_renders_pasted_history_report_and_filters(self):
+        response = self.client.post(
+            reverse("admin_profiles_list"),
+            {
+                "action": "participant_history",
+                "participant_lookup": "Ana Pérez\nmissing@example.com",
+                "history_current_group": "15",
+                "history_filter": "all",
+                "history_status": "",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Participant history lookup")
+        self.assertContains(response, "Previous mentoras")
+        self.assertContains(response, "Emprendedora → Mentora")
+        self.assertContains(response, "Ana Pérez")
+        self.assertContains(response, "missing@example.com")
+        self.assertContains(response, "G14")
+        self.assertContains(response, "Activa")
+
+
 class GradingAndPairingConfigEditorTests(TestCase):
     def setUp(self):
         self.user = get_user_model().objects.create_superuser(

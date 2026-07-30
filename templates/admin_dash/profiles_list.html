@@ -78,6 +78,54 @@
         min-height: 42px;
         line-height: 1.45;
       }
+      .ce-history-panel {
+        margin: 18px 0;
+        padding: 16px;
+        border: 1px solid #dfe7d9;
+        border-radius: 12px;
+        background: #f9fcf7;
+      }
+      .ce-history-panel h2 {
+        margin: 0 0 6px;
+      }
+      .ce-history-form {
+        display: grid;
+        grid-template-columns: minmax(300px, 1.7fr) repeat(3, minmax(170px, 0.7fr));
+        gap: 10px;
+        align-items: end;
+        margin-top: 14px;
+      }
+      .ce-history-form label {
+        display: block;
+        margin-bottom: 4px;
+        font-weight: 600;
+      }
+      .ce-history-form textarea,
+      .ce-history-form select {
+        box-sizing: border-box;
+        width: 100%;
+        min-height: 42px;
+        padding: 8px;
+        line-height: 1.4;
+      }
+      .ce-history-form textarea {
+        min-height: 132px;
+        resize: vertical;
+      }
+      .ce-history-actions {
+        margin-top: 10px;
+      }
+      .ce-history-list {
+        margin: 0;
+        padding-left: 18px;
+      }
+      .ce-history-list li + li {
+        margin-top: 3px;
+      }
+      .ce-warning-text {
+        color: #9a5413;
+        font-weight: 600;
+      }
       .ce-table-wrap {
         width: 100%;
         overflow-x: auto;
@@ -112,6 +160,9 @@
         .ce-filter {
           grid-template-columns: 1fr;
         }
+        .ce-history-form {
+          grid-template-columns: 1fr 1fr;
+        }
       }
       @media (max-width: 680px) {
         .ce-admin-wrap {
@@ -120,6 +171,9 @@
         .ce-admin-card.ce-admin-card--wide {
           width: 100%;
           max-width: none;
+        }
+        .ce-history-form {
+          grid-template-columns: 1fr;
         }
       }
     </style>
@@ -162,6 +216,186 @@
       <div class="ce-muted" style="margin-top:8px;">
         Participation is managed only on the Participants page by group.
       </div>
+    </section>
+
+    <section class="ce-history-panel">
+      <h2>Participant history lookup</h2>
+      <p class="ce-muted" style="font-size:13px; margin-top:0;">
+        Paste one mentora per line using name, email, or cédula. Results come from every
+        Group participant dataset and show previous mentora groups, prior participation
+        as an emprendedora, graduation, and recorded status.
+      </p>
+      <form method="post">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="participant_history">
+        <div class="ce-history-form">
+          <div>
+            <label for="participant_lookup">Mentora list</label>
+            <textarea
+              id="participant_lookup"
+              name="participant_lookup"
+              placeholder="One name, email, or cédula per line"
+            >{{ history_lookup_text }}</textarea>
+          </div>
+          <div>
+            <label for="history_current_group">Current group</label>
+            <select id="history_current_group" name="history_current_group">
+              <option value="">Auto: latest mentora group</option>
+              {% for group_num in participant_group_options %}
+                <option value="{{ group_num }}" {% if history_current_group == group_num|stringformat:"s" %}selected{% endif %}>
+                  Group {{ group_num }}
+                </option>
+              {% endfor %}
+            </select>
+            <div class="ce-muted">This group is excluded from the previous-mentora count.</div>
+          </div>
+          <div>
+            <label for="history_filter">History filter</label>
+            <select id="history_filter" name="history_filter">
+              <option value="all" {% if history_filter == "all" %}selected{% endif %}>All submitted people</option>
+              <option value="prior_mentor" {% if history_filter == "prior_mentor" %}selected{% endif %}>Was a mentora previously</option>
+              <option value="entrepreneur_to_mentor" {% if history_filter == "entrepreneur_to_mentor" %}selected{% endif %}>Emprendedora → Mentora</option>
+              <option value="graduated" {% if history_filter == "graduated" %}selected{% endif %}>Graduated</option>
+              <option value="not_graduated" {% if history_filter == "not_graduated" %}selected{% endif %}>Not graduated</option>
+              <option value="unmatched" {% if history_filter == "unmatched" %}selected{% endif %}>Not found / needs review</option>
+            </select>
+          </div>
+          <div>
+            <label for="history_status">Recorded status</label>
+            <select id="history_status" name="history_status">
+              <option value="">Any status</option>
+              {% for option in history_status_options %}
+                <option value="{{ option.code }}" {% if history_status_filter == option.code %}selected{% endif %}>
+                  {{ option.label }}
+                </option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+        <div class="ce-history-actions">
+          <button class="ce-btn" type="submit">Check participant history</button>
+        </div>
+      </form>
+
+      {% if history_report %}
+        <div class="ce-summary" style="margin-top:18px;">
+          <div class="ce-summary-card">
+            <div class="ce-summary-k">Submitted</div>
+            <div class="ce-summary-v">{{ history_report.submitted_count }}</div>
+          </div>
+          <div class="ce-summary-card">
+            <div class="ce-summary-k">Matched</div>
+            <div class="ce-summary-v">{{ history_report.matched_count }}</div>
+          </div>
+          <div class="ce-summary-card">
+            <div class="ce-summary-k">Previous mentoras</div>
+            <div class="ce-summary-v">{{ history_report.prior_mentor_count }}</div>
+          </div>
+          <div class="ce-summary-card">
+            <div class="ce-summary-k">Emprendedora → Mentora</div>
+            <div class="ce-summary-v">{{ history_report.entrepreneur_to_mentor_count }}</div>
+          </div>
+          <div class="ce-summary-card">
+            <div class="ce-summary-k">Graduated</div>
+            <div class="ce-summary-v">{{ history_report.graduated_count }}</div>
+          </div>
+          <div class="ce-summary-card">
+            <div class="ce-summary-k">Not found / review</div>
+            <div class="ce-summary-v">{{ history_report.unmatched_count }}</div>
+          </div>
+        </div>
+
+        <p class="ce-muted" style="font-size:13px;">
+          Showing {{ history_report.visible_count }} result{{ history_report.visible_count|pluralize }} after filters.
+          When no current group is selected, the newest mentora group is treated as the current one.
+        </p>
+
+        <div class="ce-table-wrap">
+          <table class="ce-table" style="min-width:1250px;">
+            <thead>
+              <tr>
+                <th>Submitted</th>
+                <th>Database match</th>
+                <th>Mentora groups</th>
+                <th>Previous mentora</th>
+                <th>Emprendedora groups</th>
+                <th>Emprendedora → Mentora</th>
+                <th>Graduated</th>
+                <th>Latest status</th>
+                <th>Full participant history</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in history_report.results %}
+                <tr>
+                  <td>
+                    <strong>{{ row.submitted }}</strong>
+                    {% if row.match_basis %}<div class="ce-muted">Matched by {{ row.match_basis }}</div>{% endif %}
+                  </td>
+                  <td>
+                    {% if row.found %}
+                      <strong>{{ row.database_name|default:"—" }}</strong>
+                      <div class="ce-muted">{{ row.database_email|default:"No email recorded" }}</div>
+                    {% elif row.ambiguous %}
+                      <span class="ce-warning-text">Needs review</span>
+                      <div class="ce-muted">Use email or cédula to distinguish duplicate names.</div>
+                    {% else %}
+                      <span class="ce-warning-text">Not found</span>
+                    {% endif %}
+                  </td>
+                  <td>
+                    <strong>{{ row.mentor_groups|length }}</strong>
+                    {% if row.mentor_groups %}
+                      <div class="ce-muted">
+                        {% for group_num in row.mentor_groups %}G{{ group_num }}{% if not forloop.last %}, {% endif %}{% endfor %}
+                      </div>
+                    {% endif %}
+                  </td>
+                  <td>
+                    <strong>{{ row.previous_mentor_count }}</strong>
+                    {% if row.prior_mentor_groups %}
+                      <div class="ce-muted">
+                        {% for group_num in row.prior_mentor_groups %}G{{ group_num }}{% if not forloop.last %}, {% endif %}{% endfor %}
+                      </div>
+                    {% endif %}
+                  </td>
+                  <td>
+                    <strong>{{ row.entrepreneur_groups|length }}</strong>
+                    {% if row.entrepreneur_groups %}
+                      <div class="ce-muted">
+                        {% for group_num in row.entrepreneur_groups %}G{{ group_num }}{% if not forloop.last %}, {% endif %}{% endfor %}
+                      </div>
+                    {% endif %}
+                  </td>
+                  <td>{% if row.became_mentor %}Yes{% else %}No{% endif %}</td>
+                  <td>
+                    {% if row.graduated %}
+                      Yes
+                      <div class="ce-muted">
+                        {% for group_num in row.graduated_groups %}G{{ group_num }}{% if not forloop.last %}, {% endif %}{% endfor %}
+                      </div>
+                    {% else %}No{% endif %}
+                  </td>
+                  <td>{{ row.latest_status }}</td>
+                  <td>
+                    {% if row.history %}
+                      <ul class="ce-history-list">
+                        {% for item in row.history %}
+                          <li>G{{ item.group_num }} · {{ item.role_label }} · {{ item.status_display }}</li>
+                        {% endfor %}
+                      </ul>
+                    {% else %}—{% endif %}
+                  </td>
+                </tr>
+              {% empty %}
+                <tr>
+                  <td colspan="9">No submitted people match the selected history filters.</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% endif %}
     </section>
 
     <form method="get" class="ce-filter">

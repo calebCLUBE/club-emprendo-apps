@@ -4019,6 +4019,28 @@ def _ensure_test_grading_form(role: str) -> FormDefinition:
 
     return clone
 
+
+def _remap_clone_conditions(
+    conditions,
+    question_map: dict[int, Question],
+) -> list[dict]:
+    remapped: list[dict] = []
+    for raw_condition in list(conditions or []):
+        if not isinstance(raw_condition, dict):
+            continue
+        try:
+            source_question_id = int(raw_condition.get("question_id") or 0)
+        except (TypeError, ValueError):
+            continue
+        target_question = question_map.get(source_question_id)
+        if not target_question:
+            continue
+        condition = dict(raw_condition)
+        condition["question_id"] = target_question.id
+        remapped.append(condition)
+    return remapped
+
+
 def _clone_form(master_fd: FormDefinition, group: FormGroup) -> FormDefinition:
     group_num = group.number
     start_day = group.start_day
@@ -4197,8 +4219,9 @@ def _clone_form(master_fd: FormDefinition, group: FormGroup) -> FormDefinition:
 
     # Clone sections first so questions can be linked
     section_map: dict[int, Section] = {}
+    section_pairs: list[tuple[Section, Section]] = []
     for s in master_fd.sections.all().order_by("position", "id"):
-        section_map[s.id] = Section.objects.create(
+        section_clone = Section.objects.create(
             form=clone,
             title=_fill_placeholders(
                 s.title,
@@ -4221,8 +4244,13 @@ def _clone_form(master_fd: FormDefinition, group: FormGroup) -> FormDefinition:
                 respond_month=respond_month,
             ) or s.description,
             position=s.position,
+            show_if_logic=s.show_if_logic,
         )
+        section_map[s.id] = section_clone
+        section_pairs.append((s, section_clone))
 
+    question_map: dict[int, Question] = {}
+    question_pairs: list[tuple[Question, Question]] = []
     for q in master_fd.questions.select_related("section").all().order_by("position", "id"):
         new_section = section_map.get(q.section_id)
         q_clone = Question.objects.create(
@@ -4267,6 +4295,8 @@ def _clone_form(master_fd: FormDefinition, group: FormGroup) -> FormDefinition:
             end_form_rules=q.end_form_rules,
             section=new_section,
         )
+        question_map[q.id] = q_clone
+        question_pairs.append((q, q_clone))
         for c in q.choices.all().order_by("position", "id"):
             Choice.objects.create(
                 question=q_clone,
@@ -4283,6 +4313,50 @@ def _clone_form(master_fd: FormDefinition, group: FormGroup) -> FormDefinition:
                 value=c.value,
                 position=c.position,
             )
+
+    # Conditional rules reference question primary keys, so they can only be
+    # copied after every target question exists.
+    for source_question, target_question in question_pairs:
+        target_question.show_if_question = question_map.get(
+            source_question.show_if_question_id
+        )
+        target_question.show_if_value = source_question.show_if_value
+        target_question.show_if_conditions = _remap_clone_conditions(
+            source_question.show_if_conditions,
+            question_map,
+        )
+        target_question.save(
+            update_fields=[
+                "show_if_question",
+                "show_if_value",
+                "show_if_conditions",
+            ]
+        )
+
+    for source_section, target_section in section_pairs:
+        target_section.show_if_question = question_map.get(
+            source_section.show_if_question_id
+        )
+        target_section.show_if_value = source_section.show_if_value
+        target_section.show_if_question_2 = question_map.get(
+            source_section.show_if_question_2_id
+        )
+        target_section.show_if_value_2 = source_section.show_if_value_2
+        target_section.show_if_logic = source_section.show_if_logic
+        target_section.show_if_conditions = _remap_clone_conditions(
+            source_section.show_if_conditions,
+            question_map,
+        )
+        target_section.save(
+            update_fields=[
+                "show_if_question",
+                "show_if_value",
+                "show_if_question_2",
+                "show_if_value_2",
+                "show_if_logic",
+                "show_if_conditions",
+            ]
+        )
 
     return clone
 

@@ -1,5 +1,7 @@
 from datetime import date, datetime, timedelta, timezone as dt_timezone
+import importlib
 import uuid
+from django.apps import apps as django_apps
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.contrib.auth import get_user_model
@@ -4478,6 +4480,182 @@ class GroupFormNamingTests(TestCase):
         self.assertEqual(clone.name, "april_group_m_1")
         self.assertEqual(clone.rejection_email_name, "Default rejection")
         self.assertEqual(clone.intro_page_title, "Antes de aplicar al grupo")
+
+    def test_clone_form_remaps_question_and_section_conditional_logic(self):
+        group = FormGroup.objects.create(
+            number=814,
+            start_day=1,
+            start_month="abril",
+            end_month="julio",
+            year=2026,
+            custom_name="Conditional Group",
+            use_combined_application=True,
+        )
+        first_section = Section.objects.create(
+            form=self.master_m_a1,
+            title="General",
+            position=1,
+        )
+        conditional_section = Section.objects.create(
+            form=self.master_m_a1,
+            title="Business details",
+            position=2,
+            show_if_logic=Section.LOGIC_OR,
+        )
+        controller = Question.objects.create(
+            form=self.master_m_a1,
+            section=first_section,
+            text="Do you own a business?",
+            slug="owns_business",
+            field_type=Question.BOOLEAN,
+            position=1,
+        )
+        dependent = Question.objects.create(
+            form=self.master_m_a1,
+            section=conditional_section,
+            text="Business name",
+            slug="business_name",
+            field_type=Question.SHORT_TEXT,
+            position=2,
+            show_if_question=controller,
+            show_if_value="yes",
+            show_if_conditions=[
+                {"question_id": controller.id, "value": "yes"},
+            ],
+        )
+        conditional_section.show_if_question = controller
+        conditional_section.show_if_value = "yes"
+        conditional_section.show_if_question_2 = dependent
+        conditional_section.show_if_value_2 = "Acme"
+        conditional_section.show_if_conditions = [
+            {"question_id": controller.id, "value": "yes"},
+            {"question_id": dependent.id, "value": "Acme"},
+        ]
+        conditional_section.save()
+
+        clone = _clone_form(self.master_m_a1, group)
+
+        cloned_controller = clone.questions.get(slug="owns_business")
+        cloned_dependent = clone.questions.get(slug="business_name")
+        cloned_section = clone.sections.get(title="Business details")
+        self.assertNotEqual(cloned_controller.id, controller.id)
+        self.assertEqual(
+            cloned_dependent.show_if_question_id,
+            cloned_controller.id,
+        )
+        self.assertEqual(cloned_dependent.show_if_value, "yes")
+        self.assertEqual(
+            cloned_dependent.show_if_conditions,
+            [{"question_id": cloned_controller.id, "value": "yes"}],
+        )
+        self.assertEqual(cloned_section.show_if_logic, Section.LOGIC_OR)
+        self.assertEqual(cloned_section.show_if_question_id, cloned_controller.id)
+        self.assertEqual(cloned_section.show_if_question_2_id, cloned_dependent.id)
+        self.assertEqual(
+            cloned_section.show_if_conditions,
+            [
+                {"question_id": cloned_controller.id, "value": "yes"},
+                {"question_id": cloned_dependent.id, "value": "Acme"},
+            ],
+        )
+
+    def test_repair_migration_restores_logic_to_an_untouched_broken_clone(self):
+        group = FormGroup.objects.create(
+            number=815,
+            start_day=1,
+            start_month="abril",
+            end_month="julio",
+            year=2026,
+            custom_name="Repair Group",
+        )
+        master_first = Section.objects.create(
+            form=self.master_e_a1,
+            title="General",
+            position=1,
+        )
+        master_conditional = Section.objects.create(
+            form=self.master_e_a1,
+            title="Conditional",
+            position=2,
+        )
+        master_controller = Question.objects.create(
+            form=self.master_e_a1,
+            section=master_first,
+            text="Continue?",
+            slug="continue_answer",
+            field_type=Question.BOOLEAN,
+            position=1,
+        )
+        master_dependent = Question.objects.create(
+            form=self.master_e_a1,
+            section=master_conditional,
+            text="More information",
+            slug="more_information",
+            field_type=Question.LONG_TEXT,
+            position=2,
+            show_if_question=master_controller,
+            show_if_value="yes",
+            show_if_conditions=[
+                {"question_id": master_controller.id, "value": "yes"},
+            ],
+        )
+        master_conditional.show_if_question = master_controller
+        master_conditional.show_if_value = "yes"
+        master_conditional.show_if_conditions = [
+            {"question_id": master_controller.id, "value": "yes"},
+        ]
+        master_conditional.save()
+
+        broken_clone = FormDefinition.objects.create(
+            slug="repair_group_E_A1",
+            name="Repair Group E",
+            group=group,
+            is_master=False,
+        )
+        clone_first = Section.objects.create(
+            form=broken_clone,
+            title="General",
+            position=1,
+        )
+        clone_conditional = Section.objects.create(
+            form=broken_clone,
+            title="Conditional",
+            position=2,
+        )
+        clone_controller = Question.objects.create(
+            form=broken_clone,
+            section=clone_first,
+            text=master_controller.text,
+            slug=master_controller.slug,
+            field_type=master_controller.field_type,
+            position=1,
+        )
+        clone_dependent = Question.objects.create(
+            form=broken_clone,
+            section=clone_conditional,
+            text=master_dependent.text,
+            slug=master_dependent.slug,
+            field_type=master_dependent.field_type,
+            position=2,
+        )
+
+        migration = importlib.import_module(
+            "applications.migrations.0062_repair_cloned_conditional_logic"
+        )
+        migration.repair_missing_clone_conditions(django_apps, None)
+
+        clone_dependent.refresh_from_db()
+        clone_conditional.refresh_from_db()
+        self.assertEqual(clone_dependent.show_if_question_id, clone_controller.id)
+        self.assertEqual(
+            clone_dependent.show_if_conditions,
+            [{"question_id": clone_controller.id, "value": "yes"}],
+        )
+        self.assertEqual(clone_conditional.show_if_question_id, clone_controller.id)
+        self.assertEqual(
+            clone_conditional.show_if_conditions,
+            [{"question_id": clone_controller.id, "value": "yes"}],
+        )
 
     def test_sync_group_form_names_updates_existing_group_forms_after_rename(self):
         group = FormGroup.objects.create(

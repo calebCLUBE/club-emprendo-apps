@@ -60,17 +60,14 @@ def autosave_application_draft(request, form_slug: str):
         return JsonResponse({"error": "Invalid JSON"}, status=400)
 
     token = str(payload.get("token") or "").strip()
+    try:
+        visitor_id = uuid.UUID(str(payload.get("visitor_id") or "").strip())
+    except (TypeError, ValueError, AttributeError):
+        visitor_id = None
+
     draft = ApplicationDraft.objects.filter(token=token, form=form_def).first() if token else None
     if draft and draft.completed_at:
         return JsonResponse({"token": str(draft.token), "completed": True})
-    if not draft:
-        try:
-            supplied_token = uuid.UUID(token) if token else None
-        except (TypeError, ValueError, AttributeError):
-            supplied_token = None
-        draft = ApplicationDraft(form=form_def)
-        if supplied_token and not ApplicationDraft.objects.filter(token=supplied_token).exists():
-            draft.token = supplied_token
 
     valid_slugs = set(
         Question.objects.filter(form__in=[form_def], active=True).values_list("slug", flat=True)
@@ -98,15 +95,61 @@ def autosave_application_draft(request, form_slug: str):
         except (TypeError, ValueError):
             return default
 
+    name = str(payload.get("name") or "").strip()[:200]
+    email = str(payload.get("email") or "").strip()[:254]
+    current_section = max(1, bounded_int("current_section", 1, 1000))
+    total_sections = max(1, bounded_int("total_sections", 1, 1000))
+    answered_questions = bounded_int("answered_questions", 0, 10000)
+    total_questions = bounded_int("total_questions", 0, 10000)
+    progress_percent = bounded_int("progress_percent", 0, 100)
+    last_question_slug = str(payload.get("last_question_slug") or "")[:160]
+    interacted = payload.get("interacted") is True
+
+    # Page loads and automated previews must not become application starts. The
+    # browser sends `interacted` only after a field change or section movement;
+    # the remaining checks preserve compatibility with older clients.
+    if not draft and not (
+        interacted
+        or answers
+        or name
+        or email
+        or answered_questions
+        or progress_percent
+        or current_section > 1
+        or last_question_slug
+    ):
+        return JsonResponse({"token": token, "ignored": True})
+
+    if not draft and visitor_id:
+        draft = (
+            ApplicationDraft.objects
+            .filter(
+                form=form_def,
+                visitor_id=visitor_id,
+                completed_at__isnull=True,
+            )
+            .order_by("-updated_at")
+            .first()
+        )
+    if not draft:
+        try:
+            supplied_token = uuid.UUID(token) if token else None
+        except (TypeError, ValueError, AttributeError):
+            supplied_token = None
+        draft = ApplicationDraft(form=form_def)
+        if supplied_token and not ApplicationDraft.objects.filter(token=supplied_token).exists():
+            draft.token = supplied_token
+
+    draft.visitor_id = visitor_id or draft.visitor_id
     draft.answers = answers
-    draft.name = str(payload.get("name") or "")[:200]
-    draft.email = str(payload.get("email") or "")[:254]
-    draft.current_section = max(1, bounded_int("current_section", 1, 1000))
-    draft.total_sections = max(1, bounded_int("total_sections", 1, 1000))
-    draft.answered_questions = bounded_int("answered_questions", 0, 10000)
-    draft.total_questions = bounded_int("total_questions", 0, 10000)
-    draft.progress_percent = bounded_int("progress_percent", 0, 100)
-    draft.last_question_slug = str(payload.get("last_question_slug") or "")[:160]
+    draft.name = name
+    draft.email = email
+    draft.current_section = current_section
+    draft.total_sections = total_sections
+    draft.answered_questions = answered_questions
+    draft.total_questions = total_questions
+    draft.progress_percent = progress_percent
+    draft.last_question_slug = last_question_slug
     draft.save()
     return JsonResponse({"token": str(draft.token), "saved": True})
 

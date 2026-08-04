@@ -2534,31 +2534,81 @@ def _application_draft_status(draft, abandoned_before):
     return "Active"
 
 
+def _is_engaged_application_draft(draft):
+    """True after real progress; empty one-second page-load autosaves are excluded."""
+    return bool(
+        draft.completed_at
+        or draft.application_id
+        or draft.answers
+        or (draft.name or "").strip()
+        or (draft.email or "").strip()
+        or draft.answered_questions
+        or draft.progress_percent
+        or draft.current_section > 1
+        or (draft.last_question_slug or "").strip()
+    )
+
+
 def _dedupe_application_drafts(drafts):
-    """Keep one authoritative draft per form/person; anonymous sessions remain separate."""
-    selected = {}
-    for draft in drafts:
+    """Keep one authoritative draft per connected browser/email identity and form."""
+    drafts = list(drafts)
+    parent = list(range(len(drafts)))
+
+    def find(index):
+        while parent[index] != index:
+            parent[index] = parent[parent[index]]
+            index = parent[index]
+        return index
+
+    def union(left, right):
+        left_root, right_root = find(left), find(right)
+        if left_root != right_root:
+            parent[right_root] = left_root
+
+    identified_by_visitor = defaultdict(list)
+    for index, draft in enumerate(drafts):
+        if draft.visitor_id and (draft.email or "").strip():
+            identified_by_visitor[str(draft.visitor_id)].append(index)
+
+    identity_owner = {}
+    for index, draft in enumerate(drafts):
+        identities = []
         email = (draft.email or "").strip().lower()
-        person_key = email or f"token:{draft.token}"
-        key = (draft.form_id, person_key)
-        current = selected.get(key)
+        if email:
+            identities.append((draft.form_id, "email", email))
+        elif draft.visitor_id and identified_by_visitor.get(str(draft.visitor_id)):
+            identified_index = max(
+                identified_by_visitor[str(draft.visitor_id)],
+                key=lambda item: drafts[item].updated_at,
+            )
+            union(index, identified_index)
+        elif draft.visitor_id:
+            identities.append((draft.form_id, "visitor", str(draft.visitor_id)))
+        if not identities:
+            identities.append((draft.form_id, "token", str(draft.token)))
+        for identity in identities:
+            previous = identity_owner.get(identity)
+            if previous is None:
+                identity_owner[identity] = index
+            else:
+                union(index, previous)
 
-        def outcome_rank(item):
-            if not item.completed_at:
-                return 0
-            if item.application_id and not item.application.approved_for_grading:
-                return 1
-            return 2
+    grouped = defaultdict(list)
+    for index, draft in enumerate(drafts):
+        grouped[find(index)].append(draft)
 
-        if current is None or (
-            outcome_rank(draft),
-            draft.updated_at,
-        ) > (
-            outcome_rank(current),
-            current.updated_at,
-        ):
-            selected[key] = draft
-    return sorted(selected.values(), key=lambda item: item.updated_at, reverse=True)
+    def outcome_rank(item):
+        if not item.completed_at:
+            return 0
+        if item.application_id and not item.application.approved_for_grading:
+            return 1
+        return 2
+
+    selected = [
+        max(group, key=lambda item: (outcome_rank(item), item.updated_at))
+        for group in grouped.values()
+    ]
+    return sorted(selected, key=lambda item: item.updated_at, reverse=True)
 
 
 def _incomplete_application_reminder_drafts(group_id: int, form_slug: str = ""):
@@ -2741,7 +2791,9 @@ def application_progress_dashboard(request):
         drafts = drafts.filter(form__group_id=group_id)
     if form_slug:
         drafts = drafts.filter(form__slug=form_slug)
-    people_drafts = _dedupe_application_drafts(list(drafts.order_by("-updated_at")))
+    all_drafts = list(drafts.order_by("-updated_at"))
+    engaged_drafts = [draft for draft in all_drafts if _is_engaged_application_draft(draft)]
+    people_drafts = _dedupe_application_drafts(engaged_drafts)
     valid_statuses = {"completed", "rejected", "active", "abandoned", "all"}
     if status not in valid_statuses:
         status = "abandoned"
@@ -2778,6 +2830,7 @@ def application_progress_dashboard(request):
     ]
     summary = {
         "started": len(people_drafts),
+        "empty_drafts": len(all_drafts) - len(engaged_drafts),
         "completed": all_statuses.count("Completed"),
         "rejected": all_statuses.count("Rejected"),
         "abandoned": all_statuses.count("Abandoned"),

@@ -886,13 +886,33 @@
       const form = document.querySelector('form[method="post"]');
       if (!form || new URLSearchParams(window.location.search).get("preview")) return;
       const storageKey = "ce-application-draft:{{ form_def.slug|escapejs }}";
+      const visitorStorageKey = "ce-application-visitor";
       const serverDraftToken = "{{ draft_token|default:''|escapejs }}";
-      let token = serverDraftToken || window.localStorage.getItem(storageKey) ||
-        (window.crypto?.randomUUID ? window.crypto.randomUUID() : "");
-      if (token) window.localStorage.setItem(storageKey, token);
+      const storageGet = key => {
+        try { return window.localStorage.getItem(key) || ""; } catch (_) { return ""; }
+      };
+      const storageSet = (key, value) => {
+        try { window.localStorage.setItem(key, value); } catch (_) {}
+      };
+      const storageRemove = key => {
+        try { window.localStorage.removeItem(key); } catch (_) {}
+      };
+      const newId = () => {
+        if (window.crypto?.randomUUID) return window.crypto.randomUUID();
+        return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, character => {
+          const random = Math.floor(Math.random() * 16);
+          const value = character === "x" ? random : (random & 0x3) | 0x8;
+          return value.toString(16);
+        });
+      };
+      let visitorId = storageGet(visitorStorageKey) || newId();
+      if (visitorId) storageSet(visitorStorageKey, visitorId);
+      let token = serverDraftToken || storageGet(storageKey) || newId();
+      if (token) storageSet(storageKey, token);
       let timer = null;
       let saving = false;
       let pending = false;
+      let interacted = false;
       const endpoint = "{% url 'application_draft_autosave' form_def.slug %}";
       const csrf = form.querySelector('[name="csrfmiddlewaretoken"]')?.value || "";
 
@@ -943,6 +963,8 @@
         };
         return {
           token,
+          visitor_id: visitorId,
+          interacted,
           answers,
           name: findIdentity(["full_name", "nombre", "_name"]),
           email: findIdentity(["email", "correo"]),
@@ -956,6 +978,7 @@
       }
 
       async function save() {
+        if (!interacted) return;
         if (saving) { pending = true; return; }
         saving = true;
         try {
@@ -970,12 +993,12 @@
             if (data.token) {
               token = data.token;
               hiddenToken.value = token;
-              window.localStorage.setItem(storageKey, token);
+              storageSet(storageKey, token);
             }
             if (data.completed) {
               token = "";
               hiddenToken.value = "";
-              window.localStorage.removeItem(storageKey);
+              storageRemove(storageKey);
             }
           }
         } catch (_) {
@@ -987,18 +1010,21 @@
       }
 
       function scheduleSave() {
+        interacted = true;
         window.clearTimeout(timer);
         timer = window.setTimeout(save, 700);
       }
       form.addEventListener("input", scheduleSave);
       form.addEventListener("change", scheduleSave);
       form.addEventListener("click", event => {
-        if (event.target.closest("[data-next], [data-prev]")) window.setTimeout(save, 0);
+        if (event.target.closest("[data-next], [data-prev]")) {
+          interacted = true;
+          window.setTimeout(save, 0);
+        }
       });
       document.addEventListener("visibilitychange", () => {
-        if (document.visibilityState === "hidden") save();
+        if (document.visibilityState === "hidden" && interacted) save();
       });
-      window.setTimeout(save, 1000);
     })();
   </script>
 

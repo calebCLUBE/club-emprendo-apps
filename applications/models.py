@@ -619,6 +619,13 @@ class ApplicationDraft(models.Model):
     """Autosaved progress for an application that may never be submitted."""
 
     token = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    visitor_id = models.UUIDField(
+        null=True,
+        blank=True,
+        db_index=True,
+        editable=False,
+        help_text="First-party browser identifier used to reconnect return visits.",
+    )
     form = models.ForeignKey(
         FormDefinition,
         on_delete=models.CASCADE,

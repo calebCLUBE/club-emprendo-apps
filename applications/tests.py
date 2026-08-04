@@ -967,6 +967,61 @@ class ApplicationDraftTrackingTests(TestCase):
         self.assertEqual(draft.answers["q_about"], "Updated")
         self.assertEqual(draft.progress_percent, 25)
 
+    def test_autosave_ignores_page_load_without_real_interaction(self):
+        response = self.client.post(
+            reverse("application_draft_autosave", args=[self.form_def.slug]),
+            data=json.dumps({
+                "token": str(uuid.uuid4()),
+                "visitor_id": str(uuid.uuid4()),
+                "answers": {},
+                "answered_questions": 0,
+                "progress_percent": 0,
+                "current_section": 1,
+            }),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["ignored"])
+        self.assertFalse(ApplicationDraft.objects.exists())
+
+    def test_autosave_reuses_incomplete_draft_for_same_browser(self):
+        visitor_id = uuid.uuid4()
+        url = reverse("application_draft_autosave", args=[self.form_def.slug])
+        first = self.client.post(
+            url,
+            data=json.dumps({
+                "token": str(uuid.uuid4()),
+                "visitor_id": str(visitor_id),
+                "interacted": True,
+                "answers": {"q_about": "First"},
+            }),
+            content_type="application/json",
+        )
+        second = self.client.post(
+            url,
+            data=json.dumps({
+                "token": str(uuid.uuid4()),
+                "visitor_id": str(visitor_id),
+                "interacted": True,
+                "answers": {"q_about": "Returned"},
+            }),
+            content_type="application/json",
+        )
+
+        self.assertEqual(ApplicationDraft.objects.count(), 1)
+        self.assertEqual(second.json()["token"], first.json()["token"])
+        self.assertEqual(ApplicationDraft.objects.get().answers["q_about"], "Returned")
+
+    def test_public_form_waits_for_interaction_before_autosaving(self):
+        response = self.client.get(
+            reverse("apply_by_slug", args=[self.form_def.slug])
+        )
+
+        self.assertContains(response, "const visitorStorageKey")
+        self.assertContains(response, "if (!interacted) return;")
+        self.assertNotContains(response, "window.setTimeout(save, 1000)")
+
     def test_successful_submission_marks_draft_completed(self):
         draft = ApplicationDraft.objects.create(form=self.form_def, progress_percent=50)
         response = self.client.post(
@@ -1175,6 +1230,69 @@ class ApplicationDraftTrackingTests(TestCase):
         self.assertContains(response, "Section 3 of 6")
         self.assertEqual(response.context["summary"]["rejected"], 1)
         self.assertEqual(response.context["reminder_count"], 1)
+
+    def test_dashboard_excludes_empty_opens_and_dedupes_browser_email_chain(self):
+        visitor_id = uuid.uuid4()
+        ApplicationDraft.objects.create(form=self.form_def)
+        ApplicationDraft.objects.create(
+            form=self.form_def,
+            visitor_id=visitor_id,
+            answers={"q_about": "Browser draft"},
+            progress_percent=25,
+        )
+        ApplicationDraft.objects.create(
+            form=self.form_def,
+            visitor_id=visitor_id,
+            email="same@example.com",
+            answers={"q_about": "Identified draft"},
+            progress_percent=50,
+        )
+        ApplicationDraft.objects.create(
+            form=self.form_def,
+            email="same@example.com",
+            answers={"q_about": "Other browser"},
+            progress_percent=75,
+        )
+        user = get_user_model().objects.create_superuser(
+            email="dedupe-admin@example.com",
+            password="password",
+        )
+        self.client.force_login(user)
+
+        response = self.client.get(
+            reverse("admin_application_progress_dashboard"),
+            {"form": self.form_def.slug, "status": "all"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["summary"]["started"], 1)
+        self.assertEqual(response.context["summary"]["empty_drafts"], 1)
+        self.assertContains(response, "Genuine starts")
+        self.assertContains(response, "Empty drafts excluded")
+        self.assertContains(response, "Active within 24h")
+
+    def test_dashboard_keeps_different_emails_on_shared_browser_separate(self):
+        visitor_id = uuid.uuid4()
+        for email in ("first@example.com", "second@example.com"):
+            ApplicationDraft.objects.create(
+                form=self.form_def,
+                visitor_id=visitor_id,
+                email=email,
+                answers={"q_about": email},
+                progress_percent=25,
+            )
+        user = get_user_model().objects.create_superuser(
+            email="shared-browser-admin@example.com",
+            password="password",
+        )
+        self.client.force_login(user)
+
+        response = self.client.get(
+            reverse("admin_application_progress_dashboard"),
+            {"form": self.form_def.slug, "status": "all"},
+        )
+
+        self.assertEqual(response.context["summary"]["started"], 2)
 
 
 class QuestionAdminFormTests(TestCase):

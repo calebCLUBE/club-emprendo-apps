@@ -1,7 +1,7 @@
 {% extends "admin/base_site.html" %}
 {% block content %}
 <style>
-  .ce-progress-cards{display:grid;grid-template-columns:repeat(5,minmax(130px,1fr));gap:12px;margin:18px 0}
+  .ce-progress-cards{display:grid;grid-template-columns:repeat(6,minmax(130px,1fr));gap:12px;margin:18px 0}
   .ce-progress-card{padding:16px;border:1px solid #dbe4f0;border-radius:12px;background:#fff}
   .ce-progress-card strong{display:block;font-size:28px;color:#172554}.ce-progress-card span{color:#64748b}
   .ce-progress-filters{display:flex;gap:10px;align-items:end;flex-wrap:wrap;margin:16px 0}.ce-progress-filters label{display:grid;gap:4px}
@@ -14,18 +14,19 @@
   @media(max-width:800px){.ce-progress-cards{grid-template-columns:repeat(2,1fr)}.ce-progress-analytics{grid-template-columns:1fr}.ce-reminder-box{align-items:flex-start;flex-direction:column}.ce-progress-scroll{overflow:auto}}
 </style>
 <h1>Application Progress</h1>
-<p>Counts represent the newest draft per person and application. Incomplete drafts are marked abandoned after 24 hours without activity.</p>
+<p>Counts represent engaged applicants after browser/email deduplication. Empty drafts are shown separately and excluded. Status filters affect the table only.</p>
 <div class="ce-progress-cards">
-  <div class="ce-progress-card"><strong>{{ summary.started }}</strong><span>Started</span></div>
+  <div class="ce-progress-card"><strong>{{ summary.started }}</strong><span>Genuine starts</span></div>
+  <div class="ce-progress-card"><strong>{{ summary.empty_drafts }}</strong><span>Empty drafts excluded</span></div>
   <div class="ce-progress-card"><strong>{{ summary.completed }}</strong><span>Completed</span></div>
   <div class="ce-progress-card"><strong>{{ summary.rejected }}</strong><span>Rejected</span></div>
   <div class="ce-progress-card"><strong>{{ summary.abandoned }}</strong><span>Abandoned</span></div>
-  <div class="ce-progress-card"><strong>{{ summary.active }}</strong><span>Active now</span></div>
+  <div class="ce-progress-card"><strong>{{ summary.active }}</strong><span>Active within 24h</span></div>
 </div>
 <form method="get" class="ce-progress-filters">
   <label>Group<select name="group"><option value="">All groups</option>{% for group in group_options %}<option value="{{ group.id }}" {% if group_filter == group.id %}selected{% endif %}>{{ group }}</option>{% endfor %}</select></label>
   <label>Application<select name="form"><option value="">All applications</option>{% for form in form_options %}<option value="{{ form.slug }}" {% if form_filter == form.slug %}selected{% endif %}>{{ form.name }}</option>{% endfor %}</select></label>
-  <label>Status<select name="status"><option value="abandoned" {% if status_filter == 'abandoned' %}selected{% endif %}>Abandoned</option><option value="active" {% if status_filter == 'active' %}selected{% endif %}>Active</option><option value="completed" {% if status_filter == 'completed' %}selected{% endif %}>Completed</option><option value="rejected" {% if status_filter == 'rejected' %}selected{% endif %}>Rejected</option><option value="all" {% if status_filter == 'all' %}selected{% endif %}>All</option></select></label>
+  <label>Status (table only)<select name="status"><option value="abandoned" {% if status_filter == 'abandoned' %}selected{% endif %}>Abandoned</option><option value="active" {% if status_filter == 'active' %}selected{% endif %}>Active within 24h</option><option value="completed" {% if status_filter == 'completed' %}selected{% endif %}>Completed</option><option value="rejected" {% if status_filter == 'rejected' %}selected{% endif %}>Rejected</option><option value="all" {% if status_filter == 'all' %}selected{% endif %}>All</option></select></label>
   <button class="button" type="submit">Apply</button>
 </form>
 

@@ -879,6 +879,34 @@ class ApplicationPageImageTests(TestCase):
             html.index("Tu aplicación fue recibida."),
         )
 
+    def test_google_ads_tag_loads_and_conversion_fires_once_from_session(self):
+        response = self.client.get(
+            reverse("apply_by_slug", args=[self.form_def.slug])
+        )
+        self.assertContains(
+            response,
+            "https://www.googletagmanager.com/gtag/js?id=AW-18266463644",
+        )
+        self.assertNotContains(response, "fNUjCPOq5tocEJy7kIZE")
+
+        session = self.client.session
+        session["ce_thanks_payload"] = {
+            "kind": "a1",
+            "approved": True,
+            "google_ads_conversion_transaction_id": "application-987",
+        }
+        session.save()
+
+        response = self.client.get(reverse("application_thanks"))
+        self.assertContains(
+            response,
+            r"AW\u002D18266463644/fNUjCPOq5tocEJy7kIZE",
+        )
+        self.assertContains(response, r"'transaction_id': 'application\u002D987'")
+
+        response = self.client.get(reverse("application_thanks"))
+        self.assertNotContains(response, "fNUjCPOq5tocEJy7kIZE")
+
     def test_inline_approval_image_suppresses_duplicate_standalone_image(self):
         payload = {
             "custom_message_body": (

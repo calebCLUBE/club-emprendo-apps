@@ -6,6 +6,17 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>{% block title %}Club Emprendo{% endblock %}</title>
 
+  {% if google_ads_conversion_id %}
+    <!-- Google tag (gtag.js) -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id={{ google_ads_conversion_id|urlencode }}"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', '{{ google_ads_conversion_id|escapejs }}');
+    </script>
+  {% endif %}
+
   {# Your main stylesheet #}
   <link rel="stylesheet" href="{% static 'applications/css/styles.css' %}">
   {% block extra_head %}{% endblock %}

@@ -1484,14 +1484,16 @@ def _handle_application_form(
                 group_num=_group_num_from_form_def(rejection_form_def),
                 track=_track_from_slug(rejection_form_def.slug or ""),
             )
+            rejection_payload = shared_rejection or {
+                "custom_message_title": str(terminal_rule.get("page_title") or "").strip(),
+                "custom_message_body": str(terminal_rule.get("page_message") or "").strip(),
+                "custom_message_variant": "alert",
+            }
+            rejection_payload["google_ads_conversion_transaction_id"] = f"application-{app.pk}"
             return render(
                 request,
                 "applications/thanks.html",
-                shared_rejection or {
-                    "custom_message_title": str(terminal_rule.get("page_title") or "").strip(),
-                    "custom_message_body": str(terminal_rule.get("page_message") or "").strip(),
-                    "custom_message_variant": "alert",
-                },
+                rejection_payload,
             )
 
         try:
@@ -1581,6 +1583,7 @@ def _handle_application_form(
                         track=str(thanks_payload.get("track") or ""),
                     )
                 )
+                thanks_payload["google_ads_conversion_transaction_id"] = f"application-{app.pk}"
                 return render(request, "applications/thanks.html", thanks_payload)
 
         # A1 autogrades
@@ -1645,6 +1648,8 @@ def _handle_application_form(
         if app.approved_for_grading != approved_for_grading:
             app.approved_for_grading = approved_for_grading
             app.save(update_fields=["approved_for_grading"])
+
+        thanks_payload["google_ads_conversion_transaction_id"] = f"application-{app.pk}"
 
         if combined_flow:
             return render(

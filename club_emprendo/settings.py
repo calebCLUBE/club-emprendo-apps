@@ -85,6 +85,7 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
+                "applications.context_processors.google_ads_tracking",
             ],
         },
     },
@@ -184,6 +185,18 @@ EMAIL_TIMEOUT = int(os.environ.get("EMAIL_TIMEOUT", "10"))
 
 
 SITE_URL = os.environ.get("SITE_URL", "http://127.0.0.1:8000")
+
+# Public Google Ads identifiers used by the application templates. Keeping
+# these configurable makes it possible to disable or replace tracking without
+# editing templates; an empty value disables the corresponding tag.
+GOOGLE_ADS_CONVERSION_ID = os.environ.get(
+    "GOOGLE_ADS_CONVERSION_ID",
+    "AW-18266463644",
+).strip()
+GOOGLE_ADS_CONVERSION_LABEL = os.environ.get(
+    "GOOGLE_ADS_CONVERSION_LABEL",
+    "fNUjCPOq5tocEJy7kIZE",
+).strip()
 
 # Dropbox Sign webhook verification:
 # event_hash = sha256(api_key + event_time + event_type)

@@ -2569,6 +2569,21 @@ def _is_engaged_application_draft(draft):
     )
 
 
+def _engaged_application_draft_filter():
+    """Database equivalent of ``_is_engaged_application_draft``."""
+    return (
+        Q(completed_at__isnull=False)
+        | Q(application_id__isnull=False)
+        | ~Q(answers={})
+        | ~Q(name="")
+        | ~Q(email="")
+        | Q(answered_questions__gt=0)
+        | Q(progress_percent__gt=0)
+        | Q(current_section__gt=1)
+        | ~Q(last_question_slug="")
+    )
+
+
 def _dedupe_application_drafts(drafts):
     """Keep one authoritative draft per connected browser/email identity and form."""
     drafts = list(drafts)
@@ -2882,8 +2897,10 @@ def application_progress_dashboard(request):
         drafts = drafts.filter(form__group_id=group_id)
     if form_slug:
         drafts = drafts.filter(form__slug=form_slug)
-    all_drafts = list(drafts.order_by("-updated_at"))
-    engaged_drafts = [draft for draft in all_drafts if _is_engaged_application_draft(draft)]
+    total_draft_count = drafts.count()
+    engaged_drafts = list(
+        drafts.filter(_engaged_application_draft_filter()).order_by("-updated_at")
+    )
     people_drafts = _dedupe_application_drafts(engaged_drafts)
     valid_statuses = {"completed", "rejected", "active", "abandoned", "all"}
     if status not in valid_statuses:
@@ -2921,7 +2938,7 @@ def application_progress_dashboard(request):
     ]
     summary = {
         "started": len(people_drafts),
-        "empty_drafts": len(all_drafts) - len(engaged_drafts),
+        "empty_drafts": total_draft_count - len(engaged_drafts),
         "completed": all_statuses.count("Completed"),
         "rejected": all_statuses.count("Rejected"),
         "abandoned": all_statuses.count("Abandoned"),

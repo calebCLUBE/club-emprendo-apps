@@ -856,6 +856,7 @@
     let activeSortFilterCi = null;
     let lastHeaderSortPressAt = 0;
     let lastHeaderSortPressCi = null;
+    let sheetHasFocus = false;
 
     function colIndexFromLabel(label) {
       let out = 0;
@@ -3986,6 +3987,100 @@
       return seedMatrixFromCsv(currentSheetMeta());
     }
 
+    function selectedTextForClipboard() {
+      const range = parseA1Range(currentSelectedRef(activeSheetData));
+      const matrix = getCurrentMatrix();
+      const rowCount = Array.isArray(matrix) ? matrix.length : 0;
+      const colCount = rowCount
+        ? matrix.reduce(function (largest, row) {
+            return Math.max(largest, Array.isArray(row) ? row.length : 0);
+          }, 0)
+        : 0;
+      if (!range || rowCount < 1 || colCount < 1) {
+        return '';
+      }
+
+      const lastRi = Math.min(range.eri, rowCount - 1);
+      const lastCi = Math.min(range.eci, colCount - 1);
+      const lines = [];
+      for (let ri = range.sri; ri <= lastRi; ri += 1) {
+        const values = [];
+        for (let ci = range.sci; ci <= lastCi; ci += 1) {
+          values.push(
+            String(cellTextAt(ri, ci) || '')
+              .replace(/\r?\n/g, ' ')
+              .replace(/\t/g, ' ')
+          );
+        }
+        lines.push(values.join('\t'));
+      }
+      return lines.join('\n');
+    }
+
+    function legacyClipboardWrite(text) {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.setAttribute('readonly', '');
+      textarea.style.position = 'fixed';
+      textarea.style.left = '-9999px';
+      textarea.style.top = '0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      let copied = false;
+      try {
+        copied = document.execCommand('copy');
+      } catch (err) {
+        copied = false;
+      }
+      textarea.remove();
+      return copied;
+    }
+
+    function copySelectionToSystemClipboard(clipboardEvent) {
+      if (!activeSheetData) {
+        setMenuStatus('Select a cell, row, or column first.', 'error');
+        return Promise.resolve(false);
+      }
+      const text = selectedTextForClipboard();
+      try {
+        activeSheetData.copy();
+      } catch (err) {
+        // The system clipboard copy below is the authoritative operation.
+      }
+
+      if (clipboardEvent && clipboardEvent.clipboardData) {
+        clipboardEvent.clipboardData.setData('text/plain', text);
+        clipboardEvent.preventDefault();
+        clipboardEvent.stopPropagation();
+        if (typeof clipboardEvent.stopImmediatePropagation === 'function') {
+          clipboardEvent.stopImmediatePropagation();
+        }
+        setMenuStatus('Selection copied to clipboard.', 'ok');
+        return Promise.resolve(true);
+      }
+
+      const copiedSynchronously = legacyClipboardWrite(text);
+      if (copiedSynchronously) {
+        setMenuStatus('Selection copied to clipboard.', 'ok');
+        return Promise.resolve(true);
+      }
+
+      if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+        return navigator.clipboard.writeText(text)
+          .then(function () {
+            setMenuStatus('Selection copied to clipboard.', 'ok');
+            return true;
+          })
+          .catch(function () {
+            setMenuStatus('Browser blocked clipboard access.', 'error');
+            return false;
+          });
+      }
+
+      setMenuStatus('Browser blocked clipboard access.', 'error');
+      return Promise.resolve(false);
+    }
+
     function moveArrayItemInPlace(arr, fromIdx, toIdx) {
       if (!Array.isArray(arr)) {
         return false;
@@ -5626,8 +5721,7 @@
           });
           break;
         case 'copy':
-          withSheetAction(function () { activeSheetData.copy(); });
-          setMenuStatus('Selection copied.', 'ok');
+          copySelectionToSystemClipboard();
           break;
         case 'cut':
           withSheetAction(function () { activeSheetData.cut(); });
@@ -5937,6 +6031,15 @@
       menus.forEach(function (menu) {
         bar.appendChild(createGoogleMenuNode(menu));
       });
+      const copySelectionButton = document.createElement('button');
+      copySelectionButton.type = 'button';
+      copySelectionButton.className = 'ce-gs-menu-btn';
+      copySelectionButton.textContent = 'Copy selection';
+      copySelectionButton.title = 'Copy the selected cells, row, or column to the system clipboard';
+      copySelectionButton.addEventListener('click', function () {
+        performMenuAction('copy');
+      });
+      bar.appendChild(copySelectionButton);
       const status = document.createElement('div');
       status.className = 'ce-gs-menubar-status';
       bar.appendChild(status);
@@ -5955,6 +6058,28 @@
           closeAllGoogleMenus();
         }
       });
+
+      root.addEventListener('pointerdown', function () {
+        sheetHasFocus = true;
+      });
+      document.addEventListener('pointerdown', function (ev) {
+        if (!root.contains(ev.target) && (!googleMenuRoot || !googleMenuRoot.contains(ev.target))) {
+          sheetHasFocus = false;
+        }
+      }, true);
+      document.addEventListener('keydown', function (ev) {
+        const target = ev.target;
+        const isTextEditor = target === formulaInput || target === formulaNameInput || Boolean(target && target.isContentEditable);
+        if (
+          !sheetHasFocus ||
+          isTextEditor ||
+          !(ev.ctrlKey || ev.metaKey) ||
+          String(ev.key || '').toLowerCase() !== 'c'
+        ) {
+          return;
+        }
+        copySelectionToSystemClipboard(ev);
+      }, true);
     }
 
     function selectedSingleCellRef() {

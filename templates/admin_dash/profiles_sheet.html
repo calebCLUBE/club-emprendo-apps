@@ -57,7 +57,8 @@
         <a href="{% url 'admin_profiles_list' %}?q={{ query|urlencode }}&group={{ group_filter|urlencode }}&grading={{ status_filter|urlencode }}&participation={{ participation_filter|urlencode }}">← Back to Profiles</a>
         <span>
           Copy one value by selecting its cell. Drag to select several values, or click a row number/column letter
-          for a complete row/column. Then press Ctrl+C (Windows) or Command+C (Mac), or choose Edit → Copy.
+          for a complete row/column. Then click Copy selection, press Ctrl+C (Windows) or Command+C (Mac),
+          or choose Edit → Copy.
         </span>
       </div>
       {% include "admin_dash/includes/xsheet_preview.html" with sheet_id="profiles-full-sheet" sheet_headers=sheet_headers sheet_rows=sheet_rows sheet_height=760 sheet_deferred=True %}

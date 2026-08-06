@@ -1893,6 +1893,47 @@ class ProfileMemoryBoundedBuildTests(TestCase):
         self.assertNotIn("unused-essay", profiles[0]["search_text"])
 
 
+class ProfilesParticipationFilterTests(TestCase):
+    def _profile(self, email):
+        return {
+            "email": email,
+            "search_text": email,
+            "group_num": None,
+            "is_graded": False,
+        }
+
+    @patch("applications.admin_profiles_views._participant_list_email_keys")
+    @patch("applications.admin_profiles_views._build_profiles")
+    def test_participation_filter_includes_only_matching_profiles(
+        self,
+        mock_build_profiles,
+        mock_participant_emails,
+    ):
+        mock_build_profiles.return_value = [
+            self._profile("participated@example.com"),
+            self._profile("new@example.com"),
+        ]
+        mock_participant_emails.return_value = {"participated@example.com"}
+
+        yes_payload = admin_profiles_views._profiles_filtered_payload(
+            SimpleNamespace(GET={"participation": "yes"})
+        )
+        no_payload = admin_profiles_views._profiles_filtered_payload(
+            SimpleNamespace(GET={"participation": "no"})
+        )
+
+        self.assertEqual(
+            [row["email"] for row in yes_payload["filtered"]],
+            ["participated@example.com"],
+        )
+        self.assertEqual(
+            [row["email"] for row in no_payload["filtered"]],
+            ["new@example.com"],
+        )
+        self.assertEqual(yes_payload["participation_filter"], "yes")
+        self.assertEqual(no_payload["participation_filter"], "no")
+
+
 class ParticipantHistoryLookupTests(TestCase):
     @staticmethod
     def _row(status, name, identity, email):

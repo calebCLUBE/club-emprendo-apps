@@ -33,10 +33,33 @@
       display: flex;
       flex-direction: column;
     }
+    .ce-sheet-help {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 8px 12px;
+      border-bottom: 1px solid #e5e7eb;
+      background: #f8fafc;
+      color: #475569;
+      font-size: 13px;
+    }
+    .ce-sheet-help a {
+      color: #223413;
+      font-weight: 700;
+      white-space: nowrap;
+    }
   </style>
 
   <div class="ce-sheet-page">
     <div class="ce-sheet-shell">
+      <div class="ce-sheet-help">
+        <a href="{% url 'admin_profiles_list' %}?q={{ query|urlencode }}&group={{ group_filter|urlencode }}&grading={{ status_filter|urlencode }}&participation={{ participation_filter|urlencode }}">← Back to Profiles</a>
+        <span>
+          Copy one value by selecting its cell. Drag to select several values, or click a row number/column letter
+          for a complete row/column. Then press Ctrl+C (Windows) or Command+C (Mac), or choose Edit → Copy.
+        </span>
+      </div>
       {% include "admin_dash/includes/xsheet_preview.html" with sheet_id="profiles-full-sheet" sheet_headers=sheet_headers sheet_rows=sheet_rows sheet_height=760 sheet_deferred=True %}
     </div>
   </div>

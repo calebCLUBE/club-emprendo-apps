@@ -60,7 +60,7 @@
       }
       .ce-filter {
         display: grid;
-        grid-template-columns: minmax(240px, 1.5fr) minmax(160px, 1fr) minmax(180px, 1fr) auto;
+        grid-template-columns: minmax(240px, 1.5fr) repeat(3, minmax(160px, 1fr)) auto;
         gap: 10px;
         align-items: end;
         margin: 12px 0 16px;
@@ -421,6 +421,14 @@
         </select>
       </div>
       <div>
+        <label for="participation">Participated</label>
+        <select id="participation" name="participation">
+          <option value="all" {% if participation_filter == "all" %}selected{% endif %}>All</option>
+          <option value="yes" {% if participation_filter == "yes" %}selected{% endif %}>Yes</option>
+          <option value="no" {% if participation_filter == "no" %}selected{% endif %}>No</option>
+        </select>
+      </div>
+      <div>
         <button class="ce-btn" type="submit">Apply</button>
       </div>
     </form>
@@ -428,11 +436,14 @@
     <section style="margin: 6px 0 16px;">
       <a
         class="ce-btn ce-btn--ghost"
-        href="{% url 'admin_profiles_sheet' %}?q={{ query|urlencode }}&group={{ group_filter|urlencode }}&grading={{ status_filter|urlencode }}"
+        href="{% url 'admin_profiles_sheet' %}?q={{ query|urlencode }}&group={{ group_filter|urlencode }}&grading={{ status_filter|urlencode }}&participation={{ participation_filter|urlencode }}"
       >
-        Open Profiles Sheet
+        Open Copyable Profiles Sheet
       </a>
-      <div class="ce-muted" style="margin-top:8px;">Opens a dedicated, full-page sheet with all filtered profile rows.</div>
+      <div class="ce-muted" style="margin-top:8px;">
+        Opens all filtered rows in a spreadsheet. Select one cell or drag across several cells to copy values;
+        click a row number or column letter to copy the entire row or column, then use Ctrl+C (Windows) or Command+C (Mac).
+      </div>
     </section>
 
     <div class="ce-table-wrap">

@@ -3670,6 +3670,9 @@ def _profiles_filtered_payload(request):
     status_filter = (request.GET.get("grading") or "").strip()
     if status_filter not in {"all", "graded", "not_graded"}:
         status_filter = "all"
+    participation_filter = (request.GET.get("participation") or "all").strip().lower()
+    if participation_filter not in {"all", "yes", "no"}:
+        participation_filter = "all"
 
     filtered = profiles
     if query_lower:
@@ -3683,6 +3686,11 @@ def _profiles_filtered_payload(request):
     elif status_filter == "not_graded":
         filtered = [p for p in filtered if not p["is_graded"]]
 
+    if participation_filter == "yes":
+        filtered = [p for p in filtered if p["participated"]]
+    elif participation_filter == "no":
+        filtered = [p for p in filtered if not p["participated"]]
+
     group_options = sorted(
         {p["group_num"] for p in profiles if p["group_num"] is not None},
         reverse=True,
@@ -3693,6 +3701,7 @@ def _profiles_filtered_payload(request):
         "query": query,
         "group_filter": group_filter,
         "status_filter": status_filter,
+        "participation_filter": participation_filter,
         "group_options": group_options,
         "total_profiles": len(profiles),
         "visible_profiles": len(filtered),
@@ -3810,6 +3819,7 @@ def profiles_list(request):
         "query": payload["query"],
         "group_filter": payload["group_filter"],
         "status_filter": payload["status_filter"],
+        "participation_filter": payload["participation_filter"],
         "group_options": payload["group_options"],
         "total_profiles": payload["total_profiles"],
         "visible_profiles": payload["visible_profiles"],
@@ -3841,6 +3851,7 @@ def profiles_sheet(request):
         "query": payload["query"],
         "group_filter": payload["group_filter"],
         "status_filter": payload["status_filter"],
+        "participation_filter": payload["participation_filter"],
         "group_options": payload["group_options"],
         "rows_count": len(sheet_rows),
         "sheet_headers": sheet_headers,

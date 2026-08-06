@@ -12,7 +12,7 @@ from django.contrib.admin.views.decorators import staff_member_required
 from django.conf import settings
 from django.core.cache import cache
 from django.core.mail import EmailMultiAlternatives, get_connection
-from django.db.models import Avg, Count, Q
+from django.db.models import Avg, Count, Min, Q, Sum
 from django.db.models.functions import TruncDay, TruncMonth, TruncWeek
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -23,7 +23,15 @@ from django.utils.html import escape, linebreaks
 from django.views.decorators.http import require_POST
 
 from .admin_views import _group_label_for_number, _load_database_encuestas_grid
-from .models import Application, ApplicationDraft, FormDefinition, FormGroup, GroupParticipantList, Question
+from .models import (
+    Application,
+    ApplicationDraft,
+    FormDefinition,
+    FormGroup,
+    GroupParticipantList,
+    Question,
+    WebsiteTrafficVisit,
+)
 from .meta_marketing import (
     MetaMarketingClient,
     ZernioMarketingClient,
@@ -45,6 +53,7 @@ from .participant_statuses import (
     PARTICIPANT_STATUS_STARTED,
     normalize_participant_status,
 )
+from .traffic import BOGOTA_TIMEZONE
 
 GROUP_SLUG_RE = re.compile(r"^G(?P<num>\d+)_")
 IMPACT_EMAIL_HEADERS = {"email", "correo", "correoelectronico", "mail"}
@@ -2542,6 +2551,114 @@ def _render_impact_dashboard_html_pdf(request, context: dict) -> bytes | None:
 @staff_member_required
 def dashboards_home(request):
     return render(request, "admin_dash/dashboards_home.html")
+
+
+def _website_traffic_period_metrics(queryset):
+    values = queryset.aggregate(
+        visitors=Count("visitor_id", distinct=True),
+        pageviews=Sum("pageviews"),
+    )
+    return {
+        "visitors": int(values.get("visitors") or 0),
+        "pageviews": int(values.get("pageviews") or 0),
+    }
+
+
+@staff_member_required
+def website_traffic_dashboard(request):
+    now = timezone.now()
+    today = now.astimezone(BOGOTA_TIMEZONE).date()
+    week_start = today - timedelta(days=6)
+    month_start = today - timedelta(days=29)
+    active_since = now - timedelta(minutes=5)
+    visits = WebsiteTrafficVisit.objects.all()
+
+    period_cards = [
+        {
+            "label": "Today",
+            **_website_traffic_period_metrics(visits.filter(visit_date=today)),
+        },
+        {
+            "label": "Last 7 days",
+            **_website_traffic_period_metrics(visits.filter(visit_date__gte=week_start)),
+        },
+        {
+            "label": "Last 30 days",
+            **_website_traffic_period_metrics(visits.filter(visit_date__gte=month_start)),
+        },
+        {
+            "label": "Since tracking began",
+            **_website_traffic_period_metrics(visits),
+        },
+    ]
+    active_visitors = (
+        visits.filter(last_seen_at__gte=active_since)
+        .values("visitor_id")
+        .distinct()
+        .count()
+    )
+
+    daily_values = {
+        row["visit_date"]: {
+            "visitors": int(row["visitors"] or 0),
+            "pageviews": int(row["pageviews"] or 0),
+        }
+        for row in (
+            visits.filter(visit_date__gte=month_start)
+            .values("visit_date")
+            .annotate(
+                visitors=Count("visitor_id", distinct=True),
+                pageviews=Sum("pageviews"),
+            )
+            .order_by("visit_date")
+        )
+    }
+    daily_rows = []
+    max_daily_pageviews = max(
+        [values["pageviews"] for values in daily_values.values()] or [1]
+    )
+    for day_offset in range(30):
+        day = month_start + timedelta(days=day_offset)
+        values = daily_values.get(day, {"visitors": 0, "pageviews": 0})
+        daily_rows.append(
+            {
+                "date": day,
+                **values,
+                "bar_percent": round(100 * values["pageviews"] / max(1, max_daily_pageviews)),
+            }
+        )
+
+    top_pages = list(
+        visits.filter(visit_date__gte=month_start)
+        .values("path")
+        .annotate(
+            visitors=Count("visitor_id", distinct=True),
+            pageviews=Sum("pageviews"),
+        )
+        .order_by("-pageviews", "path")[:15]
+    )
+    active_pages = list(
+        visits.filter(last_seen_at__gte=active_since)
+        .values("path")
+        .annotate(visitors=Count("visitor_id", distinct=True))
+        .order_by("-visitors", "path")[:10]
+    )
+    tracking_started_at = visits.aggregate(value=Min("first_seen_at")).get("value")
+
+    return render(
+        request,
+        "admin_dash/website_traffic_dashboard.html",
+        {
+            "active_visitors": active_visitors,
+            "active_window_minutes": 5,
+            "period_cards": period_cards,
+            "daily_rows": daily_rows,
+            "top_pages": top_pages,
+            "active_pages": active_pages,
+            "tracking_started_at": tracking_started_at,
+            "today": today,
+        },
+    )
 
 
 def _application_draft_status(draft, abandoned_before):

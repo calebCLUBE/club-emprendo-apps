@@ -77,6 +77,7 @@ from applications.models import (
     Question,
     Section,
     StoredEmailTemplate,
+    WebsiteTrafficVisit,
 )
 
 
@@ -1351,6 +1352,97 @@ class ApplicationDraftTrackingTests(TestCase):
         )
 
         self.assertEqual(response.context["summary"]["started"], 2)
+
+
+class WebsiteTrafficTrackingTests(TestCase):
+    def setUp(self):
+        self.form_def = FormDefinition.objects.create(
+            slug="traffic_test",
+            name="Traffic Test",
+            is_public=True,
+        )
+
+    def test_public_pageviews_use_one_anonymous_browser_cookie(self):
+        url = reverse("apply_by_slug", args=[self.form_def.slug])
+
+        first = self.client.get(url, HTTP_USER_AGENT="Mozilla/5.0")
+        second = self.client.get(url, HTTP_USER_AGENT="Mozilla/5.0")
+
+        self.assertEqual(first.status_code, 200)
+        self.assertIn("ce_traffic_visitor", first.cookies)
+        self.assertEqual(WebsiteTrafficVisit.objects.count(), 1)
+        visit = WebsiteTrafficVisit.objects.get()
+        self.assertEqual(visit.path, url)
+        self.assertEqual(visit.pageviews, 2)
+        self.assertEqual(
+            str(visit.visitor_id),
+            self.client.cookies["ce_traffic_visitor"].value,
+        )
+        self.assertNotIn("?", visit.path)
+        self.assertEqual(second.status_code, 200)
+
+    def test_admin_and_bot_requests_are_excluded(self):
+        self.client.get(
+            reverse("apply_by_slug", args=[self.form_def.slug]),
+            HTTP_USER_AGENT="Googlebot/2.1",
+        )
+        self.client.get("/admin/", HTTP_USER_AGENT="Mozilla/5.0")
+
+        self.assertFalse(WebsiteTrafficVisit.objects.exists())
+
+    def test_heartbeat_updates_activity_without_adding_pageview(self):
+        page_url = reverse("apply_by_slug", args=[self.form_def.slug])
+        self.client.get(page_url, HTTP_USER_AGENT="Mozilla/5.0")
+        visit = WebsiteTrafficVisit.objects.get()
+        original_pageviews = visit.pageviews
+
+        response = self.client.get(
+            reverse("website_traffic_heartbeat"),
+            {"path": page_url},
+            HTTP_USER_AGENT="Mozilla/5.0",
+        )
+
+        visit.refresh_from_db()
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(visit.pageviews, original_pageviews)
+
+    def test_admin_dashboard_reports_active_daily_weekly_and_monthly_metrics(self):
+        now = timezone.now()
+        today = now.astimezone(admin_dashboard_views.BOGOTA_TIMEZONE).date()
+        visitors = [uuid.uuid4(), uuid.uuid4()]
+        WebsiteTrafficVisit.objects.create(
+            visitor_id=visitors[0],
+            visit_date=today,
+            path="/apply/emprendedora/",
+            pageviews=3,
+            first_seen_at=now,
+            last_seen_at=now,
+        )
+        WebsiteTrafficVisit.objects.create(
+            visitor_id=visitors[1],
+            visit_date=today - timedelta(days=3),
+            path="/apply/mentora/",
+            pageviews=2,
+            first_seen_at=now - timedelta(days=3),
+            last_seen_at=now - timedelta(days=3),
+        )
+        user = get_user_model().objects.create_superuser(
+            email="traffic-admin@example.com",
+            password="password",
+        )
+        self.client.force_login(user)
+
+        response = self.client.get(reverse("admin_website_traffic_dashboard"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Website Traffic")
+        self.assertContains(response, "Active now")
+        self.assertEqual(response.context["active_visitors"], 1)
+        cards = {card["label"]: card for card in response.context["period_cards"]}
+        self.assertEqual(cards["Today"]["visitors"], 1)
+        self.assertEqual(cards["Today"]["pageviews"], 3)
+        self.assertEqual(cards["Last 7 days"]["visitors"], 2)
+        self.assertEqual(cards["Last 7 days"]["pageviews"], 5)
 
 
 class QuestionAdminFormTests(TestCase):

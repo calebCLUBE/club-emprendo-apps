@@ -677,6 +677,33 @@ class ApplicationDraft(models.Model):
         return f"{self.form.slug} draft {self.token}"
 
 
+class WebsiteTrafficVisit(models.Model):
+    """Anonymous per-browser, per-page, per-day traffic aggregate."""
+
+    visitor_id = models.UUIDField(db_index=True)
+    visit_date = models.DateField(db_index=True)
+    path = models.CharField(max_length=500)
+    pageviews = models.PositiveIntegerField(default=0)
+    first_seen_at = models.DateTimeField()
+    last_seen_at = models.DateTimeField(db_index=True)
+
+    class Meta:
+        ordering = ["-last_seen_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["visitor_id", "visit_date", "path"],
+                name="unique_website_visitor_date_path",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["visit_date", "path"]),
+            models.Index(fields=["visit_date", "visitor_id"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.visit_date} {self.path} ({self.pageviews})"
+
+
 class Answer(models.Model):
     application = models.ForeignKey(
         Application,

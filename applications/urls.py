@@ -6,6 +6,11 @@ from . import views
 from . import survey_views
 
 urlpatterns = [
+    path(
+        "website-traffic/heartbeat/",
+        views.website_traffic_heartbeat,
+        name="website_traffic_heartbeat",
+    ),
     # ---------- PUBLIC FIRST-STAGE FORMS ----------
     path("apply/emprendedora/", views.apply_emprendedora_first, name="apply_emprendedora_first"),
     path("apply/mentora/", views.apply_mentora_first, name="apply_mentora_first"),

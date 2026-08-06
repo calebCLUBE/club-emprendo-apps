@@ -52,5 +52,25 @@
   </div>
 
   {% block extra_js %}{% endblock %}
+  <script>
+    (function () {
+      const heartbeatUrl = "{% url 'website_traffic_heartbeat' %}";
+      function sendTrafficHeartbeat() {
+        if (document.visibilityState !== 'visible') return;
+        const url = heartbeatUrl + '?path=' + encodeURIComponent(window.location.pathname || '/');
+        window.fetch(url, {
+          method: 'GET',
+          credentials: 'same-origin',
+          cache: 'no-store',
+          keepalive: true,
+        }).catch(function () {});
+      }
+      window.setTimeout(sendTrafficHeartbeat, 30000);
+      window.setInterval(sendTrafficHeartbeat, 60000);
+      document.addEventListener('visibilitychange', function () {
+        if (document.visibilityState === 'visible') sendTrafficHeartbeat();
+      });
+    })();
+  </script>
 </body>
 </html>

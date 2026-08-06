@@ -1,0 +1,89 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<style>
+  .ce-traffic-wrap{max-width:1500px;margin:0 auto}.ce-traffic-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap}.ce-traffic-head h1{margin:0}.ce-traffic-note{margin:10px 0 18px;padding:12px 14px;border:1px solid #bfdbfe;border-radius:10px;background:#eff6ff;color:#1e3a5f}.ce-traffic-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin:16px 0}.ce-traffic-card{padding:16px;border:1px solid #dbe4f0;border-radius:12px;background:#fff}.ce-traffic-card h2{margin:0 0 8px;font-size:15px;color:#475569}.ce-traffic-big{font-size:34px;font-weight:750;color:#172554;line-height:1}.ce-traffic-sub{margin-top:8px;color:#64748b}.ce-traffic-grid{display:grid;grid-template-columns:minmax(420px,1.4fr) minmax(300px,1fr);gap:16px;margin-top:18px}.ce-traffic-panel{padding:16px;border:1px solid #dbe4f0;border-radius:12px;background:#fff}.ce-traffic-panel h2{margin:0 0 12px}.ce-traffic-table{width:100%;border-collapse:collapse}.ce-traffic-table th,.ce-traffic-table td{padding:9px 8px;border-bottom:1px solid #e5e7eb;text-align:left}.ce-traffic-table th{text-transform:uppercase;font-size:11px;color:#64748b}.ce-traffic-bar{min-width:80px;height:10px;background:#eef2f7;border-radius:999px;overflow:hidden}.ce-traffic-bar span{display:block;height:100%;background:#2c3191;border-radius:999px}.ce-traffic-path{max-width:520px;overflow-wrap:anywhere}.ce-traffic-empty{color:#64748b}.ce-traffic-active-dot{display:inline-block;width:10px;height:10px;border-radius:50%;background:#22c55e;margin-right:6px}.ce-traffic-foot{margin-top:16px;color:#64748b;font-size:12px}@media(max-width:900px){.ce-traffic-grid{grid-template-columns:1fr}.ce-traffic-scroll{overflow:auto}}
+</style>
+<div class="ce-traffic-wrap">
+  <div class="ce-traffic-head">
+    <div>
+      <h1>Website Traffic</h1>
+      <p>Anonymous first-party traffic for the Club Emprendo application website.</p>
+    </div>
+    <a class="button" href="{% url 'admin_dashboards_home' %}">Back to dashboards</a>
+  </div>
+
+  <div class="ce-traffic-note">
+    Tracking begins with this feature and cannot reconstruct earlier traffic. A visitor is one browser cookie—not necessarily one person.
+    Admin pages, staff browsing, static files, query strings, IP addresses, and obvious bots are excluded.
+  </div>
+
+  <div class="ce-traffic-cards">
+    <div class="ce-traffic-card">
+      <h2><span class="ce-traffic-active-dot"></span>Active now</h2>
+      <div class="ce-traffic-big">{{ active_visitors }}</div>
+      <div class="ce-traffic-sub">Active within the last {{ active_window_minutes }} minutes</div>
+    </div>
+    {% for card in period_cards %}
+      <div class="ce-traffic-card">
+        <h2>{{ card.label }}</h2>
+        <div class="ce-traffic-big">{{ card.visitors }}</div>
+        <div class="ce-traffic-sub">unique visitor{{ card.visitors|pluralize }} · {{ card.pageviews }} page view{{ card.pageviews|pluralize }}</div>
+      </div>
+    {% endfor %}
+  </div>
+
+  <div class="ce-traffic-grid">
+    <section class="ce-traffic-panel ce-traffic-scroll">
+      <h2>Daily traffic — last 30 days</h2>
+      <table class="ce-traffic-table">
+        <thead><tr><th>Date</th><th>Visitors</th><th>Page views</th><th>Volume</th></tr></thead>
+        <tbody>
+          {% for row in daily_rows %}
+            <tr>
+              <td>{{ row.date|date:"M j" }}</td>
+              <td>{{ row.visitors }}</td>
+              <td>{{ row.pageviews }}</td>
+              <td><div class="ce-traffic-bar"><span style="width:{{ row.bar_percent }}%"></span></div></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+
+    <div>
+      <section class="ce-traffic-panel" style="margin-bottom:16px;">
+        <h2>Active pages</h2>
+        <table class="ce-traffic-table">
+          <thead><tr><th>Page</th><th>Visitors</th></tr></thead>
+          <tbody>
+            {% for row in active_pages %}
+              <tr><td class="ce-traffic-path">{{ row.path }}</td><td>{{ row.visitors }}</td></tr>
+            {% empty %}
+              <tr><td colspan="2" class="ce-traffic-empty">No visitors active right now.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </section>
+
+      <section class="ce-traffic-panel">
+        <h2>Most visited pages — last 30 days</h2>
+        <table class="ce-traffic-table">
+          <thead><tr><th>Page</th><th>Visitors</th><th>Views</th></tr></thead>
+          <tbody>
+            {% for row in top_pages %}
+              <tr><td class="ce-traffic-path">{{ row.path }}</td><td>{{ row.visitors }}</td><td>{{ row.pageviews }}</td></tr>
+            {% empty %}
+              <tr><td colspan="3" class="ce-traffic-empty">Traffic will appear after the first public visit.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </section>
+    </div>
+  </div>
+
+  <div class="ce-traffic-foot">
+    {% if tracking_started_at %}Tracking started {{ tracking_started_at|date:"Y-m-d H:i" }}.{% else %}No public visits have been recorded yet.{% endif %}
+    Dates use Bogotá time.
+  </div>
+</div>
+{% endblock %}

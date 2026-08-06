@@ -40,6 +40,11 @@ urlpatterns = [
         name="admin_application_progress_dashboard",
     ),
     path(
+        "admin/dashboards/website-traffic/",
+        admin_dashboard_views.website_traffic_dashboard,
+        name="admin_website_traffic_dashboard",
+    ),
+    path(
         "admin/dashboards/application-progress/send-reminders/",
         admin_dashboard_views.send_incomplete_application_reminders,
         name="admin_send_incomplete_application_reminders",

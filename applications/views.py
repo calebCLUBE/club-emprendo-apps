@@ -6,7 +6,7 @@ import uuid
 from django.conf import settings
 from django.core.mail import EmailMultiAlternatives
 from django.db import transaction
-from django.http import Http404, JsonResponse
+from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse
 from django.utils import timezone
@@ -24,11 +24,38 @@ from .emprendedora_a1_autograde import (
 )
 from .grader_e import _disqualification_reasons as _e_a2_disqualification_reasons
 from .grader_m import _disqualification_reasons as _m_a2_disqualification_reasons
+from .traffic import (
+    EXCLUDED_PATH_PREFIXES,
+    is_traffic_bot,
+    record_website_traffic,
+    set_traffic_cookie,
+    traffic_visitor_id,
+)
 
 
 GROUP_SLUG_RE = re.compile(r"^G(?P<num>\d+)_")
 THANKS_PLACEHOLDER_RE = re.compile(r"{{\s*([a-zA-Z0-9_]+)\s*}}")
 logger = logging.getLogger(__name__)
+
+
+def website_traffic_heartbeat(request):
+    if request.method != "GET":
+        return HttpResponse(status=405)
+    path = str(request.GET.get("path") or "/").strip()
+    if not path.startswith("/") or any(path.startswith(prefix) for prefix in EXCLUDED_PATH_PREFIXES):
+        return HttpResponse(status=204)
+    user = getattr(request, "user", None)
+    if (user is not None and getattr(user, "is_staff", False)) or is_traffic_bot(request):
+        return HttpResponse(status=204)
+
+    visitor_id = traffic_visitor_id(request)
+    try:
+        record_website_traffic(visitor_id, path, pageview=False)
+    except Exception:
+        logger.exception("Website traffic heartbeat tracking failed")
+    response = HttpResponse(status=204)
+    set_traffic_cookie(response, visitor_id, request)
+    return response
 
 
 def application_terms(request, form_slug: str, question_id: int):

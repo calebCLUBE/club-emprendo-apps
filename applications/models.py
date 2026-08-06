@@ -59,6 +59,24 @@ class FormGroup(models.Model):
             "while preserving application database records."
         ),
     )
+    incomplete_reminder_subject = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text=(
+            "Subject used for incomplete-application reminders. Leave blank to use the default. "
+            "Supports {{ group_label }}, {{ form_name }}, and {{ applicant_name }}."
+        ),
+    )
+    incomplete_reminder_body = models.TextField(
+        blank=True,
+        default="",
+        help_text=(
+            "Plain-text template used for incomplete-application reminders. Leave blank to use "
+            "the default. Supports {{ greeting }}, {{ applicant_name }}, {{ group_label }}, "
+            "{{ form_name }}, and {{ resume_url }}."
+        ),
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

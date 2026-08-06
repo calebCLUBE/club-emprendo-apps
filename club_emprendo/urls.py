@@ -45,6 +45,11 @@ urlpatterns = [
         name="admin_send_incomplete_application_reminders",
     ),
     path(
+        "admin/dashboards/application-progress/reminder-template/",
+        admin_dashboard_views.save_incomplete_application_reminder_template,
+        name="admin_save_incomplete_application_reminder_template",
+    ),
+    path(
         "admin/dashboards/impact/report.pdf",
         admin_dashboard_views.impact_dashboard_pdf,
         name="admin_impact_dashboard_pdf",

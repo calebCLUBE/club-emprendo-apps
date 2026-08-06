@@ -19,7 +19,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils import timezone
-from django.utils.html import escape
+from django.utils.html import escape, linebreaks
 from django.views.decorators.http import require_POST
 
 from .admin_views import _group_label_for_number, _load_database_encuestas_grid
@@ -83,6 +83,26 @@ IMPACT_METADATA_HEADERS = {
     "phone",
     "whatsapp",
 }
+
+DEFAULT_INCOMPLETE_REMINDER_SUBJECT = "Recuerda completar tu aplicación — {{ group_label }}"
+DEFAULT_INCOMPLETE_REMINDER_BODY = """{{ greeting }}
+
+Vimos que comenzaste {{ form_name }}, pero todavía no has enviado tu aplicación.
+
+Puedes continuar desde donde la dejaste usando este enlace:
+{{ resume_url }}
+
+Si ya no deseas continuar, puedes ignorar este mensaje.
+
+Con cariño,
+Club Emprendo"""
+INCOMPLETE_REMINDER_PLACEHOLDERS = (
+    "greeting",
+    "applicant_name",
+    "group_label",
+    "form_name",
+    "resume_url",
+)
 IMPACT_NPS_HEADER_TOKENS = (
     "nps",
     "recommend",
@@ -2654,9 +2674,55 @@ def _incomplete_application_reminder_drafts(group_id: int, form_slug: str = ""):
     return eligible
 
 
+def _incomplete_reminder_context(*, applicant_name, group_label, form_name, resume_url):
+    clean_name = str(applicant_name or "").strip()
+    return {
+        "greeting": f"Hola {clean_name}," if clean_name else "Hola,",
+        "applicant_name": clean_name,
+        "group_label": str(group_label or "").strip(),
+        "form_name": str(form_name or "").strip(),
+        "resume_url": str(resume_url or "").strip(),
+    }
+
+
+def _replace_incomplete_reminder_placeholders(template, context):
+    rendered = str(template or "")
+    for key in INCOMPLETE_REMINDER_PLACEHOLDERS:
+        rendered = rendered.replace("{{ " + key + " }}", str(context.get(key) or ""))
+        rendered = rendered.replace("{{" + key + "}}", str(context.get(key) or ""))
+    return rendered
+
+
+def _render_incomplete_reminder_subject(template, context):
+    rendered = _replace_incomplete_reminder_placeholders(template, context)
+    return " ".join(rendered.replace("\r", " ").replace("\n", " ").split())
+
+
+def _render_incomplete_reminder_html(template, context):
+    rendered = str(escape(template or ""))
+    resume_url = escape(context.get("resume_url") or "")
+    resume_button = (
+        f'<a href="{resume_url}" style="display:inline-block;padding:11px 18px;'
+        'background:#163108;color:#fff;text-decoration:none;border-radius:8px;">'
+        "Continuar mi aplicación</a>"
+    )
+    for key in INCOMPLETE_REMINDER_PLACEHOLDERS:
+        replacement = resume_button if key == "resume_url" else str(escape(context.get(key) or ""))
+        rendered = rendered.replace("{{ " + key + " }}", replacement)
+        rendered = rendered.replace("{{" + key + "}}", replacement)
+    return (
+        '<div style="font-family:Arial,Helvetica,sans-serif;line-height:1.6;'
+        'max-width:680px;margin:0 auto;">'
+        + str(linebreaks(rendered, autoescape=False))
+        + "</div>"
+    )
+
+
 def _send_incomplete_application_reminders_worker(
     candidates: list[dict],
     group_label: str,
+    subject_template: str,
+    body_template: str,
     lock_key: str,
 ):
     connection = None
@@ -2666,29 +2732,15 @@ def _send_incomplete_application_reminders_worker(
         connection.open()
         for candidate in candidates:
             try:
-                applicant_name = escape(candidate.get("name") or "")
-                greeting = f"Hola {applicant_name}," if applicant_name else "Hola,"
-                form_name = escape(candidate["form_name"])
-                resume_url = escape(candidate["resume_url"])
-                subject = f"Recuerda completar tu aplicación — {group_label}"
-                plain_body = (
-                    f"Hola,\n\nComenzaste la aplicación {candidate['form_name']} "
-                    f"pero todavía no la has enviado.\n\nContinúa aquí: "
-                    f"{candidate['resume_url']}\n\nClub Emprendo"
+                template_context = _incomplete_reminder_context(
+                    applicant_name=candidate.get("name"),
+                    group_label=group_label,
+                    form_name=candidate.get("form_name"),
+                    resume_url=candidate.get("resume_url"),
                 )
-                html_body = (
-                    '<div style="font-family:Arial,Helvetica,sans-serif;line-height:1.6;'
-                    'max-width:680px;margin:0 auto;">'
-                    f"<p>{greeting}</p>"
-                    f"<p>Vimos que comenzaste <strong>{form_name}</strong>, pero todavía "
-                    "no has enviado tu aplicación.</p>"
-                    "<p>Puedes continuar desde donde la dejaste usando este enlace:</p>"
-                    f'<p><a href="{resume_url}" style="display:inline-block;padding:11px 18px;'
-                    'background:#163108;color:#fff;text-decoration:none;border-radius:8px;">'
-                    "Continuar mi aplicación</a></p>"
-                    "<p>Si ya no deseas continuar, puedes ignorar este mensaje.</p>"
-                    "<p>Con cariño,<br><strong>Club Emprendo</strong></p></div>"
-                )
+                subject = _render_incomplete_reminder_subject(subject_template, template_context)
+                plain_body = _replace_incomplete_reminder_placeholders(body_template, template_context)
+                html_body = _render_incomplete_reminder_html(body_template, template_context)
                 message = EmailMultiAlternatives(
                     subject=subject,
                     body=plain_body,
@@ -2759,15 +2811,54 @@ def send_incomplete_application_reminders(request):
         }
         for draft in candidates
     ]
+    subject_template = (
+        (group.incomplete_reminder_subject or "").strip()
+        or DEFAULT_INCOMPLETE_REMINDER_SUBJECT
+    )
+    body_template = (
+        (group.incomplete_reminder_body or "").strip()
+        or DEFAULT_INCOMPLETE_REMINDER_BODY
+    )
     threading.Thread(
         target=_send_incomplete_application_reminders_worker,
-        args=(candidates_payload, group_label, lock_key),
+        args=(candidates_payload, group_label, subject_template, body_template, lock_key),
         daemon=True,
     ).start()
     messages.success(
         request,
         f"Recordatorios iniciados para {len(candidates_payload)} persona(s) de {group_label}.",
     )
+    return redirect(next_url + query)
+
+
+@staff_member_required
+@require_POST
+def save_incomplete_application_reminder_template(request):
+    group = get_object_or_404(FormGroup, id=request.POST.get("group"))
+    form_slug = (request.POST.get("form") or "").strip()
+    status = (request.POST.get("status") or "abandoned").strip()
+    action = (request.POST.get("template_action") or "save").strip()
+
+    if action == "reset":
+        group.incomplete_reminder_subject = ""
+        group.incomplete_reminder_body = ""
+        group.save(update_fields=["incomplete_reminder_subject", "incomplete_reminder_body"])
+        messages.success(request, "Reminder email restored to the default template.")
+    else:
+        subject = (request.POST.get("reminder_subject") or "").strip()
+        body = (request.POST.get("reminder_body") or "").strip()
+        if not subject or not body:
+            messages.error(request, "The reminder subject and message are both required.")
+        else:
+            group.incomplete_reminder_subject = subject
+            group.incomplete_reminder_body = body
+            group.save(update_fields=["incomplete_reminder_subject", "incomplete_reminder_body"])
+            messages.success(request, "Incomplete-application reminder email saved.")
+
+    next_url = reverse("admin_application_progress_dashboard")
+    query = f"?group={group.id}&status={status}"
+    if form_slug:
+        query += f"&form={form_slug}"
     return redirect(next_url + query)
 
 
@@ -2879,6 +2970,35 @@ def application_progress_dashboard(request):
     form_options = FormDefinition.objects.filter(drafts__isnull=False)
     if group_id:
         form_options = form_options.filter(group_id=group_id)
+    selected_group = FormGroup.objects.filter(id=group_id).first() if group_id else None
+    reminder_subject = DEFAULT_INCOMPLETE_REMINDER_SUBJECT
+    reminder_body = DEFAULT_INCOMPLETE_REMINDER_BODY
+    reminder_preview_subject = ""
+    reminder_preview_html = ""
+    if selected_group:
+        reminder_subject = (
+            (selected_group.incomplete_reminder_subject or "").strip()
+            or DEFAULT_INCOMPLETE_REMINDER_SUBJECT
+        )
+        reminder_body = (
+            (selected_group.incomplete_reminder_body or "").strip()
+            or DEFAULT_INCOMPLETE_REMINDER_BODY
+        )
+        preview_form = form_options.filter(slug=form_slug).first() if form_slug else form_options.first()
+        preview_context = _incomplete_reminder_context(
+            applicant_name="Nombre de la participante",
+            group_label=(selected_group.custom_name or "").strip() or f"Group {selected_group.number}",
+            form_name=preview_form.name if preview_form else "Nombre de la aplicación",
+            resume_url="#resume-preview",
+        )
+        reminder_preview_subject = _render_incomplete_reminder_subject(
+            reminder_subject,
+            preview_context,
+        )
+        reminder_preview_html = _render_incomplete_reminder_html(
+            reminder_body,
+            preview_context,
+        )
     reminder_count = (
         len(_incomplete_application_reminder_drafts(group_id, form_slug))
         if group_id
@@ -2890,6 +3010,10 @@ def application_progress_dashboard(request):
         "funnel": funnel,
         "section_breakdown": section_breakdown,
         "reminder_count": reminder_count,
+        "reminder_subject": reminder_subject,
+        "reminder_body": reminder_body,
+        "reminder_preview_subject": reminder_preview_subject,
+        "reminder_preview_html": reminder_preview_html,
         "status_filter": status,
         "form_filter": form_slug,
         "group_filter": group_id,

@@ -9,6 +9,7 @@
   .ce-progress-panel{padding:16px;border:1px solid #dbe4f0;border-radius:12px;background:#fff}.ce-progress-panel h2{margin:0 0 12px}
   .ce-funnel-row{display:grid;grid-template-columns:90px 1fr 52px;gap:10px;align-items:center;margin:8px 0}.ce-funnel-track{height:12px;background:#eef2f7;border-radius:999px;overflow:hidden}.ce-funnel-fill{height:100%;background:#2c3191;border-radius:999px}
   .ce-reminder-box{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px;border:1px solid #bbd6a7;border-radius:12px;background:#f5fbf1;margin:18px 0}.ce-reminder-box p{margin:4px 0}
+  .ce-reminder-editor{padding:16px;border:1px solid #dbe4f0;border-radius:12px;background:#fff;margin:18px 0}.ce-reminder-editor h2{margin:0 0 6px}.ce-reminder-editor label{display:grid;gap:5px;font-weight:600;margin:12px 0}.ce-reminder-editor input,.ce-reminder-editor textarea{box-sizing:border-box;width:100%;padding:9px;border:1px solid #cbd5e1;border-radius:7px;font:inherit}.ce-reminder-editor textarea{min-height:260px;resize:vertical}.ce-reminder-actions{display:flex;gap:8px;flex-wrap:wrap}.ce-reminder-preview{margin-top:16px;padding:14px;border:1px solid #e5e7eb;border-radius:9px;background:#f8fafc}.ce-reminder-preview h3{margin:0 0 8px}.ce-placeholder-list{font-family:monospace;font-size:12px;color:#475569}
   .ce-section-list{margin:0;padding-left:20px}.ce-section-list li{margin:7px 0}
   .ce-progress-table{width:100%;border-collapse:collapse}.ce-progress-table th,.ce-progress-table td{padding:10px;border-bottom:1px solid #e5e7eb;text-align:left;vertical-align:top}
   @media(max-width:800px){.ce-progress-cards{grid-template-columns:repeat(2,1fr)}.ce-progress-analytics{grid-template-columns:1fr}.ce-reminder-box{align-items:flex-start;flex-direction:column}.ce-progress-scroll{overflow:auto}}
@@ -44,6 +45,42 @@
       <button class="button default" type="submit" {% if not reminder_count %}disabled{% endif %}>Send reminder email</button>
     </form>
   </div>
+  <details class="ce-reminder-editor">
+    <summary><strong>Edit and preview reminder email</strong></summary>
+    <p>
+      This template is shared by all applications in the selected group. The personalized resume link is inserted for each recipient.
+    </p>
+    <p class="ce-placeholder-list">
+      Available placeholders: {% templatetag openvariable %} greeting {% templatetag closevariable %},
+      {% templatetag openvariable %} applicant_name {% templatetag closevariable %},
+      {% templatetag openvariable %} group_label {% templatetag closevariable %},
+      {% templatetag openvariable %} form_name {% templatetag closevariable %},
+      {% templatetag openvariable %} resume_url {% templatetag closevariable %}
+    </p>
+    <form method="post" action="{% url 'admin_save_incomplete_application_reminder_template' %}">
+      {% csrf_token %}
+      <input type="hidden" name="group" value="{{ group_filter }}">
+      <input type="hidden" name="form" value="{{ form_filter }}">
+      <input type="hidden" name="status" value="{{ status_filter }}">
+      <label>
+        Subject
+        <input type="text" name="reminder_subject" maxlength="255" required value="{{ reminder_subject }}">
+      </label>
+      <label>
+        Message
+        <textarea name="reminder_body" required>{{ reminder_body }}</textarea>
+      </label>
+      <div class="ce-reminder-actions">
+        <button class="button default" type="submit" name="template_action" value="save">Save reminder email</button>
+        <button class="button" type="submit" name="template_action" value="reset" onclick="return confirm('Restore the default reminder email?');">Restore default</button>
+      </div>
+    </form>
+    <div class="ce-reminder-preview">
+      <h3>Current saved preview</h3>
+      <p><strong>Subject:</strong> {{ reminder_preview_subject }}</p>
+      <div>{{ reminder_preview_html|safe }}</div>
+    </div>
+  </details>
 {% else %}
   <div class="ce-reminder-box">
     <div><strong>Select a group to send reminders</strong><p>Reminder recipients are always resolved within one specific group.</p></div>

@@ -1181,6 +1181,62 @@ class ApplicationDraftTrackingTests(TestCase):
             f"admin:incomplete-application-reminders:{group.id}:{self.form_def.slug}"
         )
 
+    def test_admin_can_save_incomplete_reminder_template_for_group(self):
+        group = FormGroup.objects.create(
+            number=918,
+            start_month="August",
+            end_month="November",
+            year=2026,
+        )
+        user = get_user_model().objects.create_superuser(
+            email="reminder-template-admin@example.com",
+            password="password",
+        )
+        self.client.force_login(user)
+
+        response = self.client.post(
+            reverse("admin_save_incomplete_application_reminder_template"),
+            {
+                "group": group.id,
+                "status": "abandoned",
+                "reminder_subject": "Termina {{ form_name }}",
+                "reminder_body": "{{ greeting }}\n\nContinúa aquí:\n{{ resume_url }}",
+                "template_action": "save",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        group.refresh_from_db()
+        self.assertEqual(group.incomplete_reminder_subject, "Termina {{ form_name }}")
+        self.assertIn("{{ resume_url }}", group.incomplete_reminder_body)
+
+    def test_incomplete_reminder_worker_renders_saved_placeholders(self):
+        lock_key = "test:incomplete-reminder-template"
+        cache.set(lock_key, "1", timeout=60)
+
+        admin_dashboard_views._send_incomplete_application_reminders_worker(
+            [
+                {
+                    "email": "recipient@example.com",
+                    "name": "Ana",
+                    "form_name": "Aplicación Mentora",
+                    "resume_url": "https://example.com/resume?draft=abc",
+                }
+            ],
+            "Grupo Prueba",
+            "Termina {{ form_name }} — {{ group_label }}",
+            "{{ greeting }}\n\nRetoma tu solicitud:\n{{ resume_url }}",
+            lock_key,
+        )
+
+        self.assertEqual(len(mail.outbox), 1)
+        message = mail.outbox[0]
+        self.assertEqual(message.subject, "Termina Aplicación Mentora — Grupo Prueba")
+        self.assertIn("Hola Ana,", message.body)
+        self.assertIn("https://example.com/resume?draft=abc", message.body)
+        self.assertIn("Continuar mi aplicación", message.alternatives[0].content)
+        self.assertIsNone(cache.get(lock_key))
+
     def test_group_dashboard_separates_rejected_and_shows_progress_funnel(self):
         group = FormGroup.objects.create(
             number=916,
@@ -1226,6 +1282,8 @@ class ApplicationDraftTrackingTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Progress funnel")
         self.assertContains(response, "Where incomplete applicants stopped")
+        self.assertContains(response, "Edit and preview reminder email")
+        self.assertContains(response, "Save reminder email")
         self.assertContains(response, "Rejected")
         self.assertContains(response, "Section 3 of 6")
         self.assertEqual(response.context["summary"]["rejected"], 1)

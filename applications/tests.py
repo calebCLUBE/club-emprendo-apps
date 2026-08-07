@@ -887,6 +887,40 @@ class ApplicationPageImageTests(TestCase):
             html.index("data:image/webp;base64,INLINEIMAGE"),
         )
 
+    def test_existing_inline_and_uploaded_intro_images_are_backfilled_below(self):
+        inline_form = FormDefinition.objects.create(
+            slug="old_inline_image",
+            name="Old inline image",
+            description=(
+                '<div data-ce-rich-text="1">'
+                '<img src="data:image/webp;base64,OLDINLINE"></div>'
+            ),
+            intro_image_position="above",
+        )
+        uploaded_form = FormDefinition.objects.create(
+            slug="old_uploaded_image",
+            name="Old uploaded image",
+            intro_image_data="data:image/webp;base64,OLDUPLOADED",
+            intro_image_position="above",
+        )
+        image_free_form = FormDefinition.objects.create(
+            slug="old_without_image",
+            name="Old without image",
+            intro_image_position="above",
+        )
+        migration = importlib.import_module(
+            "applications.migrations.0067_backfill_all_intro_image_positions"
+        )
+
+        migration.move_all_existing_intro_images_below(django_apps, None)
+
+        inline_form.refresh_from_db()
+        uploaded_form.refresh_from_db()
+        image_free_form.refresh_from_db()
+        self.assertEqual(inline_form.intro_image_position, "below")
+        self.assertEqual(uploaded_form.intro_image_position, "below")
+        self.assertEqual(image_free_form.intro_image_position, "above")
+
     def test_approval_image_renders_from_small_session_reference(self):
         self.form_def.thanks_approved_image_data = (
             "data:image/webp;base64,APPROVALIMAGE"

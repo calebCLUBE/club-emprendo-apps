@@ -858,6 +858,35 @@ class ApplicationPageImageTests(TestCase):
         self.assertContains(response, "data:image/webp;base64,INLINEIMAGE")
         self.assertNotContains(response, "data:image/webp;base64,STANDALONEIMAGE")
 
+    def test_inline_intro_image_moves_below_intro_questions(self):
+        Question.objects.create(
+            form=self.form_def,
+            text="Email address",
+            slug="email",
+            field_type=Question.SHORT_TEXT,
+            required=False,
+            position=0,
+        )
+        self.form_def.description = (
+            '<div data-ce-rich-text="1"><p>Welcome</p>'
+            '<img src="data:image/webp;base64,INLINEIMAGE" alt=""></div>'
+        )
+        self.form_def.intro_image_position = "below"
+        self.form_def.save(update_fields=["description", "intro_image_position"])
+
+        response = self.client.get(
+            reverse("apply_by_slug", args=[self.form_def.slug])
+        )
+
+        self.assertEqual(response.status_code, 200)
+        html = response.content.decode()
+        self.assertContains(response, "data:image/webp;base64,INLINEIMAGE", count=1)
+        self.assertLess(html.index("Welcome"), html.index("Email address"))
+        self.assertLess(
+            html.index("Email address"),
+            html.index("data:image/webp;base64,INLINEIMAGE"),
+        )
+
     def test_approval_image_renders_from_small_session_reference(self):
         self.form_def.thanks_approved_image_data = (
             "data:image/webp;base64,APPROVALIMAGE"

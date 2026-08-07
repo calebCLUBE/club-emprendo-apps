@@ -3,6 +3,7 @@ import re
 
 import bleach
 from bleach.css_sanitizer import CSSSanitizer
+from bs4 import BeautifulSoup
 from django.utils.html import strip_tags
 
 
@@ -96,6 +97,22 @@ def render_rich_text(value) -> str:
         strip=True,
     )
     return bleach.linkify(cleaned, skip_tags=["a"], parse_email=True)
+
+
+def split_rich_text_images(value) -> tuple[str, str]:
+    """Return rich text with its inline images removed, plus those images."""
+    rendered = render_rich_text(value)
+    if not rendered:
+        return str(value or ""), ""
+
+    soup = BeautifulSoup(rendered, "html.parser")
+    images = soup.find_all("img")
+    if not images:
+        return str(value or ""), ""
+
+    extracted = "".join(str(image.extract()) for image in images)
+    marker = '<div data-ce-rich-text="1">{}</div>'
+    return marker.format(str(soup)), marker.format(extracted)
 
 
 def rich_text_to_plain(value) -> str:

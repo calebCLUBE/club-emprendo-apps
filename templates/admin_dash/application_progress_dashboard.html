@@ -8,7 +8,7 @@
   .ce-progress-analytics{display:grid;grid-template-columns:minmax(300px,1.3fr) minmax(260px,1fr);gap:16px;margin:18px 0}
   .ce-progress-panel{padding:16px;border:1px solid #dbe4f0;border-radius:12px;background:#fff}.ce-progress-panel h2{margin:0 0 12px}
   .ce-funnel-row{display:grid;grid-template-columns:90px 1fr 52px;gap:10px;align-items:center;margin:8px 0}.ce-funnel-track{height:12px;background:#eef2f7;border-radius:999px;overflow:hidden}.ce-funnel-fill{height:100%;background:#2c3191;border-radius:999px}
-  .ce-reminder-box{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px;border:1px solid #bbd6a7;border-radius:12px;background:#f5fbf1;margin:18px 0}.ce-reminder-box p{margin:4px 0}
+  .ce-reminder-box{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px;border:1px solid #bbd6a7;border-radius:12px;background:#f5fbf1;margin:18px 0}.ce-reminder-box p{margin:4px 0}.ce-reminder-primary-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}.ce-reminder-primary-actions form{margin:0}
   .ce-reminder-editor{padding:16px;border:1px solid #dbe4f0;border-radius:12px;background:#fff;margin:18px 0}.ce-reminder-editor h2{margin:0 0 6px}.ce-reminder-editor label{display:grid;gap:5px;font-weight:600;margin:12px 0}.ce-reminder-editor input,.ce-reminder-editor textarea{box-sizing:border-box;width:100%;padding:9px;border:1px solid #cbd5e1;border-radius:7px;font:inherit}.ce-reminder-editor textarea{min-height:260px;resize:vertical}.ce-reminder-actions{display:flex;gap:8px;flex-wrap:wrap}.ce-reminder-preview{margin-top:16px;padding:14px;border:1px solid #e5e7eb;border-radius:9px;background:#f8fafc}.ce-reminder-preview h3{margin:0 0 8px}.ce-placeholder-list{font-family:monospace;font-size:12px;color:#475569}
   .ce-section-list{margin:0;padding-left:20px}.ce-section-list li{margin:7px 0}
   .ce-progress-table{width:100%;border-collapse:collapse}.ce-progress-table th,.ce-progress-table td{padding:10px;border-bottom:1px solid #e5e7eb;text-align:left;vertical-align:top}
@@ -38,14 +38,17 @@
       <p>{{ reminder_count }} person{{ reminder_count|pluralize }} can receive a reminder for this group{% if form_filter %} and application{% endif %}.</p>
       <p>Completed and rejected applicants, duplicate drafts, and drafts without an email are excluded.</p>
     </div>
-    <form method="post" action="{% url 'admin_send_incomplete_application_reminders' %}" onsubmit="return confirm('Send reminder emails to {{ reminder_count }} eligible person(s)?');">
-      {% csrf_token %}
-      <input type="hidden" name="group" value="{{ group_filter }}">
-      <input type="hidden" name="form" value="{{ form_filter }}">
-      <button class="button default" type="submit" {% if not reminder_count %}disabled{% endif %}>Send reminder email</button>
-    </form>
+    <div class="ce-reminder-primary-actions">
+      <button class="button" type="button" id="edit-reminder-email-button" onclick="const editor=document.getElementById('reminder-email-editor'); editor.open=true; editor.scrollIntoView({behavior:'smooth', block:'start'});">Edit reminder email</button>
+      <form method="post" action="{% url 'admin_send_incomplete_application_reminders' %}" onsubmit="return confirm('Send reminder emails to {{ reminder_count }} eligible person(s)?');">
+        {% csrf_token %}
+        <input type="hidden" name="group" value="{{ group_filter }}">
+        <input type="hidden" name="form" value="{{ form_filter }}">
+        <button class="button default" type="submit" {% if not reminder_count %}disabled{% endif %}>Send reminder email</button>
+      </form>
+    </div>
   </div>
-  <details class="ce-reminder-editor">
+  <details class="ce-reminder-editor" id="reminder-email-editor">
     <summary><strong>Edit and preview reminder email</strong></summary>
     <p>
       This template is shared by all applications in the selected group. The personalized resume link is inserted for each recipient.

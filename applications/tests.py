@@ -780,8 +780,27 @@ class ApplicationPageImageTests(TestCase):
         self.assertContains(response, 'name="thanks_approved_image_position"')
         self.assertContains(response, 'name="thanks_approved_image_alignment"')
         self.assertContains(response, 'name="thanks_approved_image_width"')
+        self.assertContains(response, "Available value keys")
+        for placeholder in (
+            "#(group number)",
+            "#(day)",
+            "#(month)",
+            "#(year)",
+            "#(respond_day)",
+            "#(respond_month)",
+        ):
+            self.assertContains(response, placeholder)
+        self.assertContains(response, "Below the intro text and questions")
 
     def test_intro_image_renders_on_the_intro_step(self):
+        Question.objects.create(
+            form=self.form_def,
+            text="Email address",
+            slug="email",
+            field_type=Question.SHORT_TEXT,
+            required=False,
+            position=0,
+        )
         self.form_def.intro_image_data = "data:image/webp;base64,INTROIMAGE"
         self.form_def.intro_image_position = "below"
         self.form_def.intro_image_alignment = "right"
@@ -806,7 +825,7 @@ class ApplicationPageImageTests(TestCase):
         html = response.content.decode()
         self.assertGreater(
             html.index("data:image/webp;base64,INTROIMAGE"),
-            html.index("Antes de comenzar"),
+            html.index("Email address"),
         )
 
     def test_custom_intro_page_title_renders_on_public_application(self):

@@ -19,13 +19,6 @@
     </div>
   {% endif %}
 
-  {% if not sections and not intro_has_inline_image and form_def.intro_image_data and form_def.intro_image_position == "below" %}
-    <img class="ce-page-image ce-page-image--intro ce-page-image--{{ form_def.intro_image_width }} ce-page-image--align-{{ form_def.intro_image_alignment }}"
-         src="{{ form_def.intro_image_data }}"
-         alt=""
-         loading="eager">
-  {% endif %}
-
   <div class="ce-form-header">
     {% if combined_flow %}
       <span class="ce-form-pill">Formulario</span>
@@ -103,17 +96,18 @@
               {% if section.intro %}
                 <div class="ce-muted ce-section-intro" style="margin:0;">{{ section.intro|format_rich_text }}</div>
               {% endif %}
-              {% if section.image_data and section.image_position == "below" %}
-                <img class="ce-page-image ce-page-image--intro ce-page-image--{{ section.image_width }} ce-page-image--align-{{ section.image_alignment }}"
-                     src="{{ section.image_data }}"
-                     alt=""
-                     loading="eager">
-              {% endif %}
             </div>
 
             {% for field in section.fields %}
               {% include "applications/_field_render.html" %}
             {% endfor %}
+
+            {% if section.image_data and section.image_position == "below" %}
+              <img class="ce-page-image ce-page-image--intro ce-page-image--{{ section.image_width }} ce-page-image--align-{{ section.image_alignment }}"
+                   src="{{ section.image_data }}"
+                   alt=""
+                   loading="eager">
+            {% endif %}
 
             <div class="ce-actions" style="margin-top:18px; display:flex; justify-content:space-between; gap:10px;">
               <div>
@@ -137,6 +131,13 @@
       {% for field in form %}
         {% include "applications/_field_render.html" %}
       {% endfor %}
+
+      {% if not intro_has_inline_image and form_def.intro_image_data and form_def.intro_image_position == "below" %}
+        <img class="ce-page-image ce-page-image--intro ce-page-image--{{ form_def.intro_image_width }} ce-page-image--align-{{ form_def.intro_image_alignment }}"
+             src="{{ form_def.intro_image_data }}"
+             alt=""
+             loading="eager">
+      {% endif %}
 
       <div class="ce-actions">
         <button type="submit" class="ce-button-primary">Enviar</button>

@@ -22,3 +22,121 @@
 {% endblock %}
 
 {% block submit_buttons_top %}{{ block.super }}{% endblock %}
+
+{% block content %}
+  <div class="ce-editor-layout">
+    <div class="ce-editor-main">
+      {{ block.super }}
+    </div>
+    <aside class="ce-placeholder-key" aria-labelledby="ce-placeholder-key-title">
+      <h2 id="ce-placeholder-key-title">Available value keys</h2>
+      <p class="ce-placeholder-key__intro">
+        Add these keys to titles, text, questions, choices, or stored emails.
+        They are replaced when a group application is created.
+      </p>
+      <dl>
+        <div>
+          <dt><code>#(group number)</code></dt>
+          <dd>The group number.</dd>
+        </div>
+        <div>
+          <dt><code>#(day)</code></dt>
+          <dd>The group start day.</dd>
+        </div>
+        <div>
+          <dt><code>#(month)</code></dt>
+          <dd>The first use is the start month; the second is the end month.</dd>
+        </div>
+        <div>
+          <dt><code>#(year)</code></dt>
+          <dd>The group year.</dd>
+        </div>
+        <div>
+          <dt><code>#(respond_day)</code></dt>
+          <dd>The A2 response deadline day.</dd>
+        </div>
+        <div>
+          <dt><code>#(respond_month)</code></dt>
+          <dd>The A2 response deadline month.</dd>
+        </div>
+      </dl>
+      <p class="ce-placeholder-key__example">
+        <strong>Example</strong><br>
+        <code>#(day) de #(month) de #(year)</code>
+      </p>
+    </aside>
+  </div>
+
+  <style>
+    .ce-editor-layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 280px;
+      gap: 24px;
+      align-items: start;
+    }
+    .ce-editor-main {
+      min-width: 0;
+    }
+    .ce-placeholder-key {
+      position: sticky;
+      top: 20px;
+      box-sizing: border-box;
+      padding: 18px;
+      border: 1px solid #d7dce5;
+      border-radius: 10px;
+      background: #fff;
+      box-shadow: 0 2px 8px rgba(24, 39, 75, 0.06);
+    }
+    .ce-placeholder-key h2 {
+      margin: 0 0 8px;
+      color: #1e2b4f;
+      font-size: 17px;
+    }
+    .ce-placeholder-key__intro,
+    .ce-placeholder-key__example {
+      margin: 0;
+      color: #5d6678;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    .ce-placeholder-key dl {
+      margin: 14px 0;
+    }
+    .ce-placeholder-key dl > div {
+      padding: 9px 0;
+      border-top: 1px solid #edf0f5;
+    }
+    .ce-placeholder-key dt,
+    .ce-placeholder-key dd {
+      margin: 0;
+    }
+    .ce-placeholder-key dt {
+      font-weight: 700;
+    }
+    .ce-placeholder-key dd {
+      padding-top: 3px;
+      color: #5d6678;
+      font-size: 12px;
+      line-height: 1.4;
+    }
+    .ce-placeholder-key code {
+      color: #24318d;
+      white-space: normal;
+      overflow-wrap: anywhere;
+    }
+    .ce-placeholder-key__example {
+      padding: 10px;
+      border-radius: 7px;
+      background: #f4f6fb;
+    }
+    @media (max-width: 1100px) {
+      .ce-editor-layout {
+        grid-template-columns: 1fr;
+      }
+      .ce-placeholder-key {
+        position: static;
+        grid-row: 1;
+      }
+    }
+  </style>
+{% endblock %}

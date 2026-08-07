@@ -766,6 +766,11 @@ class FormDefinitionAdminForm(forms.ModelForm):
             if field_name in self.fields:
                 self.fields[field_name].label = label
                 self.fields[field_name].required = False
+        if "intro_image_position" in self.fields:
+            self.fields["intro_image_position"].choices = (
+                ("above", "Above the intro text and questions"),
+                ("below", "Below the intro text and questions"),
+            )
 
     def clean(self):
         cleaned_data = super().clean()

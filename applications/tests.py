@@ -729,6 +729,36 @@ class ApplicationPageImageTests(TestCase):
         self.assertContains(response, "ce-floating-forward")
         self.assertContains(response, "Enviar")
 
+    def test_previous_application_button_is_floating(self):
+        first_section = Section.objects.create(
+            form=self.form_def,
+            title="First section",
+            position=1,
+        )
+        second_section = Section.objects.create(
+            form=self.form_def,
+            title="Second section",
+            position=2,
+        )
+        self.form_def.questions.update(section=first_section)
+        Question.objects.create(
+            form=self.form_def,
+            section=second_section,
+            text="Second response",
+            slug="second_response",
+            field_type=Question.SHORT_TEXT,
+            required=False,
+            position=2,
+        )
+
+        response = self.client.get(
+            reverse("apply_by_slug", args=[self.form_def.slug])
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "ce-floating-back")
+        self.assertContains(response, "Anterior")
+
     def test_editor_optimizes_and_stores_both_page_images(self):
         form = FormDefinitionAdminForm(
             data={

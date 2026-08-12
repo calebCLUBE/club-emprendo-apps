@@ -778,6 +778,34 @@ label.required::after {
   box-shadow: 0 6px 14px rgba(22, 49, 8, 0.22);
 }
 
+/* Keep the application's forward action available while long pages scroll. */
+.ce-application-form {
+  padding-bottom: 4.5rem;
+}
+
+.ce-floating-forward {
+  position: fixed;
+  right: max(1.5rem, env(safe-area-inset-right));
+  bottom: max(1.5rem, env(safe-area-inset-bottom));
+  z-index: 1000;
+  min-width: 7.5rem;
+  box-shadow:
+    0 10px 28px rgba(22, 49, 8, 0.32),
+    0 0 0 4px rgba(255, 255, 255, 0.9);
+}
+
+@media (max-width: 600px) {
+  .ce-application-form {
+    padding-bottom: 5.25rem;
+  }
+
+  .ce-floating-forward {
+    right: max(1rem, env(safe-area-inset-right));
+    bottom: max(1rem, env(safe-area-inset-bottom));
+    min-width: 7rem;
+  }
+}
+
 /* Alert */
 .ce-alert {
   border-radius: var(--ce-radius-md);

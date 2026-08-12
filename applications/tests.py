@@ -719,6 +719,16 @@ class ApplicationPageImageTests(TestCase):
             position=1,
         )
 
+    def test_forward_application_buttons_are_floating(self):
+        response = self.client.get(
+            reverse("apply_by_slug", args=[self.form_def.slug])
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'class="ce-application-form"')
+        self.assertContains(response, "ce-floating-forward")
+        self.assertContains(response, "Enviar")
+
     def test_editor_optimizes_and_stores_both_page_images(self):
         form = FormDefinitionAdminForm(
             data={

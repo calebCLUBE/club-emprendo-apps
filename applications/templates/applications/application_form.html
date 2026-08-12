@@ -51,7 +51,7 @@
     </div>
   {% endif %}
 
-  <form method="post" novalidate>
+  <form method="post" class="ce-application-form" novalidate>
     {% csrf_token %}
     <p class="ce-muted" style="font-size:12px; margin:0 0 12px;">
       <em>Guardamos temporalmente tu progreso para entender dónde se interrumpen las aplicaciones incompletas.</em>
@@ -123,10 +123,10 @@
               </div>
               <div>
                 {% if not forloop.last %}
-                  <button type="button" class="ce-button-primary" data-next>Siguiente</button>
-                  <button type="button" class="ce-button-primary" data-conditional-submit style="display:none;">Enviar</button>
+                  <button type="button" class="ce-button-primary ce-floating-forward" data-next>Siguiente</button>
+                  <button type="button" class="ce-button-primary ce-floating-forward" data-conditional-submit style="display:none;">Enviar</button>
                 {% else %}
-                  <button type="submit" class="ce-button-primary">Enviar</button>
+                  <button type="submit" class="ce-button-primary ce-floating-forward">Enviar</button>
                 {% endif %}
               </div>
             </div>
@@ -152,7 +152,7 @@
       {% endif %}
 
       <div class="ce-actions">
-        <button type="submit" class="ce-button-primary">Enviar</button>
+        <button type="submit" class="ce-button-primary ce-floating-forward">Enviar</button>
       </div>
     {% endif %}
   </form>

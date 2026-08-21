@@ -13,6 +13,11 @@ timeout = int(os.getenv("GUNICORN_TIMEOUT", "120"))
 graceful_timeout = 30
 keepalive = 5
 
-# Periodically recycle the worker to cap growth from report generation and large CSVs.
-max_requests = int(os.getenv("GUNICORN_MAX_REQUESTS", "100"))
-max_requests_jitter = 50
+# Grading and other long-running admin jobs currently run in daemon threads inside
+# this worker. Recycling the worker while one of those jobs is active kills the
+# thread and leaves its database row stuck in "running". Keep recycling disabled
+# by default until these jobs move to a separate durable worker process. Operators
+# can still opt in explicitly, but must choose a value safely above the number of
+# requests expected during the longest background job.
+max_requests = int(os.getenv("GUNICORN_MAX_REQUESTS", "0"))
+max_requests_jitter = 0 if max_requests == 0 else 50

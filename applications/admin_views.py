@@ -961,6 +961,27 @@ def _run_grade_job(job_id: int):
         if configured_criteria:
             _job_log(job, f"⚙️ Grading config loaded with {configured_criteria} weighted criteria.")
 
+        if not grading_config.uses_configured_criteria:
+            from applications import grader_m as _grader_m, grader_e as _grader_e
+            default_ai_fields = (
+                _grader_m.DEFAULT_AI_FIELDS
+                if job.form_slug.endswith("M_A1")
+                else _grader_e.DEFAULT_AI_FIELDS
+            )
+            missing_ai_fields = [f for f in default_ai_fields if f not in master_df.columns]
+            if missing_ai_fields:
+                _job_log(
+                    job,
+                    (
+                        "⚠️ This form has no custom grading config, and its questions have no "
+                        f"slug matching the default AI-graded field(s) {missing_ai_fields}. "
+                        "Those criteria will score as blank/negative for every applicant. "
+                        "Set up grading criteria for this form in the Grading config editor, "
+                        "mapping each rubric criterion to this form's actual question slugs "
+                        f"(available: {sorted(master_df.columns)})."
+                    ),
+                )
+
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
             raise RuntimeError("OPENAI_API_KEY not set")

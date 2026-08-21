@@ -2840,6 +2840,57 @@ class GradingAndPairingConfigEditorTests(TestCase):
         self.assertEqual(result.columns.tolist().count("business_age"), 1)
         self.assertEqual(len(result.columns), len(set(result.columns)))
 
+    def test_emprendedora_current_spanish_slugs_feed_default_grader(self):
+        import pandas as pd
+        from applications import grader_e
+
+        source = pd.DataFrame([{
+            "application_id": 4412,
+            "full_name": "Compuoffice",
+            "email": "giosmara@example.com",
+            "nombre_completo": "Giosmara Cañarte",
+            "correo_electronico": "giosmara@example.com",
+            "numero_de_whatsapp_con_indicativo_de_pais_ej_57_pa": "+593981139942",
+            "cual_es_tu_numero_de_documento_de_identidad_cedula": "0915593545",
+            "edad": "55",
+            "pais_donde_vives_ahora_2": "ecuador",
+            "pais_donde_vives_ahora": "ecuador",
+            "comment": "10-anos",
+            "descripcion_del_emprendimiento": "Venta de equipos y suministros de oficina.",
+            "como_crees_que_este_programa_puede_ayudarte_a_crec": "Quiero aprender nuevas estrategias.",
+            "cual_es_tu_mayor_desafio_actualmente_como_emprende": "Impulsar las ventas de mi negocio.",
+            "te_gustaria_dejarnos_algun_comentario_duda_o_suger": "Gracias.",
+            "test": '[{"row":"Lunes","value":"lunes","label":"Noche"}]',
+        }])
+
+        with patch("applications.grader_e.detect_red_flags", return_value=""), patch(
+            "applications.grader_e.grade_unstructured",
+            return_value=(4.0, "Relevant response."),
+        ) as grade_response:
+            result = grader_e.grade_from_dataframe(source, Mock())
+
+        row = result.iloc[0]
+        self.assertEqual(grade_response.call_count, 3)
+        self.assertNotEqual(row["score"], "0.00%")
+        self.assertNotIn("Blank or insufficient response", row["score_exp"])
+        self.assertEqual(row["whatsapp"], "+593981139942")
+        self.assertEqual(row["ID"], "0915593545")
+        self.assertEqual(row["business_age"], "10-anos")
+        self.assertEqual(row["business_description"], "Venta de equipos y suministros de oficina.")
+        self.assertEqual(row["growth_how"], "Quiero aprender nuevas estrategias.")
+        self.assertEqual(row["biggest_challenge"], "Impulsar las ventas de mi negocio.")
+        self.assertEqual(row["availability_grid"], "Lunes - Noche")
+
+    def test_emprendedora_canonical_values_win_over_current_slug_aliases(self):
+        from applications import grader_e
+
+        normalized = grader_e._normalize_current_emprendedora_row({
+            "business_description": "Canonical response",
+            "descripcion_del_emprendimiento": "Alias response",
+        })
+
+        self.assertEqual(normalized["business_description"], "Canonical response")
+
     def test_pairing_config_editor_creates_default_priority_and_ai_rules(self):
         group = FormGroup.objects.create(
             number=901,

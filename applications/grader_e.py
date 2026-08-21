@@ -1,3 +1,5 @@
+import json
+
 import pandas as pd
 from openai import OpenAI
 import logging
@@ -119,8 +121,14 @@ def business_age_pts(v):
         "4_6y": 3,
         "7_10y": 4,
         "gt_10y": 5,
+        # Values used by the current Spanish application form.
+        "0-1-ano": 1,
+        "0-1-anos": 1,
+        "1-5-anos": 3,
+        "5-10-anos": 4,
+        "10-anos": 5,
     }
-    return mapping.get(str(v), 0)
+    return mapping.get(str(v).strip().lower(), 0)
 
 
 def has_employees_pts(v):
@@ -288,10 +296,62 @@ def _pick_row_value(row: dict, *keys: str):
     return ""
 
 
+CURRENT_EMPRENDEDORA_ALIASES = {
+    "full_name": ("nombre_completo",),
+    "whatsapp": ("numero_de_whatsapp_con_indicativo_de_pais_ej_57_pa",),
+    "email": ("correo_electronico", "correo"),
+    "cedula": ("cual_es_tu_numero_de_documento_de_identidad_cedula",),
+    "age_range": ("edad",),
+    "country_residence": ("pais_donde_vives_ahora_2",),
+    "country_birth": ("pais_donde_vives_ahora",),
+    "business_age": ("comment",),
+    "business_description": ("descripcion_del_emprendimiento",),
+    "growth_how": ("como_crees_que_este_programa_puede_ayudarte_a_crec",),
+    "biggest_challenge": ("cual_es_tu_mayor_desafio_actualmente_como_emprende",),
+    "additional_comments": ("te_gustaria_dejarnos_algun_comentario_duda_o_suger",),
+    "availability_grid": ("test",),
+}
+
+
+def _normalize_current_emprendedora_row(row: dict) -> dict:
+    """Fill canonical grader fields from the current imported form slugs.
+
+    Existing canonical values always win, so this remains safe for older forms
+    and for forms whose grading configuration already uses canonical slugs.
+    """
+    normalized = dict(row)
+    for canonical, aliases in CURRENT_EMPRENDEDORA_ALIASES.items():
+        if str(normalized.get(canonical) or "").strip():
+            continue
+        value = _pick_row_value(normalized, *aliases)
+        if str(value or "").strip():
+            normalized[canonical] = value
+    return normalized
+
+
 def _format_availability_grid(raw_value) -> str:
     text = str(raw_value or "").strip()
     if not text:
         return ""
+
+    try:
+        parsed = json.loads(text)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        parsed = None
+    if isinstance(parsed, list):
+        selections = []
+        seen = set()
+        for item in parsed:
+            if not isinstance(item, dict):
+                continue
+            day = str(item.get("row") or "").strip()
+            time_of_day = str(item.get("label") or item.get("value") or "").strip()
+            selection = " - ".join(part for part in (day, time_of_day) if part)
+            if selection and selection not in seen:
+                seen.add(selection)
+                selections.append(selection)
+        if selections:
+            return "; ".join(selections)
 
     cleaned = (
         text.replace("[", "")
@@ -473,6 +533,7 @@ def grade_single_row(
     previous_application_ids: set[int] | None = None,
     grading_config=None,
 ) -> list:
+    row = _normalize_current_emprendedora_row(row)
     weights = getattr(grading_config, "weights", None) or W
     max_total_score = float(getattr(grading_config, "max_total_score", MAX_TOTAL_SCORE) or MAX_TOTAL_SCORE)
     model_name = getattr(grading_config, "model_name", "") or ""

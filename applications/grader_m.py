@@ -511,35 +511,21 @@ MENTORA_EXACT_OUTPUT_COLUMNS = [
     "meets_all_req",
     "flag_color",
     "has_participado_anteriormente_en_club_emprendo_pue",
-    "soy_mujer",
-    "hablo_espanol",
-    "tengo_acceso_a_internet_y_un_dispositivo_computado",
-    "estoy_dispuesta_a_firmar_un_acta_de_compromiso_con",
-    "estoy_dispuesta_a_completar_el_curso_de_capacitaci",
-    "estoy_dispuesta_a_completar_dos_encuestas_de_retro",
-    "estoy_disponible_para_participar_en_el_programa_de",
-    "estoy_dispuesta_a_dedicarle_minimo_2_horas_a_la_se",
-    "revise_el_pdf_enlace_abajo_que_ofrece_una_breve_in",
-    "si_estas_dispuesta_por_favor_indicanos_que_requisi",
-    "has_dirigido_tu_propio_negocio",
-    "nombre_de_tu_emprendimiento",
-    "industria_de_tu_emprendimiento",
-    "descripcion_del_negocio",
-    "donde_operas_tu_negocio_o_donde_lo_operabas_si_ya",
-    "cuanto_tiempo_has_estado_operando_o_por_cuanto_tie",
-    "cual_es_tu_area_de_experiencia_profesional_mas_rel",
-    "que_te_motiva_a_ser_mentora_en_este_programa_de_cl",
-    "por_que_crees_que_serias_una_buena_mentora_para_un",
-    "en_que_horario_te_resulta_mas_conveniente_particip",
-    "te_gustaria_dejarnos_algun_comentario_duda_o_suger",
-    "declaro_que_he_leido_y_entendido_los_4_pasos_de_se",
-    "grading_rubric",
+]
+
+MENTORA_SOURCE_METADATA_COLUMNS = {
     "created_at",
     "application_id",
     "full_name",
     "email",
-    "acepto_que_los_datos_proporcionados_sean_tratados",
-]
+}
+MENTORA_EXCLUDED_QUESTION_SLUGS = {
+    # This field is derived from historical group databases instead of the
+    # applicant's self-reported answer.
+    "has_participado_anteriormente_en_club_emprendo_pue",
+    # Explicitly removed from the grading export.
+    "tienes_alguna_experiencia_previa_con_mentoria_para",
+}
 
 
 MENTORA_COLUMN_FALLBACKS = {
@@ -560,7 +546,11 @@ def _first_existing_column(df: pd.DataFrame, columns: tuple[str, ...]) -> pd.Ser
     return None
 
 
-def _ordered_mentora_output(out_df: pd.DataFrame, source_df: pd.DataFrame) -> pd.DataFrame:
+def _ordered_mentora_output(
+    out_df: pd.DataFrame,
+    source_df: pd.DataFrame,
+    question_labels: dict[str, str] | None = None,
+) -> pd.DataFrame:
     source_df = source_df.reset_index(drop=True)
     out_df = out_df.reset_index(drop=True)
     ordered = pd.DataFrame(index=out_df.index)
@@ -582,6 +572,23 @@ def _ordered_mentora_output(out_df: pd.DataFrame, source_df: pd.DataFrame) -> pd
         if value is None:
             value = _first_existing_column(out_df, MENTORA_COLUMN_FALLBACKS.get(column, (column,)))
         ordered[column] = value if value is not None else ""
+
+    labels = question_labels or {}
+    used_headers = set(ordered.columns)
+    for source_column in source_df.columns:
+        if (
+            source_column in MENTORA_SOURCE_METADATA_COLUMNS
+            or source_column in MENTORA_EXCLUDED_QUESTION_SLUGS
+        ):
+            continue
+        base_header = str(labels.get(source_column) or source_column).strip() or source_column
+        output_header = base_header
+        suffix = 2
+        while output_header in used_headers:
+            output_header = f"{base_header} ({suffix})"
+            suffix += 1
+        used_headers.add(output_header)
+        ordered[output_header] = source_df[source_column]
 
     return ordered
 
@@ -821,6 +828,7 @@ def grade_from_dataframe(
     dual_applicant_emails: set[str] | list[str] | tuple[str, ...] | None = None,
     dual_applicant_doc_ids: set[str] | list[str] | tuple[str, ...] | None = None,
     previous_group_participant_emails: set[str] | list[str] | tuple[str, ...] | None = None,
+    question_labels: dict[str, str] | None = None,
     grading_config=None,
 ) -> pd.DataFrame:
     out = []
@@ -901,8 +909,15 @@ def grade_from_dataframe(
     # Keep every source answer in the generated grading sheet. Current forms can
     # use administrator-generated slugs that do not map to the legacy fixed columns.
     source_df = df.reset_index(drop=True)
-    if bool(getattr(grading_config, "uses_configured_criteria", False)):
-        out_df = _ordered_mentora_output(out_df, source_df)
+    if (
+        bool(getattr(grading_config, "uses_configured_criteria", False))
+        or question_labels is not None
+    ):
+        out_df = _ordered_mentora_output(
+            out_df,
+            source_df,
+            question_labels=question_labels,
+        )
     else:
         for column in source_df.columns:
             if column not in out_df.columns:

@@ -2661,8 +2661,15 @@ class GradingAndPairingConfigEditorTests(TestCase):
         self.assertEqual(result.iloc[0]["score"], "80.00%")
         self.assertNotIn("business_description - Blank", result.iloc[0]["score_exp"])
         self.assertEqual(result.iloc[0]["descripcion_del_negocio"], "Detailed business response")
-        self.assertEqual(list(result.columns), MENTORA_EXACT_OUTPUT_COLUMNS)
-        self.assertNotIn("motivacion_para_ser_mentora", result.columns)
+        self.assertEqual(
+            list(result.columns),
+            MENTORA_EXACT_OUTPUT_COLUMNS + [
+                "meets_requirements",
+                "available_period",
+                "descripcion_del_negocio",
+                "motivacion_para_ser_mentora",
+            ],
+        )
         self.assertNotIn("business_description", result.columns)
 
     def test_mentor_grading_removes_duplicate_submission_rows_after_scoring(self):
@@ -2705,11 +2712,28 @@ class GradingAndPairingConfigEditorTests(TestCase):
             "applications.grader_m.grade_unstructured",
             side_effect=[(3.0, "Lower response."), (5.0, "Higher response.")],
         ):
-            result = grader_m.grade_from_dataframe(source, Mock(), log_fn=logs.append, grading_config=runtime)
+            result = grader_m.grade_from_dataframe(
+                source,
+                Mock(),
+                log_fn=logs.append,
+                question_labels={
+                    "meets_requirements": "¿Cumples todos los requisitos?",
+                    "available_period": "¿Tienes disponibilidad?",
+                    "current_story": "Cuéntanos tu experiencia",
+                },
+                grading_config=runtime,
+            )
 
         self.assertEqual(len(result), 1)
-        self.assertEqual(list(result["application_id"]), [2])
-        self.assertEqual(list(result.columns), MENTORA_EXACT_OUTPUT_COLUMNS)
+        self.assertEqual(list(result["Cuéntanos tu experiencia"]), ["Second response"])
+        self.assertEqual(
+            list(result.columns),
+            MENTORA_EXACT_OUTPUT_COLUMNS + [
+                "¿Cumples todos los requisitos?",
+                "¿Tienes disponibilidad?",
+                "Cuéntanos tu experiencia",
+            ],
+        )
         self.assertTrue(
             any("Removed 1 duplicate mentora row(s) after grading" in msg for msg in logs)
         )
@@ -2752,14 +2776,37 @@ class GradingAndPairingConfigEditorTests(TestCase):
             "applications.grader_m.grade_unstructured",
             return_value=(4.0, "Relevant response."),
         ):
-            result = grader_m.grade_from_dataframe(source, Mock(), grading_config=runtime)
+            result = grader_m.grade_from_dataframe(
+                source,
+                Mock(),
+                question_labels={
+                    "nombre_completo": "¿Cuál es tu nombre completo?",
+                    "correo_electronico": "¿Cuál es tu correo electrónico?",
+                    "whatsapp": "¿Cuál es tu WhatsApp?",
+                    "ID": "Documento de identidad",
+                    "Reside": "¿Dónde resides?",
+                    "Nacionalidad": "¿Cuál es tu nacionalidad?",
+                    "edad": "¿Cuál es tu edad?",
+                    "meets_requirements": "¿Cumples todos los requisitos?",
+                    "available_period": "¿Tienes disponibilidad?",
+                    "descripcion_del_negocio": "Describe tu negocio",
+                    "acepto_que_los_datos_proporcionados_sean_tratados": "¿Aceptas el tratamiento de datos?",
+                },
+                grading_config=runtime,
+            )
 
-        self.assertEqual(list(result.columns), MENTORA_EXACT_OUTPUT_COLUMNS)
+        self.assertEqual(list(result.columns[:len(MENTORA_EXACT_OUTPUT_COLUMNS)]), MENTORA_EXACT_OUTPUT_COLUMNS)
         self.assertEqual(result.iloc[0]["nombre_completo"], "Applicant Name")
         self.assertEqual(result.iloc[0]["correo_electronico"], "applicant@example.com")
-        self.assertEqual(result.iloc[0]["full_name"], "Fallback Name")
-        self.assertEqual(result.iloc[0]["email"], "fallback@example.com")
-        self.assertEqual(result.iloc[0]["grading_rubric"], "Rubric note")
+        self.assertEqual(result.iloc[0]["¿Cuál es tu nombre completo?"], "Applicant Name")
+        self.assertEqual(result.iloc[0]["¿Cuál es tu correo electrónico?"], "applicant@example.com")
+        self.assertEqual(result.iloc[0]["Describe tu negocio"], "Detailed business response")
+        self.assertEqual(result.iloc[0]["¿Aceptas el tratamiento de datos?"], "yes")
+        self.assertNotIn("grading_rubric", result.columns)
+        self.assertNotIn("created_at", result.columns)
+        self.assertNotIn("application_id", result.columns)
+        self.assertNotIn("full_name", result.columns)
+        self.assertNotIn("email", result.columns)
         self.assertNotIn(
             "tienes_alguna_experiencia_previa_con_mentoria_para",
             result.columns,
@@ -4157,6 +4204,111 @@ class GradingAndPairingConfigEditorTests(TestCase):
         graded = GradedFile.objects.get(form_slug="G950_E_A1")
         self.assertIn("Vendo artesanías locales hechas a mano.", graded.csv_text)
         self.assertNotIn("0.00%", graded.csv_text)
+
+    @patch("applications.admin_views.sync_generated_csv_artifact")
+    @patch("applications.admin_views.OpenAI")
+    def test_mentor_grade_job_exports_actual_question_text_and_answers(
+        self, mock_openai_cls, mock_drive_sync
+    ):
+        import csv
+
+        from applications.admin_views import _run_grade_job
+        from applications.models import GradedFile, GradingJob
+
+        mock_client = Mock()
+        mock_client.chat.completions.create.return_value = SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(
+                content="Score: 4\nExplanation: Clara y especifica."
+            ))]
+        )
+        mock_openai_cls.return_value = mock_client
+        mock_drive_sync.return_value = SimpleNamespace(status="skipped", detail="test")
+
+        group = FormGroup.objects.create(
+            number=951,
+            start_day=1,
+            start_month="agosto",
+            end_month="noviembre",
+            year=2026,
+        )
+        form = FormDefinition.objects.create(
+            slug="G951_M_A1",
+            name="Mentora actual",
+            group=group,
+        )
+        question_specs = [
+            (
+                "cual_es_tu_area_de_experiencia_profesional_mas_rel",
+                "¿Cuál es tu área de experiencia profesional más relevante?",
+                "Tengo experiencia en finanzas.",
+            ),
+            (
+                "que_te_motiva_a_ser_mentora_en_este_programa_de_cl",
+                "¿Qué te motiva a ser mentora en este programa?",
+                "Quiero apoyar a otras mujeres.",
+            ),
+            (
+                "por_que_crees_que_serias_una_buena_mentora_para_un",
+                "¿Por qué crees que serías una buena mentora?",
+                "Escucho y comparto experiencia práctica.",
+            ),
+            (
+                "descripcion_del_negocio",
+                "Describe el negocio que diriges o dirigiste",
+                "Una consultora financiera.",
+            ),
+            (
+                "soy_mujer",
+                "¿Te identificas como mujer?",
+                "yes",
+            ),
+            (
+                "tienes_alguna_experiencia_previa_con_mentoria_para",
+                "¿Tienes experiencia previa con mentoría?",
+                "yes",
+            ),
+        ]
+        app = Application.objects.create(
+            form=form,
+            name="Mentora Test",
+            email="mentora@example.com",
+            approved_for_grading=True,
+        )
+        for position, (slug, text, value) in enumerate(question_specs, start=1):
+            question = Question.objects.create(
+                form=form,
+                slug=slug,
+                text=text,
+                field_type=Question.LONG_TEXT,
+                position=position,
+                active=True,
+            )
+            Answer.objects.create(application=app, question=question, value=value)
+
+        job = GradingJob.objects.create(form_slug=form.slug)
+        with patch.dict("os.environ", {"OPENAI_API_KEY": "test-key"}):
+            _run_grade_job(job.id)
+
+        job.refresh_from_db()
+        self.assertEqual(job.status, GradingJob.STATUS_DONE, job.log_text)
+        graded = GradedFile.objects.get(form_slug=form.slug)
+        headers, row = list(csv.reader(StringIO(graded.csv_text)))[:2]
+
+        self.assertIn("¿Cuál es tu área de experiencia profesional más relevante?", headers)
+        self.assertIn("Tengo experiencia en finanzas.", row)
+        self.assertIn("¿Te identificas como mujer?", headers)
+        self.assertIn("yes", row)
+        self.assertNotIn("soy_mujer", headers)
+        self.assertNotIn("grading_rubric", headers)
+        self.assertNotIn("created_at", headers)
+        self.assertNotIn("application_id", headers)
+        self.assertNotIn("full_name", headers)
+        self.assertNotIn("email", headers)
+        self.assertNotIn(
+            "tienes_alguna_experiencia_previa_con_mentoria_para",
+            headers,
+        )
+        self.assertNotIn("¿Tienes experiencia previa con mentoría?", headers)
 
 
 class HelpTextFormattingTests(TestCase):

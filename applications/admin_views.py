@@ -954,6 +954,10 @@ def _run_grade_job(job_id: int):
             seen_headers.add(header_key)
             source_questions.append(question)
         headers += [q.slug for q in source_questions]
+        source_question_labels = {
+            q.slug: (q.text or q.slug).strip()
+            for q in source_questions
+        }
         if skipped_duplicate_headers:
             _job_log(
                 job,
@@ -1056,6 +1060,7 @@ def _run_grade_job(job_id: int):
                 dual_applicant_emails=dual_applicant_emails,
                 dual_applicant_doc_ids=dual_applicant_doc_ids,
                 previous_group_participant_emails=prior_group_participant_emails,
+                question_labels=source_question_labels,
                 grading_config=grading_config,
             )
 

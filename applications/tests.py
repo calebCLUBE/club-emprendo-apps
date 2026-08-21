@@ -2761,6 +2761,63 @@ class GradingAndPairingConfigEditorTests(TestCase):
         self.assertEqual(result.iloc[0]["email"], "fallback@example.com")
         self.assertEqual(result.iloc[0]["grading_rubric"], "Rubric note")
 
+    def test_mentor_current_spanish_slugs_make_openai_calls_and_fill_output(self):
+        import pandas as pd
+        from applications import grader_m
+
+        source = pd.DataFrame([{
+            "application_id": 4413,
+            "full_name": "Reko",
+            "email": "andre@example.com",
+            "nombre_completo": "Andrea Campaña",
+            "correo_electronico": "andre@example.com",
+            "numero_de_whatsapp_incluye_el_indicativo_de_tu_pai": "+593992919395",
+            "cual_es_tu_numero_de_documento_de_identidad_cedula": "1803541505",
+            "edad": "25-34",
+            "pais_donde_vives_ahora": "ecuador",
+            "pais_donde_naciste": "ecuador",
+            "has_dirigido_tu_propio_negocio": "si",
+            "industria_de_tu_emprendimiento": "productos-ropa-artesanias",
+            "descripcion_del_negocio": "Cafetería con productos locales.",
+            "cuanto_tiempo_has_estado_operando_o_por_cuanto_tie": "1-5-anos",
+            "cual_es_tu_area_de_experiencia_profesional_mas_rel": "Experiencia en proyectos sociales.",
+            "que_te_motiva_a_ser_mentora_en_este_programa_de_cl": "Apoyar a más mujeres.",
+            "por_que_crees_que_serias_una_buena_mentora_para_un": "Tengo aprendizajes profesionales útiles.",
+            "en_que_horario_te_resulta_mas_conveniente_particip": '[{"row":"Lunes","value":"lunes","label":"Tarde"}]',
+            "te_gustaria_dejarnos_algun_comentario_duda_o_suger": "Gracias.",
+        }])
+
+        logs = []
+        with patch("applications.grader_m.detect_red_flags", return_value=""), patch(
+            "applications.grader_m.grade_unstructured",
+            return_value=(4.0, "Relevant response."),
+        ) as grade_response:
+            result = grader_m.grade_from_dataframe(source, Mock(), log_fn=logs.append)
+
+        row = result.iloc[0]
+        self.assertEqual(grade_response.call_count, 4)
+        self.assertNotEqual(row["score"], "-4.94%")
+        self.assertNotIn("Blank or insufficient response", row["score_exp"])
+        self.assertEqual(row["full_name"], "Andrea Campaña")
+        self.assertEqual(row["whatsapp"], "+593992919395")
+        self.assertEqual(row["ID"], "1803541505")
+        self.assertEqual(row["business_description"], "Cafetería con productos locales.")
+        self.assertEqual(row["professional_expertise"], "Experiencia en proyectos sociales.")
+        self.assertEqual(row["motivation"], "Apoyar a más mujeres.")
+        self.assertEqual(row["why_good_mentor"], "Tengo aprendizajes profesionales útiles.")
+        self.assertEqual(row["availability_grid"], "Lunes - Tarde")
+        self.assertTrue(any("will make 4 request(s)" in message for message in logs))
+
+    def test_mentor_grading_refuses_silent_zero_openai_request_output(self):
+        import pandas as pd
+        from applications import grader_m
+
+        with self.assertRaisesMessage(RuntimeError, "No nonblank responses matched"):
+            grader_m.grade_from_dataframe(
+                pd.DataFrame([{"full_name": "Blank Schema", "email": "blank@example.com"}]),
+                Mock(),
+            )
+
     def test_emprendedora_runtime_exports_source_columns_and_dedupes_people(self):
         import pandas as pd
         from applications import grader_e

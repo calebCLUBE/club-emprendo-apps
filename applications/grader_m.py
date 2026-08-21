@@ -1,3 +1,5 @@
+import json
+
 import pandas as pd
 from openai import OpenAI
 import logging
@@ -47,13 +49,35 @@ W = {
 # -----------------------
 
 def yes(v):
-    return str(v).strip().lower() == "yes"
+    return str(v or "").strip().lower() in {
+        "yes",
+        "yes_ok",
+        "si",
+        "sí",
+        "true",
+        "1",
+        "y",
+        "s",
+        "ok",
+    }
 
 def business_years_pts(v, owned):
-    mapping = {"0_1": 1, "1_5": 2, "5_10": 3, "10_plus": 4}
+    mapping = {
+        "0_1": 1,
+        "1_5": 2,
+        "5_10": 3,
+        "10_plus": 4,
+        # Values used by the current Spanish application form.
+        "0-1-ano": 1,
+        "0-1-anos": 1,
+        "1-5-anos": 2,
+        "5-10-anos": 3,
+        "5-10nanos": 3,
+        "10-anos": 4,
+    }
     if pd.isna(v) or v == "":
         return -1 if yes(owned) else 0
-    return mapping.get(v, 0)
+    return mapping.get(str(v).strip().lower(), 0)
 
 
 def has_prior_participation(v) -> bool:
@@ -239,6 +263,67 @@ def _pick_row_value(row: dict, *keys: str):
         if text:
             return value
     return ""
+
+
+CURRENT_MENTORA_ALIASES = {
+    "full_name": ("nombre_completo",),
+    "whatsapp": ("numero_de_whatsapp_incluye_el_indicativo_de_tu_pai",),
+    "email": ("correo_electronico", "correo"),
+    "id_number": ("cual_es_tu_numero_de_documento_de_identidad_cedula",),
+    "age_range": ("edad",),
+    "country_residence": ("pais_donde_vives_ahora",),
+    "country_birth": ("pais_donde_naciste",),
+    "req_basic_internet_device": ("tengo_acceso_a_internet_y_un_dispositivo_computado",),
+    "weekly_time": ("estoy_dispuesta_a_dedicarle_minimo_2_horas_a_la_se",),
+    "owned_business": ("has_dirigido_tu_propio_negocio",),
+    "business_industry": ("industria_de_tu_emprendimiento",),
+    "business_years": ("cuanto_tiempo_has_estado_operando_o_por_cuanto_tie",),
+    "business_description": ("descripcion_del_negocio",),
+    "professional_expertise": ("cual_es_tu_area_de_experiencia_profesional_mas_rel",),
+    "motivation": ("que_te_motiva_a_ser_mentora_en_este_programa_de_cl",),
+    "mentoring_exp_detail": ("por_que_crees_que_serias_una_buena_mentora_para_un",),
+    "additional_comments": ("te_gustaria_dejarnos_algun_comentario_duda_o_suger",),
+    "availability_grid": ("en_que_horario_te_resulta_mas_conveniente_particip",),
+}
+
+
+def _normalize_current_mentora_row(row: dict) -> dict:
+    """Fill canonical grader fields from current imported mentora slugs."""
+    normalized = dict(row)
+    for canonical, aliases in CURRENT_MENTORA_ALIASES.items():
+        value = _pick_row_value(normalized, *aliases)
+        if not str(value or "").strip():
+            continue
+        # The current import can put the business name in Application.name;
+        # the explicit applicant-name answer is the authoritative person name.
+        if canonical == "full_name" or not str(normalized.get(canonical) or "").strip():
+            normalized[canonical] = value
+    return normalized
+
+
+def _format_availability_grid(raw_value) -> str:
+    text = str(raw_value or "").strip()
+    if not text:
+        return ""
+    try:
+        parsed = json.loads(text)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return text
+    if not isinstance(parsed, list):
+        return text
+
+    selections = []
+    seen = set()
+    for item in parsed:
+        if not isinstance(item, dict):
+            continue
+        day = str(item.get("row") or "").strip()
+        time_of_day = str(item.get("label") or item.get("value") or "").strip()
+        selection = " - ".join(part for part in (day, time_of_day) if part)
+        if selection and selection not in seen:
+            seen.add(selection)
+            selections.append(selection)
+    return "; ".join(selections) or text
 
 
 def _normalize_document_id(raw_value: str) -> str:
@@ -506,6 +591,7 @@ def grade_single_row(
     dual_applicant_doc_ids: set[str] | None = None,
     grading_config=None,
 ) -> dict:
+    row = _normalize_current_mentora_row(row)
     weights = getattr(grading_config, "weights", None) or W
     max_total_score = float(getattr(grading_config, "max_total_score", MAX_TOTAL_SCORE) or MAX_TOTAL_SCORE)
     model_name = getattr(grading_config, "model_name", "") or ""
@@ -619,13 +705,13 @@ def grade_single_row(
     motivation = _pick_row_value(row, "motivation")
     why_good_mentor = _pick_row_value(row, "why_good_mentor", "mentoring_exp_detail")
     additional_comments = _pick_row_value(row, "additional_comments")
-    availability_grid = _pick_row_value(
+    availability_grid = _format_availability_grid(_pick_row_value(
         row,
         "availability_grid",
         "availability",
         "availability_options",
         "weekly_availability",
-    )
+    ))
 
     if not meets_all:
         return [
@@ -724,6 +810,29 @@ def grade_from_dataframe(
 ) -> pd.DataFrame:
     out = []
     total = len(df)
+    grading_rows = [
+        _normalize_current_mentora_row(row.to_dict())
+        for _, row in df.iterrows()
+    ]
+    ai_fields = getattr(grading_config, "ai_criteria", None)
+    if not ai_fields and not bool(getattr(grading_config, "uses_configured_criteria", False)):
+        ai_fields = DEFAULT_AI_FIELDS
+    ai_request_count = sum(
+        1
+        for row in grading_rows
+        for slug in (ai_fields or ())
+        if isinstance(row.get(slug), str) and row.get(slug).strip()
+    )
+    if ai_fields and total and not ai_request_count:
+        raise RuntimeError(
+            "No nonblank responses matched the mentora AI grading fields: "
+            + ", ".join(ai_fields)
+        )
+    if log_fn and ai_fields:
+        log_fn(
+            f"→ OpenAI text grading will make {ai_request_count} request(s) "
+            f"across {total} mentor applicant(s) and {len(ai_fields)} AI criterion/criteria"
+        )
     normalized_priority_emails = {str(e).strip().lower() for e in (priority_emails or []) if str(e).strip()}
     normalized_active_participant_emails = {
         str(e).strip().lower()
@@ -746,13 +855,13 @@ def grade_from_dataframe(
         if _normalize_document_id(str(v))
     }
 
-    for i, (_, row) in enumerate(df.iterrows(), start=1):
+    for i, row in enumerate(grading_rows, start=1):
         if log_fn:
             log_fn(f"→ Grading mentor row {i}/{total}")
 
         out.append(
             grade_single_row(
-                row.to_dict(),
+                row,
                 client,
                 priority_emails=normalized_priority_emails,
                 active_participant_emails=normalized_active_participant_emails,

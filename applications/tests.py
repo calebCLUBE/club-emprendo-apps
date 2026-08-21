@@ -2760,6 +2760,95 @@ class GradingAndPairingConfigEditorTests(TestCase):
         self.assertEqual(result.iloc[0]["full_name"], "Fallback Name")
         self.assertEqual(result.iloc[0]["email"], "fallback@example.com")
         self.assertEqual(result.iloc[0]["grading_rubric"], "Rubric note")
+        self.assertNotIn(
+            "tienes_alguna_experiencia_previa_con_mentoria_para",
+            result.columns,
+        )
+
+    def test_mentor_previous_participation_column_uses_group_database_email_match(self):
+        import pandas as pd
+        from applications import grader_m
+
+        runtime = SimpleNamespace(
+            uses_configured_criteria=True,
+            weights={"current_story": 5},
+            max_total_score=5,
+            ai_criteria=("current_story",),
+            structured_criteria=(),
+            prompt=lambda _slug: "",
+            allows_negative=lambda _slug, fallback=False: fallback,
+            response_score=lambda _slug, _value, default=None: default,
+            rubric_note="",
+            model_name="",
+        )
+        source = pd.DataFrame([
+            {
+                "full_name": "Previous Participant",
+                "email": "PAST@EXAMPLE.COM",
+                "current_story": "Detailed response",
+                "has_participado_anteriormente_en_club_emprendo_pue": "no",
+            },
+            {
+                "full_name": "New Participant",
+                "email": "new@example.com",
+                "current_story": "Detailed response",
+                "has_participado_anteriormente_en_club_emprendo_pue": "yes",
+            },
+        ])
+
+        with patch("applications.grader_m.detect_red_flags", return_value=""), patch(
+            "applications.grader_m.grade_unstructured",
+            return_value=(4.0, "Relevant response."),
+        ):
+            result = grader_m.grade_from_dataframe(
+                source,
+                Mock(),
+                previous_group_participant_emails={"past@example.com"},
+                grading_config=runtime,
+            )
+
+        history_column = "has_participado_anteriormente_en_club_emprendo_pue"
+        self.assertEqual(list(result[history_column]), ["yes", "no"])
+        self.assertNotIn(
+            "tienes_alguna_experiencia_previa_con_mentoria_para",
+            result.columns,
+        )
+
+    def test_prior_group_participant_emails_checks_both_tracks_and_excludes_current_group(self):
+        from applications.admin_views import _prior_group_participant_emails
+
+        prior_group = FormGroup.objects.create(
+            number=920,
+            start_day=1,
+            start_month="enero",
+            end_month="abril",
+            year=2025,
+        )
+        current_group = FormGroup.objects.create(
+            number=921,
+            start_day=1,
+            start_month="mayo",
+            end_month="agosto",
+            year=2026,
+        )
+        GroupParticipantList.objects.create(
+            group=prior_group,
+            mentoras_emails_text="mentor.text@example.com",
+            emprendedoras_sheet_rows=[
+                ["", "CP", 1, "Founder", "123", "Founder.Row@Example.com"]
+            ],
+        )
+        GroupParticipantList.objects.create(
+            group=current_group,
+            mentoras_sheet_rows=[
+                ["", "CP", 1, "Current", "456", "current@example.com"]
+            ],
+        )
+
+        self.assertEqual(
+            _prior_group_participant_emails(current_group.number),
+            {"mentor.text@example.com", "founder.row@example.com"},
+        )
 
     def test_mentor_current_spanish_slugs_make_openai_calls_and_fill_output(self):
         import pandas as pd

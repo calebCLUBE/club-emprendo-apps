@@ -596,6 +596,29 @@ def _active_participant_emails_for_form_slug(form_slug: str) -> set[str]:
     return _active_participant_emails_for_track(_track_from_form_slug(form_slug))
 
 
+def _prior_group_participant_emails(current_group: int | None) -> set[str]:
+    """Return emails recorded in either participant database before this group."""
+    if not current_group:
+        return set()
+
+    out: set[str] = set()
+    participant_lists = (
+        GroupParticipantList.objects.filter(group__number__lt=current_group)
+        .only(
+            "mentoras_emails_text",
+            "emprendedoras_emails_text",
+            "mentoras_sheet_rows",
+            "emprendedoras_sheet_rows",
+        )
+    )
+    for participant_list in participant_lists:
+        out.update(_norm_email_list(participant_list.mentoras_emails_text))
+        out.update(_norm_email_list(participant_list.emprendedoras_emails_text))
+        out.update(_emails_from_participant_sheet_rows(participant_list.mentoras_sheet_rows))
+        out.update(_emails_from_participant_sheet_rows(participant_list.emprendedoras_sheet_rows))
+    return out
+
+
 def _normalize_document_id(raw_value: str) -> str:
     value = str(raw_value or "").strip().lower()
     if not value:
@@ -799,7 +822,7 @@ def _prior_application_ids_for_track(
 def grading_job_status(request, job_id: int):
     job = get_object_or_404(GradingJob, id=job_id)
 
-    # super simple auto-refresh every 2 seconds
+    # The page auto-refreshes while the job is active (currently every 5 seconds).
     return render(request, "admin_dash/grading_job_status.html", {"job": job})
 def _run_grade_job(job_id: int):
     job = GradingJob.objects.get(id=job_id)
@@ -828,6 +851,24 @@ def _run_grade_job(job_id: int):
             raise RuntimeError(f"Unsupported form type: {job.form_slug}")
 
         fd = FormDefinition.objects.get(slug=job.form_slug)
+        current_group_number = _group_number_from_form(job.form_slug, fd)
+        prior_group_participant_emails: set[str] | None = None
+        if job.form_slug.endswith("M_A1"):
+            if current_group_number:
+                prior_group_participant_emails = _prior_group_participant_emails(
+                    current_group_number
+                )
+            _job_log(
+                job,
+                (
+                    "🗂️ Previous Club Emprendo participation lookup loaded "
+                    f"{len(prior_group_participant_emails or set())} email(s) from groups before "
+                    f"G{current_group_number}."
+                    if current_group_number
+                    else "⚠️ Could not identify the current group; previous-participation "
+                    "email lookup is unavailable."
+                ),
+            )
         second_stage_slug = job.form_slug[:-1] + "2"
         fd_second_stage = FormDefinition.objects.filter(slug=second_stage_slug).first()
         grading_forms = [f for f in (fd, fd_second_stage) if f]
@@ -1014,6 +1055,7 @@ def _run_grade_job(job_id: int):
                 previous_application_ids=previous_application_ids,
                 dual_applicant_emails=dual_applicant_emails,
                 dual_applicant_doc_ids=dual_applicant_doc_ids,
+                previous_group_participant_emails=prior_group_participant_emails,
                 grading_config=grading_config,
             )
 

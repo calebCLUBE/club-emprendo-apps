@@ -511,7 +511,6 @@ MENTORA_EXACT_OUTPUT_COLUMNS = [
     "meets_all_req",
     "flag_color",
     "has_participado_anteriormente_en_club_emprendo_pue",
-    "tienes_alguna_experiencia_previa_con_mentoria_para",
     "soy_mujer",
     "hablo_espanol",
     "tengo_acceso_a_internet_y_un_dispositivo_computado",
@@ -550,6 +549,7 @@ MENTORA_COLUMN_FALLBACKS = {
     "Reside": ("Reside", "country_residence"),
     "Nacionalidad": ("Nacionalidad", "country_birth", "birth_country", "country_of_birth"),
     "edad": ("edad", "age_range"),
+    "has_participado_anteriormente_en_club_emprendo_pue": ("participated_before",),
 }
 
 
@@ -567,7 +567,15 @@ def _ordered_mentora_output(out_df: pd.DataFrame, source_df: pd.DataFrame) -> pd
 
     for column in MENTORA_EXACT_OUTPUT_COLUMNS:
         value = None
-        if column in {"Status", "score", "score_exp", "meets_all_req", "flag_color", "grading_rubric"}:
+        if column in {
+            "Status",
+            "score",
+            "score_exp",
+            "meets_all_req",
+            "flag_color",
+            "grading_rubric",
+            "has_participado_anteriormente_en_club_emprendo_pue",
+        }:
             value = _first_existing_column(out_df, (column,))
         if value is None:
             value = _first_existing_column(source_df, MENTORA_COLUMN_FALLBACKS.get(column, (column,)))
@@ -589,9 +597,15 @@ def grade_single_row(
     previous_application_ids: set[int] | None = None,
     dual_applicant_emails: set[str] | None = None,
     dual_applicant_doc_ids: set[str] | None = None,
+    previous_group_participant_emails: set[str] | None = None,
     grading_config=None,
 ) -> dict:
     row = _normalize_current_mentora_row(row)
+    if previous_group_participant_emails is not None:
+        email_key = str(row.get("email") or "").strip().lower()
+        row["prior_participation"] = (
+            "yes" if email_key and email_key in previous_group_participant_emails else "no"
+        )
     weights = getattr(grading_config, "weights", None) or W
     max_total_score = float(getattr(grading_config, "max_total_score", MAX_TOTAL_SCORE) or MAX_TOTAL_SCORE)
     model_name = getattr(grading_config, "model_name", "") or ""
@@ -806,6 +820,7 @@ def grade_from_dataframe(
     previous_application_ids: set[int] | list[int] | tuple[int, ...] | None = None,
     dual_applicant_emails: set[str] | list[str] | tuple[str, ...] | None = None,
     dual_applicant_doc_ids: set[str] | list[str] | tuple[str, ...] | None = None,
+    previous_group_participant_emails: set[str] | list[str] | tuple[str, ...] | None = None,
     grading_config=None,
 ) -> pd.DataFrame:
     out = []
@@ -854,6 +869,15 @@ def grade_from_dataframe(
         for v in (dual_applicant_doc_ids or [])
         if _normalize_document_id(str(v))
     }
+    normalized_previous_group_participant_emails = (
+        {
+            str(value).strip().lower()
+            for value in previous_group_participant_emails
+            if str(value).strip()
+        }
+        if previous_group_participant_emails is not None
+        else None
+    )
 
     for i, row in enumerate(grading_rows, start=1):
         if log_fn:
@@ -868,6 +892,7 @@ def grade_from_dataframe(
                 previous_application_ids=normalized_previous_application_ids,
                 dual_applicant_emails=normalized_dual_applicant_emails,
                 dual_applicant_doc_ids=normalized_dual_applicant_doc_ids,
+                previous_group_participant_emails=normalized_previous_group_participant_emails,
                 grading_config=grading_config,
             )
         )

@@ -828,6 +828,22 @@ def _run_grade_job(job_id: int):
             raise RuntimeError(f"Unsupported form type: {job.form_slug}")
 
         fd = FormDefinition.objects.get(slug=job.form_slug)
+        second_stage_slug = job.form_slug[:-1] + "2"
+        fd_second_stage = FormDefinition.objects.filter(slug=second_stage_slug).first()
+        grading_forms = [f for f in (fd, fd_second_stage) if f]
+        if fd_second_stage:
+            _job_log(
+                job,
+                f"🔗 Including second-stage form '{second_stage_slug}' answers "
+                "(applicants that completed both stages have their business-info "
+                "answers stored there).",
+            )
+        else:
+            _job_log(
+                job,
+                f"⚠️ No second-stage form found for slug '{second_stage_slug}'. "
+                "Grading only the first-stage answers.",
+            )
         dual_applicant_emails: set[str] = set()
         dual_applicant_doc_ids: set[str] = set()
         if job.form_slug.endswith("M_A1"):
@@ -847,7 +863,7 @@ def _run_grade_job(job_id: int):
 
         apps = (
             Application.objects
-            .filter(form=fd, approved_for_grading=True)
+            .filter(form__in=grading_forms, approved_for_grading=True)
             .prefetch_related("answers__question")
             .order_by("created_at", "id")
         )
@@ -872,9 +888,9 @@ def _run_grade_job(job_id: int):
         # BUILD MASTER DATAFRAME (MATCHES MASTER CSV)
         # ----------------------------------
         questions = list(
-            fd.questions
-            .filter(active=True)
-            .order_by("position", "id")
+            Question.objects
+            .filter(form__in=grading_forms, active=True)
+            .order_by("form__slug", "position", "id")
         )
 
         headers = [

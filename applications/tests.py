@@ -3894,6 +3894,73 @@ class GradingAndPairingConfigEditorTests(TestCase):
         self.assertNotIn("mayor", mentor_tags)
         self.assertFalse(entrepreneur_tags.intersection(mentor_tags))
 
+    @patch("applications.admin_views.sync_generated_csv_artifact")
+    @patch("applications.admin_views.OpenAI")
+    def test_grade_job_pulls_second_stage_answers_for_combined_applications(
+        self, mock_openai_cls, mock_drive_sync
+    ):
+        from applications.admin_views import _run_grade_job
+        from applications.models import GradedFile, GradingJob
+
+        mock_client = Mock()
+        mock_client.chat.completions.create.return_value = SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(
+                content="Score: 4\nExplanation: Clara y especifica."
+            ))]
+        )
+        mock_openai_cls.return_value = mock_client
+        mock_drive_sync.return_value = SimpleNamespace(status="skipped", detail="test")
+
+        form_a1 = FormDefinition.objects.create(slug="G950_E_A1", name="A1")
+        Question.objects.create(
+            form=form_a1, slug="whatsapp", text="WhatsApp",
+            field_type=Question.SHORT_TEXT, position=1, active=True,
+        )
+        form_a2 = FormDefinition.objects.create(slug="G950_E_A2", name="A2")
+        for position, slug in enumerate(
+            ("business_description", "growth_how", "biggest_challenge"), start=1
+        ):
+            Question.objects.create(
+                form=form_a2, slug=slug, text=slug,
+                field_type=Question.LONG_TEXT, position=position, active=True,
+            )
+
+        # Simulates a combined A1+A2 submission: the same Application row is
+        # promoted to the A2 form once both stages are completed, and its
+        # Answer rows include both stages' questions.
+        app = Application.objects.create(
+            form=form_a2,
+            name="Ana Test",
+            email="ana@example.com",
+            approved_for_grading=True,
+        )
+        Answer.objects.create(
+            application=app,
+            question=Question.objects.get(form=form_a1, slug="whatsapp"),
+            value="+57 3000000000",
+        )
+        for slug, value in (
+            ("business_description", "Vendo artesanías locales hechas a mano."),
+            ("growth_how", "Quiero aprender a escalar mis ventas en línea."),
+            ("biggest_challenge", "Conseguir clientes nuevos de forma constante."),
+        ):
+            Answer.objects.create(
+                application=app,
+                question=Question.objects.get(form=form_a2, slug=slug),
+                value=value,
+            )
+
+        job = GradingJob.objects.create(form_slug="G950_E_A1")
+        with patch.dict("os.environ", {"OPENAI_API_KEY": "test-key"}):
+            _run_grade_job(job.id)
+
+        job.refresh_from_db()
+        self.assertEqual(job.status, GradingJob.STATUS_DONE, job.log_text)
+
+        graded = GradedFile.objects.get(form_slug="G950_E_A1")
+        self.assertIn("Vendo artesanías locales hechas a mano.", graded.csv_text)
+        self.assertNotIn("0.00%", graded.csv_text)
+
 
 class HelpTextFormattingTests(TestCase):
     def test_pasted_help_text_keeps_paragraphs_and_auto_links_url(self):

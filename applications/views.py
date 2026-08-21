@@ -1689,12 +1689,14 @@ def _handle_application_form(
                 "kind": "mentor_final",
                 "group_num": group_num,
                 "disqualified": a2_disqualified,
+                "approved": not a2_disqualified,
             }
         elif form_def.slug.endswith("E_A2"):
             thanks_payload = {
                 "kind": "emprendedora_final",
                 "group_num": group_num,
                 "disqualified": a2_disqualified,
+                "approved": not a2_disqualified,
             }
         else:
             thanks_payload = {

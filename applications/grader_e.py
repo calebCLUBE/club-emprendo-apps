@@ -527,7 +527,7 @@ def grade_single_row(
     )
 
     ai_fields = getattr(grading_config, "ai_criteria", None)
-    if ai_fields is None:
+    if not ai_fields and not custom_criteria:
         ai_fields = DEFAULT_AI_FIELDS
     red_flags = detect_red_flags(
         client,

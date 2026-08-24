@@ -12,6 +12,7 @@ from django.utils import timezone
 from applications.admin_profiles_views import (
     _EMPRENDEDORA_GROUP_TITLE_RE,
     _MENTORA_TITLE_RE,
+    _dropbox_title_group_number,
     _apply_contract_signed_to_rows,
     _build_emprendedoras_rows,
     _build_mentoras_rows,
@@ -301,6 +302,12 @@ class Command(BaseCommand):
                 skipped_by_explicit_filter += 1
                 continue
 
+            title_group_hint = _dropbox_title_group_number(title)
+            if title_group_hint is not None and title_group_hint != group_num:
+                skipped_not_target += 1
+                continue
+            title_group_match = title_group_hint == group_num
+
             signer_pool = set(req.signer_emails)
             signed_set = set(req.signed_emails)
             if not signed_set:
@@ -334,7 +341,12 @@ class Command(BaseCommand):
             applies_e_signal = False
             e_group_hint: int | None = None
             if track_opt in {"E", "BOTH"}:
-                if em:
+                if title_group_match and signer_pool and e_pool:
+                    signer_canon = {self._canonical_email(v) for v in signer_pool if self._canonical_email(v)}
+                    if bool(signer_canon.intersection(e_pool_canon)):
+                        applies_e_signal = True
+                        e_group_hint = title_group_hint
+                elif em:
                     applies_e_signal = True
                     try:
                         e_group_hint = int(em.group(1))
@@ -350,8 +362,14 @@ class Command(BaseCommand):
                     applies_e_signal = True
 
             applies_m_signal = False
+            m_group_hint: int | None = None
             if track_opt in {"M", "BOTH"}:
-                if _MENTORA_TITLE_RE.search(title):
+                if title_group_match and signer_pool and m_pool:
+                    signer_canon = {self._canonical_email(v) for v in signer_pool if self._canonical_email(v)}
+                    if bool(signer_canon.intersection(m_pool_canon)):
+                        applies_m_signal = True
+                        m_group_hint = title_group_hint
+                elif _MENTORA_TITLE_RE.search(title):
                     applies_m_signal = True
                 elif signer_pool and m_pool_canon:
                     signer_canon = {self._canonical_email(v) for v in signer_pool if self._canonical_email(v)}
@@ -382,6 +400,7 @@ class Command(BaseCommand):
                     title=title,
                     signer_pool=signer_pool,
                     signed_set=signed_set,
+                    group_hint=m_group_hint,
                 )
 
         selected_e_keys: set[str] = set()
@@ -438,47 +457,59 @@ class Command(BaseCommand):
                         request_ids_by_email[email] = req_id_for_row
 
         if track_opt in {"M", "BOTH"} and m_jobs:
-            m_metrics: dict[str, tuple[int, bool, bool]] = {}
+            m_metrics: dict[str, tuple[int, bool, bool, bool]] = {}
             for key, bucket in m_jobs.items():
                 signers = set(bucket.get("signers") or set())
+                group_hints = set(bucket.get("group_hints") or set())
                 signer_canon = {self._canonical_email(v) for v in signers if self._canonical_email(v)}
                 signer_overlap = len(signer_canon.intersection(m_pool_canon))
                 exact_match = bool(signer_canon) and bool(m_pool_canon) and signer_canon == m_pool_canon
                 subset_match = bool(signer_canon) and bool(m_pool_canon) and signer_canon.issubset(m_pool_canon)
-                m_metrics[key] = (signer_overlap, exact_match, subset_match)
+                group_match = group_num in group_hints
+                m_metrics[key] = (signer_overlap, exact_match, subset_match, group_match)
 
-            exact_keys = [
-                key for key, (signer_overlap, exact_match, _subset_match) in m_metrics.items()
-                if exact_match and signer_overlap > 0
+            hinted_keys = [
+                key
+                for key, (signer_overlap, _exact_match, _subset_match, group_match) in m_metrics.items()
+                if group_match and signer_overlap > 0
             ]
-            if exact_keys:
-                selected_m_keys = set(exact_keys)
-                selected_m_reason = "exact-pool-match"
+            if hinted_keys:
+                selected_m_keys = set(hinted_keys)
+                selected_m_reason = "title-group-match"
             else:
-                subset_best_overlap = max(
-                    (
-                        signer_overlap
-                        for _key, (signer_overlap, _exact_match, subset_match) in m_metrics.items()
-                        if subset_match
-                    ),
-                    default=0,
-                )
-                if subset_best_overlap > 0:
-                    selected_m_keys = {
-                        key
-                        for key, (signer_overlap, _exact_match, subset_match) in m_metrics.items()
-                        if subset_match and signer_overlap == subset_best_overlap
-                    }
-                    selected_m_reason = f"subset-best-overlap:{subset_best_overlap}"
+                exact_keys = [
+                    key
+                    for key, (signer_overlap, exact_match, _subset_match, _group_match) in m_metrics.items()
+                    if exact_match and signer_overlap > 0
+                ]
+                if exact_keys:
+                    selected_m_keys = set(exact_keys)
+                    selected_m_reason = "exact-pool-match"
                 else:
-                    best_signer_overlap = max((m[0] for m in m_metrics.values()), default=0)
-                    if best_signer_overlap > 0:
+                    subset_best_overlap = max(
+                        (
+                            signer_overlap
+                            for _key, (signer_overlap, _exact_match, subset_match, _group_match) in m_metrics.items()
+                            if subset_match
+                        ),
+                        default=0,
+                    )
+                    if subset_best_overlap > 0:
                         selected_m_keys = {
                             key
-                            for key, (signer_overlap, _exact_match, _subset_match) in m_metrics.items()
-                            if signer_overlap == best_signer_overlap
+                            for key, (signer_overlap, _exact_match, subset_match, _group_match) in m_metrics.items()
+                            if subset_match and signer_overlap == subset_best_overlap
                         }
-                        selected_m_reason = f"best-signer-overlap:{best_signer_overlap}"
+                        selected_m_reason = f"subset-best-overlap:{subset_best_overlap}"
+                    else:
+                        best_signer_overlap = max((m[0] for m in m_metrics.values()), default=0)
+                        if best_signer_overlap > 0:
+                            selected_m_keys = {
+                                key
+                                for key, (signer_overlap, _exact_match, _subset_match, _group_match) in m_metrics.items()
+                                if signer_overlap == best_signer_overlap
+                            }
+                            selected_m_reason = f"best-signer-overlap:{best_signer_overlap}"
 
             scoped_reqs_by_track["M"] = len(selected_m_keys)
             for key in sorted(selected_m_keys):
@@ -790,6 +821,9 @@ class Command(BaseCommand):
                     if title_contains and job_title and title_contains not in job_title_lower:
                         continue
                     if job_title:
+                        title_group_hint = _dropbox_title_group_number(job_title)
+                        if title_group_hint is not None and title_group_hint != int(group_num):
+                            continue
                         if "emprendedora" in job_title_lower:
                             em = _EMPRENDEDORA_GROUP_TITLE_RE.search(job_title)
                             if em:

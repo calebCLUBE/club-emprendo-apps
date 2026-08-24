@@ -7948,6 +7948,130 @@ class DropboxSignWebhookActaAutomationTests(TestCase):
     def _emprendedora_row(self, idx: int, email: str) -> list:
         return ["", "", idx, f"Emprendedora {idx}", f"E{idx}", email, "", "", "", False, False, False, False, False, False]
 
+    def test_acta_range_title_uses_number_after_hyphen_as_group(self):
+        from applications.admin_profiles_views import _dropbox_title_group_number
+
+        self.assertEqual(
+            _dropbox_title_group_number("G16-18 Acta de compromiso"),
+            18,
+        )
+        self.assertEqual(
+            _dropbox_title_group_number("G16–19 Acta de compromiso Mentoras"),
+            19,
+        )
+
+    def test_range_title_scopes_repeated_signer_email_to_named_group(self):
+        previous_group = FormGroup.objects.create(
+            number=17,
+            start_day=1,
+            start_month="abril",
+            end_month="abril",
+            year=2026,
+        )
+        target_group = FormGroup.objects.create(
+            number=18,
+            start_day=1,
+            start_month="mayo",
+            end_month="agosto",
+            year=2026,
+        )
+        previous = GroupParticipantList.objects.create(
+            group=previous_group,
+            mentoras_sheet_rows=[self._mentora_row(1, "repeat@example.com")],
+        )
+        target = GroupParticipantList.objects.create(
+            group=target_group,
+            mentoras_sheet_rows=[self._mentora_row(1, "repeat@example.com")],
+        )
+
+        payload = {
+            "event": {
+                "event_type": "signature_request_signed",
+                "event_time": "1713744002",
+                "event_hash": "nohash",
+            },
+            "signature_request": {
+                "signature_request_id": "req-g16-18",
+                "title": "G16-18 Acta de compromiso",
+                "signatures": [
+                    {
+                        "signer_email_address": "repeat@example.com",
+                        "status_code": "signed",
+                    }
+                ],
+            },
+        }
+        response = self.client.post(
+            reverse("dropbox_sign_webhook"),
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        previous.refresh_from_db()
+        target.refresh_from_db()
+        self.assertFalse(bool(previous.mentoras_sheet_rows[0][9]))
+        self.assertTrue(bool(target.mentoras_sheet_rows[0][9]))
+        event = DropboxSignWebhookEvent.objects.get(signature_request_id="req-g16-18")
+        self.assertIn("Scope=M18", event.process_note)
+        self.assertIn("Resolved group 18 from title", event.process_note)
+
+    @override_settings(DROPBOX_SIGN_API_KEY="test-key")
+    def test_passive_check_ignores_other_group_range_titles(self):
+        from applications.management.commands.reconcile_dropbox_sign_bulk import (
+            Command,
+            SignatureRequestLite,
+        )
+
+        target_group = FormGroup.objects.create(
+            number=18,
+            start_day=1,
+            start_month="mayo",
+            end_month="agosto",
+            year=2026,
+        )
+        participant_list = GroupParticipantList.objects.create(
+            group=target_group,
+            mentoras_sheet_rows=[self._mentora_row(1, "target@example.com")],
+        )
+        requests = [
+            SignatureRequestLite(
+                signature_request_id="wrong-group-request",
+                bulk_send_job_id="wrong-job",
+                title="G16-17 Acta de compromiso",
+                created_at=None,
+                signer_emails=["target@example.com"],
+                signed_emails=["target@example.com"],
+            ),
+            SignatureRequestLite(
+                signature_request_id="target-group-request",
+                bulk_send_job_id="target-job",
+                title="G16-18 Acta de compromiso",
+                created_at=None,
+                signer_emails=["target@example.com"],
+                signed_emails=["target@example.com"],
+            ),
+        ]
+        output = StringIO()
+        with patch.object(Command, "_fetch_signature_requests", return_value=requests), patch.object(
+            Command,
+            "_fetch_signature_requests_from_bulk_jobs",
+            return_value=[],
+        ):
+            call_command(
+                "reconcile_dropbox_sign_bulk",
+                group=18,
+                track="M",
+                stdout=output,
+            )
+
+        participant_list.refresh_from_db()
+        self.assertTrue(bool(participant_list.mentoras_sheet_rows[0][9]))
+        status = ParticipantEmailStatus.objects.get(email="target@example.com")
+        self.assertEqual(status.contract_signature_request_id, "target-group-request")
+        self.assertIn("M:title-group-match", output.getvalue())
+        self.assertIn("skipped_not_target:1", output.getvalue())
+
     def test_emprendedora_title_with_group_marks_only_signed_rows(self):
         group = FormGroup.objects.create(
             number=950,

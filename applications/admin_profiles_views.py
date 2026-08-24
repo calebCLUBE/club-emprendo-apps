@@ -104,6 +104,14 @@ _MENTORA_TITLE_RE = re.compile(
     r"acta\s+de\s+compromiso.*mentora",
     re.IGNORECASE,
 )
+_ACTA_GROUP_RANGE_TITLE_RE = re.compile(
+    r"\bg\s*[0-9]{1,4}\s*[-–—/]\s*([0-9]{1,4})\b",
+    re.IGNORECASE,
+)
+_ACTA_GROUP_SINGLE_TITLE_RE = re.compile(
+    r"\b(?:g|grupo)\s*[-_.:#\s]*([0-9]{1,4})\b",
+    re.IGNORECASE,
+)
 WIX_CAPACITACION_EMPRENDEDORAS_PROGRAM_NAME = "Capacitacion programa de mentorias (Emprendedoras)"
 WIX_CAPACITACION_MENTORAS_PROGRAM_NAME = "Capacitacion de Mentoras"
 ENCUESTAS_GROUP_HEADER_KEYS = ("seleccionatugrupo", "seleccionagrupo", "grupo")
@@ -417,6 +425,60 @@ def _resolve_mentora_group_by_signer_pool(signer_pool: set[str]) -> tuple[int | 
             return None, "Signer email exists in multiple mentora groups."
 
     return None, "No mentora group matched signer emails."
+
+
+def _dropbox_title_group_number(signature_title: str) -> int | None:
+    """Extract the participant group encoded in an Acta document title.
+
+    Dropbox titles such as ``G16-18 Acta de compromiso`` use the number after
+    the hyphen as the participant group, so that title resolves to group 18.
+    """
+    title = str(signature_title or "").strip()
+    title_norm = _normalize_header(title)
+    if "acta" not in title_norm or "compromiso" not in title_norm:
+        return None
+
+    range_match = _ACTA_GROUP_RANGE_TITLE_RE.search(title)
+    if range_match:
+        try:
+            return int(range_match.group(1))
+        except (TypeError, ValueError):
+            return None
+
+    matches = _ACTA_GROUP_SINGLE_TITLE_RE.findall(title)
+    if not matches:
+        return None
+    try:
+        return int(matches[-1])
+    except (TypeError, ValueError):
+        return None
+
+
+def _resolve_track_in_group_by_signer_pool(
+    group_num: int,
+    signer_pool: set[str],
+) -> tuple[str | None, str]:
+    participant_list = (
+        GroupParticipantList.objects.select_related("group")
+        .filter(group__number=group_num)
+        .first()
+    )
+    if not participant_list:
+        return None, f"Group {group_num} has no participant database."
+
+    normalized_signers = {_normalize_email(value) for value in signer_pool if _normalize_email(value)}
+    mentor_pool = _participant_emails_from_list(participant_list, "M")
+    entrepreneur_pool = _participant_emails_from_list(participant_list, "E")
+    mentor_overlap = normalized_signers.intersection(mentor_pool)
+    entrepreneur_overlap = normalized_signers.intersection(entrepreneur_pool)
+
+    if mentor_overlap and not entrepreneur_overlap:
+        return "M", f"Resolved group {group_num} from title and mentora track from email."
+    if entrepreneur_overlap and not mentor_overlap:
+        return "E", f"Resolved group {group_num} from title and emprendedora track from email."
+    if mentor_overlap and entrepreneur_overlap:
+        return None, f"Signer emails matched both tracks in group {group_num}."
+    return None, f"Signer emails did not match group {group_num}'s participant database."
 
 
 def _mark_participant_sheet_acta_signed(
@@ -852,6 +914,21 @@ def _resolve_dropbox_signature_scope(
     title = (signature_title or "").strip()
     if not title:
         return None, None, "Missing signature title."
+
+    title_group_num = _dropbox_title_group_number(title)
+    if title_group_num is not None:
+        title_norm = _normalize_header(title)
+        if "emprendedora" in title_norm:
+            return "E", title_group_num, "Resolved group from document title."
+        if "mentora" in title_norm and "emprendedora" not in title_norm:
+            return "M", title_group_num, "Resolved group from document title."
+        track, reason = _resolve_track_in_group_by_signer_pool(
+            title_group_num,
+            signer_pool,
+        )
+        if track:
+            return track, title_group_num, reason
+        return None, None, reason
 
     empr_match = _EMPRENDEDORA_GROUP_TITLE_RE.search(title)
     if empr_match:

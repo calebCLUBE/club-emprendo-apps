@@ -2355,6 +2355,43 @@ class ParticipantHistoryLookupTests(TestCase):
         self.assertContains(response, "G14")
         self.assertContains(response, "Activa")
 
+    def test_profiles_options_are_graded_pairing_and_groups_only(self):
+        response = self.client.get(reverse("admin_profiles_list"))
+
+        self.assertEqual(response.status_code, 200)
+        html = response.content.decode()
+        actions_match = re.search(
+            r'<nav class="ce-actions" aria-label="Profiles options">(.*?)</nav>',
+            html,
+            flags=re.DOTALL,
+        )
+        self.assertIsNotNone(actions_match)
+        labels = re.findall(r">\s*([^<>]+?)\s*</a>", actions_match.group(1))
+        hrefs = re.findall(r'href="([^"]+)"', actions_match.group(1))
+
+        self.assertEqual(labels, ["Graded", "Emparejamiento", "Grupos"])
+        self.assertEqual(
+            hrefs,
+            [
+                reverse("admin_grading_home"),
+                reverse("admin_emparejamiento_home"),
+                reverse("admin_profiles_participants"),
+            ],
+        )
+
+    def test_admin_home_no_longer_has_grading_or_pairing_tiles(self):
+        response = self.client.get("/admin/")
+
+        self.assertEqual(response.status_code, 200)
+        html = response.content.decode()
+        tile_labels = re.findall(
+            r'<div class="ce-admin-tile-title">\s*([^<>]+?)\s*</div>',
+            html,
+        )
+        self.assertNotIn("Grading", tile_labels)
+        self.assertNotIn("Emparejamiento", tile_labels)
+        self.assertIn("Profiles", tile_labels)
+
 
 class GradingAndPairingConfigEditorTests(TestCase):
     def setUp(self):

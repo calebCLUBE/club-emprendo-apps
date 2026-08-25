@@ -179,12 +179,11 @@
     </style>
 
     <h1 style="margin: 0;">Profiles</h1>
-    <div class="ce-actions">
-      <a class="ce-btn ce-btn--ghost" href="/admin/">Admin home</a>
-      <a class="ce-btn ce-btn--ghost" href="{% url 'admin_database' %}">Database</a>
-      <a class="ce-btn ce-btn--ghost" href="{% url 'admin_grading_home' %}">Grading</a>
-      <a class="ce-btn ce-btn--ghost" href="{% url 'admin_profiles_participants' %}">Participants</a>
-    </div>
+    <nav class="ce-actions" aria-label="Profiles options">
+      <a class="ce-btn ce-btn--ghost" href="{% url 'admin_grading_home' %}">Graded</a>
+      <a class="ce-btn ce-btn--ghost" href="{% url 'admin_emparejamiento_home' %}">Emparejamiento</a>
+      <a class="ce-btn ce-btn--ghost" href="{% url 'admin_profiles_participants' %}">Grupos</a>
+    </nav>
 
     <div class="ce-summary">
       <div class="ce-summary-card">

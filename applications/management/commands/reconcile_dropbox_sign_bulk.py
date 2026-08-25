@@ -12,7 +12,7 @@ from django.utils import timezone
 from applications.admin_profiles_views import (
     _EMPRENDEDORA_GROUP_TITLE_RE,
     _MENTORA_TITLE_RE,
-    _dropbox_title_group_number,
+    _dropbox_title_group_numbers,
     _apply_contract_signed_to_rows,
     _build_emprendedoras_rows,
     _build_mentoras_rows,
@@ -302,11 +302,11 @@ class Command(BaseCommand):
                 skipped_by_explicit_filter += 1
                 continue
 
-            title_group_hint = _dropbox_title_group_number(title)
-            if title_group_hint is not None and title_group_hint != group_num:
+            title_group_hints = _dropbox_title_group_numbers(title)
+            if title_group_hints and group_num not in title_group_hints:
                 skipped_not_target += 1
                 continue
-            title_group_match = title_group_hint == group_num
+            title_group_match = group_num in title_group_hints
 
             signer_pool = set(req.signer_emails)
             signed_set = set(req.signed_emails)
@@ -332,6 +332,10 @@ class Command(BaseCommand):
                 and "compromiso" in title_lower
                 and "emprendedora" in title_lower
             )
+            looks_like_mentora = (
+                bool(_MENTORA_TITLE_RE.search(title))
+                and not looks_like_emprendedora
+            )
             if looks_like_emprendedora and track_opt in {"E", "BOTH"}:
                 e_title_candidates += 1
                 signed_canon = {self._canonical_email(v) for v in signed_set if self._canonical_email(v)}
@@ -340,12 +344,12 @@ class Command(BaseCommand):
 
             applies_e_signal = False
             e_group_hint: int | None = None
-            if track_opt in {"E", "BOTH"}:
+            if track_opt in {"E", "BOTH"} and not looks_like_mentora:
                 if title_group_match and signer_pool and e_pool:
                     signer_canon = {self._canonical_email(v) for v in signer_pool if self._canonical_email(v)}
                     if bool(signer_canon.intersection(e_pool_canon)):
                         applies_e_signal = True
-                        e_group_hint = title_group_hint
+                        e_group_hint = group_num
                 elif em:
                     applies_e_signal = True
                     try:
@@ -363,13 +367,13 @@ class Command(BaseCommand):
 
             applies_m_signal = False
             m_group_hint: int | None = None
-            if track_opt in {"M", "BOTH"}:
+            if track_opt in {"M", "BOTH"} and not looks_like_emprendedora:
                 if title_group_match and signer_pool and m_pool:
                     signer_canon = {self._canonical_email(v) for v in signer_pool if self._canonical_email(v)}
                     if bool(signer_canon.intersection(m_pool_canon)):
                         applies_m_signal = True
-                        m_group_hint = title_group_hint
-                elif _MENTORA_TITLE_RE.search(title):
+                        m_group_hint = group_num
+                elif looks_like_mentora:
                     applies_m_signal = True
                 elif signer_pool and m_pool_canon:
                     signer_canon = {self._canonical_email(v) for v in signer_pool if self._canonical_email(v)}
@@ -821,8 +825,8 @@ class Command(BaseCommand):
                     if title_contains and job_title and title_contains not in job_title_lower:
                         continue
                     if job_title:
-                        title_group_hint = _dropbox_title_group_number(job_title)
-                        if title_group_hint is not None and title_group_hint != int(group_num):
+                        title_group_hints = _dropbox_title_group_numbers(job_title)
+                        if title_group_hints and int(group_num) not in title_group_hints:
                             continue
                         if "emprendedora" in job_title_lower:
                             em = _EMPRENDEDORA_GROUP_TITLE_RE.search(job_title)
@@ -833,7 +837,7 @@ class Command(BaseCommand):
                                     hinted_group = None
                                 if hinted_group is not None and hinted_group != int(group_num):
                                     continue
-                            elif track_opt in {"E"}:
+                            elif track_opt in {"E"} and int(group_num) not in title_group_hints:
                                 # For E-only runs, avoid scanning groupless emprendedora jobs.
                                 continue
                         if "mentora" in job_title_lower and track_opt in {"E"}:

@@ -105,7 +105,7 @@ _MENTORA_TITLE_RE = re.compile(
     re.IGNORECASE,
 )
 _ACTA_GROUP_RANGE_TITLE_RE = re.compile(
-    r"\bg\s*[0-9]{1,4}\s*[-–—/]\s*([0-9]{1,4})\b",
+    r"\bg\s*([0-9]{1,4})\s*[-–—/]\s*([0-9]{1,4})\b",
     re.IGNORECASE,
 )
 _ACTA_GROUP_SINGLE_TITLE_RE = re.compile(
@@ -427,31 +427,78 @@ def _resolve_mentora_group_by_signer_pool(signer_pool: set[str]) -> tuple[int | 
     return None, "No mentora group matched signer emails."
 
 
-def _dropbox_title_group_number(signature_title: str) -> int | None:
-    """Extract the participant group encoded in an Acta document title.
-
-    Dropbox titles such as ``G16-18 Acta de compromiso`` use the number after
-    the hyphen as the participant group, so that title resolves to group 18.
-    """
+def _dropbox_title_group_numbers(signature_title: str) -> set[int]:
+    """Return every participant group named by an Acta document title."""
     title = str(signature_title or "").strip()
     title_norm = _normalize_header(title)
     if "acta" not in title_norm or "compromiso" not in title_norm:
-        return None
+        return set()
 
     range_match = _ACTA_GROUP_RANGE_TITLE_RE.search(title)
     if range_match:
         try:
-            return int(range_match.group(1))
+            start_group = int(range_match.group(1))
+            end_group = int(range_match.group(2))
         except (TypeError, ValueError):
-            return None
+            return set()
+        low, high = sorted((start_group, end_group))
+        if high - low > 1000:
+            return set()
+        return set(range(low, high + 1))
 
     matches = _ACTA_GROUP_SINGLE_TITLE_RE.findall(title)
     if not matches:
-        return None
+        return set()
     try:
-        return int(matches[-1])
+        return {int(matches[-1])}
     except (TypeError, ValueError):
+        return set()
+
+
+def _dropbox_title_group_number(signature_title: str) -> int | None:
+    """Return the group only when an Acta title names exactly one group."""
+    group_numbers = _dropbox_title_group_numbers(signature_title)
+    if len(group_numbers) != 1:
         return None
+    return next(iter(group_numbers))
+
+
+def _resolve_group_in_title_range_by_signer_pool(
+    *,
+    group_numbers: set[int],
+    track: str,
+    signer_pool: set[str],
+) -> tuple[int | None, str]:
+    normalized_signers = {
+        _normalize_email(value) for value in signer_pool if _normalize_email(value)
+    }
+    if not normalized_signers:
+        return None, "No signer emails available to resolve the group range."
+
+    participant_lists = GroupParticipantList.objects.select_related("group").filter(
+        group__number__in=sorted(group_numbers)
+    )
+    exact_matches: list[int] = []
+    containing_matches: list[int] = []
+    for participant_list in participant_lists:
+        participant_pool = _participant_emails_from_list(participant_list, track)
+        if not participant_pool:
+            continue
+        group_num = int(participant_list.group.number)
+        if participant_pool == normalized_signers:
+            exact_matches.append(group_num)
+        if normalized_signers.issubset(participant_pool):
+            containing_matches.append(group_num)
+
+    if len(exact_matches) == 1:
+        return exact_matches[0], "Matched group in title range by exact participant email list."
+    if len(exact_matches) > 1:
+        return None, "Multiple groups in the title range matched the exact signer email list."
+    if len(containing_matches) == 1:
+        return containing_matches[0], "Matched group in title range by signer email."
+    if len(containing_matches) > 1:
+        return None, "Signer email exists in multiple groups named by the document title."
+    return None, "No group in the document title range matched signer emails."
 
 
 def _resolve_track_in_group_by_signer_pool(
@@ -915,13 +962,33 @@ def _resolve_dropbox_signature_scope(
     if not title:
         return None, None, "Missing signature title."
 
-    title_group_num = _dropbox_title_group_number(title)
-    if title_group_num is not None:
+    title_group_numbers = _dropbox_title_group_numbers(title)
+    if title_group_numbers:
         title_norm = _normalize_header(title)
+        title_track = None
         if "emprendedora" in title_norm:
-            return "E", title_group_num, "Resolved group from document title."
-        if "mentora" in title_norm and "emprendedora" not in title_norm:
-            return "M", title_group_num, "Resolved group from document title."
+            title_track = "E"
+        elif "mentora" in title_norm:
+            title_track = "M"
+
+        if len(title_group_numbers) == 1:
+            title_group_num = next(iter(title_group_numbers))
+            if title_track:
+                return title_track, title_group_num, "Resolved group from document title."
+        elif title_track:
+            title_group_num, reason = _resolve_group_in_title_range_by_signer_pool(
+                group_numbers=title_group_numbers,
+                track=title_track,
+                signer_pool=signer_pool,
+            )
+            if title_group_num is not None:
+                return title_track, title_group_num, reason
+            return None, None, reason
+
+        if len(title_group_numbers) > 1:
+            return None, None, "Document title names multiple groups but does not identify a participant track."
+
+        title_group_num = next(iter(title_group_numbers))
         track, reason = _resolve_track_in_group_by_signer_pool(
             title_group_num,
             signer_pool,

@@ -2276,6 +2276,14 @@ class ParticipantHistoryLookupTests(TestCase):
                     "bea@example.com",
                 ),
             ],
+            mentoras_sheet_rows=[
+                self._row(
+                    "Activa",
+                    "Bea Torres",
+                    "404040",
+                    "bea@example.com",
+                ),
+            ],
         )
         GroupParticipantList.objects.create(
             group=group_14,
@@ -2375,6 +2383,38 @@ class ParticipantHistoryLookupTests(TestCase):
             "Graduada",
         )
 
+    def test_selected_role_scopes_previous_active_status_and_graduation(self):
+        entrepreneur_report = admin_profiles_views._participant_history_lookup(
+            "ana@example.com\nbea@example.com",
+            current_group=15,
+            role_code="E",
+            history_filter="prior_role",
+        )
+
+        self.assertEqual(entrepreneur_report["role_label"], "Emprendedora")
+        self.assertEqual(entrepreneur_report["visible_count"], 2)
+        rows = {
+            row["database_email"]: row for row in entrepreneur_report["results"]
+        }
+        self.assertEqual(rows["ana@example.com"]["selected_role_groups"], [12])
+        self.assertEqual(
+            rows["ana@example.com"]["prior_selected_role_groups"],
+            [12],
+        )
+        self.assertTrue(rows["ana@example.com"]["selected_role_graduated"])
+        self.assertFalse(rows["ana@example.com"]["currently_active"])
+        self.assertFalse(rows["bea@example.com"]["selected_role_graduated"])
+        self.assertTrue(rows["bea@example.com"]["currently_active"])
+
+        active_report = admin_profiles_views._participant_history_lookup(
+            "ana@example.com\nbea@example.com",
+            current_group=15,
+            role_code="E",
+            history_filter="currently_active",
+        )
+        self.assertEqual(active_report["visible_count"], 1)
+        self.assertEqual(active_report["results"][0]["database_email"], "bea@example.com")
+
     def test_name_collision_requires_email_or_identity(self):
         report = admin_profiles_views._participant_history_lookup(
             "Nombre Duplicado",
@@ -2392,23 +2432,34 @@ class ParticipantHistoryLookupTests(TestCase):
             {
                 "action": "participant_history",
                 "participant_lookup": "Ana Pérez\nmissing@example.com",
+                "history_role": "E",
                 "history_current_group": "15",
-                "history_filter": "all",
+                "history_filter": "prior_role",
                 "history_status": "",
             },
         )
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Participant history lookup")
-        self.assertContains(response, "Previous mentoras")
         self.assertContains(response, "Previous emprendedoras")
         self.assertContains(response, "Emprendedora → Mentora")
         self.assertContains(response, "Currently active")
-        self.assertContains(response, "Was an emprendedora previously")
+        self.assertContains(response, "Participated previously in selected role")
         self.assertContains(response, "Ana Pérez")
         self.assertContains(response, "missing@example.com")
         self.assertContains(response, "G14")
         self.assertContains(response, "Activa")
+        html = response.content.decode()
+        self.assertIn('<details class="ce-history-panel" open>', html)
+        self.assertIn('<option value="E" selected>Emprendedora</option>', html)
+
+    def test_participant_history_box_is_collapsed_before_lookup(self):
+        response = self.client.get(reverse("admin_profiles_list"))
+
+        self.assertEqual(response.status_code, 200)
+        html = response.content.decode()
+        self.assertRegex(html, r'<details class="ce-history-panel"\s*>')
+        self.assertNotIn('<details class="ce-history-panel" open>', html)
 
     def test_profiles_options_are_graded_pairing_and_groups_only(self):
         response = self.client.get(reverse("admin_profiles_list"))

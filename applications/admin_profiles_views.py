@@ -2153,9 +2153,11 @@ def _participant_history_lookup(
     raw_lookup: str,
     *,
     current_group: int | None = None,
+    role_code: str = "M",
     history_filter: str = "all",
     status_filter: str = "",
 ) -> dict:
+    role_code = "E" if str(role_code).strip().upper() == "E" else "M"
     submitted_lines: list[str] = []
     seen_lines: set[str] = set()
     for raw_line in str(raw_lookup or "").splitlines():
@@ -2227,16 +2229,22 @@ def _participant_history_lookup(
                     "entrepreneur_groups": [],
                     "prior_entrepreneur_groups": [],
                     "previous_entrepreneur_count": 0,
+                    "selected_role_groups": [],
+                    "prior_selected_role_groups": [],
+                    "previous_selected_role_count": 0,
                     "became_mentor": False,
                     "currently_active": False,
                     "graduated": False,
                     "graduated_groups": [],
+                    "selected_role_graduated": False,
+                    "selected_role_graduated_groups": [],
                     "latest_status": (
                         "Varias personas tienen este nombre; usa email o cédula."
                         if ambiguous
                         else "No encontrada"
                     ),
                     "status_codes": set(),
+                    "selected_role_status_codes": set(),
                     "history": [],
                 }
             )
@@ -2270,16 +2278,35 @@ def _participant_history_lookup(
             for group_num in entrepreneur_groups
             if group_num != effective_entrepreneur_current_group
         ]
+        selected_role_groups = (
+            entrepreneur_groups if role_code == "E" else mentor_groups
+        )
+        prior_selected_role_groups = (
+            prior_entrepreneur_groups if role_code == "E" else prior_mentor_groups
+        )
         graduated_groups = sorted(
             {row["group_num"] for row in matched if row["graduated"]}
         )
+        selected_role_graduated_groups = sorted(
+            {
+                row["group_num"]
+                for row in matched
+                if row["role_code"] == role_code and row["graduated"]
+            }
+        )
         status_rows = [row for row in reversed(matched) if row["status_code"]]
+        selected_role_status_rows = [
+            row for row in status_rows if row["role_code"] == role_code
+        ]
         latest = matched[-1]
         latest_status = (
-            status_rows[0]["status_display"] if status_rows else "Sin estatus"
+            selected_role_status_rows[0]["status_display"]
+            if selected_role_status_rows
+            else "Sin estatus para el rol seleccionado"
         )
         currently_active = bool(
-            status_rows and status_rows[0]["status_code"] == "A"
+            selected_role_status_rows
+            and selected_role_status_rows[0]["status_code"] == "A"
         )
         database_name = next(
             (row["name"] for row in reversed(matched) if row["name"]),
@@ -2316,13 +2343,23 @@ def _participant_history_lookup(
                 "entrepreneur_groups": entrepreneur_groups,
                 "prior_entrepreneur_groups": prior_entrepreneur_groups,
                 "previous_entrepreneur_count": len(prior_entrepreneur_groups),
+                "selected_role_groups": selected_role_groups,
+                "prior_selected_role_groups": prior_selected_role_groups,
+                "previous_selected_role_count": len(prior_selected_role_groups),
                 "became_mentor": became_mentor,
                 "currently_active": currently_active,
                 "graduated": bool(graduated_groups),
                 "graduated_groups": graduated_groups,
+                "selected_role_graduated": bool(selected_role_graduated_groups),
+                "selected_role_graduated_groups": selected_role_graduated_groups,
                 "latest_status": latest_status,
                 "status_codes": {
                     row["status_code"] for row in matched if row["status_code"]
+                },
+                "selected_role_status_codes": {
+                    row["status_code"]
+                    for row in matched
+                    if row["role_code"] == role_code and row["status_code"]
                 },
                 "history": history,
                 "latest_group": latest["group_num"],
@@ -2330,7 +2367,14 @@ def _participant_history_lookup(
         )
 
     all_results = results
-    if history_filter == "prior_mentor":
+    if history_filter == "prior_role":
+        selected_count_key = (
+            "previous_entrepreneur_count"
+            if role_code == "E"
+            else "previous_mentor_count"
+        )
+        results = [row for row in results if row[selected_count_key] > 0]
+    elif history_filter == "prior_mentor":
         results = [row for row in results if row["previous_mentor_count"] > 0]
     elif history_filter == "prior_entrepreneur":
         results = [
@@ -2341,19 +2385,32 @@ def _participant_history_lookup(
     elif history_filter == "currently_active":
         results = [row for row in results if row["currently_active"]]
     elif history_filter == "graduated":
-        results = [row for row in results if row["graduated"]]
+        results = [row for row in results if row["selected_role_graduated"]]
     elif history_filter == "not_graduated":
-        results = [row for row in results if row["found"] and not row["graduated"]]
+        results = [
+            row
+            for row in results
+            if row["found"] and not row["selected_role_graduated"]
+        ]
     elif history_filter == "unmatched":
         results = [row for row in results if not row["found"]]
 
     if status_filter:
         results = [
-            row for row in results if status_filter in row.get("status_codes", set())
+            row
+            for row in results
+            if status_filter in row.get("selected_role_status_codes", set())
         ]
 
+    selected_count_key = (
+        "previous_entrepreneur_count"
+        if role_code == "E"
+        else "previous_mentor_count"
+    )
     return {
         "results": results,
+        "role_code": role_code,
+        "role_label": "Emprendedora" if role_code == "E" else "Mentora",
         "submitted_count": len(all_results),
         "visible_count": len(results),
         "matched_count": sum(1 for row in all_results if row["found"]),
@@ -2370,7 +2427,12 @@ def _participant_history_lookup(
         "currently_active_count": sum(
             1 for row in all_results if row["currently_active"]
         ),
-        "graduated_count": sum(1 for row in all_results if row["graduated"]),
+        "prior_selected_role_count": sum(
+            1 for row in all_results if row[selected_count_key] > 0
+        ),
+        "graduated_count": sum(
+            1 for row in all_results if row["selected_role_graduated"]
+        ),
     }
 
 
@@ -3885,15 +3947,20 @@ def profiles_list(request):
         .values_list("group__number", flat=True)
     )
     history_lookup_text = ""
+    history_role = "M"
     history_filter = "all"
     history_status_filter = ""
     history_current_group = ""
     history_report = None
     if request.method == "POST" and request.POST.get("action") == "participant_history":
         history_lookup_text = request.POST.get("participant_lookup", "")
+        history_role = (request.POST.get("history_role") or "M").strip().upper()
+        if history_role not in {"M", "E"}:
+            history_role = "M"
         history_filter = (request.POST.get("history_filter") or "all").strip()
         if history_filter not in {
             "all",
+            "prior_role",
             "prior_mentor",
             "prior_entrepreneur",
             "entrepreneur_to_mentor",
@@ -3915,6 +3982,7 @@ def profiles_list(request):
         history_report = _participant_history_lookup(
             history_lookup_text,
             current_group=current_group_num,
+            role_code=history_role,
             history_filter=history_filter,
             status_filter=history_status_filter,
         )
@@ -3936,6 +4004,7 @@ def profiles_list(request):
         "contract_signed_profiles": payload["contract_signed_profiles"],
         "participant_group_options": participant_group_options,
         "history_lookup_text": history_lookup_text,
+        "history_role": history_role,
         "history_filter": history_filter,
         "history_status_filter": history_status_filter,
         "history_current_group": history_current_group,

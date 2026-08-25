@@ -56,6 +56,11 @@ urlpatterns = [
     ),
     path("profiles/", admin_profiles_views.profiles_list, name="admin_profiles_list"),
     path(
+        "profiles/history/",
+        admin_profiles_views.profiles_participant_history,
+        name="admin_profiles_participant_history",
+    ),
+    path(
         "profiles/participants/",
         admin_profiles_views.profiles_participants,
         name="admin_profiles_participants",

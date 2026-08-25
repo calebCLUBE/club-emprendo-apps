@@ -3942,6 +3942,27 @@ def profiles_list(request):
     page_obj = paginator.get_page(request.GET.get("page"))
     page_params = request.GET.copy()
     page_params.pop("page", None)
+    context = {
+        "profiles": page_obj.object_list,
+        "page_obj": page_obj,
+        "page_query": page_params.urlencode(),
+        "page_size": page_size,
+        "query": payload["query"],
+        "group_filter": payload["group_filter"],
+        "status_filter": payload["status_filter"],
+        "participation_filter": payload["participation_filter"],
+        "group_options": payload["group_options"],
+        "total_profiles": payload["total_profiles"],
+        "visible_profiles": payload["visible_profiles"],
+        "graded_profiles": payload["graded_profiles"],
+        "participated_profiles": payload["participated_profiles"],
+        "contract_signed_profiles": payload["contract_signed_profiles"],
+    }
+    return render(request, "admin_dash/profiles_list.html", context)
+
+
+@staff_member_required
+def profiles_participant_history(request):
     participant_group_options = list(
         GroupParticipantList.objects.order_by("-group__number")
         .values_list("group__number", flat=True)
@@ -3988,20 +4009,6 @@ def profiles_list(request):
         )
 
     context = {
-        "profiles": page_obj.object_list,
-        "page_obj": page_obj,
-        "page_query": page_params.urlencode(),
-        "page_size": page_size,
-        "query": payload["query"],
-        "group_filter": payload["group_filter"],
-        "status_filter": payload["status_filter"],
-        "participation_filter": payload["participation_filter"],
-        "group_options": payload["group_options"],
-        "total_profiles": payload["total_profiles"],
-        "visible_profiles": payload["visible_profiles"],
-        "graded_profiles": payload["graded_profiles"],
-        "participated_profiles": payload["participated_profiles"],
-        "contract_signed_profiles": payload["contract_signed_profiles"],
         "participant_group_options": participant_group_options,
         "history_lookup_text": history_lookup_text,
         "history_role": history_role,
@@ -4017,7 +4024,7 @@ def profiles_list(request):
         ],
         "history_report": history_report,
     }
-    return render(request, "admin_dash/profiles_list.html", context)
+    return render(request, "admin_dash/profiles_participant_history.html", context)
 
 
 @staff_member_required

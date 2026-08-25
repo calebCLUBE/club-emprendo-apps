@@ -2426,9 +2426,9 @@ class ParticipantHistoryLookupTests(TestCase):
         self.assertTrue(report["results"][0]["ambiguous"])
         self.assertIn("Varias personas", report["results"][0]["latest_status"])
 
-    def test_profiles_page_renders_pasted_history_report_and_filters(self):
+    def test_participant_history_page_renders_pasted_report_and_filters(self):
         response = self.client.post(
-            reverse("admin_profiles_list"),
+            reverse("admin_profiles_participant_history"),
             {
                 "action": "participant_history",
                 "participant_lookup": "Ana Pérez\nmissing@example.com",
@@ -2440,7 +2440,7 @@ class ParticipantHistoryLookupTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Participant history lookup")
+        self.assertContains(response, "Participant history")
         self.assertContains(response, "Previous emprendedoras")
         self.assertContains(response, "Emprendedora → Mentora")
         self.assertContains(response, "Currently active")
@@ -2450,18 +2450,20 @@ class ParticipantHistoryLookupTests(TestCase):
         self.assertContains(response, "G14")
         self.assertContains(response, "Activa")
         html = response.content.decode()
-        self.assertIn('<details class="ce-history-panel" open>', html)
         self.assertIn('<option value="E" selected>Emprendedora</option>', html)
 
-    def test_participant_history_box_is_collapsed_before_lookup(self):
-        response = self.client.get(reverse("admin_profiles_list"))
+    def test_participant_history_has_its_own_page(self):
+        history_url = reverse("admin_profiles_participant_history")
+        history_response = self.client.get(history_url)
+        profiles_response = self.client.get(reverse("admin_profiles_list"))
 
-        self.assertEqual(response.status_code, 200)
-        html = response.content.decode()
-        self.assertRegex(html, r'<details class="ce-history-panel"\s*>')
-        self.assertNotIn('<details class="ce-history-panel" open>', html)
+        self.assertEqual(history_response.status_code, 200)
+        self.assertContains(history_response, "Participant history")
+        self.assertContains(history_response, "Participant list")
+        self.assertNotContains(profiles_response, "Participant history lookup")
+        self.assertContains(profiles_response, history_url)
 
-    def test_profiles_options_are_graded_pairing_and_groups_only(self):
+    def test_profiles_options_include_participant_history(self):
         response = self.client.get(reverse("admin_profiles_list"))
 
         self.assertEqual(response.status_code, 200)
@@ -2475,13 +2477,17 @@ class ParticipantHistoryLookupTests(TestCase):
         labels = re.findall(r">\s*([^<>]+?)\s*</a>", actions_match.group(1))
         hrefs = re.findall(r'href="([^"]+)"', actions_match.group(1))
 
-        self.assertEqual(labels, ["Graded", "Emparejamiento", "Grupos"])
+        self.assertEqual(
+            labels,
+            ["Graded", "Emparejamiento", "Grupos", "Participant history"],
+        )
         self.assertEqual(
             hrefs,
             [
                 reverse("admin_grading_home"),
                 reverse("admin_emparejamiento_home"),
                 reverse("admin_profiles_participants"),
+                reverse("admin_profiles_participant_history"),
             ],
         )
 

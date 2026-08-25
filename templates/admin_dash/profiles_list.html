@@ -220,16 +220,16 @@
     <section class="ce-history-panel">
       <h2>Participant history lookup</h2>
       <p class="ce-muted" style="font-size:13px; margin-top:0;">
-        Paste one mentora per line using name, email, or cédula. Results come from every
-        Group participant dataset and show previous mentora groups, prior participation
-        as an emprendedora, graduation, and recorded status.
+        Paste one participant per line using name, email, or cédula. Results come from every
+        Group participant dataset and show previous mentora and emprendedora groups,
+        current activity, graduation, and recorded status.
       </p>
       <form method="post">
         {% csrf_token %}
         <input type="hidden" name="action" value="participant_history">
         <div class="ce-history-form">
           <div>
-            <label for="participant_lookup">Mentora list</label>
+            <label for="participant_lookup">Participant list</label>
             <textarea
               id="participant_lookup"
               name="participant_lookup"
@@ -239,21 +239,23 @@
           <div>
             <label for="history_current_group">Current group</label>
             <select id="history_current_group" name="history_current_group">
-              <option value="">Auto: latest mentora group</option>
+              <option value="">Auto: latest group for each role</option>
               {% for group_num in participant_group_options %}
                 <option value="{{ group_num }}" {% if history_current_group == group_num|stringformat:"s" %}selected{% endif %}>
                   Group {{ group_num }}
                 </option>
               {% endfor %}
             </select>
-            <div class="ce-muted">This group is excluded from the previous-mentora count.</div>
+            <div class="ce-muted">This group is excluded from both previous-participation counts.</div>
           </div>
           <div>
             <label for="history_filter">History filter</label>
             <select id="history_filter" name="history_filter">
               <option value="all" {% if history_filter == "all" %}selected{% endif %}>All submitted people</option>
               <option value="prior_mentor" {% if history_filter == "prior_mentor" %}selected{% endif %}>Was a mentora previously</option>
+              <option value="prior_entrepreneur" {% if history_filter == "prior_entrepreneur" %}selected{% endif %}>Was an emprendedora previously</option>
               <option value="entrepreneur_to_mentor" {% if history_filter == "entrepreneur_to_mentor" %}selected{% endif %}>Emprendedora → Mentora</option>
+              <option value="currently_active" {% if history_filter == "currently_active" %}selected{% endif %}>Currently active</option>
               <option value="graduated" {% if history_filter == "graduated" %}selected{% endif %}>Graduated</option>
               <option value="not_graduated" {% if history_filter == "not_graduated" %}selected{% endif %}>Not graduated</option>
               <option value="unmatched" {% if history_filter == "unmatched" %}selected{% endif %}>Not found / needs review</option>
@@ -291,12 +293,20 @@
             <div class="ce-summary-v">{{ history_report.prior_mentor_count }}</div>
           </div>
           <div class="ce-summary-card">
+            <div class="ce-summary-k">Previous emprendedoras</div>
+            <div class="ce-summary-v">{{ history_report.prior_entrepreneur_count }}</div>
+          </div>
+          <div class="ce-summary-card">
             <div class="ce-summary-k">Emprendedora → Mentora</div>
             <div class="ce-summary-v">{{ history_report.entrepreneur_to_mentor_count }}</div>
           </div>
           <div class="ce-summary-card">
             <div class="ce-summary-k">Graduated</div>
             <div class="ce-summary-v">{{ history_report.graduated_count }}</div>
+          </div>
+          <div class="ce-summary-card">
+            <div class="ce-summary-k">Currently active</div>
+            <div class="ce-summary-v">{{ history_report.currently_active_count }}</div>
           </div>
           <div class="ce-summary-card">
             <div class="ce-summary-k">Not found / review</div>
@@ -306,11 +316,11 @@
 
         <p class="ce-muted" style="font-size:13px;">
           Showing {{ history_report.visible_count }} result{{ history_report.visible_count|pluralize }} after filters.
-          When no current group is selected, the newest mentora group is treated as the current one.
+          When no current group is selected, each role's newest group is treated as its current one.
         </p>
 
         <div class="ce-table-wrap">
-          <table class="ce-table" style="min-width:1250px;">
+          <table class="ce-table" style="min-width:1450px;">
             <thead>
               <tr>
                 <th>Submitted</th>
@@ -318,7 +328,9 @@
                 <th>Mentora groups</th>
                 <th>Previous mentora</th>
                 <th>Emprendedora groups</th>
+                <th>Previous emprendedora</th>
                 <th>Emprendedora → Mentora</th>
+                <th>Currently active</th>
                 <th>Graduated</th>
                 <th>Latest status</th>
                 <th>Full participant history</th>
@@ -366,7 +378,16 @@
                       </div>
                     {% endif %}
                   </td>
+                  <td>
+                    <strong>{{ row.previous_entrepreneur_count }}</strong>
+                    {% if row.prior_entrepreneur_groups %}
+                      <div class="ce-muted">
+                        {% for group_num in row.prior_entrepreneur_groups %}G{{ group_num }}{% if not forloop.last %}, {% endif %}{% endfor %}
+                      </div>
+                    {% endif %}
+                  </td>
                   <td>{% if row.became_mentor %}Yes{% else %}No{% endif %}</td>
+                  <td>{% if row.currently_active %}Yes{% else %}No{% endif %}</td>
                   <td>
                     {% if row.graduated %}
                       Yes
@@ -388,7 +409,7 @@
                 </tr>
               {% empty %}
                 <tr>
-                  <td colspan="9">No submitted people match the selected history filters.</td>
+                  <td colspan="11">No submitted people match the selected history filters.</td>
                 </tr>
               {% endfor %}
             </tbody>

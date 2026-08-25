@@ -2268,7 +2268,13 @@ class ParticipantHistoryLookupTests(TestCase):
                     "Ana Pérez",
                     "101010",
                     "ana@example.com",
-                )
+                ),
+                self._row(
+                    "Activa",
+                    "Bea Torres",
+                    "404040",
+                    "bea@example.com",
+                ),
             ],
         )
         GroupParticipantList.objects.create(
@@ -2279,7 +2285,13 @@ class ParticipantHistoryLookupTests(TestCase):
                     "Ana Pérez",
                     "101010",
                     "ana@example.com",
-                )
+                ),
+                self._row(
+                    "Graduada",
+                    "Bea Torres",
+                    "404040",
+                    "bea@example.com",
+                ),
             ],
         )
         GroupParticipantList.objects.create(
@@ -2318,10 +2330,50 @@ class ParticipantHistoryLookupTests(TestCase):
         self.assertEqual(row["prior_mentor_groups"], [14])
         self.assertEqual(row["previous_mentor_count"], 1)
         self.assertEqual(row["entrepreneur_groups"], [12])
+        self.assertEqual(row["prior_entrepreneur_groups"], [12])
+        self.assertEqual(row["previous_entrepreneur_count"], 1)
         self.assertTrue(row["became_mentor"])
+        self.assertTrue(row["currently_active"])
         self.assertTrue(row["graduated"])
         self.assertEqual(row["graduated_groups"], [12, 14])
         self.assertEqual(row["latest_status"], "Activa")
+
+    def test_prior_entrepreneur_filter_uses_selected_current_group(self):
+        report = admin_profiles_views._participant_history_lookup(
+            "ana@example.com",
+            current_group=15,
+            history_filter="prior_entrepreneur",
+        )
+
+        self.assertEqual(report["visible_count"], 1)
+        self.assertEqual(report["prior_entrepreneur_count"], 1)
+        self.assertEqual(
+            report["results"][0]["prior_entrepreneur_groups"],
+            [12],
+        )
+
+    def test_currently_active_filter_uses_latest_status_only(self):
+        report = admin_profiles_views._participant_history_lookup(
+            "ana@example.com\nbea@example.com",
+            current_group=15,
+            history_filter="currently_active",
+        )
+
+        self.assertEqual(report["currently_active_count"], 1)
+        self.assertEqual(report["visible_count"], 1)
+        self.assertEqual(report["results"][0]["database_email"], "ana@example.com")
+
+        historical_active_report = admin_profiles_views._participant_history_lookup(
+            "bea@example.com",
+            current_group=15,
+            status_filter="A",
+        )
+        self.assertEqual(historical_active_report["visible_count"], 1)
+        self.assertFalse(historical_active_report["results"][0]["currently_active"])
+        self.assertEqual(
+            historical_active_report["results"][0]["latest_status"],
+            "Graduada",
+        )
 
     def test_name_collision_requires_email_or_identity(self):
         report = admin_profiles_views._participant_history_lookup(
@@ -2349,7 +2401,10 @@ class ParticipantHistoryLookupTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Participant history lookup")
         self.assertContains(response, "Previous mentoras")
+        self.assertContains(response, "Previous emprendedoras")
         self.assertContains(response, "Emprendedora → Mentora")
+        self.assertContains(response, "Currently active")
+        self.assertContains(response, "Was an emprendedora previously")
         self.assertContains(response, "Ana Pérez")
         self.assertContains(response, "missing@example.com")
         self.assertContains(response, "G14")

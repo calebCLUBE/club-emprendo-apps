@@ -2225,7 +2225,10 @@ def _participant_history_lookup(
                     "prior_mentor_groups": [],
                     "previous_mentor_count": 0,
                     "entrepreneur_groups": [],
+                    "prior_entrepreneur_groups": [],
+                    "previous_entrepreneur_count": 0,
                     "became_mentor": False,
+                    "currently_active": False,
                     "graduated": False,
                     "graduated_groups": [],
                     "latest_status": (
@@ -2251,13 +2254,21 @@ def _participant_history_lookup(
         entrepreneur_groups = sorted(
             {row["group_num"] for row in matched if row["role_code"] == "E"}
         )
-        effective_current_group = current_group
-        if effective_current_group is None and mentor_groups:
-            effective_current_group = mentor_groups[-1]
+        effective_mentor_current_group = current_group
+        if effective_mentor_current_group is None and mentor_groups:
+            effective_mentor_current_group = mentor_groups[-1]
+        effective_entrepreneur_current_group = current_group
+        if effective_entrepreneur_current_group is None and entrepreneur_groups:
+            effective_entrepreneur_current_group = entrepreneur_groups[-1]
         prior_mentor_groups = [
             group_num
             for group_num in mentor_groups
-            if group_num != effective_current_group
+            if group_num != effective_mentor_current_group
+        ]
+        prior_entrepreneur_groups = [
+            group_num
+            for group_num in entrepreneur_groups
+            if group_num != effective_entrepreneur_current_group
         ]
         graduated_groups = sorted(
             {row["group_num"] for row in matched if row["graduated"]}
@@ -2266,6 +2277,9 @@ def _participant_history_lookup(
         latest = matched[-1]
         latest_status = (
             status_rows[0]["status_display"] if status_rows else "Sin estatus"
+        )
+        currently_active = bool(
+            status_rows and status_rows[0]["status_code"] == "A"
         )
         database_name = next(
             (row["name"] for row in reversed(matched) if row["name"]),
@@ -2300,7 +2314,10 @@ def _participant_history_lookup(
                 "prior_mentor_groups": prior_mentor_groups,
                 "previous_mentor_count": len(prior_mentor_groups),
                 "entrepreneur_groups": entrepreneur_groups,
+                "prior_entrepreneur_groups": prior_entrepreneur_groups,
+                "previous_entrepreneur_count": len(prior_entrepreneur_groups),
                 "became_mentor": became_mentor,
+                "currently_active": currently_active,
                 "graduated": bool(graduated_groups),
                 "graduated_groups": graduated_groups,
                 "latest_status": latest_status,
@@ -2315,8 +2332,14 @@ def _participant_history_lookup(
     all_results = results
     if history_filter == "prior_mentor":
         results = [row for row in results if row["previous_mentor_count"] > 0]
+    elif history_filter == "prior_entrepreneur":
+        results = [
+            row for row in results if row["previous_entrepreneur_count"] > 0
+        ]
     elif history_filter == "entrepreneur_to_mentor":
         results = [row for row in results if row["became_mentor"]]
+    elif history_filter == "currently_active":
+        results = [row for row in results if row["currently_active"]]
     elif history_filter == "graduated":
         results = [row for row in results if row["graduated"]]
     elif history_filter == "not_graduated":
@@ -2338,8 +2361,14 @@ def _participant_history_lookup(
         "prior_mentor_count": sum(
             1 for row in all_results if row["previous_mentor_count"] > 0
         ),
+        "prior_entrepreneur_count": sum(
+            1 for row in all_results if row["previous_entrepreneur_count"] > 0
+        ),
         "entrepreneur_to_mentor_count": sum(
             1 for row in all_results if row["became_mentor"]
+        ),
+        "currently_active_count": sum(
+            1 for row in all_results if row["currently_active"]
         ),
         "graduated_count": sum(1 for row in all_results if row["graduated"]),
     }
@@ -3866,7 +3895,9 @@ def profiles_list(request):
         if history_filter not in {
             "all",
             "prior_mentor",
+            "prior_entrepreneur",
             "entrepreneur_to_mentor",
+            "currently_active",
             "graduated",
             "not_graduated",
             "unmatched",

@@ -114,6 +114,7 @@ _ACTA_GROUP_SINGLE_TITLE_RE = re.compile(
 )
 WIX_CAPACITACION_EMPRENDEDORAS_PROGRAM_NAME = "Capacitacion programa de mentorias (Emprendedoras)"
 WIX_CAPACITACION_MENTORAS_PROGRAM_NAME = "Capacitacion de Mentoras"
+WIX_CAPACITACION_COMPLETION_PERCENT = 80.0
 ENCUESTAS_GROUP_HEADER_KEYS = ("seleccionatugrupo", "seleccionagrupo", "grupo")
 ENCUESTAS_EMAIL_HEADER_KEYS = ("correo", "email", "correoelectronico", "correoelectrnico")
 MENTORAS_ENCUESTAS_DRIVE_FILE_DEFAULT = (
@@ -1544,6 +1545,42 @@ def _extract_emails_from_any(value) -> list[str]:
 
 def _record_is_completed(record: dict) -> bool:
     normalized = {_normalize_header(str(key)): value for key, value in record.items()}
+    percentage_keys = (
+        "completionpercentage",
+        "completionpercent",
+        "percentcomplete",
+        "progresspercentage",
+        "progresspercent",
+        "progress",
+    )
+    for key in percentage_keys:
+        raw = normalized.get(key)
+        if raw is None or isinstance(raw, bool):
+            continue
+        raw_text = str(raw).strip()
+        try:
+            percent = float(raw_text.rstrip("%"))
+        except (TypeError, ValueError):
+            continue
+        if "%" not in raw_text and 0 <= percent <= 1:
+            percent *= 100
+        if percent >= WIX_CAPACITACION_COMPLETION_PERCENT:
+            return True
+
+    completed_step_keys = ("completedsteps", "stepscompleted", "completedstepcount")
+    total_step_keys = ("totalsteps", "stepcount", "totalstepcount")
+    completed_steps = next((normalized.get(key) for key in completed_step_keys if key in normalized), None)
+    total_steps = next((normalized.get(key) for key in total_step_keys if key in normalized), None)
+    try:
+        if (
+            float(total_steps) > 0
+            and (float(completed_steps) / float(total_steps)) * 100
+            >= WIX_CAPACITACION_COMPLETION_PERCENT
+        ):
+            return True
+    except (TypeError, ValueError):
+        pass
+
     bool_keys = ("completed", "iscompleted", "iscomplete", "done", "finished", "passed")
     for key in bool_keys:
         if key not in normalized:
@@ -1598,34 +1635,6 @@ def _record_is_completed(record: dict) -> bool:
         if any(token in status for token in positive_tokens):
             return True
 
-    percentage_keys = (
-        "completionpercentage",
-        "completionpercent",
-        "percentcomplete",
-        "progresspercentage",
-        "progresspercent",
-        "progress",
-    )
-    for key in percentage_keys:
-        raw = normalized.get(key)
-        if raw is None or isinstance(raw, bool):
-            continue
-        try:
-            percent = float(str(raw).strip().rstrip("%"))
-        except (TypeError, ValueError):
-            continue
-        if percent >= 100:
-            return True
-
-    completed_step_keys = ("completedsteps", "stepscompleted", "completedstepcount")
-    total_step_keys = ("totalsteps", "stepcount", "totalstepcount")
-    completed_steps = next((normalized.get(key) for key in completed_step_keys if key in normalized), None)
-    total_steps = next((normalized.get(key) for key in total_step_keys if key in normalized), None)
-    try:
-        if float(total_steps) > 0 and float(completed_steps) >= float(total_steps):
-            return True
-    except (TypeError, ValueError):
-        pass
     return False
 
 

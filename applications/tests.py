@@ -7264,18 +7264,36 @@ class WixCapacitacionPayloadTests(TestCase):
 
         self.assertEqual(completed, {"nested@example.com"})
 
-    def test_recognizes_percentage_and_completed_step_shapes(self):
+    def test_recognizes_eighty_percent_and_completed_step_shapes(self):
         payload = {
             "participants": [
-                {"email": "percent@example.com", "completionPercentage": 100},
-                {"email": "steps@example.com", "completedSteps": 8, "totalSteps": 8},
-                {"email": "partial@example.com", "completedSteps": 7, "totalSteps": 8},
+                {"email": "percent@example.com", "completionPercentage": 80},
+                {"email": "percent-string@example.com", "progressPercent": "80%"},
+                {"email": "ratio@example.com", "progress": 0.8},
+                {"email": "steps@example.com", "completedSteps": 4, "totalSteps": 5},
+                {
+                    "email": "in-progress@example.com",
+                    "status": "IN_PROGRESS",
+                    "isComplete": False,
+                    "completionPercentage": 80,
+                },
+                {"email": "below-percent@example.com", "completionPercentage": 79.99},
+                {"email": "below-steps@example.com", "completedSteps": 79, "totalSteps": 100},
             ]
         }
 
         completed = admin_profiles_views._extract_completed_emails_from_wix_payload(payload)
 
-        self.assertEqual(completed, {"percent@example.com", "steps@example.com"})
+        self.assertEqual(
+            completed,
+            {
+                "percent@example.com",
+                "percent-string@example.com",
+                "ratio@example.com",
+                "steps@example.com",
+                "in-progress@example.com",
+            },
+        )
 
     def test_completed_aggregate_count_does_not_mark_every_nested_email(self):
         payload = {

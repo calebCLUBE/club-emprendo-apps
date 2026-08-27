@@ -7792,7 +7792,7 @@ class ParticipantsCapacitacionCheckTests(TestCase):
 
     @patch("applications.admin_profiles_views.update_google_spreadsheet_values")
     @patch("applications.admin_profiles_views.fetch_google_spreadsheet_tabs")
-    def test_group_can_link_multitab_google_sheet_and_preserve_website_checkboxes(
+    def test_group_link_merges_checked_values_from_google_and_website(
         self,
         mock_fetch_tabs,
         mock_update_values,
@@ -7819,8 +7819,8 @@ class ParticipantsCapacitacionCheckTests(TestCase):
         self.assertEqual(len(self.participant_list.google_sheet_tabs), 3)
         self.assertEqual(self.participant_list.mentoras_sheet_rows[0][3], "Mentora from Google")
         self.assertTrue(self.participant_list.mentoras_sheet_rows[0][10])
-        self.assertFalse(self.participant_list.mentoras_sheet_rows[0][11])
-        self.assertFalse(self.participant_list.mentoras_sheet_rows[0][12])
+        self.assertTrue(self.participant_list.mentoras_sheet_rows[0][11])
+        self.assertTrue(self.participant_list.mentoras_sheet_rows[0][12])
         self.assertTrue(mock_update_values.called)
         written_ranges = {
             item["range"]
@@ -7828,6 +7828,12 @@ class ParticipantsCapacitacionCheckTests(TestCase):
         }
         self.assertIn("'Mentoras'!J2:J2", written_ranges)
         self.assertIn("'Mentoras'!R2:R2", written_ranges)
+        written_values = {
+            item["range"]: item["values"]
+            for item in mock_update_values.call_args.args[1]
+        }
+        self.assertEqual(written_values["'Mentoras'!L2:L2"], [[True]])
+        self.assertEqual(written_values["'Mentoras'!M2:M2"], [[True]])
 
         response = self.client.get(
             reverse(
@@ -7840,6 +7846,73 @@ class ParticipantsCapacitacionCheckTests(TestCase):
         self.assertContains(response, "Mirrored extra tab")
         self.assertContains(response, "Google Sheet linked · website is read-only")
         self.assertContains(response, "const sheetReadonly = true")
+
+    def test_checkbox_push_never_clears_a_checked_google_value(self):
+        google_row = list(self.participant_list.mentoras_sheet_rows[0])
+        google_row.extend(
+            [""] * (len(admin_profiles_views.MENTORAS_HEADERS) - len(google_row))
+        )
+        google_row[admin_profiles_views.MENTORAS_CAPACITACION_COL] = True
+        tabs = [
+            {
+                "title": "G993 M",
+                "track": "mentoras",
+                "headers": list(admin_profiles_views.MENTORAS_HEADERS),
+                "rows": [google_row],
+                "email_index": admin_profiles_views.MENTORAS_EMAIL_COL,
+                "checkbox_columns": [
+                    {
+                        "field": "capacitacion",
+                        "index": admin_profiles_views.MENTORAS_CAPACITACION_COL,
+                        "canonical_index": admin_profiles_views.MENTORAS_CAPACITACION_COL,
+                    }
+                ],
+            }
+        ]
+
+        pushed_tabs, updates = admin_profiles_views._linked_google_checkbox_updates(
+            self.participant_list,
+            tabs,
+        )
+
+        self.assertTrue(
+            pushed_tabs[0]["rows"][0][admin_profiles_views.MENTORAS_CAPACITACION_COL]
+        )
+        self.assertEqual(updates[0]["values"], [[True]])
+
+    def test_duplicate_email_blank_row_does_not_clear_checked_state(self):
+        checked_row = list(self.participant_list.mentoras_sheet_rows[0])
+        checked_row.extend(
+            [""] * (len(admin_profiles_views.MENTORAS_HEADERS) - len(checked_row))
+        )
+        blank_row = list(checked_row)
+        checked_row[admin_profiles_views.MENTORAS_CAPACITACION_COL] = True
+        blank_row[admin_profiles_views.MENTORAS_CAPACITACION_COL] = False
+        cfg = admin_profiles_views._participant_track_sheet_configs()["mentoras"]
+
+        state = admin_profiles_views._participant_checkbox_state_by_email(
+            [checked_row, blank_row],
+            cfg,
+        )
+
+        self.assertTrue(
+            state["m1@example.com"][admin_profiles_views.MENTORAS_CAPACITACION_COL]
+        )
+
+    def test_acta_merge_preserves_checked_value_when_dropbox_status_is_false(self):
+        row = list(self.participant_list.mentoras_sheet_rows[0])
+        row.extend(
+            [""] * (len(admin_profiles_views.MENTORAS_HEADERS) - len(row))
+        )
+        row[admin_profiles_views.MENTORAS_ACTA_COL] = True
+
+        merged = admin_profiles_views._apply_contract_signed_to_rows(
+            [row],
+            email_col=admin_profiles_views.MENTORAS_EMAIL_COL,
+            acta_col=admin_profiles_views.MENTORAS_ACTA_COL,
+        )
+
+        self.assertTrue(merged[0][admin_profiles_views.MENTORAS_ACTA_COL])
 
     @patch("applications.admin_profiles_views.update_google_spreadsheet_values")
     @patch("applications.admin_profiles_views.fetch_google_spreadsheet_tabs")
@@ -7934,6 +8007,8 @@ class ParticipantsCapacitacionCheckTests(TestCase):
             [item["index"] for item in stored_mentoras_tab["checkbox_columns"]],
             checkbox_indexes,
         )
+        self.assertTrue(self.participant_list.mentoras_sheet_rows[0][9])
+        self.assertTrue(self.participant_list.mentoras_sheet_rows[0][11])
 
     @patch("applications.admin_profiles_views.ensure_google_spreadsheet_checkbox_columns")
     @patch("applications.admin_profiles_views.update_google_spreadsheet_values")

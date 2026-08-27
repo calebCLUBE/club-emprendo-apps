@@ -1305,7 +1305,9 @@ def _apply_contract_signed_to_rows(
         email_norm = _normalize_email(row_copy[email_col])
         signed = bool(signed_map.get(email_norm, False))
         if acta_col < len(row_copy):
-            row_copy[acta_col] = signed
+            row_copy[acta_col] = bool(
+                _as_checkbox_bool(row_copy[acta_col]) or signed
+            )
         out.append(row_copy)
     return out
 
@@ -2932,9 +2934,14 @@ def _participant_checkbox_state_by_email(rows: list[list], cfg: dict) -> dict[st
         email = _normalize_email(row[cfg["email_col"]] if cfg["email_col"] < len(row) else "")
         if not email:
             continue
-        out[email] = {
+        current_state = {
             index: _as_checkbox_bool(row[index] if index < len(row) else False)
             for _field, index in _participant_checkbox_specs(cfg)
+        }
+        previous_state = out.get(email, {})
+        out[email] = {
+            index: bool(previous_state.get(index, False) or checked)
+            for index, checked in current_state.items()
         }
     return out
 
@@ -2966,7 +2973,11 @@ def _linked_google_checkbox_updates(participant_list, tabs_payload: list[dict] |
             for item in checkbox_columns:
                 source_index = int(item["index"])
                 canonical_index = int(item["canonical_index"])
-                row[source_index] = bool(state.get(canonical_index, False))
+                google_checked = _as_checkbox_bool(
+                    row[source_index] if source_index < len(row) else False
+                )
+                website_checked = bool(state.get(canonical_index, False))
+                row[source_index] = bool(google_checked or website_checked)
         tab["rows"] = rows
         if rows:
             escaped_title = str(tab.get("title") or "").replace("'", "''")
@@ -3147,8 +3158,20 @@ def _sync_group_from_linked_google_sheet(
                 if not email:
                     continue
                 saved_state = existing_states[track_slug].get(email, {})
-                for _field_name, canonical_index in _participant_checkbox_specs(cfg):
-                    canonical[canonical_index] = bool(saved_state.get(canonical_index, False))
+                for checkbox_item in checkbox_columns:
+                    source_index = int(checkbox_item["index"])
+                    canonical_index = int(checkbox_item["canonical_index"])
+                    google_checked = _as_checkbox_bool(
+                        source_row[source_index]
+                        if source_index < len(source_row)
+                        else False
+                    )
+                    website_checked = bool(
+                        saved_state.get(canonical_index, False)
+                    )
+                    canonical[canonical_index] = bool(
+                        google_checked or website_checked
+                    )
                 converted_rows.append(canonical)
             converted_rows = _apply_contract_signed_to_rows(
                 converted_rows,

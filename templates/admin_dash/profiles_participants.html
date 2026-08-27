@@ -159,7 +159,8 @@
             <strong>G{{ selected_group.number }} E</strong>, and optionally
             <strong>G{{ selected_group.number }} Emparejamiento</strong>. Other groups may exist
             in the workbook; only tabs beginning with G{{ selected_group.number }} are imported.
-            Ordinary cells come from Google, while website checks own and mirror checkbox values.
+            Ordinary cells come from Google. Checkbox values are merged: a box checked in
+            either Google or a website check remains checked, and results are mirrored back to Google.
           </div>
           <div class="ce-work-actions" style="margin-top:14px;">
             <button class="ce-work-btn" type="submit" name="action" value="save_google_sheet_link">

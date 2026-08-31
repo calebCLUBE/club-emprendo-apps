@@ -114,6 +114,8 @@ _ACTA_GROUP_SINGLE_TITLE_RE = re.compile(
 )
 WIX_CAPACITACION_EMPRENDEDORAS_PROGRAM_NAME = "Capacitacion programa de mentorias (Emprendedoras)"
 WIX_CAPACITACION_MENTORAS_PROGRAM_NAME = "Capacitacion de Mentoras"
+WIX_CERTIFICACION_EMPRENDEDORAS_PROGRAM_NAME = "Certificado de programa de mentoria emprendedora"
+WIX_CERTIFICACION_MENTORAS_PROGRAM_NAME = "Certificado de Voluntariado como Mentora"
 WIX_CAPACITACION_COMPLETION_PERCENT = 80.0
 ENCUESTAS_GROUP_HEADER_KEYS = ("seleccionatugrupo", "seleccionagrupo", "grupo")
 ENCUESTAS_EMAIL_HEADER_KEYS = ("correo", "email", "correoelectronico", "correoelectrnico")
@@ -158,6 +160,7 @@ MENTORAS_HEADERS = [
     "Acta",
     "Website ",
     "Capacitacion ",
+    "Certificacion ",
     "Encuesta inicial",
     "Encuesta final",
     "Plazo extra ",
@@ -179,6 +182,7 @@ EMPRENDEDORAS_HEADERS = [
     "Acta",
     "Website ",
     "Capacitacion ",
+    "Certificacion ",
     "Encuesta inicial",
     "Encuesta final",
     "Plazo extra Cap",
@@ -186,8 +190,8 @@ EMPRENDEDORAS_HEADERS = [
     "W/E",
 ]
 
-MENTORAS_COL_WIDTHS = [6.88, 14.38, 5.63, 31.5, 13.63, 28.13, 14.25, 12.5, 10.5, 7, 9, 12, 11, 11, 12, 12, 8, 8]
-EMPRENDEDORAS_COL_WIDTHS = [7.25, 14.38, 5.75, 18.38, 17.75, 32.13, 15.25, 12.5, 10.5, 7, 9, 12, 11, 11, 14, 12, 8]
+MENTORAS_COL_WIDTHS = [6.88, 14.38, 5.63, 31.5, 13.63, 28.13, 14.25, 12.5, 10.5, 7, 9, 12, 12, 11, 11, 12, 12, 8, 8]
+EMPRENDEDORAS_COL_WIDTHS = [7.25, 14.38, 5.75, 18.38, 17.75, 32.13, 15.25, 12.5, 10.5, 7, 9, 12, 12, 11, 11, 14, 12, 8]
 MENTORAS_EMAIL_COL = 5
 EMPRENDEDORAS_EMAIL_COL = 5
 MENTORAS_ID_COL = 4
@@ -196,16 +200,18 @@ MENTORAS_ACTA_COL = 9
 EMPRENDEDORAS_ACTA_COL = 9
 MENTORAS_CAPACITACION_COL = 11
 EMPRENDEDORAS_CAPACITACION_COL = 11
-MENTORAS_ENCUESTAS_INICIAL_COL = 12
-EMPRENDEDORAS_ENCUESTAS_INICIAL_COL = 12
-MENTORAS_ENCUESTAS_FINAL_COL = 13
-EMPRENDEDORAS_ENCUESTAS_FINAL_COL = 13
+MENTORAS_CERTIFICACION_COL = 12
+EMPRENDEDORAS_CERTIFICACION_COL = 12
+MENTORAS_ENCUESTAS_INICIAL_COL = 13
+EMPRENDEDORAS_ENCUESTAS_INICIAL_COL = 13
+MENTORAS_ENCUESTAS_FINAL_COL = 14
+EMPRENDEDORAS_ENCUESTAS_FINAL_COL = 14
 MENTORAS_ENCUESTAS_COL = MENTORAS_ENCUESTAS_INICIAL_COL
 EMPRENDEDORAS_ENCUESTAS_COL = EMPRENDEDORAS_ENCUESTAS_INICIAL_COL
 MENTORAS_PROGRESS_DEFAULT_FALSE_COLS = [10, 11]  # Website, Capacitacion
 EMPRENDEDORAS_PROGRESS_DEFAULT_FALSE_COLS = [10, 11]  # Website, Capacitacion
-MENTORAS_BOOLEAN_COLS = [9, 10, 11, 12, 13, 14, 15, 16, 17]
-EMPRENDEDORAS_BOOLEAN_COLS = [9, 10, 11, 12, 13, 14, 15, 16]
+MENTORAS_BOOLEAN_COLS = [9, 10, 11, 12, 13, 14, 15, 16, 17, 18]
+EMPRENDEDORAS_BOOLEAN_COLS = [9, 10, 11, 12, 13, 14, 15, 16, 17]
 MENTORAS_STATUS_OPTIONS = list(PARTICIPANT_STATUS_SHEET_OPTIONS)
 EMPRENDEDORAS_STATUS_OPTIONS = list(PARTICIPANT_STATUS_SHEET_OPTIONS)
 MENTORAS_COLUMN_TYPES = [
@@ -221,6 +227,7 @@ MENTORAS_COLUMN_TYPES = [
     "checkbox",      # Acta
     "checkbox",      # Website
     "checkbox",      # Capacitacion
+    "checkbox",      # Certificacion
     "checkbox",      # Encuesta inicial
     "checkbox",      # Encuesta final
     "checkbox",      # Plazo extra
@@ -241,6 +248,7 @@ EMPRENDEDORAS_COLUMN_TYPES = [
     "checkbox",      # Acta
     "checkbox",      # Website
     "checkbox",      # Capacitacion
+    "checkbox",      # Certificacion
     "checkbox",      # Encuesta inicial
     "checkbox",      # Encuesta final
     "checkbox",      # Plazo extra Cap
@@ -260,6 +268,7 @@ PARTICIPANT_SOURCE_FIELD_ALIASES = {
     "acta": ("acta", "firmoacta", "firmacta"),
     "website": ("website", "web", "sitio"),
     "capacitacion": ("capacitacion", "capacitacin", "training"),
+    "certificacion": ("certificacion", "certificacin", "certificado", "certificate"),
     "encuesta_inicial": (
         "encuestainicial",
         "enuestainicial",
@@ -1121,9 +1130,19 @@ def _normalize_sheet_rows(raw_rows, headers: list[str]) -> list[list]:
     for raw_row in raw_rows:
         if not isinstance(raw_row, (list, tuple)):
             continue
+        source_row = list(raw_row)
+        # Certificacion was inserted after Capacitacion. Upgrade legacy saved
+        # participant rows in place so their survey and later checkbox values
+        # keep their original meanings.
+        if (
+            width > 12
+            and len(source_row) == width - 1
+            and _normalized_source_header(headers[12]) == "certificacion"
+        ):
+            source_row.insert(12, False)
         row = []
         for idx in range(width):
-            value = raw_row[idx] if idx < len(raw_row) else ""
+            value = source_row[idx] if idx < len(source_row) else ""
             if value is None:
                 row.append("")
             elif isinstance(value, bool):
@@ -1217,12 +1236,13 @@ def _participant_source_row_to_sheet_row(
         ("acta", cfg["acta_col"]),
         ("website", 10),
         ("capacitacion", cfg["capacitacion_col"]),
+        ("certificacion", cfg["certificacion_col"]),
         ("encuesta_inicial", cfg["encuestas_initial_col"]),
         ("encuesta_final", cfg["encuestas_final_col"]),
-        ("plazo_extra", 14),
-        ("lanzamiento", 15),
-        ("wm", 16),
-        ("we", 17),
+        ("plazo_extra", cfg["plazo_extra_col"]),
+        ("lanzamiento", cfg["lanzamiento_col"]),
+        ("wm", cfg.get("wm_col")),
+        ("we", cfg["we_col"]),
     ]
     for field_name, target_idx in checkbox_fields:
         if target_idx is None or target_idx >= len(row):
@@ -1512,6 +1532,18 @@ def _wix_capacitacion_program_name(track_slug: str) -> str:
     return _setting_or_env(
         "WIX_CAPACITACION_PROGRAM_EMPRENDEDORAS",
         WIX_CAPACITACION_EMPRENDEDORAS_PROGRAM_NAME,
+    )
+
+
+def _wix_certificacion_program_name(track_slug: str) -> str:
+    if track_slug == "mentoras":
+        return _setting_or_env(
+            "WIX_CERTIFICACION_PROGRAM_MENTORAS",
+            WIX_CERTIFICACION_MENTORAS_PROGRAM_NAME,
+        )
+    return _setting_or_env(
+        "WIX_CERTIFICACION_PROGRAM_EMPRENDEDORAS",
+        WIX_CERTIFICACION_EMPRENDEDORAS_PROGRAM_NAME,
     )
 
 
@@ -1998,6 +2030,66 @@ def _run_wix_capacitacion_check_for_track(
         (
             f"{fetch_note} "
             f"Capacitacion rows matched: {matched_count}; changed: {changed_count}."
+        ),
+    )
+
+
+def _run_wix_certificacion_check_for_track(
+    *,
+    group: FormGroup,
+    track_slug: str,
+    headers: list[str],
+    bool_cols: list[int],
+    email_col: int,
+    certificacion_col: int,
+    text_field: str,
+    rows_field: str,
+    build_rows,
+) -> tuple[bool, str]:
+    participant_list = GroupParticipantList.objects.filter(group=group).first()
+    if not participant_list:
+        return False, f"Group {group.number} has no participant list."
+
+    stored_rows = _normalize_sheet_rows(getattr(participant_list, rows_field, []), headers)
+    stored_rows = _coerce_bool_columns(stored_rows, bool_cols)
+    if stored_rows:
+        rows = _number_sheet_rows(stored_rows, number_col=2)
+    else:
+        emails_seed = _norm_email_list(getattr(participant_list, text_field, ""))
+        rows = _number_sheet_rows(build_rows(group.number, emails_seed), number_col=2)
+
+    participant_emails = _emails_from_sheet_rows(rows, email_col)
+    participant_pool = set(participant_emails)
+    if not participant_pool:
+        return False, "No participant emails found in this sheet."
+
+    program_name = _wix_certificacion_program_name(track_slug)
+    ok, completed_emails, fetch_note = _fetch_wix_capacitacion_completed_emails(
+        program_name=program_name,
+        group_num=group.number,
+        track_slug=track_slug,
+        participant_pool=participant_pool,
+    )
+    if not ok:
+        return False, fetch_note
+
+    next_rows, matched_count, changed_count = _apply_capacitacion_to_rows(
+        rows=rows,
+        email_col=email_col,
+        capacitacion_col=certificacion_col,
+        completed_emails=completed_emails,
+    )
+    next_rows = _number_sheet_rows(next_rows, number_col=2)
+
+    if getattr(participant_list, rows_field) != next_rows:
+        setattr(participant_list, rows_field, next_rows)
+        participant_list.save(update_fields=[rows_field, "updated_at"])
+
+    return (
+        True,
+        (
+            f"{fetch_note} "
+            f"Certificacion rows matched: {matched_count}; changed: {changed_count}."
         ),
     )
 
@@ -2765,6 +2857,7 @@ def _build_mentoras_rows(group_num: int, emails: list[str]) -> list[list]:
             False,
             False,
             False,
+            False,
         ]
         rows.append(row)
     return rows
@@ -2794,6 +2887,7 @@ def _build_emprendedoras_rows(group_num: int, emails: list[str]) -> list[list]:
             False,
             False,
             False,
+            False,
         ]
         rows.append(row)
     return rows
@@ -2811,8 +2905,13 @@ def _participant_track_sheet_configs() -> dict[str, dict]:
             "email_col": MENTORAS_EMAIL_COL,
             "acta_col": MENTORAS_ACTA_COL,
             "capacitacion_col": MENTORAS_CAPACITACION_COL,
+            "certificacion_col": MENTORAS_CERTIFICACION_COL,
             "encuestas_initial_col": MENTORAS_ENCUESTAS_INICIAL_COL,
             "encuestas_final_col": MENTORAS_ENCUESTAS_FINAL_COL,
+            "plazo_extra_col": 15,
+            "lanzamiento_col": 16,
+            "wm_col": 17,
+            "we_col": 18,
             "progress_default_false_cols": MENTORAS_PROGRESS_DEFAULT_FALSE_COLS,
             "text_field": "mentoras_emails_text",
             "rows_field": "mentoras_sheet_rows",
@@ -2829,8 +2928,13 @@ def _participant_track_sheet_configs() -> dict[str, dict]:
             "email_col": EMPRENDEDORAS_EMAIL_COL,
             "acta_col": EMPRENDEDORAS_ACTA_COL,
             "capacitacion_col": EMPRENDEDORAS_CAPACITACION_COL,
+            "certificacion_col": EMPRENDEDORAS_CERTIFICACION_COL,
             "encuestas_initial_col": EMPRENDEDORAS_ENCUESTAS_INICIAL_COL,
             "encuestas_final_col": EMPRENDEDORAS_ENCUESTAS_FINAL_COL,
+            "plazo_extra_col": 15,
+            "lanzamiento_col": 16,
+            "wm_col": None,
+            "we_col": 17,
             "progress_default_false_cols": EMPRENDEDORAS_PROGRESS_DEFAULT_FALSE_COLS,
             "text_field": "emprendedoras_emails_text",
             "rows_field": "emprendedoras_sheet_rows",
@@ -2845,15 +2949,15 @@ def _participant_checkbox_specs(cfg: dict) -> list[tuple[str, int]]:
         ("acta", cfg["acta_col"]),
         ("website", 10),
         ("capacitacion", cfg["capacitacion_col"]),
+        ("certificacion", cfg["certificacion_col"]),
         ("encuesta_inicial", cfg["encuestas_initial_col"]),
         ("encuesta_final", cfg["encuestas_final_col"]),
-        ("plazo_extra", 14),
-        ("lanzamiento", 15),
+        ("plazo_extra", cfg["plazo_extra_col"]),
+        ("lanzamiento", cfg["lanzamiento_col"]),
     ]
-    if cfg["slug"] == "mentoras":
-        specs.extend([("wm", 16), ("we", 17)])
-    else:
-        specs.append(("we", 16))
+    if cfg.get("wm_col") is not None:
+        specs.append(("wm", cfg["wm_col"]))
+    specs.append(("we", cfg["we_col"]))
     return [(name, index) for name, index in specs if index is not None and index < len(cfg["headers"])]
 
 
@@ -4757,6 +4861,7 @@ def profiles_participants_track_sheet(request, group_num: int, track: str):
         email_col = MENTORAS_EMAIL_COL
         acta_col = MENTORAS_ACTA_COL
         capacitacion_col = MENTORAS_CAPACITACION_COL
+        certificacion_col = MENTORAS_CERTIFICACION_COL
         encuestas_initial_col = MENTORAS_ENCUESTAS_INICIAL_COL
         encuestas_final_col = MENTORAS_ENCUESTAS_FINAL_COL
         progress_default_false_cols = MENTORAS_PROGRESS_DEFAULT_FALSE_COLS
@@ -4773,6 +4878,7 @@ def profiles_participants_track_sheet(request, group_num: int, track: str):
         email_col = EMPRENDEDORAS_EMAIL_COL
         acta_col = EMPRENDEDORAS_ACTA_COL
         capacitacion_col = EMPRENDEDORAS_CAPACITACION_COL
+        certificacion_col = EMPRENDEDORAS_CERTIFICACION_COL
         encuestas_initial_col = EMPRENDEDORAS_ENCUESTAS_INICIAL_COL
         encuestas_final_col = EMPRENDEDORAS_ENCUESTAS_FINAL_COL
         progress_default_false_cols = EMPRENDEDORAS_PROGRESS_DEFAULT_FALSE_COLS
@@ -4792,7 +4898,13 @@ def profiles_participants_track_sheet(request, group_num: int, track: str):
     if request.method == "POST":
         is_async_save = request.headers.get("x-requested-with") == "XMLHttpRequest"
         action = (request.POST.get("action") or "save_sheet").strip()
-        check_actions = {"check_dropbox", "check_capacitacion", "check_encuestas", "check_encuestas_final"}
+        check_actions = {
+            "check_dropbox",
+            "check_capacitacion",
+            "check_certificacion",
+            "check_encuestas",
+            "check_encuestas_final",
+        }
         if linked_google_sheet and action not in check_actions:
             message = "This workbook is sourced from Google Sheets and is read-only on the website."
             if is_async_save:
@@ -4822,7 +4934,7 @@ def profiles_participants_track_sheet(request, group_num: int, track: str):
                         args=[group.number, track_slug],
                     )
                 )
-        if action in {"check_dropbox", "check_capacitacion", "check_encuestas", "check_encuestas_final"}:
+        if action in check_actions:
             if not linked_google_sheet:
                 saved_current, save_error = _save_posted_participant_sheet_before_check(
                     request=request,
@@ -4962,6 +5074,52 @@ def profiles_participants_track_sheet(request, group_num: int, track: str):
                 messages.error(
                     request,
                     f"Wix capacitacion check failed for Group {group.number} {track_label}: {summary}",
+                )
+            return redirect(
+                reverse(
+                    "admin_profiles_participants_track_sheet",
+                    args=[group.number, track_slug],
+                )
+            )
+        if action == "check_certificacion":
+            try:
+                ok, summary = _run_wix_certificacion_check_for_track(
+                    group=group,
+                    track_slug=track_slug,
+                    headers=headers,
+                    bool_cols=bool_cols,
+                    email_col=email_col,
+                    certificacion_col=certificacion_col,
+                    text_field=text_field,
+                    rows_field=rows_field,
+                    build_rows=build_rows,
+                )
+            except Exception as exc:
+                ok, summary = False, f"Unexpected error running Wix certificacion check: {exc}"
+            if ok:
+                if linked_google_sheet:
+                    participant_list.refresh_from_db()
+                    try:
+                        _push_linked_participant_checkboxes(participant_list)
+                    except Exception as exc:
+                        messages.error(request, f"Certificacion was checked, but Google checkbox sync failed: {exc}")
+                _create_participant_sheet_version_from_store(
+                    group=group,
+                    track_slug=track_slug,
+                    rows_field=rows_field,
+                    headers=headers,
+                    bool_cols=bool_cols,
+                    request=request,
+                    action="check_certificacion",
+                )
+                messages.success(
+                    request,
+                    f"Wix certificacion check completed for Group {group.number} {track_label}. {summary}",
+                )
+            else:
+                messages.error(
+                    request,
+                    f"Wix certificacion check failed for Group {group.number} {track_label}: {summary}",
                 )
             return redirect(
                 reverse(
@@ -5294,7 +5452,13 @@ def _profiles_participants_combined_sheet(request, group):
     if request.method == "POST":
         is_async_save = request.headers.get("x-requested-with") == "XMLHttpRequest"
         action = (request.POST.get("action") or "save_sheet").strip()
-        check_actions = {"check_dropbox", "check_capacitacion", "check_encuestas", "check_encuestas_final"}
+        check_actions = {
+            "check_dropbox",
+            "check_capacitacion",
+            "check_certificacion",
+            "check_encuestas",
+            "check_encuestas_final",
+        }
         if linked_google_sheet and action not in check_actions:
             message = "This workbook is sourced from Google Sheets and is read-only on the website."
             if is_async_save:
@@ -5314,7 +5478,7 @@ def _profiles_participants_combined_sheet(request, group):
                 participant_list.save(update_fields=["google_sheet_sync_error", "updated_at"])
                 messages.error(request, f"Could not refresh the linked Google Sheet before checking: {exc}")
                 return redirect(redirect_url)
-        if action in {"check_dropbox", "check_capacitacion", "check_encuestas", "check_encuestas_final"}:
+        if action in check_actions:
             if not linked_google_sheet:
                 for cfg in ordered_configs:
                     saved_current, save_error = _save_posted_participant_sheet_before_check(
@@ -5454,6 +5618,55 @@ def _profiles_participants_combined_sheet(request, group):
                 messages.error(
                     request,
                     f"Wix capacitacion check had errors for Group {group.number}. {' '.join(errors)}",
+                )
+            return redirect(redirect_url)
+
+        if action == "check_certificacion":
+            summaries: list[str] = []
+            errors: list[str] = []
+            for cfg in ordered_configs:
+                try:
+                    ok, summary = _run_wix_certificacion_check_for_track(
+                        group=group,
+                        track_slug=cfg["slug"],
+                        headers=cfg["headers"],
+                        bool_cols=cfg["bool_cols"],
+                        email_col=cfg["email_col"],
+                        certificacion_col=cfg["certificacion_col"],
+                        text_field=cfg["text_field"],
+                        rows_field=cfg["rows_field"],
+                        build_rows=cfg["build_rows"],
+                    )
+                except Exception as exc:
+                    ok, summary = False, f"Unexpected error running Wix certificacion check: {exc}"
+                if ok:
+                    _create_participant_sheet_version_from_store(
+                        group=group,
+                        track_slug=cfg["slug"],
+                        rows_field=cfg["rows_field"],
+                        headers=cfg["headers"],
+                        bool_cols=cfg["bool_cols"],
+                        request=request,
+                        action="check_certificacion",
+                    )
+                    summaries.append(f"{cfg['label']}: {summary}")
+                else:
+                    errors.append(f"{cfg['label']}: {summary}")
+            if summaries:
+                if linked_google_sheet:
+                    participant_list.refresh_from_db()
+                    try:
+                        _push_linked_participant_checkboxes(participant_list)
+                    except Exception as exc:
+                        messages.error(request, f"Certificacion was checked, but Google checkbox sync failed: {exc}")
+                messages.success(
+                    request,
+                    f"Wix certificacion check completed for Group {group.number}. {' '.join(summaries)}",
+                )
+            if errors:
+                messages.error(
+                    request,
+                    f"Wix certificacion check had errors for Group {group.number}. {' '.join(errors)}",
                 )
             return redirect(redirect_url)
 

@@ -152,6 +152,11 @@
     </form>
     <form method="post" data-ce-check-form>
       {% csrf_token %}
+      <input type="hidden" name="action" value="check_certificacion">
+      <button class="ce-sheet-btn" type="submit">Check Certificacion</button>
+    </form>
+    <form method="post" data-ce-check-form>
+      {% csrf_token %}
       <input type="hidden" name="action" value="check_encuestas">
       <button class="ce-sheet-btn" type="submit">Check Encuesta inicial</button>
     </form>

@@ -7246,6 +7246,37 @@ class MarketingDashboardTests(TestCase):
 
 
 class WixCapacitacionPayloadTests(TestCase):
+    def test_certificacion_program_names_match_wix_titles(self):
+        self.assertEqual(
+            admin_profiles_views._wix_certificacion_program_name("mentoras"),
+            "Certificado de Voluntariado como Mentora",
+        )
+        self.assertEqual(
+            admin_profiles_views._wix_certificacion_program_name("emprendedoras"),
+            "Certificado de programa de mentoria emprendedora",
+        )
+
+    def test_legacy_participant_row_inserts_blank_certificacion_column(self):
+        legacy_row = [""] * 18
+        legacy_row[5] = "mentor@example.com"
+        legacy_row[12] = True
+        legacy_row[13] = False
+
+        normalized = admin_profiles_views._normalize_sheet_rows(
+            [legacy_row],
+            admin_profiles_views.MENTORAS_HEADERS,
+        )
+
+        self.assertFalse(
+            normalized[0][admin_profiles_views.MENTORAS_CERTIFICACION_COL]
+        )
+        self.assertTrue(
+            normalized[0][admin_profiles_views.MENTORAS_ENCUESTAS_INICIAL_COL]
+        )
+        self.assertFalse(
+            normalized[0][admin_profiles_views.MENTORAS_ENCUESTAS_FINAL_COL]
+        )
+
     def test_extracts_nested_contact_email_from_completed_enrollment(self):
         payload = {
             "enrollments": [
@@ -7442,6 +7473,7 @@ class ParticipantsCapacitacionCheckTests(TestCase):
         )
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Check Capacitacion")
+        self.assertContains(response, "Check Certificacion")
         self.assertContains(response, "Check Encuesta final")
         self.assertContains(response, "Saved versions")
 
@@ -7639,6 +7671,50 @@ class ParticipantsCapacitacionCheckTests(TestCase):
             ).exists()
         )
 
+    @patch("applications.admin_profiles_views._fetch_wix_capacitacion_completed_emails")
+    def test_check_certificacion_uses_track_program_and_marks_only_matching_rows(
+        self,
+        mock_fetch,
+    ):
+        mock_fetch.return_value = (
+            True,
+            {"m1@example.com"},
+            "Wix certificate completions fetched for mentoras.",
+        )
+
+        response = self.client.post(
+            reverse(
+                "admin_profiles_participants_track_sheet",
+                args=[self.group.number, "mentoras"],
+            ),
+            data={"action": "check_certificacion"},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        mock_fetch.assert_called_once()
+        self.assertEqual(
+            mock_fetch.call_args.kwargs["program_name"],
+            "Certificado de Voluntariado como Mentora",
+        )
+        self.participant_list.refresh_from_db()
+        self.assertTrue(
+            self.participant_list.mentoras_sheet_rows[0][
+                admin_profiles_views.MENTORAS_CERTIFICACION_COL
+            ]
+        )
+        self.assertFalse(
+            self.participant_list.mentoras_sheet_rows[1][
+                admin_profiles_views.MENTORAS_CERTIFICACION_COL
+            ]
+        )
+        self.assertTrue(
+            ParticipantSheetVersion.objects.filter(
+                group=self.group,
+                track="mentoras",
+                action="check_certificacion",
+            ).exists()
+        )
+
     @patch("applications.admin_profiles_views._fetch_encuestas_emails_for_group")
     def test_check_encuesta_final_marks_only_matching_rows(self, mock_fetch):
         mock_fetch.return_value = (
@@ -7659,8 +7735,12 @@ class ParticipantsCapacitacionCheckTests(TestCase):
         self.assertEqual(mock_fetch.call_args.kwargs.get("survey_stage"), "final")
 
         self.participant_list.refresh_from_db()
-        self.assertTrue(bool(self.participant_list.mentoras_sheet_rows[0][13]))
-        self.assertFalse(bool(self.participant_list.mentoras_sheet_rows[1][13]))
+        self.assertTrue(
+            bool(self.participant_list.mentoras_sheet_rows[0][admin_profiles_views.MENTORAS_ENCUESTAS_FINAL_COL])
+        )
+        self.assertFalse(
+            bool(self.participant_list.mentoras_sheet_rows[1][admin_profiles_views.MENTORAS_ENCUESTAS_FINAL_COL])
+        )
         self.assertTrue(
             ParticipantSheetVersion.objects.filter(
                 group=self.group,
@@ -7694,7 +7774,9 @@ class ParticipantsCapacitacionCheckTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.participant_list.refresh_from_db()
         self.assertEqual(self.participant_list.mentoras_sheet_rows[0][3], "Unsaved Current")
-        self.assertTrue(self.participant_list.mentoras_sheet_rows[0][12])
+        self.assertTrue(
+            self.participant_list.mentoras_sheet_rows[0][admin_profiles_views.MENTORAS_ENCUESTAS_INICIAL_COL]
+        )
         self.assertTrue(
             ParticipantSheetVersion.objects.filter(
                 group=self.group,
@@ -7743,8 +7825,12 @@ class ParticipantsCapacitacionCheckTests(TestCase):
             self.participant_list.emprendedoras_sheet_rows[0][3],
             "Emprendedora Current",
         )
-        self.assertTrue(self.participant_list.mentoras_sheet_rows[0][13])
-        self.assertTrue(self.participant_list.emprendedoras_sheet_rows[0][13])
+        self.assertTrue(
+            self.participant_list.mentoras_sheet_rows[0][admin_profiles_views.MENTORAS_ENCUESTAS_FINAL_COL]
+        )
+        self.assertTrue(
+            self.participant_list.emprendedoras_sheet_rows[0][admin_profiles_views.EMPRENDEDORAS_ENCUESTAS_FINAL_COL]
+        )
 
     def _linked_google_workbook_payload(self):
         mentora_row = [
@@ -7766,6 +7852,7 @@ class ParticipantsCapacitacionCheckTests(TestCase):
             True,
             True,
             True,
+            True,
         ]
         emprendedora_row = [
             "Google info E",
@@ -7777,6 +7864,7 @@ class ParticipantsCapacitacionCheckTests(TestCase):
             "+57",
             "Colombia",
             "31",
+            True,
             True,
             True,
             True,
@@ -8040,7 +8128,7 @@ class ParticipantsCapacitacionCheckTests(TestCase):
         payload = self._linked_google_workbook_payload()
         mentoras_tab = payload["tabs"][0]
         headers = list(mentoras_tab["values"][0])
-        missing_indexes = [10, 12, 14, 15]
+        missing_indexes = [10, 13, 15, 16]
         for column_index in missing_indexes:
             headers[column_index] = f"Ordinary source column {column_index}"
         mentoras_tab["values"][0] = headers
@@ -8081,7 +8169,7 @@ class ParticipantsCapacitacionCheckTests(TestCase):
         payload = self._linked_google_workbook_payload()
         mentoras_tab = payload["tabs"][0]
         headers = list(mentoras_tab["values"][0])
-        headers[12] = "Enuesta inicial"
+        headers[13] = "Enuesta inicial"
         headers.append("Encuesta inicial")
         mentoras_tab["values"][0] = headers
         mentoras_tab["values"][1].append(False)
@@ -8103,12 +8191,12 @@ class ParticipantsCapacitacionCheckTests(TestCase):
         self.assertEqual(response.status_code, 302)
         mock_delete_columns.assert_called_once_with(
             "https://docs.google.com/spreadsheets/d/linked-sheet-123/edit",
-            [{"sheet_id": 1, "column_index": 18}],
+            [{"sheet_id": 1, "column_index": 19}],
         )
         self.assertEqual(mock_ensure_columns.call_args.args[1], [])
         self.participant_list.refresh_from_db()
         stored_headers = self.participant_list.google_sheet_tabs[0]["headers"]
-        self.assertEqual(stored_headers[12], "Enuesta inicial")
+        self.assertEqual(stored_headers[13], "Enuesta inicial")
         self.assertNotIn("Encuesta inicial", stored_headers)
 
     @patch("applications.admin_profiles_views._fetch_encuestas_emails_for_group")

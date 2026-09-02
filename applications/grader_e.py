@@ -321,7 +321,10 @@ def _normalize_current_emprendedora_row(row: dict) -> dict:
     """
     normalized = dict(row)
     for canonical, aliases in CURRENT_EMPRENDEDORA_ALIASES.items():
-        if str(normalized.get(canonical) or "").strip():
+        if (
+            canonical not in {"full_name", "email"}
+            and str(normalized.get(canonical) or "").strip()
+        ):
             continue
         value = _pick_row_value(normalized, *aliases)
         if str(value or "").strip():

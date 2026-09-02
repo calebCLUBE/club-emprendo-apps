@@ -1435,7 +1435,7 @@ def _handle_application_form(
             return ""
 
         full_name = _pick_first(
-            "q_full_name", "q_name", "q_nombre",
+            "q_full_name", "q_name", "q_nombre", "q_nombre_completo",
             "q_e1_full_name", "q_m1_full_name",
             "q_e2_full_name", "q_m2_full_name",
         )
@@ -1459,7 +1459,21 @@ def _handle_application_form(
                 if not k.startswith("q_"):
                     continue
                 lk = k.lower()
-                if ("name" in lk) or ("nombre" in lk):
+                # Do not let fields such as "Nombre de tu emprendimiento"
+                # become the applicant identity when a form uses a localized
+                # or administrator-generated person-name slug.
+                business_name_tokens = (
+                    "business",
+                    "company",
+                    "empresa",
+                    "emprend",
+                    "negocio",
+                    "marca",
+                )
+                if (
+                    (("name" in lk) or ("nombre" in lk))
+                    and not any(token in lk for token in business_name_tokens)
+                ):
                     s = (v or "").strip()
                     if s:
                         full_name = s

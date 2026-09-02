@@ -296,7 +296,7 @@ def _normalize_current_mentora_row(row: dict) -> dict:
             continue
         # The current import can put the business name in Application.name;
         # the explicit applicant-name answer is the authoritative person name.
-        if canonical == "full_name" or not str(normalized.get(canonical) or "").strip():
+        if canonical in {"full_name", "email"} or not str(normalized.get(canonical) or "").strip():
             normalized[canonical] = value
     return normalized
 

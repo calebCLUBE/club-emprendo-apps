@@ -3215,6 +3215,7 @@ class GradingAndPairingConfigEditorTests(TestCase):
         self.assertEqual(grade_response.call_count, 3)
         self.assertNotEqual(row["score"], "0.00%")
         self.assertNotIn("Blank or insufficient response", row["score_exp"])
+        self.assertEqual(row["full_name"], "Giosmara Cañarte")
         self.assertEqual(row["whatsapp"], "+593981139942")
         self.assertEqual(row["ID"], "0915593545")
         self.assertEqual(row["business_age"], "10-anos")
@@ -4387,6 +4388,11 @@ class GradingAndPairingConfigEditorTests(TestCase):
         )
         question_specs = [
             (
+                "nombre_completo",
+                "Nombre completo",
+                "Andrea Persona",
+            ),
+            (
                 "cual_es_tu_area_de_experiencia_profesional_mas_rel",
                 "¿Cuál es tu área de experiencia profesional más relevante?",
                 "Tengo experiencia en finanzas.",
@@ -4419,7 +4425,7 @@ class GradingAndPairingConfigEditorTests(TestCase):
         ]
         app = Application.objects.create(
             form=form,
-            name="Mentora Test",
+            name="Nombre del emprendimiento incorrecto",
             email="mentora@example.com",
             approved_for_grading=True,
         )
@@ -4445,6 +4451,8 @@ class GradingAndPairingConfigEditorTests(TestCase):
 
         self.assertIn("¿Cuál es tu área de experiencia profesional más relevante?", headers)
         self.assertIn("Tengo experiencia en finanzas.", row)
+        self.assertEqual(row[headers.index("nombre_completo")], "Andrea Persona")
+        self.assertEqual(row[headers.index("Nombre completo")], "Andrea Persona")
         self.assertIn("¿Te identificas como mujer?", headers)
         self.assertIn("yes", row)
         self.assertNotIn("soy_mujer", headers)
@@ -4931,6 +4939,58 @@ class SingleCombinedApplicationTests(TestCase):
         self.assertNotContains(response, 'name="q_business_story"')
         self.assertContains(response, "data-application-progress")
         self.assertEqual(response.content.count(b'type="submit"'), 1)
+
+    @patch("applications.views.schedule_group_track_responses_sync")
+    @patch("applications.views.autograde_and_email_emprendedora_a1")
+    def test_localized_person_name_does_not_use_business_name_as_identity(
+        self, mock_a1_grade, mock_sync
+    ):
+        localized_group = FormGroup.objects.create(
+            number=989,
+            start_day=1,
+            start_month="junio",
+            end_month="junio",
+            year=2026,
+        )
+        localized_form = FormDefinition.objects.create(
+            slug="G989_E_A1",
+            name="Localized identity application",
+            group=localized_group,
+            is_public=True,
+            accepting_responses=True,
+            manual_open_override=True,
+        )
+        for position, (slug, text) in enumerate(
+            (
+                ("nombre_de_tu_emprendimiento", "Nombre de tu emprendimiento"),
+                ("nombre_completo", "Nombre completo"),
+                ("correo_electronico", "Correo electrónico"),
+            ),
+            start=1,
+        ):
+            Question.objects.create(
+                form=localized_form,
+                text=text,
+                slug=slug,
+                field_type=Question.SHORT_TEXT,
+                position=position,
+            )
+
+        response = self.client.post(
+            reverse("apply_by_slug", args=[localized_form.slug]),
+            {
+                "q_nombre_de_tu_emprendimiento": "Empresa Ejemplo",
+                "q_nombre_completo": "Persona Correcta",
+                "q_correo_electronico": "persona@example.com",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        application = Application.objects.get(form=localized_form)
+        self.assertEqual(application.name, "Persona Correcta")
+        self.assertEqual(application.email, "persona@example.com")
+        mock_a1_grade.assert_called_once()
+        mock_sync.assert_called_with(localized_group.number, "E")
 
     @patch("applications.views.schedule_group_track_responses_sync")
     @patch("applications.views._send_a2_submission_email")

@@ -975,18 +975,19 @@ def _run_grade_job(job_id: int):
                 for a in app.answers.all()
             }
             full_name = (
-                app.name
-                or answer_map.get("full_name")
+                answer_map.get("full_name")
+                or answer_map.get("nombre_completo")
                 or answer_map.get("certificate_name")
                 or answer_map.get("preferred_name")
                 or answer_map.get("nombre")
+                or app.name
                 or ""
             )
             email = (
-                app.email
-                or answer_map.get("email")
+                answer_map.get("email")
                 or answer_map.get("correo")
                 or answer_map.get("correo_electronico")
+                or app.email
                 or ""
             )
 

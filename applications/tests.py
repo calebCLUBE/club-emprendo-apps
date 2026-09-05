@@ -1,6 +1,7 @@
 from datetime import date, datetime, timedelta, timezone as dt_timezone
 import importlib
 import uuid
+import zipfile
 from django.apps import apps as django_apps
 from django.test import TestCase, override_settings
 from django.urls import reverse
@@ -69,6 +70,8 @@ from applications.models import (
     GradingCriterion,
     GradingResponseWeight,
     GroupParticipantList,
+    HistoricalGroupImport,
+    HistoricalParticipant,
     PairingAIComparison,
     PairingConfig,
     PairingPriorityRule,
@@ -7409,6 +7412,169 @@ class WixCapacitacionPayloadTests(TestCase):
         completed = admin_profiles_views._extract_completed_emails_from_wix_payload(payload)
 
         self.assertEqual(completed, {"member@example.com"})
+
+
+class HistoricalGroupImportTests(TestCase):
+    def setUp(self):
+        user_model = get_user_model()
+        self.staff_user = user_model.objects.create_superuser(
+            email="historical-admin@example.com",
+            password="testpass123",
+        )
+        self.client.force_login(self.staff_user)
+
+    def test_csv_preview_and_confirm_create_historical_group_without_forms(self):
+        mentor_csv = (
+            "Nombre de tu emprendimiento,Nombre completo,Correo electronico,Cedula,Acta,Pregunta antigua\n"
+            "Empresa Uno,Ana Persona,ANA@example.com,ABC-123,Si,Respuesta original\n"
+            "Empresa repetida,Ana Duplicada,ana@example.com,ABC-999,No,Otra respuesta\n"
+        ).encode("utf-8")
+        preview_response = self.client.post(
+            reverse("admin_historical_group_import"),
+            data={
+                "action": "preview",
+                "group_number": "4",
+                "group_name": "Grupo historico 4",
+                "start_day": "15",
+                "start_month": "enero",
+                "end_month": "abril",
+                "year": "2023",
+                "mentoras_file": SimpleUploadedFile(
+                    "mentoras-g4.csv",
+                    mentor_csv,
+                    content_type="text/csv",
+                ),
+            },
+        )
+
+        self.assertEqual(preview_response.status_code, 302)
+        draft = HistoricalGroupImport.objects.get()
+        self.assertEqual(draft.status, HistoricalGroupImport.STATUS_PREVIEW)
+        self.assertIn(f"draft={draft.id}", preview_response["Location"])
+
+        preview_page = self.client.get(preview_response["Location"])
+        self.assertEqual(preview_page.status_code, 200)
+        self.assertContains(preview_page, "Nombre completo")
+        name_field = next(
+            item
+            for item in preview_page.context["track_previews"][0]["mapping_fields"]
+            if item["name"] == "name"
+        )
+        self.assertEqual(name_field["selected"], "Nombre completo")
+
+        confirm_response = self.client.post(
+            reverse("admin_historical_group_import"),
+            data={
+                "action": "import",
+                "draft_id": str(draft.id),
+                "mentoras_name": "Nombre completo",
+                "mentoras_email": "Correo electronico",
+                "mentoras_id": "Cedula",
+                "mentoras_acta": "Acta",
+            },
+        )
+
+        self.assertEqual(confirm_response.status_code, 302)
+        group = FormGroup.objects.get(number=4)
+        self.assertEqual(group.custom_name, "Grupo historico 4")
+        self.assertEqual(group.forms.count(), 0)
+        participant_list = GroupParticipantList.objects.get(group=group)
+        self.assertEqual(len(participant_list.mentoras_sheet_rows), 1)
+        self.assertEqual(participant_list.mentoras_sheet_rows[0][3], "Ana Persona")
+        self.assertEqual(participant_list.mentoras_sheet_rows[0][5], "ANA@example.com")
+        self.assertTrue(participant_list.mentoras_sheet_rows[0][9])
+        self.assertEqual(HistoricalParticipant.objects.filter(group=group).count(), 2)
+        original = HistoricalParticipant.objects.get(source_row_number=2)
+        self.assertEqual(original.answers["Pregunta antigua"], "Respuesta original")
+        self.assertEqual(original.answers["Nombre de tu emprendimiento"], "Empresa Uno")
+        self.assertTrue(ParticipantEmailStatus.objects.get(email="ana@example.com").participated)
+        draft.refresh_from_db()
+        self.assertEqual(draft.status, HistoricalGroupImport.STATUS_IMPORTED)
+        self.assertEqual(draft.import_summary["mentoras"]["duplicates_skipped"], 1)
+
+        cache.clear()
+        profiles_response = self.client.get(reverse("admin_profiles_list"))
+        self.assertEqual(profiles_response.status_code, 200)
+        historical_profile = next(
+            profile
+            for profile in profiles_response.context["profiles"]
+            if profile.get("is_historical")
+        )
+        self.assertEqual(historical_profile["group_num"], 4)
+        self.assertEqual(historical_profile["form_slug"], "Historical import")
+        detail_response = self.client.get(
+            reverse("admin_profile_detail", args=[historical_profile["profile_key"]])
+        )
+        self.assertEqual(detail_response.status_code, 200)
+        self.assertContains(detail_response, "Original Historical Fields")
+        self.assertContains(detail_response, "Pregunta antigua")
+
+    def test_xlsx_parser_reads_first_worksheet_without_optional_library(self):
+        from applications.historical_import import parse_uploaded_table
+
+        workbook = BytesIO()
+        with zipfile.ZipFile(workbook, "w") as archive:
+            archive.writestr(
+                "xl/workbook.xml",
+                '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+                'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+                '<sheets><sheet name="Mentoras" sheetId="1" r:id="rId1"/></sheets></workbook>',
+            )
+            archive.writestr(
+                "xl/_rels/workbook.xml.rels",
+                '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+                '<Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>',
+            )
+            archive.writestr(
+                "xl/worksheets/sheet1.xml",
+                '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+                '<sheetData>'
+                '<row r="1"><c r="A1" t="inlineStr"><is><t>Nombre completo</t></is></c>'
+                '<c r="B1" t="inlineStr"><is><t>Email</t></is></c></row>'
+                '<row r="2"><c r="A2" t="inlineStr"><is><t>Ana Persona</t></is></c>'
+                '<c r="B2" t="inlineStr"><is><t>ana@example.com</t></is></c></row>'
+                '</sheetData></worksheet>',
+            )
+        upload = SimpleUploadedFile(
+            "historical.xlsx",
+            workbook.getvalue(),
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
+        parsed = parse_uploaded_table(upload)
+
+        self.assertEqual(parsed["headers"], ["Nombre completo", "Email"])
+        self.assertEqual(parsed["rows"], [["Ana Persona", "ana@example.com"]])
+
+    def test_import_refuses_existing_group_number(self):
+        FormGroup.objects.create(
+            number=8,
+            start_day=1,
+            start_month="enero",
+            end_month="abril",
+            year=2022,
+        )
+        response = self.client.post(
+            reverse("admin_historical_group_import"),
+            data={
+                "action": "preview",
+                "group_number": "8",
+                "group_name": "Duplicate",
+                "start_day": "1",
+                "start_month": "enero",
+                "end_month": "abril",
+                "year": "2022",
+                "mentoras_file": SimpleUploadedFile(
+                    "mentoras.csv",
+                    b"Email\nmentor@example.com\n",
+                    content_type="text/csv",
+                ),
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertContains(response, "Group 8 already exists", status_code=400)
+        self.assertFalse(HistoricalGroupImport.objects.exists())
 
 
 class ParticipantsPageSafetyTests(TestCase):

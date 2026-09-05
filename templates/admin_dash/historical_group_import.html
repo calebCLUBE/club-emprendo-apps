@@ -1,0 +1,206 @@
+{% extends "admin/base_site.html" %}
+{% load inline_static %}
+
+{% block content %}
+<style>{% inline_static 'admin_workspace.css' %}</style>
+
+<main class="ce-workspace">
+  <header class="ce-work-header">
+    <div>
+      <p class="ce-work-eyebrow">Groups & applications</p>
+      <h1 class="ce-work-title">Import historical group</h1>
+      <p class="ce-work-lede">
+        Add a cohort that existed before the website without cloning the current applications.
+        Original source columns are preserved as legacy answers.
+      </p>
+    </div>
+    <nav class="ce-work-actions" aria-label="Historical import links">
+      <a class="ce-work-btn ce-work-btn--secondary" href="{% url 'admin_apps_list' %}">Groups & applications</a>
+      <a class="ce-work-btn ce-work-btn--secondary" href="{% url 'admin_profiles_participants' %}">Participants</a>
+      <a class="ce-work-btn ce-work-btn--quiet" href="/admin/">Admin home</a>
+    </nav>
+  </header>
+
+  {% if errors %}
+    <section class="ce-work-panel">
+      <div class="ce-work-panel__body">
+        <div class="ce-work-callout" style="border-left-color:#a22b2b; background:#fff4f4;">
+          <strong>The import needs attention:</strong>
+          <ul>
+            {% for error in errors %}<li>{{ error }}</li>{% endfor %}
+          </ul>
+        </div>
+      </div>
+    </section>
+  {% endif %}
+
+  {% if draft %}
+    <section class="ce-work-panel">
+      <div class="ce-work-panel__head">
+        <div>
+          <h2 class="ce-work-panel__title">Preview: Group {{ draft.group_number }} · {{ draft.group_name }}</h2>
+          <p class="ce-work-panel__hint">
+            {{ draft.start_day }} {{ draft.start_month }} – {{ draft.end_month }} {{ draft.year }}.
+            No group or participant records have been created yet.
+          </p>
+        </div>
+        <span class="ce-work-status ce-work-status--warning">Preview only</span>
+      </div>
+      <div class="ce-work-panel__body">
+        <div class="ce-work-callout">
+          Check each suggested mapping. Choose “Do not map” when an old column should remain only
+          in the preserved legacy answers. Email is used for history and completion checks.
+        </div>
+
+        <form method="post" style="margin-top:16px;">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="import">
+          <input type="hidden" name="draft_id" value="{{ draft.id }}">
+
+          {% for preview in track_previews %}
+            <details class="ce-work-details" open>
+              <summary>{{ preview.label }} · {{ preview.row_count }} source row{{ preview.row_count|pluralize }}</summary>
+              <div class="ce-work-details__body">
+                <div class="ce-work-grid-2">
+                  {% for field in preview.mapping_fields %}
+                    <div class="ce-work-field">
+                      <label for="{{ preview.track }}_{{ field.name }}">{{ field.label }}</label>
+                      <select class="ce-work-input" id="{{ preview.track }}_{{ field.name }}" name="{{ preview.track }}_{{ field.name }}">
+                        <option value="">Do not map</option>
+                        {% for header in preview.headers %}
+                          <option value="{{ header }}" {% if field.selected == header %}selected{% endif %}>{{ header }}</option>
+                        {% endfor %}
+                      </select>
+                    </div>
+                  {% endfor %}
+                </div>
+
+                <h3 class="ce-work-panel__title" style="font-size:15px; margin-top:20px;">First rows from {{ preview.label }}</h3>
+                <div style="overflow:auto; max-height:340px; border:1px solid #d9d5cc; border-radius:10px;">
+                  <table style="border-collapse:collapse; min-width:100%; background:#fff;">
+                    <thead>
+                      <tr>
+                        {% for header in preview.headers %}
+                          <th style="padding:9px; text-align:left; border-bottom:1px solid #d9d5cc; white-space:nowrap;">{{ header }}</th>
+                        {% endfor %}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {% for row in preview.sample_rows %}
+                        <tr>
+                          {% for value in row %}
+                            <td style="padding:9px; border-bottom:1px solid #eeeae2; max-width:260px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ value }}</td>
+                          {% endfor %}
+                        </tr>
+                      {% empty %}
+                        <tr><td style="padding:12px;">The file has headers but no data rows.</td></tr>
+                      {% endfor %}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </details>
+          {% endfor %}
+
+          <div class="ce-work-actions" style="margin-top:18px;">
+            <button
+              type="submit"
+              class="ce-work-btn"
+              onclick="return confirm('Import historical Group {{ draft.group_number }}? This will create the group and participant records without current application forms.');"
+            >Import historical group</button>
+            <a class="ce-work-btn ce-work-btn--secondary" href="{% url 'admin_historical_group_import' %}">Start over</a>
+          </div>
+        </form>
+      </div>
+    </section>
+  {% else %}
+    <section class="ce-work-panel">
+      <div class="ce-work-panel__head">
+        <div>
+          <h2 class="ce-work-panel__title">1. Group details and source files</h2>
+          <p class="ce-work-panel__hint">CSV and XLSX files are accepted. Upload at least one track.</p>
+        </div>
+      </div>
+      <div class="ce-work-panel__body">
+        <form method="post" enctype="multipart/form-data">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="preview">
+          <div class="ce-work-date-grid">
+            <div class="ce-work-field">
+              <label for="group_number">Exact historical group number</label>
+              <input class="ce-work-input" id="group_number" name="group_number" type="number" min="1" required value="{{ values.group_number }}">
+            </div>
+            <div class="ce-work-field">
+              <label for="group_name">Group name</label>
+              <input class="ce-work-input" id="group_name" name="group_name" maxlength="120" required placeholder="e.g. Grupo 5 - Enero 2024" value="{{ values.group_name }}">
+            </div>
+            <div class="ce-work-field">
+              <label for="start_day">Start day</label>
+              <input class="ce-work-input" id="start_day" name="start_day" type="number" min="1" max="31" required value="{{ values.start_day|default:'1' }}">
+            </div>
+            <div class="ce-work-field">
+              <label for="start_month">Start month</label>
+              <select class="ce-work-input" id="start_month" name="start_month" required>
+                <option value="">Choose…</option>
+                {% for month in months %}<option value="{{ month }}" {% if values.start_month == month %}selected{% endif %}>{{ month }}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="ce-work-field">
+              <label for="end_month">End month</label>
+              <select class="ce-work-input" id="end_month" name="end_month" required>
+                <option value="">Choose…</option>
+                {% for month in months %}<option value="{{ month }}" {% if values.end_month == month %}selected{% endif %}>{{ month }}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="ce-work-field">
+              <label for="year">Year</label>
+              <input class="ce-work-input" id="year" name="year" type="number" min="1900" max="2100" required value="{{ values.year }}">
+            </div>
+          </div>
+
+          <div class="ce-work-grid-2" style="margin-top:18px;">
+            <div class="ce-work-field">
+              <label for="mentoras_file">Mentoras file</label>
+              <input class="ce-work-input" id="mentoras_file" name="mentoras_file" type="file" accept=".csv,.xlsx">
+              <div class="ce-work-muted">Maximum 10 MB and 20,000 data rows.</div>
+            </div>
+            <div class="ce-work-field">
+              <label for="emprendedoras_file">Emprendedoras file</label>
+              <input class="ce-work-input" id="emprendedoras_file" name="emprendedoras_file" type="file" accept=".csv,.xlsx">
+              <div class="ce-work-muted">Maximum 10 MB and 20,000 data rows.</div>
+            </div>
+          </div>
+
+          <div class="ce-work-actions" style="margin-top:18px;">
+            <button type="submit" class="ce-work-btn">Preview files and map columns</button>
+          </div>
+        </form>
+      </div>
+    </section>
+  {% endif %}
+
+  {% if recent_imports %}
+    <section class="ce-work-panel">
+      <div class="ce-work-panel__head">
+        <div>
+          <h2 class="ce-work-panel__title">Recent historical imports</h2>
+          <p class="ce-work-panel__hint">Preview records provide an audit trail of the uploaded source data.</p>
+        </div>
+      </div>
+      <div class="ce-work-panel__body">
+        {% for item in recent_imports %}
+          <div style="padding:10px 0; border-bottom:1px solid #eeeae2;">
+            <strong>G{{ item.group_number }} · {{ item.group_name }}</strong>
+            <span class="ce-work-muted"> · {{ item.get_status_display }} · {{ item.created_at|date:"M j, Y H:i" }}</span>
+            {% if item.status == "preview" %}
+              · <a href="{% url 'admin_historical_group_import' %}?draft={{ item.id }}">Open preview</a>
+            {% elif item.group %}
+              · <a href="{% url 'admin_profiles_participants' %}?group={{ item.group.number }}">Open participants</a>
+            {% endif %}
+          </div>
+        {% endfor %}
+      </div>
+    </section>
+  {% endif %}
+</main>
+{% endblock %}

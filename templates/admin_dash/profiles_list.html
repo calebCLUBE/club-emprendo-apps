@@ -236,7 +236,11 @@
             <td>{{ p.email }}</td>
             <td>
               <strong>{{ p.applicant_name }}</strong>
-              <div class="ce-muted">{{ p.application_count }} application{{ p.application_count|pluralize }}</div>
+              {% if p.is_historical %}
+                <div class="ce-muted">{{ p.application_count }} historical record{{ p.application_count|pluralize }}</div>
+              {% else %}
+                <div class="ce-muted">{{ p.application_count }} application{{ p.application_count|pluralize }}</div>
+              {% endif %}
             </td>
             <td>
               {% if p.group_num %}<span class="ce-pill">Group {{ p.group_num }}</span>{% else %}<span class="ce-pill">Ungrouped</span>{% endif %}

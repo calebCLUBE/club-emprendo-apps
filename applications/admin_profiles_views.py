@@ -25,7 +25,7 @@ from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.core.management import call_command
 from django.core.validators import validate_email
-from django.db import connection
+from django.db import connection, transaction
 from django.db.models import Prefetch
 from django.http import HttpResponse, JsonResponse, HttpResponseNotAllowed
 from django.shortcuts import redirect, render
@@ -49,9 +49,12 @@ from .models import (
     FormGroup,
     GradedFile,
     GroupParticipantList,
+    HistoricalGroupImport,
+    HistoricalParticipant,
     ParticipantSheetVersion,
     ParticipantEmailStatus,
 )
+from .historical_import import FIELD_LABELS, parse_uploaded_table, suggested_mapping
 from .participant_statuses import (
     PARTICIPANT_STATUS_GRADUATED,
     PARTICIPANT_STATUS_SHEET_LABELS,
@@ -3763,9 +3766,6 @@ def _build_profiles_uncached():
         )
         .order_by("-created_at", "-id")
     )
-    if not apps:
-        return []
-
     app_data_by_id: dict[int, dict] = {}
     for app in apps:
         answer_map = {}
@@ -3988,7 +3988,97 @@ def _build_profiles_uncached():
         ).lower()
         profiles.append(profile)
 
-    profiles.sort(key=lambda p: (p["applied_at"], p["application_id"]), reverse=True)
+    # Historical cohorts can predate the website and therefore have no
+    # Application rows. Add those preserved source records as profiles unless
+    # the same email or document ID already belongs to a website profile.
+    application_identity_tokens = {
+        token
+        for payload in app_data_by_id.values()
+        for token in payload["tokens"]
+    }
+    historical_clusters: dict[str, list[HistoricalParticipant]] = defaultdict(list)
+    historical_rows = list(
+        HistoricalParticipant.objects.select_related("group", "source_import")
+        .order_by("source_row_number", "id")
+    )
+    for historical in historical_rows:
+        email_norm = _normalize_email(historical.email)
+        identity_norm = _normalize_identity(historical.document_id)
+        tokens = {
+            token
+            for token in (_email_token(email_norm), _id_token(identity_norm))
+            if token
+        }
+        if tokens.intersection(application_identity_tokens):
+            continue
+        cluster_key = (
+            _email_token(email_norm)
+            or _id_token(identity_norm)
+            or f"historical:{historical.id}"
+        )
+        historical_clusters[cluster_key].append(historical)
+
+    for historical_items in historical_clusters.values():
+        latest = max(
+            historical_items,
+            key=lambda item: (
+                item.source_import.imported_at or item.source_import.created_at,
+                item.id,
+            ),
+        )
+        email_norm = _normalize_email(latest.email)
+        identity_norm = _normalize_identity(latest.document_id)
+        profile_key = (
+            _build_profile_key(identity_norm, email_norm, latest.id)
+            if identity_norm or email_norm
+            else _normalize_profile_key(f"historical_{latest.id}")
+        )
+        overview_rows = [
+            {"label": str(label), "value": str(value)}
+            for label, value in (latest.answers or {}).items()
+            if str(value or "").strip()
+        ]
+        profile = {
+            "profile_key": profile_key,
+            "identity_key": identity_norm or email_norm or profile_key,
+            "identity_display": latest.document_id or "—",
+            "applicant_name": latest.name or "—",
+            "email": latest.email or "—",
+            "group_num": latest.group.number,
+            "track": "M" if latest.track == "mentoras" else "E",
+            "form_slug": "Historical import",
+            "form_name": latest.source_filename or "Historical source file",
+            "applied_at": latest.source_import.imported_at or latest.source_import.created_at,
+            "application_id": None,
+            "application_count": len(historical_items),
+            "calificacion_status": "Historical - not graded",
+            "recommendation": "",
+            "overall_score": "",
+            "tablestakes_score": "",
+            "commitment_score": "",
+            "nice_to_have_score": "",
+            "is_graded": False,
+            "graded_file_slug": "",
+            "graded_file_created_at": None,
+            "overview_rows": overview_rows,
+            "is_historical": True,
+        }
+        profile["search_text"] = " ".join(
+            [
+                str(profile["identity_display"]),
+                str(profile["identity_key"]),
+                str(profile["applicant_name"]),
+                str(profile["email"]),
+                str(profile["group_num"]),
+                " ".join(str(value) for value in (latest.answers or {}).values()),
+            ]
+        ).lower()
+        profiles.append(profile)
+
+    profiles.sort(
+        key=lambda p: (p["applied_at"], p.get("application_id") or 0),
+        reverse=True,
+    )
     return profiles
 
 
@@ -3996,12 +4086,19 @@ def _build_profiles():
     latest_app = Application.objects.order_by("-id").values_list("id", "created_at").first()
     latest_grade = GradedFile.objects.order_by("-id").values_list("id", "created_at").first()
     app_count = Application.objects.count()
-    cache_key = "admin:profiles:v2:{}:{}:{}:{}:{}".format(
+    latest_historical = HistoricalParticipant.objects.order_by("-id").values_list(
+        "id", "created_at"
+    ).first()
+    historical_count = HistoricalParticipant.objects.count()
+    cache_key = "admin:profiles:v3:{}:{}:{}:{}:{}:{}:{}:{}".format(
         app_count,
         latest_app[0] if latest_app else 0,
         latest_app[1].isoformat() if latest_app else "none",
         latest_grade[0] if latest_grade else 0,
         latest_grade[1].isoformat() if latest_grade else "none",
+        historical_count,
+        latest_historical[0] if latest_historical else 0,
+        latest_historical[1].isoformat() if latest_historical else "none",
     )
     cached = cache.get(cache_key)
     if cached is not None:
@@ -4228,6 +4325,368 @@ def profiles_participant_history(request):
         "history_report": history_report,
     }
     return render(request, "admin_dash/profiles_participant_history.html", context)
+
+
+HISTORICAL_IMPORT_MONTHS = [
+    "enero",
+    "febrero",
+    "marzo",
+    "abril",
+    "mayo",
+    "junio",
+    "julio",
+    "agosto",
+    "septiembre",
+    "octubre",
+    "noviembre",
+    "diciembre",
+]
+
+
+def _historical_import_context(*, draft=None, errors=None, values=None):
+    track_previews = []
+    if draft:
+        stored_mapping = draft.field_mapping or {}
+        for track, label, data_field in (
+            ("mentoras", "Mentoras", "mentoras_data"),
+            ("emprendedoras", "Emprendedoras", "emprendedoras_data"),
+        ):
+            data = getattr(draft, data_field, {}) or {}
+            headers = list(data.get("headers") or [])
+            if not headers:
+                continue
+            mapping = stored_mapping.get(track) or suggested_mapping(headers)
+            track_previews.append({
+                "track": track,
+                "label": label,
+                "headers": headers,
+                "row_count": len(data.get("rows") or []),
+                "sample_rows": list(data.get("rows") or [])[:5],
+                "mapping_fields": [
+                    {
+                        "name": field_name,
+                        "label": field_label,
+                        "selected": mapping.get(field_name, ""),
+                    }
+                    for field_name, field_label in FIELD_LABELS
+                ],
+            })
+    return {
+        "draft": draft,
+        "errors": errors or [],
+        "values": values or {},
+        "months": HISTORICAL_IMPORT_MONTHS,
+        "track_previews": track_previews,
+        "recent_imports": HistoricalGroupImport.objects.select_related("group", "created_by")[:10],
+    }
+
+
+def _clean_historical_group_metadata(post_data) -> tuple[dict, list[str]]:
+    values = {
+        "group_number": (post_data.get("group_number") or "").strip(),
+        "group_name": (post_data.get("group_name") or "").strip(),
+        "start_day": (post_data.get("start_day") or "1").strip(),
+        "start_month": (post_data.get("start_month") or "").strip().lower(),
+        "end_month": (post_data.get("end_month") or "").strip().lower(),
+        "year": (post_data.get("year") or "").strip(),
+    }
+    errors = []
+    if not values["group_number"].isdigit() or int(values["group_number"] or 0) < 1:
+        errors.append("Enter a valid positive group number.")
+    elif FormGroup.objects.filter(number=int(values["group_number"])).exists():
+        errors.append(f"Group {values['group_number']} already exists.")
+    if not values["group_name"]:
+        errors.append("Enter the historical group name.")
+    if not values["start_day"].isdigit() or not 1 <= int(values["start_day"] or 0) <= 31:
+        errors.append("Start day must be between 1 and 31.")
+    if values["start_month"] not in HISTORICAL_IMPORT_MONTHS:
+        errors.append("Choose a valid start month.")
+    if values["end_month"] not in HISTORICAL_IMPORT_MONTHS:
+        errors.append("Choose a valid end month.")
+    if not values["year"].isdigit() or not 1900 <= int(values["year"] or 0) <= 2100:
+        errors.append("Enter a valid four-digit year.")
+    return values, errors
+
+
+def _posted_historical_mapping(request, track: str, headers: list[str]) -> tuple[dict, list[str]]:
+    allowed = set(headers)
+    mapping = {}
+    errors = []
+    for field_name, field_label in FIELD_LABELS:
+        selected = (request.POST.get(f"{track}_{field_name}") or "").strip()
+        if selected and selected not in allowed:
+            errors.append(f"{track.title()}: invalid column selected for {field_label}.")
+            selected = ""
+        mapping[field_name] = selected
+    if not mapping.get("email") and not mapping.get("id") and not mapping.get("name"):
+        errors.append(f"{track.title()} needs at least a Nombre, Email, or ID mapping.")
+    return mapping, errors
+
+
+def _historical_track_import_data(draft, track: str, mapping: dict) -> dict:
+    cfg = _participant_track_sheet_configs()[track]
+    data = getattr(draft, f"{track}_data", {}) or {}
+    headers = list(data.get("headers") or [])
+    source_rows = list(data.get("rows") or [])
+    index_by_header = {header: index for index, header in enumerate(headers)}
+    field_indexes = {
+        field_name: index_by_header.get(header) if header else None
+        for field_name, header in mapping.items()
+    }
+    canonical_rows = []
+    historical_rows = []
+    seen_participants = set()
+    duplicates_skipped = 0
+    filename = getattr(draft, f"{track}_filename", "")
+
+    for source_row_number, source_row in enumerate(source_rows, start=2):
+        values = list(source_row) + [""] * max(0, len(headers) - len(source_row))
+        answers = {
+            header: str(values[index] or "").strip()
+            for index, header in enumerate(headers)
+        }
+        canonical = _participant_source_row_to_sheet_row(
+            values,
+            headers,
+            cfg,
+            field_indexes,
+        )
+        # Historical exports commonly represent checkboxes as Si/Yes rather
+        # than native spreadsheet booleans. Because the administrator mapped
+        # these columns explicitly, those affirmative values are safe to use.
+        historical_true_values = {
+            "1",
+            "true",
+            "checked",
+            "on",
+            "x",
+            "yes",
+            "y",
+            "si",
+            "sí",
+            "completo",
+            "completado",
+            "completed",
+            "✓",
+        }
+        for checkbox_field, target_index in _participant_checkbox_specs(cfg):
+            source_index = field_indexes.get(checkbox_field)
+            if source_index is None or source_index >= len(values):
+                continue
+            raw_checkbox = str(values[source_index] or "").strip().lower()
+            canonical[target_index] = raw_checkbox in historical_true_values
+        name = str(canonical[3] or "").strip()
+        document_id = str(canonical[4] or "").strip()
+        raw_email = str(canonical[cfg["email_col"]] or "").strip()
+        email = _normalize_email(raw_email)
+        try:
+            validate_email(email)
+        except ValidationError:
+            email = ""
+
+        historical_rows.append(HistoricalParticipant(
+            source_import=draft,
+            track=track,
+            name=name[:255],
+            email=email[:254],
+            document_id=document_id[:120],
+            whatsapp=str(canonical[6] or "").strip()[:120],
+            country=str(canonical[7] or "").strip()[:120],
+            age=str(canonical[8] or "").strip()[:80],
+            status=str(canonical[1] or "").strip()[:120],
+            source_filename=filename[:255],
+            source_row_number=source_row_number,
+            answers=answers,
+        ))
+
+        if not (name or document_id or raw_email):
+            continue
+        identity_key = (
+            ("email", email)
+            if email
+            else (("id", _normalize_identity(document_id)) if document_id else ("row", source_row_number))
+        )
+        if identity_key in seen_participants:
+            duplicates_skipped += 1
+            continue
+        seen_participants.add(identity_key)
+        canonical_rows.append(canonical)
+
+    canonical_rows = _apply_contract_signed_to_rows(
+        canonical_rows,
+        email_col=cfg["email_col"],
+        acta_col=cfg["acta_col"],
+    )
+    canonical_rows = _number_sheet_rows(canonical_rows, number_col=2)
+    valid_emails = _emails_from_sheet_rows(canonical_rows, cfg["email_col"])
+    return {
+        "canonical_rows": canonical_rows,
+        "historical_rows": historical_rows,
+        "valid_emails": valid_emails,
+        "duplicates_skipped": duplicates_skipped,
+        "source_count": len(source_rows),
+    }
+
+
+@staff_member_required
+def historical_group_import(request):
+    draft = None
+    draft_id = (request.GET.get("draft") or request.POST.get("draft_id") or "").strip()
+    if draft_id.isdigit():
+        draft = HistoricalGroupImport.objects.filter(id=int(draft_id)).first()
+
+    if request.method == "POST" and request.POST.get("action") == "preview":
+        values, errors = _clean_historical_group_metadata(request.POST)
+        mentoras_file = request.FILES.get("mentoras_file")
+        emprendedoras_file = request.FILES.get("emprendedoras_file")
+        if not mentoras_file and not emprendedoras_file:
+            errors.append("Upload at least one Mentoras or Emprendedoras file.")
+
+        parsed = {}
+        for track, uploaded in (("mentoras", mentoras_file), ("emprendedoras", emprendedoras_file)):
+            if not uploaded:
+                parsed[track] = {}
+                continue
+            try:
+                parsed[track] = parse_uploaded_table(uploaded)
+            except ValueError as exc:
+                errors.append(f"{track.title()}: {exc}")
+
+        if errors:
+            return render(
+                request,
+                "admin_dash/historical_group_import.html",
+                _historical_import_context(errors=errors, values=values),
+                status=400,
+            )
+
+        draft = HistoricalGroupImport.objects.create(
+            group_number=int(values["group_number"]),
+            group_name=values["group_name"],
+            start_day=int(values["start_day"]),
+            start_month=values["start_month"],
+            end_month=values["end_month"],
+            year=int(values["year"]),
+            mentoras_filename=getattr(mentoras_file, "name", "") or "",
+            emprendedoras_filename=getattr(emprendedoras_file, "name", "") or "",
+            mentoras_data=parsed["mentoras"],
+            emprendedoras_data=parsed["emprendedoras"],
+            created_by=request.user,
+        )
+        return redirect(f"{reverse('admin_historical_group_import')}?draft={draft.id}")
+
+    if request.method == "POST" and request.POST.get("action") == "import":
+        if not draft:
+            messages.error(request, "The import preview could not be found. Upload the files again.")
+            return redirect("admin_historical_group_import")
+        if draft.status == HistoricalGroupImport.STATUS_IMPORTED:
+            messages.info(request, f"This preview already created Group {draft.group_number}.")
+            return redirect(f"{reverse('admin_profiles_participants')}?group={draft.group_number}")
+        if FormGroup.objects.filter(number=draft.group_number).exists():
+            return render(
+                request,
+                "admin_dash/historical_group_import.html",
+                _historical_import_context(
+                    draft=draft,
+                    errors=[f"Group {draft.group_number} now exists. Nothing was imported."],
+                ),
+                status=409,
+            )
+
+        mappings = {}
+        errors = []
+        for track in ("mentoras", "emprendedoras"):
+            data = getattr(draft, f"{track}_data", {}) or {}
+            if not data.get("headers"):
+                continue
+            mappings[track], track_errors = _posted_historical_mapping(
+                request,
+                track,
+                list(data.get("headers") or []),
+            )
+            errors.extend(track_errors)
+        if errors:
+            draft.field_mapping = mappings
+            draft.save(update_fields=["field_mapping"])
+            return render(
+                request,
+                "admin_dash/historical_group_import.html",
+                _historical_import_context(draft=draft, errors=errors),
+                status=400,
+            )
+
+        prepared = {
+            track: _historical_track_import_data(draft, track, mapping)
+            for track, mapping in mappings.items()
+        }
+        all_emails = []
+        with transaction.atomic():
+            group = FormGroup.objects.create(
+                number=draft.group_number,
+                start_day=draft.start_day,
+                start_month=draft.start_month,
+                end_month=draft.end_month,
+                year=draft.year,
+                use_combined_application=False,
+                custom_name=draft.group_name,
+                is_active=True,
+            )
+            participant_defaults = {
+                "mentoras_sheet_rows": prepared.get("mentoras", {}).get("canonical_rows", []),
+                "emprendedoras_sheet_rows": prepared.get("emprendedoras", {}).get("canonical_rows", []),
+                "mentoras_emails_text": "\n".join(prepared.get("mentoras", {}).get("valid_emails", [])),
+                "emprendedoras_emails_text": "\n".join(prepared.get("emprendedoras", {}).get("valid_emails", [])),
+            }
+            GroupParticipantList.objects.create(group=group, **participant_defaults)
+            historical_objects = []
+            for item in prepared.values():
+                all_emails.extend(item["valid_emails"])
+                for participant in item["historical_rows"]:
+                    participant.group = group
+                    historical_objects.append(participant)
+            HistoricalParticipant.objects.bulk_create(historical_objects, batch_size=500)
+            participation_counts = _mark_participated_yes(list(dict.fromkeys(all_emails)))
+            summary = {
+                track: {
+                    "source_rows": item["source_count"],
+                    "participant_rows": len(item["canonical_rows"]),
+                    "duplicates_skipped": item["duplicates_skipped"],
+                }
+                for track, item in prepared.items()
+            }
+            summary["profiles"] = {
+                "created": participation_counts[0],
+                "updated": participation_counts[1],
+                "already_participated": participation_counts[2],
+            }
+            draft.group = group
+            draft.field_mapping = mappings
+            draft.import_summary = summary
+            draft.status = HistoricalGroupImport.STATUS_IMPORTED
+            draft.imported_at = timezone.now()
+            draft.save(update_fields=[
+                "group",
+                "field_mapping",
+                "import_summary",
+                "status",
+                "imported_at",
+            ])
+
+        messages.success(
+            request,
+            (
+                f"Historical Group {draft.group_number} imported without creating current application forms. "
+                f"Mentoras: {len(prepared.get('mentoras', {}).get('canonical_rows', []))}; "
+                f"Emprendedoras: {len(prepared.get('emprendedoras', {}).get('canonical_rows', []))}."
+            ),
+        )
+        return redirect(f"{reverse('admin_profiles_participants')}?group={draft.group_number}")
+
+    return render(
+        request,
+        "admin_dash/historical_group_import.html",
+        _historical_import_context(draft=draft),
+    )
 
 
 @staff_member_required

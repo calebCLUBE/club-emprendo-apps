@@ -12,6 +12,11 @@ urlpatterns = [
     path("dashboards/application-progress/", admin_dashboard_views.application_progress_dashboard, name="admin_application_progress_dashboard"),
     path("dashboards/impact/report.pdf", admin_dashboard_views.impact_dashboard_pdf, name="admin_impact_dashboard_pdf"),
     path("apps/create-group/", admin_views.create_group, name="admin_create_group"),
+    path(
+        "apps/import-historical-group/",
+        admin_profiles_views.historical_group_import,
+        name="admin_historical_group_import",
+    ),
     path("apps/rename-group/<int:group_num>/", admin_views.rename_group, name="admin_rename_group"),
     path("apps/update-group/<int:group_num>/", admin_views.update_group_dates, name="admin_update_group"),
     path("apps/delete-group/<int:group_num>/", admin_views.delete_group, name="admin_delete_group"),

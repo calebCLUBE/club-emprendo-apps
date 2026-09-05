@@ -16,6 +16,7 @@
     </div>
     <nav class="ce-work-actions" aria-label="Group page links">
       <a class="ce-work-btn ce-work-btn--secondary" href="{% url 'admin_profiles_participants' %}">Participants</a>
+      <a class="ce-work-btn ce-work-btn--secondary" href="{% url 'admin_historical_group_import' %}">Import historical group</a>
       <a class="ce-work-btn ce-work-btn--quiet" href="/admin/">Admin home</a>
     </nav>
   </header>
@@ -98,6 +99,12 @@
       </form>
     </div>
   </details>
+
+  <div class="ce-work-callout" style="margin:18px 0;">
+    Adding a cohort from before the website?
+    <a href="{% url 'admin_historical_group_import' %}"><strong>Import a historical group</strong></a>
+    without cloning today’s application forms.
+  </div>
 
   <section class="ce-work-panel">
     <div class="ce-work-panel__head">

@@ -73,7 +73,7 @@
     <div class="ce-actions">
       <a class="ce-btn ce-btn--ghost" href="{% url 'admin_profiles_list' %}">Back to profiles</a>
       <a class="ce-btn ce-btn--ghost" href="{% url 'admin_database' %}">Database</a>
-      {% if profile %}
+      {% if profile and profile.application_id %}
         <a class="ce-btn ce-btn--ghost" href="{% url 'admin_database_submission_detail' profile.application_id %}">Open submission</a>
       {% endif %}
     </div>
@@ -159,7 +159,7 @@
       </div>
 
       <section class="ce-panel" style="margin-top:12px;">
-        <h2>Latest Application Fields</h2>
+          <h2>{% if profile.is_historical %}Original Historical Fields{% else %}Latest Application Fields{% endif %}</h2>
         <table class="ce-table">
           <thead>
             <tr>
@@ -175,7 +175,7 @@
               </tr>
             {% empty %}
               <tr>
-                <td colspan="2">No additional overview fields found in the latest application.</td>
+                <td colspan="2">No additional fields were found.</td>
               </tr>
             {% endfor %}
           </tbody>

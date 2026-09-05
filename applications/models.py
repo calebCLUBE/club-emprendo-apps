@@ -1111,6 +1111,103 @@ class GroupParticipantList(models.Model):
         return f"Group {self.group.number} participants"
 
 
+class HistoricalGroupImport(models.Model):
+    STATUS_PREVIEW = "preview"
+    STATUS_IMPORTED = "imported"
+    STATUS_CHOICES = [
+        (STATUS_PREVIEW, "Preview ready"),
+        (STATUS_IMPORTED, "Imported"),
+    ]
+
+    group_number = models.PositiveIntegerField(db_index=True)
+    group_name = models.CharField(max_length=120, blank=True, default="")
+    start_day = models.PositiveIntegerField(default=1)
+    start_month = models.CharField(max_length=30)
+    end_month = models.CharField(max_length=30)
+    year = models.PositiveIntegerField()
+    mentoras_filename = models.CharField(max_length=255, blank=True, default="")
+    emprendedoras_filename = models.CharField(max_length=255, blank=True, default="")
+    mentoras_data = models.JSONField(default=dict, blank=True)
+    emprendedoras_data = models.JSONField(default=dict, blank=True)
+    field_mapping = models.JSONField(default=dict, blank=True)
+    import_summary = models.JSONField(default=dict, blank=True)
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default=STATUS_PREVIEW,
+        db_index=True,
+    )
+    group = models.ForeignKey(
+        FormGroup,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="historical_imports",
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="historical_group_imports",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    imported_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+
+    def __str__(self) -> str:
+        return f"Historical G{self.group_number} import ({self.status})"
+
+
+class HistoricalParticipant(models.Model):
+    TRACK_CHOICES = [
+        ("mentoras", "Mentoras"),
+        ("emprendedoras", "Emprendedoras"),
+    ]
+
+    group = models.ForeignKey(
+        FormGroup,
+        on_delete=models.CASCADE,
+        related_name="historical_participants",
+    )
+    source_import = models.ForeignKey(
+        HistoricalGroupImport,
+        on_delete=models.CASCADE,
+        related_name="participants",
+    )
+    track = models.CharField(max_length=24, choices=TRACK_CHOICES, db_index=True)
+    name = models.CharField(max_length=255, blank=True, default="")
+    email = models.EmailField(blank=True, default="", db_index=True)
+    document_id = models.CharField(max_length=120, blank=True, default="", db_index=True)
+    whatsapp = models.CharField(max_length=120, blank=True, default="")
+    country = models.CharField(max_length=120, blank=True, default="")
+    age = models.CharField(max_length=80, blank=True, default="")
+    status = models.CharField(max_length=120, blank=True, default="")
+    source_filename = models.CharField(max_length=255, blank=True, default="")
+    source_row_number = models.PositiveIntegerField(default=0)
+    answers = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["group__number", "track", "source_row_number", "id"]
+        indexes = [
+            models.Index(
+                fields=["group", "track", "email"],
+                name="applicatio_group_i_14fc62_idx",
+            ),
+            models.Index(
+                fields=["group", "track", "document_id"],
+                name="applicatio_group_i_e22a1c_idx",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        identity = self.name or self.email or self.document_id or f"row {self.source_row_number}"
+        return f"G{self.group.number} {self.get_track_display()}: {identity}"
+
+
 class ParticipantSheetVersion(models.Model):
     TRACK_CHOICES = [
         ("mentoras", "Mentoras"),

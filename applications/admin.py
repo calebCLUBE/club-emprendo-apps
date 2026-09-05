@@ -23,6 +23,8 @@ from .models import (
     GradingCriterion,
     GradingResponseWeight,
     GroupParticipantList,
+    HistoricalGroupImport,
+    HistoricalParticipant,
     PairingAIComparison,
     PairingConfig,
     PairingPriorityRule,
@@ -1291,6 +1293,70 @@ class GroupParticipantListAdmin(admin.ModelAdmin):
     list_display = ("group", "updated_at", "created_at")
     search_fields = ("group__number",)
     ordering = ("-group__number",)
+
+
+@admin.register(HistoricalGroupImport)
+class HistoricalGroupImportAdmin(admin.ModelAdmin):
+    list_display = (
+        "group_number",
+        "group_name",
+        "status",
+        "group",
+        "created_by",
+        "created_at",
+        "imported_at",
+    )
+    list_filter = ("status", "year", "created_at")
+    search_fields = ("group_number", "group_name", "mentoras_filename", "emprendedoras_filename")
+    readonly_fields = (
+        "group",
+        "created_by",
+        "mentoras_data",
+        "emprendedoras_data",
+        "field_mapping",
+        "import_summary",
+        "created_at",
+        "imported_at",
+    )
+    ordering = ("-created_at", "-id")
+
+    def has_add_permission(self, request):
+        return False
+
+
+@admin.register(HistoricalParticipant)
+class HistoricalParticipantAdmin(admin.ModelAdmin):
+    list_display = (
+        "group",
+        "track",
+        "name",
+        "email",
+        "document_id",
+        "source_filename",
+        "source_row_number",
+    )
+    list_filter = ("track", "group")
+    search_fields = ("name", "email", "document_id", "group__number")
+    readonly_fields = (
+        "group",
+        "source_import",
+        "track",
+        "name",
+        "email",
+        "document_id",
+        "whatsapp",
+        "country",
+        "age",
+        "status",
+        "source_filename",
+        "source_row_number",
+        "answers",
+        "created_at",
+    )
+    ordering = ("-group__number", "track", "source_row_number")
+
+    def has_add_permission(self, request):
+        return False
 
 
 @admin.register(ParticipantSheetVersion)

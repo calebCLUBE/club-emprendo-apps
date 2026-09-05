@@ -1,6 +1,28 @@
 """Production Gunicorn defaults tuned for Render's memory-constrained instances."""
 
 import os
+import subprocess
+import sys
+from pathlib import Path
+
+
+PROJECT_ROOT = Path(__file__).resolve().parent
+
+
+def on_starting(server):
+    """Apply database migrations before Gunicorn starts any web workers.
+
+    Render can override the Procfile with a dashboard Start Command. Keeping
+    this in Gunicorn's master startup hook ensures a deploy cannot serve new
+    model code against the previous database schema, even when that override
+    is present.
+    """
+    server.log.info("Applying Django database migrations before worker startup")
+    subprocess.run(
+        [sys.executable, str(PROJECT_ROOT / "manage.py"), "migrate", "--noinput"],
+        cwd=PROJECT_ROOT,
+        check=True,
+    )
 
 
 # Threads preserve request concurrency without loading a second full copy of Django,

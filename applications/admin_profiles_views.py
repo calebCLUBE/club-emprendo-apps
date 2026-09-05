@@ -25,7 +25,7 @@ from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.core.management import call_command
 from django.core.validators import validate_email
-from django.db import connection, transaction
+from django.db import DatabaseError, connection, transaction
 from django.db.models import Prefetch
 from django.http import HttpResponse, JsonResponse, HttpResponseNotAllowed
 from django.shortcuts import redirect, render
@@ -4344,6 +4344,16 @@ HISTORICAL_IMPORT_MONTHS = [
 
 
 def _historical_import_context(*, draft=None, errors=None, values=None):
+    form_values = {
+        "group_number": "",
+        "group_name": "",
+        "start_day": "1",
+        "start_month": "",
+        "end_month": "",
+        "year": "",
+        "end_year": "",
+    }
+    form_values.update(values or {})
     track_previews = []
     if draft:
         stored_mapping = draft.field_mapping or {}
@@ -4371,13 +4381,25 @@ def _historical_import_context(*, draft=None, errors=None, values=None):
                     for field_name, field_label in FIELD_LABELS
                 ],
             })
+    context_errors = list(errors or [])
+    try:
+        recent_imports = list(
+            HistoricalGroupImport.objects.select_related("group", "created_by")[:10]
+        )
+    except DatabaseError as exc:
+        logger.exception("Historical import database schema is unavailable")
+        recent_imports = []
+        context_errors.append(
+            "The historical-import database tables are not available yet. "
+            f"Database error: {exc}"
+        )
     return {
         "draft": draft,
-        "errors": errors or [],
-        "values": values or {},
+        "errors": context_errors,
+        "values": form_values,
         "months": HISTORICAL_IMPORT_MONTHS,
         "track_previews": track_previews,
-        "recent_imports": HistoricalGroupImport.objects.select_related("group", "created_by")[:10],
+        "recent_imports": recent_imports,
     }
 
 
@@ -4552,7 +4574,21 @@ def historical_group_import(request):
     draft = None
     draft_id = (request.GET.get("draft") or request.POST.get("draft_id") or "").strip()
     if draft_id.isdigit():
-        draft = HistoricalGroupImport.objects.filter(id=int(draft_id)).first()
+        try:
+            draft = HistoricalGroupImport.objects.filter(id=int(draft_id)).first()
+        except DatabaseError as exc:
+            logger.exception("Historical import preview could not query its database table")
+            return render(
+                request,
+                "admin_dash/historical_group_import.html",
+                _historical_import_context(
+                    errors=[
+                        "The historical-import database tables are not available yet. "
+                        f"Database error: {exc}"
+                    ],
+                ),
+                status=503,
+            )
 
     if request.method == "POST" and request.POST.get("action") == "preview":
         values, errors = _clean_historical_group_metadata(request.POST)

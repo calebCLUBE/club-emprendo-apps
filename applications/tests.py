@@ -11,6 +11,7 @@ from django.core import mail
 from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
+from django.db import DatabaseError
 from django.utils import timezone
 import json
 import re
@@ -7425,6 +7426,17 @@ class HistoricalGroupImportTests(TestCase):
             password="testpass123",
         )
         self.client.force_login(self.staff_user)
+
+    @patch(
+        "applications.admin_profiles_views.HistoricalGroupImport.objects.select_related",
+        side_effect=DatabaseError("missing historical import table"),
+    )
+    def test_get_reports_database_schema_error_instead_of_server_500(self, _select_related):
+        response = self.client.get(reverse("admin_historical_group_import"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "historical-import database tables are not available")
+        self.assertContains(response, "missing historical import table")
 
     def test_csv_preview_and_confirm_create_historical_group_without_forms(self):
         mentor_csv = (

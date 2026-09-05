@@ -5465,11 +5465,14 @@ class GroupFormNamingTests(TestCase):
                 "start_month": "junio",
                 "end_month": "agosto",
                 "year": "2026",
+                "end_year": "2027",
             },
         )
 
         self.assertEqual(response.status_code, 302)
         group = FormGroup.objects.get(custom_name="June Group")
+        self.assertEqual(group.year, 2026)
+        self.assertEqual(group.end_year, 2027)
         slugs = set(FormDefinition.objects.filter(group=group).values_list("slug", flat=True))
         self.assertEqual(slugs, {"june_group_E_A1", "june_group_M_A1"})
         mock_drive.assert_called_once_with(
@@ -7439,6 +7442,7 @@ class HistoricalGroupImportTests(TestCase):
                 "start_month": "enero",
                 "end_month": "abril",
                 "year": "2023",
+                "end_year": "2024",
                 "mentoras_file": SimpleUploadedFile(
                     "mentoras-g4.csv",
                     mentor_csv,
@@ -7450,6 +7454,8 @@ class HistoricalGroupImportTests(TestCase):
         self.assertEqual(preview_response.status_code, 302)
         draft = HistoricalGroupImport.objects.get()
         self.assertEqual(draft.status, HistoricalGroupImport.STATUS_PREVIEW)
+        self.assertEqual(draft.year, 2023)
+        self.assertEqual(draft.end_year, 2024)
         self.assertIn(f"draft={draft.id}", preview_response["Location"])
 
         preview_page = self.client.get(preview_response["Location"])
@@ -7477,6 +7483,8 @@ class HistoricalGroupImportTests(TestCase):
         self.assertEqual(confirm_response.status_code, 302)
         group = FormGroup.objects.get(number=4)
         self.assertEqual(group.custom_name, "Grupo historico 4")
+        self.assertEqual(group.year, 2023)
+        self.assertEqual(group.end_year, 2024)
         self.assertEqual(group.forms.count(), 0)
         participant_list = GroupParticipantList.objects.get(group=group)
         self.assertEqual(len(participant_list.mentoras_sheet_rows), 1)

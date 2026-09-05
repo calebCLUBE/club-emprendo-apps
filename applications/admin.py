@@ -1300,6 +1300,8 @@ class HistoricalGroupImportAdmin(admin.ModelAdmin):
     list_display = (
         "group_number",
         "group_name",
+        "year",
+        "end_year",
         "status",
         "group",
         "created_by",

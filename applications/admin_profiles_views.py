@@ -4389,6 +4389,7 @@ def _clean_historical_group_metadata(post_data) -> tuple[dict, list[str]]:
         "start_month": (post_data.get("start_month") or "").strip().lower(),
         "end_month": (post_data.get("end_month") or "").strip().lower(),
         "year": (post_data.get("year") or "").strip(),
+        "end_year": (post_data.get("end_year") or post_data.get("year") or "").strip(),
     }
     errors = []
     if not values["group_number"].isdigit() or int(values["group_number"] or 0) < 1:
@@ -4404,7 +4405,25 @@ def _clean_historical_group_metadata(post_data) -> tuple[dict, list[str]]:
     if values["end_month"] not in HISTORICAL_IMPORT_MONTHS:
         errors.append("Choose a valid end month.")
     if not values["year"].isdigit() or not 1900 <= int(values["year"] or 0) <= 2100:
-        errors.append("Enter a valid four-digit year.")
+        errors.append("Enter a valid four-digit start year.")
+    if not values["end_year"].isdigit() or not 1900 <= int(values["end_year"] or 0) <= 2100:
+        errors.append("Enter a valid four-digit end year.")
+    if (
+        values["year"].isdigit()
+        and values["end_year"].isdigit()
+        and int(values["end_year"]) < int(values["year"])
+    ):
+        errors.append("End year cannot be earlier than start year.")
+    if (
+        values["year"].isdigit()
+        and values["end_year"].isdigit()
+        and int(values["end_year"]) == int(values["year"])
+        and values["start_month"] in HISTORICAL_IMPORT_MONTHS
+        and values["end_month"] in HISTORICAL_IMPORT_MONTHS
+        and HISTORICAL_IMPORT_MONTHS.index(values["end_month"])
+        < HISTORICAL_IMPORT_MONTHS.index(values["start_month"])
+    ):
+        errors.append("End month cannot be earlier than start month when both use the same year.")
     return values, errors
 
 
@@ -4567,6 +4586,7 @@ def historical_group_import(request):
             start_month=values["start_month"],
             end_month=values["end_month"],
             year=int(values["year"]),
+            end_year=int(values["end_year"]),
             mentoras_filename=getattr(mentoras_file, "name", "") or "",
             emprendedoras_filename=getattr(emprendedoras_file, "name", "") or "",
             mentoras_data=parsed["mentoras"],
@@ -4627,6 +4647,7 @@ def historical_group_import(request):
                 start_month=draft.start_month,
                 end_month=draft.end_month,
                 year=draft.year,
+                end_year=draft.end_year,
                 use_combined_application=False,
                 custom_name=draft.group_name,
                 is_active=True,

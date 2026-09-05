@@ -137,7 +137,8 @@
                   {% endif %}
                 </div>
                 <div class="ce-work-group__meta">
-                  {{ g.start_day }} {{ g.start_month }} – {{ g.end_month }} {{ g.year }}
+                  {{ g.start_day }} {{ g.start_month }} {{ g.year }} –
+                  {{ g.end_month }} {{ g.effective_end_year }}
                   {% if g.use_combined_application %} · Combined application{% endif %}
                 </div>
               </div>
@@ -276,8 +277,12 @@
                         </select>
                       </div>
                       <div class="ce-work-field">
-                        <label>Year</label>
+                        <label>Start year</label>
                         <input class="ce-work-input" type="number" min="2000" max="2100" name="year" value="{{ g.year }}">
+                      </div>
+                      <div class="ce-work-field">
+                        <label>End year</label>
+                        <input class="ce-work-input" type="number" min="2000" max="2100" name="end_year" value="{{ g.effective_end_year }}">
                       </div>
                       <div class="ce-work-field">
                         <label>A2 deadline</label>

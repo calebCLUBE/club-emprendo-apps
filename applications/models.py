@@ -21,6 +21,11 @@ class FormGroup(models.Model):
     start_month = models.CharField(max_length=30)
     end_month = models.CharField(max_length=30)
     year = models.PositiveIntegerField()
+    end_year = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="Year in which the group ends. Defaults to the start year.",
+    )
     a2_deadline = models.DateField(null=True, blank=True, help_text="Fecha límite para completar la aplicación 2.")
     open_at = models.DateTimeField(null=True, blank=True, help_text="Fecha/hora en la que las aplicaciones del grupo se abrirán automáticamente.")
     close_at = models.DateTimeField(null=True, blank=True, help_text="Fecha/hora en la que las aplicaciones del grupo se cerrarán automáticamente.")
@@ -84,7 +89,15 @@ class FormGroup(models.Model):
 
     def __str__(self):
         label = (self.custom_name or "").strip() or f"Group {self.number}"
-        return f"{label} ({self.start_day} {self.start_month}–{self.end_month} {self.year})"
+        end_year = self.end_year or self.year
+        return (
+            f"{label} ({self.start_day} {self.start_month} {self.year}–"
+            f"{self.end_month} {end_year})"
+        )
+
+    @property
+    def effective_end_year(self) -> int:
+        return int(self.end_year or self.year)
 
 
 def scheduled_group_open_state(group: "FormGroup", now=None) -> bool | None:
@@ -1125,6 +1138,7 @@ class HistoricalGroupImport(models.Model):
     start_month = models.CharField(max_length=30)
     end_month = models.CharField(max_length=30)
     year = models.PositiveIntegerField()
+    end_year = models.PositiveIntegerField()
     mentoras_filename = models.CharField(max_length=255, blank=True, default="")
     emprendedoras_filename = models.CharField(max_length=255, blank=True, default="")
     mentoras_data = models.JSONField(default=dict, blank=True)

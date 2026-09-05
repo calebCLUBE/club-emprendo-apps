@@ -376,7 +376,8 @@
     <details style="margin: 10px 0; padding: 10px; border: 1px solid #ddd; border-radius: 10px;">
       <summary style="cursor:pointer;">
         <strong>{{ block.group_label }}</strong>
-        — {{ block.group.start_month }} to {{ block.group.end_month }} {{ block.group.year }}
+        — {{ block.group.start_month }} {{ block.group.year }} to
+        {{ block.group.end_month }} {{ block.group.effective_end_year }}
       </summary>
 
       <form method="post" action="{% url 'admin_database_sync_drive' %}" style="margin-top:10px;">

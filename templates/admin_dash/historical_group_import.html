@@ -40,7 +40,8 @@
         <div>
           <h2 class="ce-work-panel__title">Preview: Group {{ draft.group_number }} · {{ draft.group_name }}</h2>
           <p class="ce-work-panel__hint">
-            {{ draft.start_day }} {{ draft.start_month }} – {{ draft.end_month }} {{ draft.year }}.
+            {{ draft.start_day }} {{ draft.start_month }} {{ draft.year }} –
+            {{ draft.end_month }} {{ draft.end_year }}.
             No group or participant records have been created yet.
           </p>
         </div>
@@ -153,8 +154,12 @@
               </select>
             </div>
             <div class="ce-work-field">
-              <label for="year">Year</label>
+              <label for="year">Start year</label>
               <input class="ce-work-input" id="year" name="year" type="number" min="1900" max="2100" required value="{{ values.year }}">
+            </div>
+            <div class="ce-work-field">
+              <label for="end_year">End year</label>
+              <input class="ce-work-input" id="end_year" name="end_year" type="number" min="1900" max="2100" required value="{{ values.end_year|default:values.year }}">
             </div>
           </div>
 

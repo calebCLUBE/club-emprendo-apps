@@ -3472,7 +3472,14 @@ class CreateGroupForm(forms.Form):
     start_day = forms.IntegerField(min_value=1, max_value=31, label="Start day")
     start_month = forms.ChoiceField(choices=MONTH_CHOICES_ES, label="mes de inicio")
     end_month = forms.ChoiceField(choices=MONTH_CHOICES_ES, label="mes de fin")
-    year = forms.IntegerField(min_value=2020, max_value=2100, label="Year")
+    year = forms.IntegerField(min_value=2020, max_value=2100, label="Start year")
+    end_year = forms.IntegerField(
+        min_value=2020,
+        max_value=2100,
+        required=False,
+        label="End year",
+        help_text="Leave blank to use the start year.",
+    )
     a2_deadline = forms.DateField(label="Fecha límite A2", required=False, help_text="YYYY-MM-DD")
     respond_by_day = forms.CharField(
         required=False,
@@ -3523,6 +3530,24 @@ class CreateGroupForm(forms.Form):
     def clean(self):
         cleaned = super().clean()
         year = cleaned.get("year")
+        end_year = cleaned.get("end_year") or year
+        cleaned["end_year"] = end_year
+        if year and end_year and end_year < year:
+            self.add_error("end_year", "End year cannot be earlier than start year.")
+        start_month = cleaned.get("start_month")
+        end_month = cleaned.get("end_month")
+        month_order = {value: index for index, (value, _label) in enumerate(MONTH_CHOICES_ES)}
+        if (
+            year
+            and end_year == year
+            and start_month in month_order
+            and end_month in month_order
+            and month_order[end_month] < month_order[start_month]
+        ):
+            self.add_error(
+                "end_month",
+                "End month cannot be earlier than start month when both use the same year.",
+            )
         a2_deadline = cleaned.get("a2_deadline")
         respond_by_day = (cleaned.get("respond_by_day") or "").strip()
         respond_by_month = (cleaned.get("respond_by_month") or "").strip().lower()
@@ -5312,6 +5337,7 @@ def create_group(request):
     start_month = form.cleaned_data["start_month"]
     end_month = form.cleaned_data["end_month"]
     year = form.cleaned_data["year"]
+    end_year = form.cleaned_data.get("end_year") or year
     start_day = form.cleaned_data["start_day"]
     a2_deadline = form.cleaned_data.get("a2_deadline")
     open_at = form.cleaned_data.get("open_at")
@@ -5330,6 +5356,7 @@ def create_group(request):
             start_month=start_month,
             end_month=end_month,
             year=year,
+            end_year=end_year,
             start_day=start_day,
             a2_deadline=a2_deadline,
             open_at=open_at,
@@ -5499,6 +5526,32 @@ def update_group_dates(request, group_num: int):
     if year > 2100:
         year = 2100
 
+    try:
+        end_year = int(
+            request.POST.get("end_year")
+            or group.end_year
+            or group.year
+            or timezone.now().year
+        )
+    except Exception:
+        end_year = int(group.end_year or group.year or timezone.now().year)
+    if end_year < 2000:
+        end_year = 2000
+    if end_year > 2100:
+        end_year = 2100
+    month_order = {value: index for index, (value, _label) in enumerate(MONTH_CHOICES_ES)}
+    if end_year < year or (
+        end_year == year
+        and start_month in month_order
+        and end_month in month_order
+        and month_order[end_month] < month_order[start_month]
+    ):
+        messages.error(
+            request,
+            "The group end date cannot be earlier than its start date.",
+        )
+        return redirect("admin_apps_list")
+
     raw_deadline = (request.POST.get("a2_deadline") or "").strip()
     deadline = None
     if raw_deadline:
@@ -5558,6 +5611,9 @@ def update_group_dates(request, group_num: int):
     if int(group.year or 0) != int(year):
         group.year = year
         update_fields.append("year")
+    if int(group.end_year or group.year or 0) != int(end_year):
+        group.end_year = end_year
+        update_fields.append("end_year")
     if group.a2_deadline != deadline:
         group.a2_deadline = deadline
         update_fields.append("a2_deadline")
@@ -5583,7 +5639,7 @@ def update_group_dates(request, group_num: int):
 
     messages.success(
         request,
-        f"Actualizado Grupo {group.number}: {start_day} {start_month}–{end_month} {year}, fecha límite A2 "
+        f"Actualizado Grupo {group.number}: {start_day} {start_month} {year}–{end_month} {end_year}, fecha límite A2 "
         f"{deadline.strftime('%d/%m/%Y') if deadline else 'no definida'}, "
         f"apertura {open_at} / cierre {close_at}."
     )

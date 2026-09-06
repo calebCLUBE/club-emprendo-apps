@@ -824,6 +824,107 @@ def grading_job_status(request, job_id: int):
 
     # The page auto-refreshes while the job is active (currently every 5 seconds).
     return render(request, "admin_dash/grading_job_status.html", {"job": job})
+
+
+def _format_graded_participant_history(occurrences: list[dict]) -> str:
+    if not occurrences:
+        return "Participó: No | Se graduó: No | Historial: Sin participación registrada"
+
+    ordered = sorted(
+        occurrences,
+        key=lambda item: (
+            int(item.get("group_num") or 0),
+            str(item.get("role_code") or ""),
+        ),
+    )
+    graduated_groups = sorted({
+        int(item["group_num"])
+        for item in ordered
+        if item.get("graduated") and item.get("group_num") is not None
+    })
+    graduated_text = (
+        "Sí — " + ", ".join(f"G{group_num}" for group_num in graduated_groups)
+        if graduated_groups
+        else "No"
+    )
+    history_text = "; ".join(
+        (
+            f"G{item.get('group_num')} {item.get('role_label') or ''} "
+            f"({item.get('status_display') or 'Sin estatus'})"
+        ).strip()
+        for item in ordered
+    )
+    return (
+        f"Participó: Sí | Se graduó: {graduated_text} | "
+        f"Historial: {history_text}"
+    )
+
+
+def _add_participant_history_info(graded_df, *, log_fn=None):
+    """Add full group history to a finished grading dataframe by exact email."""
+    from applications.admin_profiles_views import _participant_history_occurrences
+
+    def folded_header(value) -> str:
+        decomposed = unicodedata.normalize("NFKD", str(value or "").strip().casefold())
+        plain = "".join(char for char in decomposed if not unicodedata.combining(char))
+        return re.sub(r"[^a-z0-9]+", "", plain)
+
+    email_aliases = {
+        "email",
+        "correo",
+        "correoelectronico",
+        "correoelectronic",
+        "emailaddress",
+    }
+    email_column = next(
+        (
+            column
+            for column in graded_df.columns
+            if folded_header(column) in email_aliases
+        ),
+        None,
+    )
+
+    history_by_email: dict[str, list[dict]] = {}
+    for occurrence in _participant_history_occurrences():
+        email_key = str(occurrence.get("email_norm") or "").strip().lower()
+        if email_key:
+            history_by_email.setdefault(email_key, []).append(occurrence)
+
+    if email_column is None:
+        info_values = [
+            "Participó: No | Se graduó: No | Historial: Email no disponible para consultar"
+        ] * len(graded_df)
+        if log_fn:
+            log_fn("⚠️ Graded output had no recognizable email column for participant history.")
+        insert_at = len(graded_df.columns)
+    else:
+        info_values = [
+            _format_graded_participant_history(
+                history_by_email.get(str(value or "").strip().lower(), [])
+            )
+            for value in graded_df[email_column]
+        ]
+        insert_at = list(graded_df.columns).index(email_column) + 1
+
+    if "info" in graded_df.columns:
+        preserved_name = "info (application)"
+        suffix = 2
+        while preserved_name in graded_df.columns:
+            preserved_name = f"info (application) ({suffix})"
+            suffix += 1
+        graded_df = graded_df.rename(columns={"info": preserved_name})
+    graded_df.insert(insert_at, "info", info_values)
+
+    matched_count = sum("Participó: Sí" in value for value in info_values)
+    if log_fn:
+        log_fn(
+            "🗂️ Added participant history to graded output: "
+            f"{matched_count}/{len(info_values)} email(s) matched the group databases."
+        )
+    return graded_df
+
+
 def _run_grade_job(job_id: int):
     job = GradingJob.objects.get(id=job_id)
     job.status = GradingJob.STATUS_RUNNING
@@ -1079,6 +1180,11 @@ def _run_grade_job(job_id: int):
                 fallback_status = graded_df[rec_col].fillna("").astype(str)
             graded_df.insert(0, "Status", fallback_status)
             _job_log(job, "⚠️ Grader output had no status column. Inserted fallback Status column before saving.")
+
+        graded_df = _add_participant_history_info(
+            graded_df,
+            log_fn=lambda msg: _job_log(job, msg),
+        )
 
         # ----------------------------------
         # STORE GRADED FILE (keep latest per form slug)

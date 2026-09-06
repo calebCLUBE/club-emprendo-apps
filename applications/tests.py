@@ -4297,6 +4297,8 @@ class GradingAndPairingConfigEditorTests(TestCase):
     def test_grade_job_pulls_second_stage_answers_for_combined_applications(
         self, mock_openai_cls, mock_drive_sync
     ):
+        import csv
+
         from applications.admin_views import _run_grade_job
         from applications.models import GradedFile, GradingJob
 
@@ -4358,6 +4360,9 @@ class GradingAndPairingConfigEditorTests(TestCase):
         graded = GradedFile.objects.get(form_slug="G950_E_A1")
         self.assertIn("Vendo artesanías locales hechas a mano.", graded.csv_text)
         self.assertNotIn("0.00%", graded.csv_text)
+        headers, row = list(csv.reader(StringIO(graded.csv_text)))[:2]
+        self.assertIn("info", headers)
+        self.assertIn("Participó: No", row[headers.index("info")])
 
     @patch("applications.admin_views.sync_generated_csv_artifact")
     @patch("applications.admin_views.OpenAI")
@@ -4459,6 +4464,8 @@ class GradingAndPairingConfigEditorTests(TestCase):
         self.assertEqual(row[headers.index("Nombre completo")], "Andrea Persona")
         self.assertIn("¿Te identificas como mujer?", headers)
         self.assertIn("yes", row)
+        self.assertIn("info", headers)
+        self.assertIn("Participó: No", row[headers.index("info")])
         self.assertNotIn("soy_mujer", headers)
         self.assertNotIn("grading_rubric", headers)
         self.assertNotIn("created_at", headers)
@@ -4470,6 +4477,68 @@ class GradingAndPairingConfigEditorTests(TestCase):
             headers,
         )
         self.assertNotIn("¿Tienes experiencia previa con mentoría?", headers)
+
+
+class GradedParticipantHistoryInfoTests(TestCase):
+    def test_adds_full_group_and_graduation_history_by_email(self):
+        import pandas as pd
+
+        from applications.admin_views import _add_participant_history_info
+
+        entrepreneur_group = FormGroup.objects.create(
+            number=12,
+            start_day=1,
+            start_month="enero",
+            end_month="abril",
+            year=2024,
+        )
+        mentor_group = FormGroup.objects.create(
+            number=14,
+            start_day=1,
+            start_month="agosto",
+            end_month="noviembre",
+            year=2025,
+        )
+        GroupParticipantList.objects.create(
+            group=entrepreneur_group,
+            emprendedoras_sheet_rows=[[
+                "", "Graduada", 1, "Ana Histórica", "123", "ANA@example.com"
+            ]],
+        )
+        GroupParticipantList.objects.create(
+            group=mentor_group,
+            mentoras_sheet_rows=[[
+                "", "Activa", 1, "Ana Histórica", "123", "ana@example.com"
+            ]],
+        )
+        source = pd.DataFrame([
+            {
+                "Status": "N/A",
+                "correo_electronico": " ana@example.com ",
+                "score": "90%",
+            },
+            {
+                "Status": "N/A",
+                "correo_electronico": "new@example.com",
+                "score": "80%",
+            },
+        ])
+
+        result = _add_participant_history_info(source)
+
+        self.assertEqual(
+            list(result.columns),
+            ["Status", "correo_electronico", "info", "score"],
+        )
+        history = result.iloc[0]["info"]
+        self.assertIn("Participó: Sí", history)
+        self.assertIn("Se graduó: Sí — G12", history)
+        self.assertIn("G12 Emprendedora (Graduada)", history)
+        self.assertIn("G14 Mentora (Activa)", history)
+        self.assertEqual(
+            result.iloc[1]["info"],
+            "Participó: No | Se graduó: No | Historial: Sin participación registrada",
+        )
 
 
 class HelpTextFormattingTests(TestCase):

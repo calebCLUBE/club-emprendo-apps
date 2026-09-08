@@ -1721,8 +1721,11 @@ def _parse_availability(cell) -> set[str]:
     """
     Normalize both historical comma-separated values and current grid answers.
 
-    Current A1 grid answers are stored as JSON such as:
-    [{"row": "Tarde", "value": "martes", "label": "Martes"}]
+    Grid answers exist in two layouts:
+    - older: {"row": "Tarde", "value": "martes", "label": "Martes"}
+    - current: {"row": "Lunes", "value": "miercoles", "label": "Noche"}
+    In the current layout the internal value is not the selected day; row and
+    label contain the user-visible day and time.
     """
     if not cell:
         return set()
@@ -1743,8 +1746,17 @@ def _parse_availability(cell) -> set[str]:
         for item in parsed:
             if not isinstance(item, dict):
                 continue
-            time_of_day = item.get("row") or item.get("time") or item.get("time_of_day")
-            for day in (item.get("value"), item.get("label"), item.get("day"), item.get("column")):
+            candidate_pairs = (
+                # Explicit semantic keys, when present.
+                (item.get("day") or item.get("column"), item.get("time") or item.get("time_of_day")),
+                # Older grids: row=time and value/label=day.
+                (item.get("value"), item.get("row")),
+                (item.get("label"), item.get("row")),
+                # Current G16-style grids: row=day and label=time.
+                (item.get("row"), item.get("label")),
+                (item.get("row"), item.get("value")),
+            )
+            for day, time_of_day in candidate_pairs:
                 slot = _canonical_availability_slot(day, time_of_day)
                 if slot:
                     out.add(slot)

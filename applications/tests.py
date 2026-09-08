@@ -3712,7 +3712,8 @@ class GradingAndPairingConfigEditorTests(TestCase):
             application=entrepreneur,
             question=entrepreneur_schedule,
             value=json.dumps([
-                {"row": "Tarde", "value": "martes", "label": "Martes"},
+                # Current G16 layout: row is the day and label is the time.
+                {"row": "Martes", "value": "martes", "label": "Tarde"},
             ]),
         )
         Answer.objects.create(
@@ -4049,6 +4050,12 @@ class GradingAndPairingConfigEditorTests(TestCase):
                 '[{"row":"Mañana","value":"test","label":"Lunes"}]'
             ),
             {"mon_morning"},
+        )
+        self.assertEqual(
+            _parse_emp_availability(
+                '[{"row":"Lunes","value":"miercoles","label":"Noche"}]'
+            ),
+            {"mon_night"},
         )
 
     def test_dataset_pairing_ai_summarizes_everyone_in_one_request(self):

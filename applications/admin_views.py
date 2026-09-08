@@ -44,7 +44,10 @@ from applications.grader_e import grade_single_row, grade_from_dataframe
 from django.db import connection
 from applications.grader_e import grade_from_dataframe as grade_e_df
 from applications.grader_m import grade_from_dataframe as grade_m_df
-from applications.pairing_forms import resolve_pairing_application_form
+from applications.pairing_forms import (
+    pairing_participant_emails,
+    resolve_pairing_application_form,
+)
 from applications.drive_sync import (
     ensure_group_drive_tree,
     fetch_drive_csv_file_text,
@@ -4476,7 +4479,13 @@ def _remap_clone_conditions(
     return remapped
 
 
-def _clone_form(master_fd: FormDefinition, group: FormGroup) -> FormDefinition:
+def _clone_form(
+    master_fd: FormDefinition,
+    group: FormGroup,
+    *,
+    target_master_slug: str | None = None,
+    target_master_name: str | None = None,
+) -> FormDefinition:
     group_num = group.number
     start_day = group.start_day
     start_month = group.start_month
@@ -4488,10 +4497,20 @@ def _clone_form(master_fd: FormDefinition, group: FormGroup) -> FormDefinition:
         respond_day = str(group.a2_deadline.day)
         respond_month = MONTH_NUM_TO_ES.get(group.a2_deadline.month, "")
 
-    preferred_slug = _group_form_slug_from_custom_name(group, master_fd.slug)
-    legacy_slug = f"G{group_num}_{master_fd.slug}"
+    effective_master_slug = str(
+        target_master_slug or master_fd.slug or ""
+    ).strip().upper()
+    effective_master_name = str(
+        target_master_name or master_fd.name or ""
+    ).strip()
+    preferred_slug = _group_form_slug_from_custom_name(group, effective_master_slug)
+    legacy_slug = f"G{group_num}_{effective_master_slug}"
     new_slug = preferred_slug
-    new_name = _group_form_name_from_custom_name(group, master_fd.slug, master_fd.name)
+    new_name = _group_form_name_from_custom_name(
+        group,
+        effective_master_slug,
+        effective_master_name,
+    )
 
     existing = FormDefinition.objects.filter(slug=new_slug).first()
     if not existing and preferred_slug != legacy_slug:
@@ -4503,7 +4522,7 @@ def _clone_form(master_fd: FormDefinition, group: FormGroup) -> FormDefinition:
     elif existing and existing.group_id not in {None, group.id}:
         # Avoid hijacking another group's form when custom names collide.
         base_slug = preferred_slug
-        master_suffix = str(master_fd.slug or "").strip().upper()
+        master_suffix = effective_master_slug
         base_prefix = base_slug
         if master_suffix and base_slug.endswith(master_suffix):
             base_prefix = (base_slug[: -len(master_suffix)]).rstrip("_")
@@ -6279,6 +6298,7 @@ def _copy_application_to_form(source_app: Application, target_form: FormDefiniti
         form=target_form,
         name=source_app.name,
         email=source_app.email,
+        approved_for_grading=source_app.approved_for_grading,
         tablestakes_score=source_app.tablestakes_score,
         commitment_score=source_app.commitment_score,
         nice_to_have_score=source_app.nice_to_have_score,
@@ -8206,9 +8226,166 @@ def grading_config_editor(request, form_slug: str):
     )
 
 
+def _materialize_shared_pairing_form(group: FormGroup, track: str) -> dict | None:
+    """Create a real G# A1 dataset when pairing currently depends on a shared pool.
+
+    Opening the pairing editor already initializes the group's rule configuration.
+    At the same point, make a missing track-specific application consistent with
+    the participant tabs by cloning the detected source schema and copying only
+    applications selected for this group. The operation is additive and
+    idempotent; an existing group form is never replaced.
+    """
+    normalized_track = str(track or "").strip().upper()
+    if normalized_track not in {"E", "M"}:
+        return None
+
+    participant_emails = pairing_participant_emails(group, normalized_track)
+    resolution = resolve_pairing_application_form(
+        group,
+        normalized_track,
+        participant_emails,
+    )
+    if (
+        not resolution.form
+        or not resolution.uses_shared_form
+        or not participant_emails
+        or not resolution.matched_email_count
+    ):
+        return None
+
+    source_form = resolution.form
+    master_slug = f"{normalized_track}_A1"
+    canonical_master = FormDefinition.objects.filter(slug=master_slug).first()
+    default_name = (
+        "Aplicación para emprendedoras"
+        if normalized_track == "E"
+        else "Aplicación para mentoras"
+    )
+    target_master_name = (
+        str(getattr(canonical_master, "name", "") or "").strip()
+        or default_name
+    )
+
+    with transaction.atomic():
+        # Recheck under the transaction so repeat clicks never create duplicates.
+        existing = (
+            FormDefinition.objects.filter(
+                group=group,
+                is_master=False,
+                slug__iendswith=f"_{master_slug}",
+            )
+            .order_by("-id")
+            .first()
+        )
+        if existing:
+            return None
+
+        target_form = _clone_form(
+            source_form,
+            group,
+            target_master_slug=master_slug,
+            target_master_name=target_master_name,
+        )
+        target_updates: list[str] = []
+        if target_form.is_public:
+            target_form.is_public = False
+            target_updates.append("is_public")
+        if target_form.accepting_responses:
+            target_form.accepting_responses = False
+            target_updates.append("accepting_responses")
+        if target_updates:
+            target_form.save(update_fields=target_updates)
+
+        source_apps = _latest_apps_by_normalized_email_for_form(
+            source_form,
+            participant_emails,
+        )
+        existing_target_emails = set(
+            Application.objects.filter(form=target_form)
+            .exclude(email__isnull=True)
+            .exclude(email__exact="")
+            .annotate(_email_norm=Lower("email"))
+            .values_list("_email_norm", flat=True)
+        )
+        copied_applications = 0
+        copied_answers = 0
+        skipped_application_emails: list[str] = []
+        for email in sorted(participant_emails):
+            if email in existing_target_emails:
+                continue
+            source_app = source_apps.get(email)
+            if not source_app:
+                continue
+            try:
+                _new_app, answer_count, _skipped_answers = _copy_application_to_form(
+                    source_app,
+                    target_form,
+                )
+            except ValueError:
+                skipped_application_emails.append(email)
+                continue
+            copied_applications += 1
+            copied_answers += answer_count
+            existing_target_emails.add(email)
+
+    return {
+        "track": normalized_track,
+        "target_form": target_form,
+        "source_form": source_form,
+        "participant_count": len(participant_emails),
+        "source_match_count": len(source_apps),
+        "copied_applications": copied_applications,
+        "copied_answers": copied_answers,
+        "unmatched_emails": sorted(participant_emails - set(source_apps)),
+        "skipped_application_emails": skipped_application_emails,
+    }
+
+
 @staff_member_required
 def pairing_config_editor(request, group_num: int):
     group = get_object_or_404(FormGroup, number=group_num)
+    if request.method == "POST":
+        for track, role in (("E", "Emprendedora"), ("M", "Mentora")):
+            try:
+                repair = _materialize_shared_pairing_form(group, track)
+            except Exception as exc:
+                logger.exception(
+                    "Could not materialize Group %s %s pairing application",
+                    group.number,
+                    track,
+                )
+                messages.warning(
+                    request,
+                    f"Could not prepare the Group {group.number} {role} application: {exc}",
+                )
+                continue
+            if not repair:
+                continue
+            messages.success(
+                request,
+                (
+                    f"Prepared {repair['target_form'].name} ({repair['target_form'].slug}) "
+                    f"and copied {repair['copied_applications']} selected application(s) "
+                    f"from {repair['source_form'].slug}."
+                ),
+            )
+            missing_emails = list(repair["unmatched_emails"]) + list(
+                repair["skipped_application_emails"]
+            )
+            if missing_emails:
+                preview_limit = 12
+                email_preview = ", ".join(missing_emails[:preview_limit])
+                remainder = len(missing_emails) - preview_limit
+                if remainder > 0:
+                    email_preview += f", ... (+{remainder} more)"
+                messages.warning(
+                    request,
+                    (
+                        f"{len(missing_emails)} selected {role.lower()} email(s) did not have a "
+                        f"copyable A1 application in the recruitment source: {email_preview}"
+                    ),
+                )
+
     config = ensure_pairing_config_for_group(group)
     return redirect(f"/admin/applications/pairingconfig/{config.id}/change/")
 

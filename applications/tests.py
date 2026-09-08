@@ -3342,7 +3342,7 @@ class GradingAndPairingConfigEditorTests(TestCase):
         self.assertContains(response, "ce-pairing-answer-preview")
         self.assertNotContains(response, "Top k for ai")
 
-    def test_pairing_editor_finds_shared_recruitment_mentora_form_by_participant_email(self):
+    def test_pairing_editor_materializes_group_mentora_form_from_shared_recruitment(self):
         group = FormGroup.objects.create(
             number=917,
             start_day=1,
@@ -3385,6 +3385,7 @@ class GradingAndPairingConfigEditorTests(TestCase):
             form=shared_mentor_form,
             name="Shared Mentor",
             email="mentor.shared@example.com",
+            approved_for_grading=True,
         )
         Answer.objects.create(
             application=shared_application,
@@ -3412,29 +3413,64 @@ class GradingAndPairingConfigEditorTests(TestCase):
         GroupParticipantList.objects.create(
             group=group,
             mentoras_sheet_rows=[
-                ["", "A", 1, "Shared Mentor", "M1", "MENTOR.SHARED@EXAMPLE.COM"]
+                ["", "A", 1, "Shared Mentor", "M1", "MENTOR.SHARED@EXAMPLE.COM"],
+                ["", "A", 2, "Missing Mentor", "M2", "missing@example.com"],
             ],
         )
 
-        response = self.client.get(
+        from applications.pairing_forms import resolve_pairing_application_form
+
+        before = resolve_pairing_application_form(group, "M")
+        self.assertEqual(before.form, shared_mentor_form)
+        self.assertEqual(before.source, "shared_application_sibling")
+        self.assertEqual(before.matched_email_count, 1)
+
+        response = self.client.post(
             reverse("admin_pairing_config_editor", args=[group.number]),
             follow=True,
         )
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Shared mentoring expertise")
-        self.assertContains(response, "August recruitment Mentoras")
-        self.assertContains(response, "shared from the recruitment source")
-        self.assertContains(response, "matches 1 of 1 selected mentora email(s)")
+        self.assertContains(response, "Grupo 917 — Aplicación para mentoras")
+        self.assertContains(response, "G917_M_A1")
+        self.assertContains(response, "copied 1 selected application(s)")
+        self.assertContains(response, "1 selected mentora email(s) did not have a copyable A1 application")
+        self.assertContains(response, "missing@example.com")
+        self.assertContains(response, "missing@example.com")
+        self.assertNotContains(response, "shared from the recruitment source")
         self.assertNotContains(response, "No current Mentora A1 application")
         self.assertNotContains(response, "Unrelated mentor question")
 
-        from applications.pairing_forms import resolve_pairing_application_form
+        target_form = FormDefinition.objects.get(slug="G917_M_A1", group=group)
+        self.assertFalse(target_form.is_public)
+        self.assertFalse(target_form.accepting_responses)
+        copied_application = Application.objects.get(
+            form=target_form,
+            email__iexact="mentor.shared@example.com",
+        )
+        self.assertTrue(copied_application.approved_for_grading)
+        self.assertEqual(
+            Answer.objects.get(
+                application=copied_application,
+                question__slug="shared_mentor_expertise",
+            ).value,
+            "Sales and strategy",
+        )
+        self.assertFalse(
+            Application.objects.filter(form=target_form, email__iexact="missing@example.com").exists()
+        )
+        self.assertEqual(Application.objects.filter(form=shared_mentor_form).count(), 1)
 
         resolution = resolve_pairing_application_form(group, "M")
-        self.assertEqual(resolution.form, shared_mentor_form)
-        self.assertEqual(resolution.source, "shared_application_sibling")
-        self.assertEqual(resolution.matched_email_count, 1)
+        self.assertEqual(resolution.form, target_form)
+        self.assertEqual(resolution.source, "group")
+
+        # A second click is a strict no-op for forms, applications, and answers.
+        self.client.post(reverse("admin_pairing_config_editor", args=[group.number]))
+        self.assertEqual(FormDefinition.objects.filter(slug="G917_M_A1").count(), 1)
+        self.assertEqual(Application.objects.filter(form=target_form).count(), 1)
+        self.assertEqual(Answer.objects.filter(application=copied_application).count(), 1)
 
     def test_pairing_form_resolver_prefers_direct_group_form_over_shared_source(self):
         group = FormGroup.objects.create(
@@ -3588,6 +3624,11 @@ class GradingAndPairingConfigEditorTests(TestCase):
         self.assertContains(response, reverse("admin_grading_live_sheet_file", args=[selected_output.id]))
         self.assertContains(response, "These emails are loaded from Group 908")
         self.assertContains(response, 'id="ce-pairing-group"')
+        self.assertContains(
+            response,
+            f'action="{reverse("admin_pairing_config_editor", args=[group.number])}"',
+        )
+        self.assertContains(response, "If one application type is still in a shared recruitment source")
 
     def test_pairing_rule_form_accepts_only_selected_groups_current_questions(self):
         group = FormGroup.objects.create(

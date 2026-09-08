@@ -205,11 +205,15 @@
           <span class="ce-step-number">1</span>
           <div>
             <h2>Configure the matching rules</h2>
-            <p class="ce-pairing-muted">Choose questions and answer options from Group {{ selected_group.number }}’s applications.</p>
+            <p class="ce-pairing-muted">
+              Choose questions and answer options from Group {{ selected_group.number }}’s applications.
+              If one application type is still in a shared recruitment source, it will first be copied into this group.
+            </p>
           </div>
-          <a class="ce-btn" href="{% url 'admin_pairing_config_editor' selected_group.number %}">
-            Edit rules
-          </a>
+          <form method="post" action="{% url 'admin_pairing_config_editor' selected_group.number %}" style="margin:0;">
+            {% csrf_token %}
+            <button class="ce-btn" type="submit">Edit rules</button>
+          </form>
         </div>
       </section>
 

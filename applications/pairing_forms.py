@@ -48,7 +48,7 @@ def _normalized_emails(values: Iterable[object] | str | None) -> set[str]:
     return out
 
 
-def _participant_emails(group: FormGroup, track: str) -> set[str]:
+def pairing_participant_emails(group: FormGroup, track: str) -> set[str]:
     participant_list = (
         GroupParticipantList.objects.filter(group_id=group.id)
         .only(
@@ -170,7 +170,7 @@ def resolve_pairing_application_form(
     emails = (
         _normalized_emails(participant_emails)
         if participant_emails is not None
-        else _participant_emails(group, normalized_track)
+        else pairing_participant_emails(group, normalized_track)
     )
     candidates = list(
         FormDefinition.objects.filter(

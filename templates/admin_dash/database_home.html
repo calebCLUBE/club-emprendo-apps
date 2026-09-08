@@ -60,7 +60,7 @@
 
 <details style="margin: 10px 0 18px; padding: 10px; border: 1px solid #ddd; border-radius: 10px;">
   <summary style="cursor:pointer; font-weight:600;">
-    Assign Applicants To New Group (Paste Emails)
+    Create or update one group application type (Paste Emails)
   </summary>
 
   <form method="post" action="{% url 'admin_database_create_assigned_group' %}" style="margin-top:12px; display:grid; gap:10px; max-width:960px;">
@@ -80,7 +80,7 @@
       </label>
 
       <label>
-        Applicant type
+        Application type (one at a time)
         <select name="track" required style="width:100%;">
           <option value="E" {% if pool_assignment_defaults.track == "E" %}selected{% endif %}>Emprendedoras</option>
           <option value="M" {% if pool_assignment_defaults.track == "M" %}selected{% endif %}>Mentoras</option>
@@ -88,7 +88,7 @@
       </label>
 
       <label>
-        New group number
+        Target group number
         <input
           type="number"
           min="1"
@@ -115,12 +115,13 @@
     </label>
 
     <button type="submit" class="button" style="width:max-content;">
-      Create Assigned Group
+      Create/update selected application type
     </button>
 
     <p style="margin:0; color:#666;">
       This creates or updates the target group and copies matching applications from the source pool group.
-      Date values are copied automatically from the selected source pool group.
+      Date values are copied automatically from the selected source pool group. Run it once for
+      Emprendedoras and once for Mentoras when the group contains both application types.
     </p>
   </form>
 </details>

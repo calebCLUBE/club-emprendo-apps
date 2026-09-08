@@ -44,6 +44,7 @@ from applications.grader_e import grade_single_row, grade_from_dataframe
 from django.db import connection
 from applications.grader_e import grade_from_dataframe as grade_e_df
 from applications.grader_m import grade_from_dataframe as grade_m_df
+from applications.pairing_forms import resolve_pairing_application_form
 from applications.drive_sync import (
     ensure_group_drive_tree,
     fetch_drive_csv_file_text,
@@ -2498,9 +2499,14 @@ def _pair_one_group(
     """
 
     # The current application flow has one application per track. Historical A2
-    # forms may still exist, but pairing must use the current A1 responses.
-    emp_fd = _group_form_for_number_master(group_num, "E_A1")
-    mentor_fd = _group_form_for_number_master(group_num, "M_A1")
+    # forms may still exist, but pairing must use the current A1 responses. A
+    # selected cohort can share its A1 source with a recruitment group, so use
+    # the participant emails when the form is not directly attached to G#.
+    group = FormGroup.objects.filter(number=group_num).first()
+    emp_resolution = resolve_pairing_application_form(group, "E", emp_emails)
+    mentor_resolution = resolve_pairing_application_form(group, "M", mentor_emails)
+    emp_fd = emp_resolution.form
+    mentor_fd = mentor_resolution.form
     if not emp_fd or not mentor_fd:
         raise Http404(f"Could not resolve current A1 forms for group {group_num}.")
     emp_slug = emp_fd.slug
@@ -2509,6 +2515,16 @@ def _pair_one_group(
 
     if log_fn:
         log_fn(f"📥 Loading DB master data for {emp_slug} and {mentor_slug}")
+        for role, resolution in (
+            ("Emprendedora", emp_resolution),
+            ("Mentora", mentor_resolution),
+        ):
+            if resolution.uses_shared_form:
+                log_fn(
+                    f"🔗 {role} shared recruitment source: {resolution.form.slug} "
+                    f"({resolution.matched_email_count}/"
+                    f"{resolution.participant_email_count} selected emails found)"
+                )
         log_fn(
             "⚙️ Pairing config loaded: "
             f"{len(pairing_config.priority_rules)} priority rule(s), "

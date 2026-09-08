@@ -3342,6 +3342,198 @@ class GradingAndPairingConfigEditorTests(TestCase):
         self.assertContains(response, "ce-pairing-answer-preview")
         self.assertNotContains(response, "Top k for ai")
 
+    def test_pairing_editor_finds_shared_recruitment_mentora_form_by_participant_email(self):
+        group = FormGroup.objects.create(
+            number=917,
+            start_day=1,
+            start_month="agosto",
+            end_month="noviembre",
+            year=2026,
+        )
+        source_group = FormGroup.objects.create(
+            number=916,
+            start_day=1,
+            start_month="agosto",
+            end_month="noviembre",
+            year=2026,
+        )
+        unrelated_group = FormGroup.objects.create(
+            number=915,
+            start_day=1,
+            start_month="enero",
+            end_month="abril",
+            year=2026,
+        )
+        FormDefinition.objects.create(
+            slug="reclutamiento_agosto_2026_E_A1",
+            name="August recruitment Emprendedoras",
+            group=group,
+        )
+        shared_mentor_form = FormDefinition.objects.create(
+            slug="reclutamiento_agosto_2026_M_A1",
+            name="August recruitment Mentoras",
+            group=source_group,
+        )
+        shared_question = Question.objects.create(
+            form=shared_mentor_form,
+            text="Shared mentoring expertise",
+            slug="shared_mentor_expertise",
+            field_type=Question.LONG_TEXT,
+            position=1,
+        )
+        shared_application = Application.objects.create(
+            form=shared_mentor_form,
+            name="Shared Mentor",
+            email="mentor.shared@example.com",
+        )
+        Answer.objects.create(
+            application=shared_application,
+            question=shared_question,
+            value="Sales and strategy",
+        )
+
+        unrelated_form = FormDefinition.objects.create(
+            slug="unrelated_newer_M_A1",
+            name="Unrelated newer Mentoras",
+            group=unrelated_group,
+        )
+        Question.objects.create(
+            form=unrelated_form,
+            text="Unrelated mentor question",
+            slug="unrelated_mentor_question",
+            field_type=Question.SHORT_TEXT,
+            position=1,
+        )
+        Application.objects.create(
+            form=unrelated_form,
+            name="Other Mentor",
+            email="other@example.com",
+        )
+        GroupParticipantList.objects.create(
+            group=group,
+            mentoras_sheet_rows=[
+                ["", "A", 1, "Shared Mentor", "M1", "MENTOR.SHARED@EXAMPLE.COM"]
+            ],
+        )
+
+        response = self.client.get(
+            reverse("admin_pairing_config_editor", args=[group.number]),
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Shared mentoring expertise")
+        self.assertContains(response, "August recruitment Mentoras")
+        self.assertContains(response, "shared from the recruitment source")
+        self.assertContains(response, "matches 1 of 1 selected mentora email(s)")
+        self.assertNotContains(response, "No current Mentora A1 application")
+        self.assertNotContains(response, "Unrelated mentor question")
+
+        from applications.pairing_forms import resolve_pairing_application_form
+
+        resolution = resolve_pairing_application_form(group, "M")
+        self.assertEqual(resolution.form, shared_mentor_form)
+        self.assertEqual(resolution.source, "shared_application_sibling")
+        self.assertEqual(resolution.matched_email_count, 1)
+
+    def test_pairing_form_resolver_prefers_direct_group_form_over_shared_source(self):
+        group = FormGroup.objects.create(
+            number=918,
+            start_day=1,
+            start_month="agosto",
+            end_month="noviembre",
+            year=2026,
+        )
+        source_group = FormGroup.objects.create(
+            number=919,
+            start_day=1,
+            start_month="agosto",
+            end_month="noviembre",
+            year=2026,
+        )
+        shared_form = FormDefinition.objects.create(
+            slug="reclutamiento_otro_M_A1",
+            name="Shared Mentora application",
+            group=source_group,
+        )
+        direct_form = FormDefinition.objects.create(
+            slug="G918_M_A1",
+            name="Group 918 Mentora application",
+            group=group,
+        )
+        Application.objects.create(
+            form=shared_form,
+            name="Repeated Mentor",
+            email="repeat@example.com",
+        )
+        Application.objects.create(
+            form=direct_form,
+            name="Current Mentor",
+            email="repeat@example.com",
+        )
+
+        from applications.pairing_forms import resolve_pairing_application_form
+
+        resolution = resolve_pairing_application_form(
+            group,
+            "M",
+            ["REPEAT@EXAMPLE.COM"],
+        )
+
+        self.assertEqual(resolution.form, direct_form)
+        self.assertEqual(resolution.source, "group")
+
+    def test_pairing_runtime_resolves_shared_form_from_posted_mentor_emails(self):
+        group = FormGroup.objects.create(
+            number=923,
+            start_day=1,
+            start_month="agosto",
+            end_month="noviembre",
+            year=2026,
+        )
+        source_group = FormGroup.objects.create(
+            number=924,
+            start_day=1,
+            start_month="agosto",
+            end_month="noviembre",
+            year=2026,
+        )
+        entrepreneur_form = FormDefinition.objects.create(
+            slug="G923_E_A1",
+            name="Group 923 Emprendedora application",
+            group=group,
+        )
+        shared_mentor_form = FormDefinition.objects.create(
+            slug="reclutamiento_agosto_runtime_M_A1",
+            name="August runtime Mentoras",
+            group=source_group,
+        )
+        Application.objects.create(
+            form=shared_mentor_form,
+            name="Shared Mentor",
+            email="runtime.mentor@example.com",
+        )
+
+        from applications.admin_views import _pair_one_group
+
+        pairing_config = SimpleNamespace(priority_rules=[], ai_comparisons=[])
+        with patch(
+            "applications.admin_views.runtime_pairing_config_for_group",
+            return_value=pairing_config,
+        ), patch(
+            "applications.admin_views._build_master_df_for_form",
+            side_effect=[object(), RuntimeError("resolved both forms")],
+        ) as build_master:
+            with self.assertRaisesRegex(RuntimeError, "resolved both forms"):
+                _pair_one_group(
+                    group.number,
+                    ["founder@example.com"],
+                    ["RUNTIME.MENTOR@EXAMPLE.COM"],
+                )
+
+        self.assertEqual(build_master.call_args_list[0].args[0], entrepreneur_form)
+        self.assertEqual(build_master.call_args_list[1].args[0], shared_mentor_form)
+
     def test_pairing_home_prefills_selected_groups_participant_emails(self):
         group = FormGroup.objects.create(
             number=908,

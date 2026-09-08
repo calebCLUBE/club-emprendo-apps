@@ -14,6 +14,7 @@ from django.http import HttpResponseRedirect
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 from .forms_admin import TaskTypeAdminForm
+from .pairing_forms import resolve_pairing_application_form
 from .models import (
     Application,
     Choice,
@@ -1482,14 +1483,7 @@ class ApplicationGradingConfigAdmin(admin.ModelAdmin):
 
 
 def _pairing_application_for_group(group, track: str):
-    if not group:
-        return None
-    suffix = f"_{track}_A1"
-    return (
-        FormDefinition.objects.filter(group=group, slug__iendswith=suffix)
-        .order_by("-id")
-        .first()
-    )
+    return resolve_pairing_application_form(group, track).form
 
 
 def _pairing_answer_summary(question: Question) -> str:
@@ -1511,7 +1505,8 @@ def _pairing_answer_summary(question: Question) -> str:
 
 
 def _pairing_question_choices(group, track: str, current_slug: str = ""):
-    form = _pairing_application_for_group(group, track)
+    resolution = resolve_pairing_application_form(group, track)
+    form = resolution.form
     questions = []
     if form:
         questions = list(
@@ -1540,7 +1535,7 @@ def _pairing_question_choices(group, track: str, current_slug: str = ""):
             "section": "Legacy configuration",
             "form": f"Group {getattr(group, 'number', '—')}",
         }
-    return form, choices, metadata
+    return form, choices, metadata, resolution
 
 
 class PairingQuestionSelect(forms.Select):
@@ -1575,7 +1570,7 @@ class PairingRuleAdminForm(forms.ModelForm):
             ("mentora_question_slug", "M"),
         ):
             current = getattr(self.instance, field_name, "")
-            form, choices, metadata = _pairing_question_choices(group, track, current)
+            form, choices, metadata, resolution = _pairing_question_choices(group, track, current)
             field = self.fields[field_name]
             field.choices = choices
             field.widget = PairingQuestionSelect(
@@ -1584,10 +1579,24 @@ class PairingRuleAdminForm(forms.ModelForm):
                 question_metadata=metadata,
             )
             role = "Emprendedora" if track == "E" else "Mentora"
-            field.help_text = (
-                f"Questions from {form.name} ({form.slug})." if form
-                else f"No current {role} A1 application was found for this group."
-            )
+            if form:
+                field.help_text = f"Questions from {form.name} ({form.slug})."
+                if resolution.uses_shared_form:
+                    match_note = ""
+                    if resolution.matched_email_count:
+                        match_note = (
+                            f" It matches {resolution.matched_email_count} of "
+                            f"{resolution.participant_email_count} selected {role.lower()} email(s)."
+                        )
+                    field.help_text += (
+                        " This application is shared from the recruitment source rather "
+                        f"than attached directly to this group.{match_note}"
+                    )
+            else:
+                field.help_text = (
+                    f"No current {role} A1 application was found for this group or its "
+                    "selected participant emails."
+                )
 
 
 class PairingAIComparisonAdminForm(PairingRuleAdminForm):

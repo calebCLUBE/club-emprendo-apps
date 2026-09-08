@@ -2277,6 +2277,47 @@ def _row_get(row, colname: str, default=""):
     return v
 
 
+def _pairing_person_name(answer_map: dict, questions: list[Question], fallback: str = "") -> str:
+    """Resolve a person's name without confusing it with a business name."""
+    for slug in (
+        "full_name",
+        "nombre_completo",
+        "e1_full_name",
+        "m1_full_name",
+    ):
+        value = str(answer_map.get(slug) or "").strip()
+        if value:
+            return value
+
+    excluded_name_tokens = (
+        "emprendimiento",
+        "negocio",
+        "empresa",
+        "emprendedora",
+        "mentora",
+        "certificado",
+    )
+    for question in questions:
+        question_text = _availability_word(question.text or "")
+        is_full_name_question = (
+            "nombre completo" in question_text
+            or "full name" in question_text
+        )
+        if not is_full_name_question or any(
+            token in question_text for token in excluded_name_tokens
+        ):
+            continue
+        value = str(answer_map.get(question.slug) or "").strip()
+        if value:
+            return value
+
+    for slug in ("certificate_name", "preferred_name"):
+        value = str(answer_map.get(slug) or "").strip()
+        if value:
+            return value
+    return str(fallback or "").strip()
+
+
 def _build_master_df_for_form(fd: FormDefinition):
     """
     Builds a DataFrame structurally similar to your 'Master CSV' download:
@@ -2298,11 +2339,12 @@ def _build_master_df_for_form(fd: FormDefinition):
 
     for app in apps:
         amap = {a.question.slug: (a.value or "") for a in app.answers.all()}
+        personal_name = _pairing_person_name(amap, questions, app.name or "")
         rows.append(
             [
                 app.created_at.isoformat(),
                 app.id,
-                app.name or "",
+                personal_name,
                 (app.email or "").strip().lower(),
             ]
             + [amap.get(q.slug, "") for q in questions]

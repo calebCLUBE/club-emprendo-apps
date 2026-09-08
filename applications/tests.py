@@ -3541,6 +3541,18 @@ class GradingAndPairingConfigEditorTests(TestCase):
         mentor_form = FormDefinition.objects.create(
             slug="G913_M_A1", name="Current mentor application", group=group
         )
+        entrepreneur_full_name = Question.objects.create(
+            form=entrepreneur_form,
+            text="Nombre completo",
+            slug="nombre_completo",
+            field_type=Question.SHORT_TEXT,
+        )
+        mentor_full_name = Question.objects.create(
+            form=mentor_form,
+            text="Nombre completo",
+            slug="nombre_completo",
+            field_type=Question.SHORT_TEXT,
+        )
         entrepreneur_schedule = Question.objects.create(
             form=entrepreneur_form,
             text="When can you participate?",
@@ -3643,12 +3655,12 @@ class GradingAndPairingConfigEditorTests(TestCase):
         )
         entrepreneur = Application.objects.create(
             form=entrepreneur_form,
-            name="Founder",
+            name="Nombre del negocio incorrecto",
             email="founder@example.com",
         )
         mentor = Application.objects.create(
             form=mentor_form,
-            name="Mentor",
+            name="Empresa de la mentora incorrecta",
             email="mentor@example.com",
         )
         second_mentor = Application.objects.create(
@@ -3658,7 +3670,7 @@ class GradingAndPairingConfigEditorTests(TestCase):
         )
         lower_priority_mentor = Application.objects.create(
             form=mentor_form,
-            name="Lower Priority Mentor",
+            name="Negocio de Lucía incorrecto",
             email="lower.priority.mentor@example.com",
         )
         fallback_mentor_form = FormDefinition.objects.create(
@@ -3680,6 +3692,21 @@ class GradingAndPairingConfigEditorTests(TestCase):
             application=fallback_mentor,
             question=fallback_mentor_whatsapp,
             value="+51 900 123 456",
+        )
+        Answer.objects.create(
+            application=entrepreneur,
+            question=entrepreneur_full_name,
+            value="Ana Emprendedora",
+        )
+        Answer.objects.create(
+            application=mentor,
+            question=mentor_full_name,
+            value="María Mentora",
+        )
+        Answer.objects.create(
+            application=lower_priority_mentor,
+            question=mentor_full_name,
+            value="Lucía Mentora",
         )
         Answer.objects.create(
             application=entrepreneur,
@@ -3893,6 +3920,8 @@ class GradingAndPairingConfigEditorTests(TestCase):
 
         self.assertEqual(len(result), 1)
         self.assertEqual(list(result.columns[:16]), PAIR_HEADERS)
+        self.assertEqual(result.iloc[0]["emprendedora_name"], "Ana Emprendedora")
+        self.assertEqual(result.iloc[0]["mentora_name"], "Lucía Mentora")
         self.assertEqual(
             result.iloc[0]["whatsapp_emprendedora"],
             "+57 300 111 2233",

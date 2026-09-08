@@ -3569,9 +3569,15 @@ class GradingAndPairingConfigEditorTests(TestCase):
         )
         entrepreneur_industry = Question.objects.create(
             form=entrepreneur_form,
-            text="Business industry",
+            text="Do you have an active active business?",
             slug="business_active",
             field_type=Question.SHORT_TEXT,
+        )
+        entrepreneur_description = Question.objects.create(
+            form=entrepreneur_form,
+            text="Business description",
+            slug="descripcion_del_emprendimiento",
+            field_type=Question.LONG_TEXT,
         )
         mentor_industry = Question.objects.create(
             form=mentor_form,
@@ -3742,7 +3748,8 @@ class GradingAndPairingConfigEditorTests(TestCase):
             (
                 entrepreneur,
                 (
-                    (entrepreneur_industry, "services"),
+                    (entrepreneur_industry, "yes"),
+                    (entrepreneur_description, "Ofrezco servicios de consultoría para empresas."),
                     (entrepreneur_country, "colombia"),
                     (entrepreneur_whatsapp, "+57 300 111 2233"),
                     (entrepreneur_age, "1-5-anos"),
@@ -3777,7 +3784,7 @@ class GradingAndPairingConfigEditorTests(TestCase):
             (
                 lower_priority_mentor,
                 (
-                    (mentor_industry, "products"),
+                    (mentor_industry, "services"),
                     (mentor_country, "peru"),
                     (mentor_whatsapp_consent, "Sí"),
                     (mentor_age, "5-10nanos"),
@@ -3973,11 +3980,25 @@ class GradingAndPairingConfigEditorTests(TestCase):
         )
         self.assertEqual(result.iloc[0]["matching_availability"], "tue_afternoon")
         self.assertNotEqual(result.iloc[0]["matching_availability"], "NO MATCH FOUND")
-        self.assertEqual(result.iloc[0]["matching_industry"], "none")
-        self.assertEqual(result.iloc[0]["emprendedora_industry"], "services")
-        self.assertEqual(result.iloc[0]["mentora_industry"], "products")
+        self.assertEqual(
+            result.iloc[0]["matching_industry"],
+            "Sí — Emprendedora: Servicios / consultoría / turismo / marketing "
+            "(inferida de la descripción); "
+            "Mentora: Servicios / consultoría / turismo / marketing",
+        )
+        self.assertEqual(
+            result.iloc[0]["emprendedora_industry"],
+            "Servicios / consultoría / turismo / marketing (inferida de la descripción)",
+        )
+        self.assertEqual(
+            result.iloc[0]["mentora_industry"],
+            "Servicios / consultoría / turismo / marketing",
+        )
         self.assertEqual(result.iloc[0]["matching_country"], "none")
-        self.assertEqual(result.iloc[0]["business_age_matching"], "mentor_max=10 >= emp_min=1")
+        self.assertEqual(
+            result.iloc[0]["business_age_matching"],
+            "Sí — Emprendedora: 1–5 años; Mentora: 5–10 años",
+        )
         self.assertEqual(
             result.iloc[0]["expertise_growth_matching"],
             "Expertise and growth comparison — Entrepreneur: Normalized participant "

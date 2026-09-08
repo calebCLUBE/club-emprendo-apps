@@ -1819,7 +1819,7 @@ def _canonical_pairing_output_key(rule: dict) -> str:
     return str(rule.get("output_key") or rule.get("label") or comparison_type)
 
 
-def _business_age_bucket_to_min_years(emp_val: str) -> int:
+def _business_age_bucket_to_min_years(emp_val: str) -> int | None:
     v = _availability_word(emp_val).replace("_", "-")
     return {
         "lt_1y": 0,
@@ -1837,10 +1837,10 @@ def _business_age_bucket_to_min_years(emp_val: str) -> int:
         "5-10-anos": 5,
         "5-10nanos": 5,
         "10-anos": 10,
-    }.get(v, 0)
+    }.get(v)
 
 
-def _mentor_years_to_max_years(mentor_val: str) -> int:
+def _mentor_years_to_max_years(mentor_val: str) -> int | None:
     v = _availability_word(mentor_val).replace("_", "-")
     return {
         "0-1": 1,
@@ -1852,7 +1852,115 @@ def _mentor_years_to_max_years(mentor_val: str) -> int:
         "5-10-anos": 10,
         "5-10nanos": 10,
         "10-anos": 99,
-    }.get(v, 0)
+    }.get(v)
+
+
+def _business_age_display(value: str) -> str:
+    token = _availability_word(value).replace("_", "-")
+    labels = {
+        "lt-1y": "Menos de 1 año",
+        "1-3y": "1–3 años",
+        "4-6y": "4–6 años",
+        "7-10y": "7–10 años",
+        "gt-10y": "Más de 10 años",
+        "0-1": "0–1 año",
+        "1-5": "1–5 años",
+        "5-10": "5–10 años",
+        "10-plus": "Más de 10 años",
+        "0-1-ano": "0–1 año",
+        "1-5-anos": "1–5 años",
+        "5-10-anos": "5–10 años",
+        "5-10nanos": "5–10 años",
+        "10-anos": "Más de 10 años",
+    }
+    return labels.get(token, str(value or "").strip() or "Sin respuesta")
+
+
+PAIRING_INDUSTRY_LABELS = {
+    "products": "Productos / ropa / artesanías / cosmética",
+    "services": "Servicios / consultoría / turismo / marketing",
+    "technology": "Tecnología / aplicaciones / software",
+    "other": "Otros",
+}
+
+
+def _pairing_industry_category(value: str) -> str:
+    text = _availability_word(value).replace("_", "-")
+    if not text or text in {
+        "yes", "no", "si", "true", "false", "1", "0", "yes-ok",
+    }:
+        return ""
+
+    if any(token in text for token in (
+        "tecnologia", "technology", "software", "aplicacion", "plataforma",
+        "programacion", "inteligencia artificial", "gps",
+    )):
+        return "technology"
+    if any(token in text for token in (
+        "servicio", "service", "consultor", "asesor", "turismo", "hosped",
+        "marketing", "coach", "capacit", "formacion", "educa", "clase",
+        "terapia", "psicolog", "salud", "bienestar", "fotograf", "contab",
+        "finanza", "legal", "administr", "evento", "limpieza", "belleza",
+        "peluquer",
+    )):
+        return "services"
+    if any(token in text for token in (
+        "producto", "product", "ropa", "artesan", "cosmetic", "alimento",
+        "comida", "food", "panader", "reposter", "pastel", "galleta", "joy",
+        "bisuter", "accesorio", "calzado", "bota", "bolso", "tela", "cafe",
+        "bebida", "tienda", "agric", "cultivo",
+    )):
+        return "products"
+    if text in {"otro", "otros", "other"} or text.startswith(("otro-", "otros-")):
+        return "other"
+    return ""
+
+
+def _pairing_industry_for_row(row, preferred_slug: str, track: str) -> tuple[str, str]:
+    raw_value = _row_get(row, preferred_slug, "")
+    category = _pairing_industry_category(raw_value)
+    if category:
+        return category, PAIRING_INDUSTRY_LABELS[category]
+
+    explicit_slugs = (
+        "industry",
+        "business_industry",
+        "industria_de_tu_emprendimiento",
+        "industria_del_emprendimiento",
+        "business_sector",
+    )
+    for slug in explicit_slugs:
+        candidate = _row_get(row, slug, "")
+        category = _pairing_industry_category(candidate)
+        if category:
+            return category, PAIRING_INDUSTRY_LABELS[category]
+
+    descriptive_slugs = (
+        (
+            "descripcion_del_emprendimiento",
+            "business_description",
+            "descripcion_del_negocio",
+            "nombre_de_tu_emprendimiento",
+            "business_name",
+        )
+        if track == "E"
+        else (
+            "professional_expertise",
+            "cual_es_tu_area_de_experiencia_profesional_mas_rel",
+            "business_description",
+            "descripcion_del_negocio",
+            "nombre_de_tu_emprendimiento",
+        )
+    )
+    description = " ".join(
+        str(_row_get(row, slug, "") or "").strip()
+        for slug in descriptive_slugs
+    ).strip()
+    category = _pairing_industry_category(description)
+    if category:
+        return category, f"{PAIRING_INDUSTRY_LABELS[category]} (inferida de la descripción)"
+
+    return "", "Sin industria disponible"
 
 
 def _safe_lower(x):
@@ -2952,32 +3060,73 @@ def _pair_one_group(
                 mentor_raw = _row_get(mentor_row, mentor_slug, "")
                 emp_min = _business_age_bucket_to_min_years(emp_raw)
                 mentor_max = _mentor_years_to_max_years(mentor_raw)
-                matched = bool(emp_raw and mentor_raw and mentor_max >= emp_min)
+                matched = bool(
+                    emp_raw
+                    and mentor_raw
+                    and emp_min is not None
+                    and mentor_max is not None
+                    and mentor_max >= emp_min
+                )
                 standard_metrics[f"standard:{rule_index}"] = (int(matched),)
-                if matched:
-                    score += weight
-                    matched_value = f"mentor_max={mentor_max} >= emp_min={emp_min}"
-            else:
-                emp_raw = _row_get(emp_row, emp_slug, "")
-                mentor_raw = _row_get(mentor_row, mentor_slug, "")
-                emp_value = _safe_lower(emp_raw)
-                mentor_value = _safe_lower(mentor_raw)
-
-                if output_key == "industry":
-                    matches["emp_industry_val"] = emp_raw or ""
-                    matches["mentor_industry_val"] = mentor_raw or ""
-
-                # Preserve the previous country preference behavior for the default country rule.
-                country_preference = _safe_lower(_row_get(emp_row, "same_country", ""))
-                if output_key == "country" and country_preference and country_preference != "yes":
-                    matched = False
+                emp_age_display = _business_age_display(emp_raw)
+                mentor_age_display = _business_age_display(mentor_raw)
+                if emp_min is None or mentor_max is None:
+                    matched_value = (
+                        "No evaluable — "
+                        f"Emprendedora: {emp_age_display}; Mentora: {mentor_age_display}"
+                    )
                 else:
-                    matched = bool(emp_value and mentor_value and emp_value == mentor_value)
+                    matched_value = (
+                        f"{'Sí' if matched else 'No'} — "
+                        f"Emprendedora: {emp_age_display}; Mentora: {mentor_age_display}"
+                    )
+                if matched:
+                    score += weight
+            else:
+                if output_key == "industry":
+                    emp_value, emp_display = _pairing_industry_for_row(
+                        emp_row,
+                        emp_slug,
+                        "E",
+                    )
+                    mentor_value, mentor_display = _pairing_industry_for_row(
+                        mentor_row,
+                        mentor_slug,
+                        "M",
+                    )
+                    matches["emp_industry_val"] = emp_display
+                    matches["mentor_industry_val"] = mentor_display
+                    matched = bool(
+                        emp_value and mentor_value and emp_value == mentor_value
+                    )
+                    if not emp_value or not mentor_value:
+                        matched_value = (
+                            "No evaluable — "
+                            f"Emprendedora: {emp_display}; Mentora: {mentor_display}"
+                        )
+                    else:
+                        matched_value = (
+                            f"{'Sí' if matched else 'No'} — "
+                            f"Emprendedora: {emp_display}; Mentora: {mentor_display}"
+                        )
+                else:
+                    emp_raw = _row_get(emp_row, emp_slug, "")
+                    mentor_raw = _row_get(mentor_row, mentor_slug, "")
+                    emp_value = _safe_lower(emp_raw)
+                    mentor_value = _safe_lower(mentor_raw)
+
+                    # Preserve the previous country preference behavior for the default country rule.
+                    country_preference = _safe_lower(_row_get(emp_row, "same_country", ""))
+                    if output_key == "country" and country_preference and country_preference != "yes":
+                        matched = False
+                    else:
+                        matched = bool(emp_value and mentor_value and emp_value == mentor_value)
                 standard_metrics[f"standard:{rule_index}"] = (int(matched),)
 
                 if matched:
                     score += weight
-                    matched_value = emp_value
+                    if output_key != "industry":
+                        matched_value = emp_value
 
             if required and not matched:
                 return None, -10_000, matches

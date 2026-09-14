@@ -7054,6 +7054,82 @@ class ImpactDashboardMetricTests(TestCase):
         self.assertIn(986, {row["number"] for row in admin_dashboard_views._impact_group_options()})
         self.assertIn(2024, admin_dashboard_views._impact_year_options())
 
+    def test_dashboard_participants_use_the_same_rows_and_acta_overlay_as_group_page(self):
+        ParticipantEmailStatus.objects.update_or_create(
+            email="no-start@example.com",
+            defaults={"contract_signed": True},
+        )
+        participant_list = GroupParticipantList.objects.get(group=self.group1)
+        duplicate_visible_row = list(participant_list.emprendedoras_sheet_rows[0])
+        duplicate_visible_row[2] = 99
+        id_only_visible_row = [""] * len(admin_profiles_views.EMPRENDEDORAS_HEADERS)
+        id_only_visible_row[4] = "ONLY-ID"
+        participant_list.emprendedoras_sheet_rows = [
+            *participant_list.emprendedoras_sheet_rows,
+            duplicate_visible_row,
+            id_only_visible_row,
+        ]
+        participant_list.save(update_fields=["emprendedoras_sheet_rows", "updated_at"])
+        page_configs = admin_profiles_views._participant_track_sheet_configs()
+        expected = []
+        for track_slug, track_key in (("mentoras", "m"), ("emprendedoras", "e")):
+            rows, _repaired = admin_profiles_views._participant_track_rows_for_group(
+                self.group1,
+                participant_list,
+                page_configs[track_slug],
+            )
+            expected.extend(
+                (
+                    track_key,
+                    admin_dashboard_views._metric_email(row[5]),
+                    admin_dashboard_views._metric_bool(row[9]),
+                )
+                for row in rows
+            )
+
+        actual = [
+            (record["track"], record["email"], record["acta"])
+            for record in admin_dashboard_views._participant_records()
+            if record["group_number"] == self.group1.number
+        ]
+
+        self.assertCountEqual(actual, expected)
+        self.assertEqual(len(actual), len(expected))
+        self.assertIn(("e", "no-start@example.com", True), actual)
+
+    def test_history_table_alone_does_not_create_dashboard_participant_rows(self):
+        historical_group = FormGroup.objects.create(
+            number=988,
+            custom_name="Cohorte histórica 988",
+            start_day=1,
+            start_month="enero",
+            end_month="marzo",
+            year=2024,
+        )
+        historical_import = HistoricalGroupImport.objects.create(
+            group_number=988,
+            group_name="Cohorte histórica 988",
+            start_day=1,
+            start_month="enero",
+            end_month="marzo",
+            year=2024,
+            end_year=2024,
+            status=HistoricalGroupImport.STATUS_IMPORTED,
+            group=historical_group,
+        )
+        HistoricalParticipant.objects.create(
+            group=historical_group,
+            source_import=historical_import,
+            track="emprendedoras",
+            name="History Only",
+            email="history-only@example.com",
+            source_row_number=2,
+        )
+
+        emails = {record["email"] for record in admin_dashboard_views._participant_records()}
+
+        self.assertNotIn("history-only@example.com", emails)
+
     def test_group_completion_uses_archive_or_end_month_not_first_graduate(self):
         as_of = date(2026, 9, 13)
         cases = (
@@ -7217,7 +7293,7 @@ class ImpactDashboardMetricTests(TestCase):
         self.assertEqual(status_key["G"], "Graduada")
         self.assertEqual(status_key["A"], "Activa")
 
-    def test_program_metric_summaries_use_participant_rows_and_deduped_applicants(self):
+    def test_metric_summaries_use_all_groups_visible_on_participants_page(self):
         records = admin_dashboard_views._participant_records()
         participant_summary = admin_dashboard_views._participant_summary(records)
         application_summary = admin_dashboard_views._application_summary()
@@ -7228,34 +7304,34 @@ class ImpactDashboardMetricTests(TestCase):
         alumni_summary = admin_dashboard_views._alumni_mentor_summary(records)
         group_source_rows = admin_dashboard_views._group_recruitment_source_rows(records)
 
-        self.assertEqual(participant_summary["overall"]["rows"], 6)
-        self.assertEqual(participant_summary["overall"]["started"], 5)
-        self.assertEqual(participant_summary["overall"]["graduated"], 2)
-        self.assertEqual(participant_summary["overall"]["unique"], 4)
-        self.assertEqual(participant_summary["overall"]["graduation_started"], 5)
-        self.assertEqual(participant_summary["overall"]["graduation_graduated"], 2)
-        self.assertEqual(participant_summary["overall"]["graduation_completed_groups"], 2)
-        self.assertEqual(participant_summary["overall"]["graduation_rate"], 40.0)
-        self.assertEqual(participant_summary["tracks"]["e"]["started"], 1)
+        self.assertEqual(participant_summary["overall"]["rows"], 7)
+        self.assertEqual(participant_summary["overall"]["started"], 6)
+        self.assertEqual(participant_summary["overall"]["graduated"], 3)
+        self.assertEqual(participant_summary["overall"]["unique"], 5)
+        self.assertEqual(participant_summary["overall"]["graduation_started"], 6)
+        self.assertEqual(participant_summary["overall"]["graduation_graduated"], 3)
+        self.assertEqual(participant_summary["overall"]["graduation_completed_groups"], 3)
+        self.assertEqual(participant_summary["overall"]["graduation_rate"], 50.0)
+        self.assertEqual(participant_summary["tracks"]["e"]["started"], 2)
         self.assertEqual(participant_summary["tracks"]["e"]["graduation_rate"], 100.0)
         self.assertEqual(participant_summary["tracks"]["m"]["graduated"], 1)
         self.assertEqual(participant_summary["tracks"]["m"]["graduation_started"], 4)
         self.assertEqual(participant_summary["tracks"]["m"]["graduation_rate"], 25.0)
 
-        self.assertEqual(application_summary["overall"]["raw"], 6)
-        self.assertEqual(application_summary["overall"]["unique"], 4)
+        self.assertEqual(application_summary["overall"]["raw"], 7)
+        self.assertEqual(application_summary["overall"]["unique"], 5)
         self.assertEqual(application_summary["overall"]["duplicate_or_repeat"], 2)
-        self.assertEqual(application_summary["tracks"][0]["unique"], 2)
+        self.assertEqual(application_summary["tracks"][0]["unique"], 3)
         group_application_summary = admin_dashboard_views._application_summary({981})
         self.assertEqual(group_application_summary["overall"]["raw"], 5)
         self.assertEqual(group_application_summary["overall"]["unique"], 4)
 
         e_conversion = next(row for row in conversion_rows if row["track"] == "Emprendedoras")
-        self.assertEqual(e_conversion["unique_applicants"], 2)
-        self.assertEqual(e_conversion["started_from_app"], 1)
-        self.assertEqual(e_conversion["listed_from_app"], 2)
-        self.assertEqual(e_conversion["graduated_from_app"], 1)
-        self.assertEqual(e_conversion["app_to_start_rate"], 50.0)
+        self.assertEqual(e_conversion["unique_applicants"], 3)
+        self.assertEqual(e_conversion["started_from_app"], 2)
+        self.assertEqual(e_conversion["listed_from_app"], 3)
+        self.assertEqual(e_conversion["graduated_from_app"], 2)
+        self.assertEqual(e_conversion["app_to_start_rate"], 66.7)
         self.assertEqual(e_conversion["app_to_listed_rate"], 100.0)
 
         self.assertEqual(alumni_summary["returnee_count"], 1)
@@ -7267,6 +7343,7 @@ class ImpactDashboardMetricTests(TestCase):
         group2_source = next(row for row in group_source_rows if row["group_number"] == 982)
         self.assertEqual(group1_source["source_label"], "Group 981")
         self.assertEqual(group2_source["source_label"], "Group 981")
+        self.assertIn(984, {row["number"] for row in admin_dashboard_views._impact_group_options()})
 
     def test_impact_dashboard_scope_filters_group_year_and_track(self):
         records = admin_dashboard_views._participant_records()
@@ -7290,21 +7367,21 @@ class ImpactDashboardMetricTests(TestCase):
         self.assertEqual(app_summary["tracks"][1]["track"], "Mentoras")
         self.assertEqual(app_summary["tracks"][1]["raw"], 0)
 
-    def test_impact_dashboard_only_includes_group_labeled_groups(self):
+    def test_impact_dashboard_includes_custom_named_groups_visible_on_participants_page(self):
         records = admin_dashboard_views._participant_records()
-        self.assertNotIn("pilot@example.com", {record["email"] for record in records})
+        self.assertIn("pilot@example.com", {record["email"] for record in records})
 
         group_options = admin_dashboard_views._impact_group_options()
         self.assertIn(self.group1.number, {option["number"] for option in group_options})
-        self.assertNotIn(self.non_program_group.number, {option["number"] for option in group_options})
-        self.assertNotIn(2025, admin_dashboard_views._impact_year_options())
+        self.assertIn(self.non_program_group.number, {option["number"] for option in group_options})
+        self.assertIn(2025, admin_dashboard_views._impact_year_options())
         self.assertEqual(
             admin_dashboard_views._impact_allowed_group_filter({self.non_program_group.number}),
-            set(),
+            {self.non_program_group.number},
         )
 
         application_summary = admin_dashboard_views._application_summary()
-        self.assertEqual(application_summary["overall"]["raw"], 6)
+        self.assertEqual(application_summary["overall"]["raw"], 7)
 
     def test_survey_nps_and_quality_of_life_rows_exclude_financial_columns(self):
         headers = [

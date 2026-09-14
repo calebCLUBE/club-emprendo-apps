@@ -560,7 +560,7 @@
         <div>
           <h1 class="ce-impact-title">Impact Dashboard</h1>
           <div class="ce-impact-subtitle">
-            Core program metrics across applications, participant workbooks, and impact surveys.
+            Participant and cohort metrics use the exact rows shown in Grupos → Participantes; application, survey, marketing, and Wix metrics use their named sources.
             {% if impact_report_group_label %} Scope: {{ impact_report_group_label }}.{% endif %}
           </div>
         </div>
@@ -617,25 +617,25 @@
             <div>
               <p class="ce-box-kicker">Participants</p>
               <h2 class="ce-box-title">Number of Participants</h2>
-              <p class="ce-box-note">Unique people across current participant workbooks and uploaded historical groups. Email is the primary identity; document ID is used when email is missing.</p>
+              <p class="ce-box-note">Participation rows shown directly on each group’s Participants page, including uploaded historical groups. Repeat participation in another group remains a separate row.</p>
             </div>
-            <div class="ce-big-number">{{ participant_summary.overall.unique }}</div>
+            <div class="ce-big-number">{{ participant_summary.overall.rows }}</div>
           </div>
           <div class="ce-mini-stat-grid">
             <div class="ce-mini-stat">
-              <div class="ce-mini-stat-k">Participation records</div>
-              <div class="ce-mini-stat-v">{{ participant_summary.overall.rows }}</div>
-              <div class="ce-mini-stat-note">A repeat participant can have more than one cohort record.</div>
+              <div class="ce-mini-stat-k">Unique people</div>
+              <div class="ce-mini-stat-v">{{ participant_summary.overall.unique }}</div>
+              <div class="ce-mini-stat-note">Email is the primary identity; document ID is used when email is missing.</div>
             </div>
             <div class="ce-mini-stat">
               <div class="ce-mini-stat-k">Emprendedoras</div>
-              <div class="ce-mini-stat-v">{{ participant_summary.tracks.e.unique }}</div>
-              <div class="ce-mini-stat-note">{{ participant_summary.tracks.e.rows }} participation records</div>
+              <div class="ce-mini-stat-v">{{ participant_summary.tracks.e.rows }}</div>
+              <div class="ce-mini-stat-note">{{ participant_summary.tracks.e.unique }} unique people</div>
             </div>
             <div class="ce-mini-stat">
               <div class="ce-mini-stat-k">Mentoras</div>
-              <div class="ce-mini-stat-v">{{ participant_summary.tracks.m.unique }}</div>
-              <div class="ce-mini-stat-note">{{ participant_summary.tracks.m.rows }} participation records</div>
+              <div class="ce-mini-stat-v">{{ participant_summary.tracks.m.rows }}</div>
+              <div class="ce-mini-stat-note">{{ participant_summary.tracks.m.unique }} unique people</div>
             </div>
             <div class="ce-mini-stat">
               <div class="ce-mini-stat-k">Historical imports</div>

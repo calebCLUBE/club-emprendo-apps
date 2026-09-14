@@ -36,7 +36,6 @@ from .models import (
     GradingJob,
     GroupParticipantList,
     HistoricalGroupImport,
-    HistoricalParticipant,
     PairingJob,
     ParticipantSheetVersion,
     Question,
@@ -196,7 +195,6 @@ PARTICIPANT_TRACK_CONFIGS = {
         "document_col": 4,
         "status_col": 1,
         "country_col": 7,
-        "sheet_width": 18,
         "progress_cols": (9, 10, 11, 12, 13, 14),
         "acta_col": 9,
         "website_col": 10,
@@ -213,7 +211,6 @@ PARTICIPANT_TRACK_CONFIGS = {
         "document_col": 4,
         "status_col": 1,
         "country_col": 7,
-        "sheet_width": 19,
         "progress_cols": (9, 10, 11, 12, 13, 14),
         "acta_col": 9,
         "website_col": 10,
@@ -357,13 +354,6 @@ def _metric_bool(value) -> bool:
     return raw in {"1", "true", "yes", "checked", "on", "x", "✓"}
 
 
-def _metric_row_has_meaning(row: list, email_col: int, status_col: int) -> bool:
-    email = _metric_email(_metric_cell(row, email_col))
-    status = _metric_cell(row, status_col)
-    name = _metric_cell(row, 3)
-    return bool(email or status or name)
-
-
 def _parse_metric_number(value) -> float | None:
     if isinstance(value, (int, float)) and not isinstance(value, bool):
         return float(value)
@@ -431,11 +421,9 @@ def _impact_group_is_program(
 ) -> bool:
     if not group or getattr(group, "number", None) is None:
         return False
-    historical_group_numbers = historical_group_numbers or set()
-    if int(group.number) in historical_group_numbers:
-        return True
-    label = _impact_group_label(group.number, {group.number: group}).strip().lower()
-    return label.startswith("group") or label.startswith("grupo")
+    # Grupos -> Participantes exposes every active FormGroup, including custom
+    # cohort names and historical imports. Impact uses the same group scope.
+    return bool(getattr(group, "is_active", True))
 
 
 def _impact_group_is_completed(group: FormGroup | None, *, as_of: date | None = None) -> bool:
@@ -468,17 +456,6 @@ def _impact_group_start_date(group: FormGroup | None) -> date | None:
         return date(year, int(month_number), day)
     except (TypeError, ValueError):
         return None
-
-
-def _normalize_impact_participant_row(row: list, cfg: dict) -> list:
-    """Upgrade the one-column-short, pre-Certificacion participant layout."""
-    normalized = list(row)
-    width = int(cfg.get("sheet_width") or 0)
-    if width > 12 and len(normalized) == width - 1:
-        normalized.insert(12, False)
-    if width and len(normalized) < width:
-        normalized.extend([""] * (width - len(normalized)))
-    return normalized
 
 
 def _participant_person_key(
@@ -876,20 +853,30 @@ def _track_impact_summary(track_label: str, initial_dataset: dict, final_dataset
 
 
 def _participant_records() -> list[dict]:
+    # Reuse the exact normalization, checkbox coercion, saved-email fallback,
+    # and Acta overlay used by Grupos -> Participantes. This keeps every
+    # participant-based dashboard value tied to the rows an administrator sees
+    # on that page instead of maintaining a second interpretation here.
+    from .admin_profiles_views import (
+        _participant_track_rows_for_group,
+        _participant_track_sheet_configs,
+    )
+
     records: list[dict] = []
-    participant_lists = GroupParticipantList.objects.select_related("group").order_by(
-        "group__number", "id"
+    participant_lists = (
+        GroupParticipantList.objects.select_related("group")
+        .filter(group__is_active=True)
+        .order_by("group__number", "id")
     )
     group_map = {group.number: group for group in FormGroup.objects.all()}
     historical_group_numbers = _impact_historical_group_numbers()
+    page_configs = _participant_track_sheet_configs()
 
     for participant_list in participant_lists:
         group = getattr(participant_list, "group", None)
         group_number = getattr(group, "number", None)
         group_year = getattr(group, "year", None)
         group_label = _impact_group_label(group_number, group_map)
-        if not _impact_group_is_program(group, historical_group_numbers):
-            continue
         group_completed = _impact_group_is_completed(group)
         group_start_date = _impact_group_start_date(group)
         source = (
@@ -899,16 +886,20 @@ def _participant_records() -> list[dict]:
         )
 
         for track_key, cfg in PARTICIPANT_TRACK_CONFIGS.items():
-            raw_rows = getattr(participant_list, cfg["rows_field"], []) or []
-            if not isinstance(raw_rows, list):
+            track_slug = "mentoras" if track_key == "m" else "emprendedoras"
+            page_cfg = page_configs.get(track_slug)
+            if not page_cfg:
                 continue
+            raw_rows, _repaired = _participant_track_rows_for_group(
+                group,
+                participant_list,
+                page_cfg,
+            )
 
             for row_index, raw_row in enumerate(raw_rows, start=1):
                 if not isinstance(raw_row, (list, tuple)):
                     continue
-                row = _normalize_impact_participant_row(list(raw_row), cfg)
-                if not _metric_row_has_meaning(row, cfg["email_col"], cfg["status_col"]):
-                    continue
+                row = list(raw_row)
 
                 status = _status_label(_metric_cell(row, cfg["status_col"]))
                 progress = any(_metric_bool(row[idx]) for idx in cfg["progress_cols"] if idx < len(row))
@@ -955,61 +946,11 @@ def _participant_records() -> list[dict]:
                         else False,
                     }
                 )
-
-    # Historical imports normally also create canonical GroupParticipantList
-    # rows. Keep HistoricalParticipant as a fallback so older uploads remain
-    # reportable if their participant workbook is absent or incomplete.
-    try:
-        historical_rows = HistoricalParticipant.objects.select_related(
-            "group", "source_import"
-        ).filter(source_import__status=HistoricalGroupImport.STATUS_IMPORTED)
-        for historical in historical_rows:
-            group = historical.group
-            if not _impact_group_is_program(group, historical_group_numbers):
-                continue
-            track_key = "m" if historical.track == "mentoras" else "e"
-            status = _status_label(historical.status)
-            email = _metric_email(historical.email)
-            person_key = _participant_person_key(
-                email=email,
-                document_id=historical.document_id,
-                group_number=group.number,
-                track_key=track_key,
-                row_token=f"historical-{historical.id}",
-            )
-            records.append(
-                {
-                    "track": track_key,
-                    "track_label": PARTICIPANT_TRACK_CONFIGS[track_key]["label"],
-                    "email": email,
-                    "document_id": historical.document_id,
-                    "person_key": person_key,
-                    "participation_key": (group.number, track_key, person_key),
-                    "status": status,
-                    "started": status in PARTICIPANT_STATUS_STARTED,
-                    "graduated": status in PARTICIPANT_STATUS_GRADUATED,
-                    "country": historical.country or "Sin país",
-                    "group_number": group.number,
-                    "group_year": group.year,
-                    "group_label": _impact_group_label(group.number, group_map),
-                    "group_completed": _impact_group_is_completed(group),
-                    "group_start_date": _impact_group_start_date(group),
-                    "source": "historical_import",
-                    "acta": False,
-                    "website": False,
-                    "capacitacion": False,
-                    "certificacion": False,
-                    "initial_survey": False,
-                    "final_survey": False,
-                }
-            )
-    except Exception:
-        pass
-    return _dedupe_participant_records(records)
+    return records
 
 
 def _participant_summary(records: list[dict], group_numbers: set[int] | None = None) -> dict:
-    records = _dedupe_participant_records(list(records))
+    records = list(records)
     summary_by_track: dict[str, dict] = {}
     all_participant_people: set[str] = set()
     all_started_people: set[str] = set()
@@ -1982,7 +1923,7 @@ def _wellbeing_metric_summary(wellbeing_rows: list[dict]) -> dict:
 
 
 def _impact_milestone_summary(records: list[dict]) -> dict:
-    records = _dedupe_participant_records(list(records))
+    records = list(records)
     total = len(records)
     fields = (
         ("acta", "Acta"),
@@ -3033,11 +2974,11 @@ def _render_group_impact_report_pdf(payload: dict) -> bytes:
     cards = [
         {
             "label": "Number of Participants",
-            "value": overall_participants["unique"],
+            "value": overall_participants["rows"],
             "note": (
-                f"{overall_participants['rows']} participation records · "
-                f"E {participant_summary['tracks'].get('e', {}).get('unique', 0)} / "
-                f"M {participant_summary['tracks'].get('m', {}).get('unique', 0)}"
+                f"{overall_participants['unique']} unique people · "
+                f"E {participant_summary['tracks'].get('e', {}).get('rows', 0)} / "
+                f"M {participant_summary['tracks'].get('m', {}).get('rows', 0)} rows"
             ),
             "color": "#3B82F6",
         },
@@ -3226,7 +3167,7 @@ def _render_group_impact_report_pdf(payload: dict) -> bytes:
         notes_ax = fig.add_axes([0.06, 0.08, 0.89, 0.78])
         notes_ax.axis("off")
         notes = [
-            "Number of participants: unique people across current participant workbooks and uploaded historical groups; participation records are shown separately.",
+            "Number of participants: participation rows shown in Grupos -> Participantes, including uploaded historical groups; unique people are shown separately.",
             "Application conversion: submitted applicant emails that match a participant record marked as having started.",
             "Graduation rate: Graduada participation records divided by started records after a group's end month/year or archive date.",
             "Alumni returnee: a Mentora cohort must start after the same email's earlier Emprendedora cohort.",

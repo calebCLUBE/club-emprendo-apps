@@ -3431,6 +3431,56 @@ def _participant_track_rows_for_group(group, participant_list, cfg: dict) -> tup
     return rows, bool(repaired_on_load)
 
 
+def _participant_track_rows_visible_on_page(group, participant_list, cfg: dict) -> tuple[list[list], bool]:
+    """Return canonical metric rows from the same source rendered on Participants."""
+    linked_google_sheet = bool(
+        participant_list and str(participant_list.google_sheet_url or "").strip()
+    )
+    if linked_google_sheet:
+        stored_tabs = list(participant_list.google_sheet_tabs or [])
+        display_tabs = _participant_google_tabs_for_display(participant_list)
+        linked_tab = next(
+            (
+                display_tabs[index]
+                for index, stored in enumerate(stored_tabs)
+                if index < len(display_tabs)
+                and str(stored.get("track") or "") == cfg["slug"]
+            ),
+            None,
+        )
+        if linked_tab and linked_tab.get("headers"):
+            headers = [str(value or "") for value in linked_tab["headers"]]
+            field_indexes = {
+                field_name: _participant_source_field_index(headers, field_name)
+                for field_name in PARTICIPANT_SOURCE_FIELD_ALIASES
+            }
+            rows = [
+                _participant_source_row_to_sheet_row(
+                    list(source_row),
+                    headers,
+                    cfg,
+                    field_indexes,
+                )
+                for source_row in linked_tab.get("rows", [])
+                if isinstance(source_row, (list, tuple))
+            ]
+            rows = _normalize_sheet_rows(rows, cfg["headers"])
+            rows = _coerce_bool_columns(rows, cfg["bool_cols"])
+            rows = _number_sheet_rows(rows, number_col=2)
+            rows, repaired_on_load = _repair_progress_defaults_if_legacy(
+                rows,
+                cfg["progress_default_false_cols"],
+            )
+            rows = _apply_contract_signed_to_rows(
+                rows,
+                email_col=cfg["email_col"],
+                acta_col=cfg["acta_col"],
+            )
+            return rows, bool(repaired_on_load)
+
+    return _participant_track_rows_for_group(group, participant_list, cfg)
+
+
 def _participant_sheet_tabs(mentoras_rows: list[list], emprendedoras_rows: list[list]) -> list[dict]:
     return [
         {

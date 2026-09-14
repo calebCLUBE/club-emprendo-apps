@@ -7160,6 +7160,87 @@ class ImpactDashboardMetricTests(TestCase):
         self.assertEqual(len(donut["legend"]), 12)
         self.assertEqual(donut["total"], str(len(records)))
 
+    def test_dashboard_country_uses_visible_linked_sheet_headers_not_stale_positions(self):
+        linked_group = FormGroup.objects.create(
+            number=990,
+            start_day=1,
+            start_month="enero",
+            end_month="marzo",
+            year=2026,
+        )
+        stale_row = [""] * len(admin_profiles_views.MENTORAS_HEADERS)
+        stale_row[1] = "A"
+        stale_row[3] = "Stale participant"
+        stale_row[5] = "stale@example.com"
+        stale_row[7] = "119086585"
+        GroupParticipantList.objects.create(
+            group=linked_group,
+            google_sheet_url="https://docs.google.com/spreadsheets/d/group990/edit",
+            mentoras_sheet_rows=[stale_row],
+            google_sheet_tabs=[
+                {
+                    "title": "G990 Mentoras",
+                    "track": "mentoras",
+                    "headers": [
+                        "Estatus",
+                        "#",
+                        "Nombre",
+                        "Email",
+                        "WhatsApp",
+                        "Id",
+                        "Nacionalidad",
+                        "Edad",
+                        "Recide",
+                        "Acta",
+                    ],
+                    "rows": [
+                        [
+                            "Activa",
+                            1,
+                            "Lissy Roman",
+                            "visible@example.com",
+                            "18094208072",
+                            "119086585",
+                            "República Dominicana",
+                            "25_34",
+                            "República Dominicana",
+                            True,
+                        ],
+                        [
+                            "Activa",
+                            2,
+                            "Invalid country value",
+                            "review@example.com",
+                            "",
+                            "ID2",
+                            "Colombia",
+                            "25_34",
+                            "123456789",
+                            True,
+                        ],
+                    ],
+                }
+            ],
+        )
+
+        records = [
+            record
+            for record in admin_dashboard_views._participant_records()
+            if record["group_number"] == linked_group.number
+        ]
+
+        self.assertEqual(len(records), 2)
+        records_by_email = {record["email"]: record for record in records}
+        self.assertNotIn("stale@example.com", records_by_email)
+        self.assertEqual(
+            records_by_email["visible@example.com"]["country"],
+            "República Dominicana",
+        )
+        self.assertEqual(
+            records_by_email["review@example.com"]["country"],
+            "País por revisar",
+        )
+
     def test_history_table_alone_does_not_create_dashboard_participant_rows(self):
         historical_group = FormGroup.objects.create(
             number=988,

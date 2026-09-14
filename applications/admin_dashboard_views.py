@@ -7,7 +7,9 @@ import unicodedata
 from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, timedelta
+from functools import lru_cache
 
+from babel import Locale
 from django.contrib import messages
 from django.contrib.admin.views.decorators import staff_member_required
 from django.conf import settings
@@ -312,6 +314,10 @@ IMPACT_COUNTRY_ALIASES = {
     "sudafrica": "Sudáfrica",
     "south africa": "Sudáfrica",
     "za": "Sudáfrica",
+    "dominicana": "República Dominicana",
+    "r dominicana": "República Dominicana",
+    "rep dominicana": "República Dominicana",
+    "republica dominicana rd": "República Dominicana",
 }
 IMPACT_SURVEY_SECTIONS = [
     {
@@ -444,16 +450,34 @@ def _country_key(value: str | None) -> str:
     return re.sub(r"[^a-z0-9]+", " ", without_accents).strip()
 
 
+@lru_cache(maxsize=1)
+def _impact_country_aliases() -> dict[str, str]:
+    aliases = dict(IMPACT_COUNTRY_ALIASES)
+    spanish = Locale.parse("es")
+    english = Locale.parse("en")
+    for territory_code, spanish_name in spanish.territories.items():
+        code = str(territory_code or "").strip().upper()
+        if len(code) != 2 or not code.isalpha():
+            continue
+        canonical = str(spanish_name or "").strip()
+        if not canonical:
+            continue
+        aliases[_country_key(code)] = canonical
+        aliases[_country_key(canonical)] = canonical
+        english_name = str(english.territories.get(code) or "").strip()
+        if english_name:
+            aliases[_country_key(english_name)] = canonical
+    return aliases
+
+
 def _canonical_country(value: str | None) -> str:
     key = _country_key(value)
     if not key or key in {"n a", "na", "none", "sin pais", "unknown"}:
         return "Sin país"
-    known = IMPACT_COUNTRY_ALIASES.get(key)
+    known = _impact_country_aliases().get(key)
     if known:
         return known
-    # Unknown values still receive a stable case/spacing form so differences
-    # such as "jamaica" and "Jamaica" do not create duplicate chart entries.
-    return key.title()
+    return "País por revisar"
 
 
 def _metric_bool(value) -> bool:
@@ -969,7 +993,7 @@ def _participant_records() -> list[dict]:
     # participant-based dashboard value tied to the rows an administrator sees
     # on that page instead of maintaining a second interpretation here.
     from .admin_profiles_views import (
-        _participant_track_rows_for_group,
+        _participant_track_rows_visible_on_page,
         _participant_track_sheet_configs,
     )
 
@@ -1001,7 +1025,7 @@ def _participant_records() -> list[dict]:
             page_cfg = page_configs.get(track_slug)
             if not page_cfg:
                 continue
-            raw_rows, _repaired = _participant_track_rows_for_group(
+            raw_rows, _repaired = _participant_track_rows_visible_on_page(
                 group,
                 participant_list,
                 page_cfg,

@@ -7182,41 +7182,56 @@ class ImpactDashboardMetricTests(TestCase):
                     "title": "G990 Mentoras",
                     "track": "mentoras",
                     "headers": [
-                        "Estatus",
-                        "#",
-                        "Nombre",
+                        "Certificacion",
                         "Email",
-                        "WhatsApp",
+                        "Encuesta final",
+                        "Recide",
                         "Id",
+                        "Estatus",
+                        "Acta",
+                        "Capacitacion",
+                        "Website",
+                        "Encuesta inicial",
+                        "Nombre",
                         "Nacionalidad",
                         "Edad",
-                        "Recide",
-                        "Acta",
+                        "WhatsApp",
+                        "#",
                     ],
                     "rows": [
                         [
-                            "Activa",
-                            1,
-                            "Lissy Roman",
+                            True,
                             "visible@example.com",
-                            "18094208072",
+                            True,
+                            "República Dominicana",
                             "119086585",
+                            "Graduada",
+                            True,
+                            True,
+                            True,
+                            True,
+                            "Lissy Roman",
                             "República Dominicana",
                             "25_34",
-                            "República Dominicana",
-                            True,
+                            "18094208072",
+                            1,
                         ],
                         [
-                            "Activa",
-                            2,
-                            "Invalid country value",
+                            False,
                             "review@example.com",
-                            "",
+                            False,
+                            "123456789",
                             "ID2",
+                            "Activa",
+                            False,
+                            False,
+                            False,
+                            False,
+                            "Invalid country value",
                             "Colombia",
                             "25_34",
-                            "123456789",
-                            True,
+                            "",
+                            2,
                         ],
                     ],
                 }
@@ -7232,10 +7247,18 @@ class ImpactDashboardMetricTests(TestCase):
         self.assertEqual(len(records), 2)
         records_by_email = {record["email"]: record for record in records}
         self.assertNotIn("stale@example.com", records_by_email)
-        self.assertEqual(
-            records_by_email["visible@example.com"]["country"],
-            "República Dominicana",
-        )
+        visible = records_by_email["visible@example.com"]
+        self.assertEqual(visible["document_id"], "119086585")
+        self.assertEqual(visible["status"], "G")
+        self.assertTrue(visible["started"])
+        self.assertTrue(visible["graduated"])
+        self.assertEqual(visible["country"], "República Dominicana")
+        self.assertTrue(visible["acta"])
+        self.assertTrue(visible["website"])
+        self.assertTrue(visible["capacitacion"])
+        self.assertTrue(visible["certificacion"])
+        self.assertTrue(visible["initial_survey"])
+        self.assertTrue(visible["final_survey"])
         self.assertEqual(
             records_by_email["review@example.com"]["country"],
             "País por revisar",

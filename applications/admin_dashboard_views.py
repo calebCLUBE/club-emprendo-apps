@@ -3,6 +3,7 @@ import os
 import re
 import threading
 import textwrap
+import unicodedata
 from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, timedelta
@@ -220,6 +221,98 @@ PARTICIPANT_TRACK_CONFIGS = {
         "final_survey_col": 14,
     },
 }
+IMPACT_COUNTRY_ALIASES = {
+    "ar": "Argentina",
+    "argentina": "Argentina",
+    "bo": "Bolivia",
+    "bolivia": "Bolivia",
+    "br": "Brasil",
+    "brasil": "Brasil",
+    "brazil": "Brasil",
+    "ca": "Canadá",
+    "canada": "Canadá",
+    "chile": "Chile",
+    "cl": "Chile",
+    "co": "Colombia",
+    "colombia": "Colombia",
+    "costa rica": "Costa Rica",
+    "cr": "Costa Rica",
+    "cu": "Cuba",
+    "cuba": "Cuba",
+    "do": "República Dominicana",
+    "dominican republic": "República Dominicana",
+    "dr": "República Dominicana",
+    "rd": "República Dominicana",
+    "republica dominicana": "República Dominicana",
+    "ec": "Ecuador",
+    "ecuador": "Ecuador",
+    "el salvador": "El Salvador",
+    "salvador": "El Salvador",
+    "sv": "El Salvador",
+    "gt": "Guatemala",
+    "guatemala": "Guatemala",
+    "hn": "Honduras",
+    "honduras": "Honduras",
+    "mexico": "México",
+    "mx": "México",
+    "ni": "Nicaragua",
+    "nicaragua": "Nicaragua",
+    "pa": "Panamá",
+    "panama": "Panamá",
+    "paraguay": "Paraguay",
+    "pe": "Perú",
+    "peru": "Perú",
+    "pr": "Puerto Rico",
+    "puerto rico": "Puerto Rico",
+    "py": "Paraguay",
+    "uy": "Uruguay",
+    "uruguay": "Uruguay",
+    "ve": "Venezuela",
+    "venezuela": "Venezuela",
+    "ee uu": "Estados Unidos",
+    "eeuu": "Estados Unidos",
+    "estados unidos": "Estados Unidos",
+    "united states": "Estados Unidos",
+    "united states of america": "Estados Unidos",
+    "us": "Estados Unidos",
+    "usa": "Estados Unidos",
+    "es": "España",
+    "espana": "España",
+    "spain": "España",
+    "de": "Alemania",
+    "alemania": "Alemania",
+    "germany": "Alemania",
+    "fr": "Francia",
+    "france": "Francia",
+    "francia": "Francia",
+    "it": "Italia",
+    "italia": "Italia",
+    "italy": "Italia",
+    "pt": "Portugal",
+    "portugal": "Portugal",
+    "gb": "Reino Unido",
+    "reino unido": "Reino Unido",
+    "uk": "Reino Unido",
+    "united kingdom": "Reino Unido",
+    "be": "Bélgica",
+    "belgica": "Bélgica",
+    "belgium": "Bélgica",
+    "ch": "Suiza",
+    "switzerland": "Suiza",
+    "suiza": "Suiza",
+    "holanda": "Países Bajos",
+    "netherlands": "Países Bajos",
+    "nl": "Países Bajos",
+    "paises bajos": "Países Bajos",
+    "au": "Australia",
+    "australia": "Australia",
+    "nz": "Nueva Zelanda",
+    "nueva zelanda": "Nueva Zelanda",
+    "new zealand": "Nueva Zelanda",
+    "sudafrica": "Sudáfrica",
+    "south africa": "Sudáfrica",
+    "za": "Sudáfrica",
+}
 IMPACT_SURVEY_SECTIONS = [
     {
         "kind": "emprendedoras",
@@ -343,6 +436,24 @@ def _metric_cell(row: list, index: int | None) -> str:
     if index is None or index < 0 or index >= len(row):
         return ""
     return str(row[index] or "").strip()
+
+
+def _country_key(value: str | None) -> str:
+    raw = unicodedata.normalize("NFKD", str(value or "").strip().casefold())
+    without_accents = "".join(char for char in raw if not unicodedata.combining(char))
+    return re.sub(r"[^a-z0-9]+", " ", without_accents).strip()
+
+
+def _canonical_country(value: str | None) -> str:
+    key = _country_key(value)
+    if not key or key in {"n a", "na", "none", "sin pais", "unknown"}:
+        return "Sin país"
+    known = IMPACT_COUNTRY_ALIASES.get(key)
+    if known:
+        return known
+    # Unknown values still receive a stable case/spacing form so differences
+    # such as "jamaica" and "Jamaica" do not create duplicate chart entries.
+    return key.title()
 
 
 def _metric_bool(value) -> bool:
@@ -905,7 +1016,7 @@ def _participant_records() -> list[dict]:
                 progress = any(_metric_bool(row[idx]) for idx in cfg["progress_cols"] if idx < len(row))
                 started = progress or status in PARTICIPANT_STATUS_STARTED
                 graduated = status in PARTICIPANT_STATUS_GRADUATED
-                country = _metric_cell(row, cfg["country_col"]) or "Sin país"
+                country = _canonical_country(_metric_cell(row, cfg["country_col"]))
                 email = _metric_email(_metric_cell(row, cfg["email_col"]))
                 document_id = _metric_cell(row, cfg["document_col"])
                 person_key = _participant_person_key(
@@ -985,8 +1096,9 @@ def _participant_summary(records: list[dict], group_numbers: set[int] | None = N
 
         for record in track_records:
             status_counts[record["status"]] += 1
-            track_country_counts[record["country"]] += 1
-            country_counts[record["country"]] += 1
+            country = _canonical_country(record.get("country"))
+            track_country_counts[country] += 1
+            country_counts[country] += 1
             if record["initial_survey"]:
                 initial_responses += 1
             if record["final_survey"]:
@@ -1037,7 +1149,7 @@ def _participant_summary(records: list[dict], group_numbers: set[int] | None = N
             "status_rows": _status_counts_to_rows(status_counts),
             "country_rows": [
                 {"country": country, "count": count}
-                for country, count in sorted(track_country_counts.items(), key=lambda item: (-item[1], item[0]))[:8]
+                for country, count in sorted(track_country_counts.items(), key=lambda item: (-item[1], item[0]))
             ],
             "participant_emails": participant_emails,
             "started_emails": started_emails,
@@ -1112,7 +1224,7 @@ def _participant_summary(records: list[dict], group_numbers: set[int] | None = N
         "tracks": summary_by_track,
         "country_rows": [
             {"country": country, "count": count}
-            for country, count in sorted(country_counts.items(), key=lambda item: (-item[1], item[0]))[:10]
+            for country, count in sorted(country_counts.items(), key=lambda item: (-item[1], item[0]))
         ],
         "group_rows": group_summary_rows[:20],
     }
@@ -1727,7 +1839,24 @@ def _survey_response_rate_data(
 
 
 def _chart_rows(rows: list[dict], label_key: str, value_key: str = "count", colors: list[str] | None = None) -> list[dict]:
-    palette = colors or ["#3B82F6", "#14B8A6", "#F59E0B", "#8B5CF6", "#22C55E", "#64748B", "#EF4444", "#06B6D4"]
+    palette = colors or [
+        "#3B82F6",
+        "#14B8A6",
+        "#F59E0B",
+        "#8B5CF6",
+        "#22C55E",
+        "#64748B",
+        "#EF4444",
+        "#06B6D4",
+        "#EC4899",
+        "#84CC16",
+        "#F97316",
+        "#6366F1",
+        "#0EA5E9",
+        "#10B981",
+        "#A855F7",
+        "#EAB308",
+    ]
     data: list[dict] = []
     for index, row in enumerate(rows or []):
         label = str(row.get(label_key) or "").strip()

@@ -7097,6 +7097,69 @@ class ImpactDashboardMetricTests(TestCase):
         self.assertEqual(len(actual), len(expected))
         self.assertIn(("e", "no-start@example.com", True), actual)
 
+    def test_country_charts_merge_aliases_and_include_every_participant_country(self):
+        country_group = FormGroup.objects.create(
+            number=989,
+            start_day=1,
+            start_month="enero",
+            end_month="marzo",
+            year=2026,
+        )
+        country_values = [
+            "Colombia",
+            "colombia",
+            "CO",
+            "República Dominicana",
+            "republica dominicana",
+            "Argentina",
+            "argentina",
+            "Peru",
+            "México",
+            "Ecuador",
+            "Chile",
+            "Venezuela",
+            "Panamá",
+            "Costa Rica",
+            "Estados unidos",
+            "Bolivia",
+        ]
+        rows = []
+        for index, country in enumerate(country_values, start=1):
+            row = [""] * len(admin_profiles_views.MENTORAS_HEADERS)
+            row[1] = "A"
+            row[2] = index
+            row[3] = f"Country {index}"
+            row[5] = f"country-{index}@example.com"
+            row[7] = country
+            rows.append(row)
+        GroupParticipantList.objects.create(
+            group=country_group,
+            mentoras_sheet_rows=rows,
+        )
+
+        records = [
+            record
+            for record in admin_dashboard_views._participant_records()
+            if record["group_number"] == country_group.number
+        ]
+        summary = admin_dashboard_views._participant_summary(records)
+        country_rows = summary["tracks"]["m"]["country_rows"]
+        country_counts = {row["country"]: row["count"] for row in country_rows}
+
+        self.assertEqual(country_counts["Colombia"], 3)
+        self.assertEqual(country_counts["República Dominicana"], 2)
+        self.assertEqual(country_counts["Argentina"], 2)
+        self.assertNotIn("colombia", country_counts)
+        self.assertNotIn("CO", country_counts)
+        self.assertEqual(len(country_rows), 12)
+        self.assertEqual(sum(country_counts.values()), len(records))
+
+        chart_rows = admin_dashboard_views._participant_country_chart_data(summary)["m"]
+        donut = admin_dashboard_views._impact_dashboard_donut(chart_rows)
+        self.assertEqual(len(chart_rows), 12)
+        self.assertEqual(len(donut["legend"]), 12)
+        self.assertEqual(donut["total"], str(len(records)))
+
     def test_history_table_alone_does_not_create_dashboard_participant_rows(self):
         historical_group = FormGroup.objects.create(
             number=988,

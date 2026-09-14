@@ -6975,7 +6975,7 @@ class ImpactDashboardMetricTests(TestCase):
         self.assertTrue(dataset["stale"])
         self.assertEqual(dataset["responses_count"], 1)
 
-    def test_participant_aggregates_only_use_linked_group_sheets(self):
+    def test_participant_aggregates_include_stored_group_workbooks_without_google_link(self):
         unlinked_group = FormGroup.objects.create(
             number=985,
             custom_name="Group 985",
@@ -6995,9 +6995,151 @@ class ImpactDashboardMetricTests(TestCase):
         records = admin_dashboard_views._participant_records()
         profile_email_keys = admin_profiles_views._participant_list_email_keys()
 
-        self.assertNotIn("unlinked@example.com", {row["email"] for row in records})
+        self.assertIn("unlinked@example.com", {row["email"] for row in records})
         self.assertNotIn("unlinked@example.com", profile_email_keys)
         self.assertIn("founder@example.com", profile_email_keys)
+
+    def test_uploaded_historical_group_is_included_without_google_link_or_group_label(self):
+        historical_group = FormGroup.objects.create(
+            number=986,
+            custom_name="Cohorte histórica 986",
+            start_day=1,
+            start_month="noviembre",
+            end_month="febrero",
+            year=2024,
+            end_year=2025,
+        )
+        historical_import = HistoricalGroupImport.objects.create(
+            group_number=986,
+            group_name="Cohorte histórica 986",
+            start_day=1,
+            start_month="noviembre",
+            end_month="febrero",
+            year=2024,
+            end_year=2025,
+            status=HistoricalGroupImport.STATUS_IMPORTED,
+            group=historical_group,
+        )
+        row = [""] * 18
+        row[1] = "Graduada"
+        row[3] = "Historical Founder"
+        row[4] = "H986"
+        row[5] = "historical986@example.com"
+        row[7] = "Colombia"
+        GroupParticipantList.objects.create(
+            group=historical_group,
+            emprendedoras_sheet_rows=[row],
+        )
+        HistoricalParticipant.objects.create(
+            group=historical_group,
+            source_import=historical_import,
+            track="emprendedoras",
+            name="Historical Founder",
+            email="historical986@example.com",
+            document_id="H986",
+            status="Graduada",
+            source_row_number=2,
+        )
+
+        records = admin_dashboard_views._participant_records()
+        matching = [
+            record
+            for record in records
+            if record["email"] == "historical986@example.com"
+        ]
+
+        self.assertEqual(len(matching), 1)
+        self.assertEqual(matching[0]["source"], "historical_import")
+        self.assertTrue(matching[0]["group_completed"])
+        self.assertIn(986, {row["number"] for row in admin_dashboard_views._impact_group_options()})
+        self.assertIn(2024, admin_dashboard_views._impact_year_options())
+
+    def test_group_completion_uses_archive_or_end_month_not_first_graduate(self):
+        as_of = date(2026, 9, 13)
+        cases = (
+            (SimpleNamespace(is_active=True, end_month="agosto", end_year=2026, year=2026), True),
+            (SimpleNamespace(is_active=True, end_month="septiembre", end_year=2026, year=2026), False),
+            (SimpleNamespace(is_active=True, end_month="febrero", end_year=2027, year=2026), False),
+            (SimpleNamespace(is_active=False, end_month="diciembre", end_year=2027, year=2027), True),
+            (SimpleNamespace(is_active=True, end_month="unknown", end_year=2025, year=2025), False),
+        )
+        for group, expected in cases:
+            with self.subTest(group=group, expected=expected):
+                self.assertEqual(
+                    admin_dashboard_views._impact_group_is_completed(group, as_of=as_of),
+                    expected,
+                )
+
+    def test_returnees_use_group_start_dates_instead_of_group_numbers(self):
+        def record(email, track, group_number, start_date, *, graduated=False):
+            person_key = f"email:{email}"
+            return {
+                "email": email,
+                "person_key": person_key,
+                "participation_key": (group_number, track, person_key),
+                "track": track,
+                "group_number": group_number,
+                "group_start_date": start_date,
+                "graduated": graduated,
+            }
+
+        summary = admin_dashboard_views._alumni_mentor_summary(
+            [
+                record("later@example.com", "e", 990, date(2024, 3, 15), graduated=True),
+                record("later@example.com", "m", 5, date(2025, 1, 1)),
+                record("earlier@example.com", "m", 991, date(2023, 1, 1)),
+                record("earlier@example.com", "e", 6, date(2025, 1, 1)),
+                record("same@example.com", "e", 7, date(2025, 6, 1)),
+                record("same@example.com", "m", 8, date(2025, 6, 1)),
+            ]
+        )
+
+        self.assertEqual(summary["cross_role_overlap_count"], 3)
+        self.assertEqual(summary["returnee_count"], 1)
+        self.assertEqual(summary["returnee_preview"][0]["email"], "later@example.com")
+        self.assertEqual(summary["graduated_e_returnee_count"], 1)
+
+    def test_current_and_pre_certification_rows_keep_survey_column_meanings(self):
+        group = FormGroup.objects.create(
+            number=987,
+            start_day=1,
+            start_month="enero",
+            end_month="febrero",
+            year=2026,
+        )
+        current = [""] * 18
+        current[1] = "A"
+        current[3] = "Current"
+        current[5] = "current-columns@example.com"
+        current[12] = True
+        current[13] = False
+        current[14] = True
+        legacy = [""] * 17
+        legacy[1] = "A"
+        legacy[3] = "Legacy"
+        legacy[5] = "legacy-columns@example.com"
+        legacy[12] = True
+        legacy[13] = False
+        GroupParticipantList.objects.create(
+            group=group,
+            emprendedoras_sheet_rows=[current, legacy],
+        )
+
+        records = {
+            item["email"]: item
+            for item in admin_dashboard_views._participant_records()
+            if item["email"] in {
+                "current-columns@example.com",
+                "legacy-columns@example.com",
+            }
+        }
+
+        self.assertTrue(records["current-columns@example.com"]["certificacion"])
+        self.assertFalse(records["current-columns@example.com"]["initial_survey"])
+        self.assertTrue(records["current-columns@example.com"]["final_survey"])
+        self.assertFalse(records["legacy-columns@example.com"]["certificacion"])
+        self.assertTrue(records["legacy-columns@example.com"]["initial_survey"])
+        self.assertFalse(records["legacy-columns@example.com"]["final_survey"])
 
     def test_participant_sheet_status_options_use_requested_default_labels(self):
         expected = [
@@ -7089,15 +7231,16 @@ class ImpactDashboardMetricTests(TestCase):
         self.assertEqual(participant_summary["overall"]["rows"], 6)
         self.assertEqual(participant_summary["overall"]["started"], 5)
         self.assertEqual(participant_summary["overall"]["graduated"], 2)
-        self.assertEqual(participant_summary["overall"]["graduation_started"], 3)
+        self.assertEqual(participant_summary["overall"]["unique"], 4)
+        self.assertEqual(participant_summary["overall"]["graduation_started"], 5)
         self.assertEqual(participant_summary["overall"]["graduation_graduated"], 2)
-        self.assertEqual(participant_summary["overall"]["graduation_completed_groups"], 1)
-        self.assertEqual(participant_summary["overall"]["graduation_rate"], 66.7)
+        self.assertEqual(participant_summary["overall"]["graduation_completed_groups"], 2)
+        self.assertEqual(participant_summary["overall"]["graduation_rate"], 40.0)
         self.assertEqual(participant_summary["tracks"]["e"]["started"], 1)
         self.assertEqual(participant_summary["tracks"]["e"]["graduation_rate"], 100.0)
         self.assertEqual(participant_summary["tracks"]["m"]["graduated"], 1)
-        self.assertEqual(participant_summary["tracks"]["m"]["graduation_started"], 2)
-        self.assertEqual(participant_summary["tracks"]["m"]["graduation_rate"], 50.0)
+        self.assertEqual(participant_summary["tracks"]["m"]["graduation_started"], 4)
+        self.assertEqual(participant_summary["tracks"]["m"]["graduation_rate"], 25.0)
 
         self.assertEqual(application_summary["overall"]["raw"], 6)
         self.assertEqual(application_summary["overall"]["unique"], 4)
@@ -7109,10 +7252,10 @@ class ImpactDashboardMetricTests(TestCase):
 
         e_conversion = next(row for row in conversion_rows if row["track"] == "Emprendedoras")
         self.assertEqual(e_conversion["unique_applicants"], 2)
-        self.assertEqual(e_conversion["started_from_app"], 2)
+        self.assertEqual(e_conversion["started_from_app"], 1)
         self.assertEqual(e_conversion["listed_from_app"], 2)
         self.assertEqual(e_conversion["graduated_from_app"], 1)
-        self.assertEqual(e_conversion["app_to_start_rate"], 100.0)
+        self.assertEqual(e_conversion["app_to_start_rate"], 50.0)
         self.assertEqual(e_conversion["app_to_listed_rate"], 100.0)
 
         self.assertEqual(alumni_summary["returnee_count"], 1)
@@ -7198,6 +7341,68 @@ class ImpactDashboardMetricTests(TestCase):
         )
         self.assertEqual(wellbeing_rows[0]["avg"], 4.0)
 
+    @patch("applications.admin_dashboard_views._load_database_encuestas_grid")
+    def test_survey_dataset_filters_email_and_group_before_calculating_metrics(self, mock_grid):
+        mock_grid.return_value = (
+            "Survey",
+            [
+                "Timestamp",
+                "Correo electronico",
+                "Selecciona tu grupo",
+                "NPS",
+                "¿Te sientes satisfecha con tu vida en general?",
+            ],
+            [
+                ["2026-01-01", "repeat@example.com", "G16", "10", "5"],
+                ["2026-02-01", "repeat@example.com", "Grupo 17", "0", "1"],
+                ["2026-02-02", "unique17@example.com", "17", "9", "4"],
+                ["2026-03-01", "unique18@example.com", "G18", "10", "5"],
+            ],
+            "survey.csv",
+            "survey-id",
+        )
+
+        dataset, emails = admin_dashboard_views._build_impact_dataset(
+            "cohort-test",
+            "Cohort survey",
+            "unused-setting",
+            scoped_emails={"repeat@example.com", "unique17@example.com"},
+            scoped_group_numbers={17},
+            refresh=True,
+        )
+
+        self.assertEqual(dataset["responses_count"], 2)
+        self.assertEqual(emails, {"repeat@example.com", "unique17@example.com"})
+        self.assertEqual(dataset["nps_rows"][0]["responses"], 2)
+        self.assertEqual(dataset["nps_rows"][0]["score"], 0.0)
+        self.assertEqual(dataset["wellbeing_rows"][0]["avg"], 2.5)
+        self.assertEqual(dataset["group_column_label"], "Selecciona tu grupo")
+        self.assertFalse(dataset["scope_warning"])
+
+    @patch("applications.admin_dashboard_views._load_database_encuestas_grid")
+    def test_group_scoped_survey_without_group_column_fails_closed(self, mock_grid):
+        mock_grid.return_value = (
+            "Survey",
+            ["Timestamp", "Email", "NPS"],
+            [["2026-01-01", "repeat@example.com", "10"]],
+            "survey.csv",
+            "survey-id",
+        )
+
+        dataset, emails = admin_dashboard_views._build_impact_dataset(
+            "cohort-without-group",
+            "Cohort survey",
+            "unused-setting",
+            scoped_emails={"repeat@example.com"},
+            scoped_group_numbers={17},
+            refresh=True,
+        )
+
+        self.assertEqual(dataset["responses_count"], 0)
+        self.assertEqual(emails, set())
+        self.assertTrue(dataset["scope_warning"])
+        self.assertEqual(dataset["nps_rows"], [])
+
     def test_quality_of_life_summary_splits_initial_final_and_change(self):
         summary = admin_dashboard_views._wellbeing_comparison_summary(
             [
@@ -7219,12 +7424,27 @@ class ImpactDashboardMetricTests(TestCase):
             ["Initial", "Final completed groups"],
         )
 
+    def test_quality_of_life_change_prefers_paired_participants(self):
+        summary = admin_dashboard_views._wellbeing_comparison_summary(
+            [{"label": "Life", "responses": 2, "avg": 2.0}],
+            [{"label": "Life", "responses": 2, "avg": 4.5}],
+            initial_scores={"a@example.com": 1.0, "b@example.com": 3.0},
+            final_scores={"a@example.com": 4.0, "c@example.com": 5.0},
+        )
+
+        self.assertEqual(summary["population_change"], 2.5)
+        self.assertEqual(summary["paired_change"], 3.0)
+        self.assertEqual(summary["change"], 3.0)
+        self.assertEqual(summary["paired_responses"], 1)
+        self.assertEqual(summary["change_method"], "paired participants")
+
     def test_survey_response_rate_uses_survey_email_matches_not_workbook_checks(self):
         records = [
             {
                 "track": "e",
                 "email": "founder@example.com",
                 "group_number": 1,
+                "group_completed": True,
                 "graduated": True,
                 "initial_survey": False,
                 "final_survey": False,
@@ -7233,6 +7453,7 @@ class ImpactDashboardMetricTests(TestCase):
                 "track": "e",
                 "email": "active-founder@example.com",
                 "group_number": 2,
+                "group_completed": False,
                 "graduated": False,
                 "initial_survey": False,
                 "final_survey": False,
@@ -7241,6 +7462,7 @@ class ImpactDashboardMetricTests(TestCase):
                 "track": "m",
                 "email": "mentor@example.com",
                 "group_number": 1,
+                "group_completed": True,
                 "graduated": False,
                 "initial_survey": False,
                 "final_survey": False,
@@ -7360,8 +7582,16 @@ class ImpactDashboardMetricTests(TestCase):
         self.assertContains(response, "Number of Groups")
         self.assertContains(response, "Emprendedoras Returning as Mentoras")
         self.assertContains(response, "Repeat Mentoras")
+        self.assertContains(response, "Known Graduates")
         self.assertContains(response, "Quality of Life")
         self.assertContains(response, "Survey Response Rate")
+        self.assertContains(response, "Participant Completion Checks")
+        self.assertContains(response, "Website Traffic")
+        self.assertContains(response, "Social Media Followers")
+        self.assertContains(response, "Course Completions Outside Mentoring")
+        self.assertContains(response, "Structured Outcome Signals")
+        self.assertContains(response, "Automation Health")
+        self.assertContains(response, "Metrics Awaiting a Reliable Source")
         self.assertContains(response, "Group scope")
         self.assertContains(response, "Download PDF report")
 
@@ -7669,9 +7899,15 @@ class MarketingDashboardTests(TestCase):
         self.assertContains(response, "11")
         mock_client.posting_analytics.assert_called_once()
         mock_client.ad_insights.assert_not_called()
+        impact_social = admin_dashboard_views._impact_social_summary()
+        self.assertTrue(impact_social["available"])
+        self.assertEqual(impact_social["followers"], 582)
 
 
 class WixCapacitacionPayloadTests(TestCase):
+    def setUp(self):
+        cache.clear()
+
     def test_certificacion_program_names_match_wix_titles(self):
         self.assertEqual(
             admin_profiles_views._wix_certificacion_program_name("mentoras"),
@@ -7702,6 +7938,36 @@ class WixCapacitacionPayloadTests(TestCase):
         self.assertFalse(
             normalized[0][admin_profiles_views.MENTORAS_ENCUESTAS_FINAL_COL]
         )
+
+    def test_impact_course_usage_excludes_current_and_legacy_participant_emails(self):
+        mentor_program = admin_profiles_views._wix_capacitacion_program_name("mentoras")
+        entrepreneur_program = admin_profiles_views._wix_capacitacion_program_name("emprendedoras")
+        cache.set(
+            admin_profiles_views._wix_completion_cache_key(mentor_program),
+            {
+                "emails": ["known@example.com", "outside-mentor@example.com"],
+                "fetched_at": "2026-09-13 10:00",
+            },
+        )
+        cache.set(
+            admin_profiles_views._wix_completion_cache_key(entrepreneur_program),
+            {
+                "emails": ["legacy@example.com", "outside-founder@example.com"],
+                "fetched_at": "2026-09-13 10:00",
+            },
+        )
+
+        summary = admin_dashboard_views._impact_course_usage_summary(
+            [
+                {"email": "known@example.com"},
+                {"email": "legacy@example.com", "source": "historical_import"},
+            ]
+        )
+
+        self.assertTrue(summary["available"])
+        self.assertEqual(summary["completed"], 4)
+        self.assertEqual(summary["participant_completions"], 2)
+        self.assertEqual(summary["outside_program"], 2)
 
     def test_extracts_nested_contact_email_from_completed_enrollment(self):
         payload = {

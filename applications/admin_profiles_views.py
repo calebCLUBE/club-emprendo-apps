@@ -120,6 +120,7 @@ WIX_CAPACITACION_MENTORAS_PROGRAM_NAME = "Capacitacion de Mentoras"
 WIX_CERTIFICACION_EMPRENDEDORAS_PROGRAM_NAME = "Certificado de programa de mentoria emprendedora"
 WIX_CERTIFICACION_MENTORAS_PROGRAM_NAME = "Certificado de Voluntariado como Mentora"
 WIX_CAPACITACION_COMPLETION_PERCENT = 80.0
+WIX_COMPLETION_CACHE_SECONDS = 7 * 24 * 60 * 60
 ENCUESTAS_GROUP_HEADER_KEYS = ("seleccionatugrupo", "seleccionagrupo", "grupo")
 ENCUESTAS_EMAIL_HEADER_KEYS = ("correo", "email", "correoelectronico", "correoelectrnico")
 MENTORAS_ENCUESTAS_DRIVE_FILE_DEFAULT = (
@@ -1704,6 +1705,16 @@ def _extract_completed_emails_from_wix_payload(payload) -> set[str]:
     return out
 
 
+def _wix_completion_cache_key(program_name: str) -> str:
+    digest = hashlib.sha256(str(program_name or "").strip().encode("utf-8")).hexdigest()[:24]
+    return f"admin:wix:program-completions:{digest}:v1"
+
+
+def _cached_wix_program_completions(program_name: str) -> dict:
+    value = cache.get(_wix_completion_cache_key(program_name))
+    return value if isinstance(value, dict) else {}
+
+
 def _fetch_wix_capacitacion_completed_emails(
     *,
     program_name: str,
@@ -1790,6 +1801,15 @@ def _fetch_wix_capacitacion_completed_emails(
 
     completed = _extract_completed_emails_from_wix_payload(payload)
     returned_count = len(completed)
+    cache.set(
+        _wix_completion_cache_key(program_name),
+        {
+            "emails": sorted(completed),
+            "fetched_at": timezone.localtime(timezone.now()).strftime("%Y-%m-%d %H:%M"),
+            "program_name": program_name,
+        },
+        timeout=WIX_COMPLETION_CACHE_SECONDS,
+    )
     if participant_pool:
         completed = {email for email in completed if email in participant_pool}
 

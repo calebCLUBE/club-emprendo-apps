@@ -601,8 +601,14 @@
             </select>
           </div>
           <button class="ce-btn" type="submit">Apply filters</button>
+          <button class="ce-btn ce-btn--ghost" type="submit" name="refresh" value="1">Refresh data</button>
           <a class="ce-btn ce-btn--ghost" href="{% url 'admin_impact_dashboard' %}">Reset</a>
         </form>
+        {% for warning in survey_scope_warnings %}
+          <div class="ce-metric-box" style="margin-bottom:14px; border-color:#f59e0b; background:#fffbeb;">
+            <strong>Survey scope:</strong> {{ warning }}
+          </div>
+        {% endfor %}
       {% endif %}
 
       <div class="ce-metric-board">
@@ -611,25 +617,30 @@
             <div>
               <p class="ce-box-kicker">Participants</p>
               <h2 class="ce-box-title">Number of Participants</h2>
-              <p class="ce-box-note">A participant is anyone listed on the Participants page workbook. Country and Estatus are shown separately for Emprendedoras and Mentoras.</p>
+              <p class="ce-box-note">Unique people across current participant workbooks and uploaded historical groups. Email is the primary identity; document ID is used when email is missing.</p>
             </div>
-            <div class="ce-big-number">{{ participant_summary.overall.rows }}</div>
+            <div class="ce-big-number">{{ participant_summary.overall.unique }}</div>
           </div>
           <div class="ce-mini-stat-grid">
             <div class="ce-mini-stat">
-              <div class="ce-mini-stat-k">All rows</div>
+              <div class="ce-mini-stat-k">Participation records</div>
               <div class="ce-mini-stat-v">{{ participant_summary.overall.rows }}</div>
-              <div class="ce-mini-stat-note">{{ participant_summary.overall.unique }} unique emails</div>
+              <div class="ce-mini-stat-note">A repeat participant can have more than one cohort record.</div>
             </div>
             <div class="ce-mini-stat">
               <div class="ce-mini-stat-k">Emprendedoras</div>
-              <div class="ce-mini-stat-v">{{ participant_summary.tracks.e.rows }}</div>
-              <div class="ce-mini-stat-note">{{ participant_summary.tracks.e.unique }} unique emails</div>
+              <div class="ce-mini-stat-v">{{ participant_summary.tracks.e.unique }}</div>
+              <div class="ce-mini-stat-note">{{ participant_summary.tracks.e.rows }} participation records</div>
             </div>
             <div class="ce-mini-stat">
               <div class="ce-mini-stat-k">Mentoras</div>
-              <div class="ce-mini-stat-v">{{ participant_summary.tracks.m.rows }}</div>
-              <div class="ce-mini-stat-note">{{ participant_summary.tracks.m.unique }} unique emails</div>
+              <div class="ce-mini-stat-v">{{ participant_summary.tracks.m.unique }}</div>
+              <div class="ce-mini-stat-note">{{ participant_summary.tracks.m.rows }} participation records</div>
+            </div>
+            <div class="ce-mini-stat">
+              <div class="ce-mini-stat-k">Historical imports</div>
+              <div class="ce-mini-stat-v">{{ participant_summary.overall.historical_participations }}</div>
+              <div class="ce-mini-stat-note">Included even without a linked Google Sheet.</div>
             </div>
           </div>
           <div class="ce-track-split">
@@ -657,7 +668,7 @@
             <div>
               <p class="ce-box-kicker">Completion</p>
               <h2 class="ce-box-title">Graduation Rate</h2>
-              <p class="ce-box-note">Graduated rows use Estatus Graduada. Active groups are excluded; a group is active until it has at least one Graduada.</p>
+              <p class="ce-box-note">Graduated participation records use Estatus Graduada. A group enters the denominator after its end month/year, or when it is archived—not when its first participant graduates.</p>
             </div>
             <div class="ce-big-number">{{ participant_summary.overall.graduation_rate }}%</div>
           </div>
@@ -665,7 +676,7 @@
             <div class="ce-mini-stat">
               <div class="ce-mini-stat-k">Graduated</div>
               <div class="ce-mini-stat-v">{{ participant_summary.overall.graduation_graduated }}</div>
-              <div class="ce-mini-stat-note">{{ participant_summary.overall.graduation_started }} began rows in completed groups</div>
+              <div class="ce-mini-stat-note">{{ participant_summary.overall.graduation_started }} started participation records across {{ participant_summary.overall.graduation_completed_groups }} completed groups</div>
             </div>
           </div>
           <div id="ce-graduation-rate-chart" class="ce-bars">
@@ -678,7 +689,7 @@
             <div>
               <p class="ce-box-kicker">Applications</p>
               <h2 class="ce-box-title">Application Conversion</h2>
-              <p class="ce-box-note">Converted to listed means the applicant email appears on the Participants page. Graduated uses the same applicant email match.</p>
+              <p class="ce-box-note">Email-matched stages are shown separately: submitted applicant → listed participant → actually started → graduated.</p>
             </div>
             {% for row in conversion_rows %}
               {% if row.track == "All" %}
@@ -696,6 +707,7 @@
                   <th>Track</th>
                   <th class="ce-num">Applicants</th>
                   <th class="ce-num">Listed</th>
+                  <th class="ce-num">Started</th>
                   <th class="ce-num">Graduated</th>
                 </tr>
               </thead>
@@ -705,6 +717,7 @@
                     <td>{{ row.track }}</td>
                     <td class="ce-num">{{ row.unique_applicants }}</td>
                     <td class="ce-num">{{ row.listed_from_app }} ({{ row.app_to_listed_rate }}%)</td>
+                    <td class="ce-num">{{ row.started_from_app }} ({{ row.app_to_start_rate }}%)</td>
                     <td class="ce-num">{{ row.graduated_from_app }} ({{ row.app_to_grad_rate }}%)</td>
                   </tr>
                 {% endfor %}
@@ -718,7 +731,7 @@
             <div>
               <p class="ce-box-kicker">Alumni</p>
               <h2 class="ce-box-title">Emprendedoras Returning as Mentoras</h2>
-              <p class="ce-box-note">Email overlap between Emprendedora participant rows and Mentora participant rows.</p>
+              <p class="ce-box-note">Counts an email only when its Mentora cohort starts after an earlier Emprendedora cohort. Same-cohort and mentor-first overlaps are excluded.</p>
             </div>
             <div class="ce-big-number">{{ alumni_summary.returnee_count }}</div>
           </div>
@@ -738,6 +751,28 @@
           </div>
           <div id="ce-repeat-mentor-chart" class="ce-bars">
             {% include "admin_dash/includes/impact_bar_chart.html" with rows=repeat_mentor_bar_rows empty_text="No repeat mentoras found." %}
+          </div>
+        </section>
+
+        <section class="ce-metric-box">
+          <div class="ce-box-head">
+            <div>
+              <p class="ce-box-kicker">Alumni community</p>
+              <h2 class="ce-box-title">Known Graduates</h2>
+              <p class="ce-box-note">Unique people with Graduada status across current and uploaded historical groups. This measures known alumni records, not membership in a separate alumni platform.</p>
+            </div>
+            <div class="ce-big-number">{{ alumni_summary.alumni_count }}</div>
+          </div>
+          <div class="ce-mini-stat-grid">
+            <div class="ce-mini-stat">
+              <div class="ce-mini-stat-k">People in 2+ groups</div>
+              <div class="ce-mini-stat-v">{{ alumni_summary.multi_group_people_count }}</div>
+            </div>
+            <div class="ce-mini-stat">
+              <div class="ce-mini-stat-k">Graduated E → later M</div>
+              <div class="ce-mini-stat-v">{{ alumni_summary.graduated_e_returnee_count }}</div>
+              <div class="ce-mini-stat-note">{{ alumni_summary.graduated_e_return_rate }}% of graduated Emprendedoras with email</div>
+            </div>
           </div>
         </section>
 
@@ -766,7 +801,7 @@
             <div>
               <p class="ce-box-kicker">Impact</p>
               <h2 class="ce-box-title">Quality of Life</h2>
-              <p class="ce-box-note">Initial and final weighted averages from life-satisfaction fields. Final only includes completed groups.</p>
+              <p class="ce-box-note">Life-satisfaction fields from known participants. Change uses the same person's initial and final response when both are available; final eligibility is limited to completed groups.</p>
             </div>
             <div class="ce-big-number">{{ wellbeing_summary.final.avg|default_if_none:"-" }}</div>
           </div>
@@ -784,7 +819,7 @@
             <div class="ce-mini-stat">
               <div class="ce-mini-stat-k">Change</div>
               <div class="ce-mini-stat-v">{{ wellbeing_summary.change|default_if_none:"-" }}</div>
-              <div class="ce-mini-stat-note">Final minus initial</div>
+              <div class="ce-mini-stat-note">{{ wellbeing_summary.change_method }}{% if wellbeing_summary.paired_responses %} · {{ wellbeing_summary.paired_responses }} paired participants{% endif %}</div>
             </div>
           </div>
           <div id="ce-wellbeing-chart" class="ce-bars">
@@ -821,20 +856,191 @@
         <section class="ce-metric-box ce-metric-box--wide">
           <div class="ce-box-head">
             <div>
-              <p class="ce-box-kicker">Groups</p>
-              <h2 class="ce-box-title">Number of Groups</h2>
-              <p class="ce-box-note">Group names use the admin group labels. Intake source is inferred by matching participant emails back to application emails.</p>
+              <p class="ce-box-kicker">Program milestones</p>
+              <h2 class="ce-box-title">Participant Completion Checks</h2>
+              <p class="ce-box-note">Uses the corrected participant-sheet columns, including Certificación at column 12, Encuesta inicial at 13, and Encuesta final at 14.</p>
             </div>
-            <div class="ce-big-number">{{ participant_summary.overall.groups_with_participants }}</div>
+          </div>
+          <div class="ce-mini-stat-grid">
+            {% for row in milestone_summary.rows %}
+              <div class="ce-mini-stat">
+                <div class="ce-mini-stat-k">{{ row.label }}</div>
+                <div class="ce-mini-stat-v">{{ row.rate }}%</div>
+                <div class="ce-mini-stat-note">{{ row.completed }} of {{ row.eligible }} participation records</div>
+              </div>
+            {% endfor %}
+          </div>
+        </section>
+
+        <section class="ce-metric-box">
+          <div class="ce-box-head">
+            <div>
+              <p class="ce-box-kicker">Marketing · global</p>
+              <h2 class="ce-box-title">Website Traffic</h2>
+              <p class="ce-box-note">{{ website_traffic_summary.scope_label }}</p>
+            </div>
+            <div class="ce-big-number">{{ website_traffic_summary.month_visitors }}</div>
           </div>
           <div class="ce-mini-stat-grid">
             <div class="ce-mini-stat">
-              <div class="ce-mini-stat-k">Groups with participants</div>
-              <div class="ce-mini-stat-v">{{ participant_summary.overall.groups_with_participants }}</div>
+              <div class="ce-mini-stat-k">Visitors · 30 days</div>
+              <div class="ce-mini-stat-v">{{ website_traffic_summary.month_visitors }}</div>
+              <div class="ce-mini-stat-note">{{ website_traffic_summary.month_pageviews }} pageviews</div>
             </div>
+            <div class="ce-mini-stat">
+              <div class="ce-mini-stat-k">Since tracking began</div>
+              <div class="ce-mini-stat-v">{{ website_traffic_summary.all_visitors }}</div>
+              <div class="ce-mini-stat-note">{{ website_traffic_summary.all_pageviews }} pageviews</div>
+            </div>
+            <div class="ce-mini-stat">
+              <div class="ce-mini-stat-k">Active now</div>
+              <div class="ce-mini-stat-v">{{ website_traffic_summary.active_visitors }}</div>
+              <div class="ce-mini-stat-note">Last 5 minutes</div>
+            </div>
+          </div>
+        </section>
+
+        <section class="ce-metric-box">
+          <div class="ce-box-head">
+            <div>
+              <p class="ce-box-kicker">Marketing · global</p>
+              <h2 class="ce-box-title">Social Media Followers</h2>
+              <p class="ce-box-note">Cached from the connected Marketing Dashboard so Impact does not make slow social API calls on every visit.</p>
+            </div>
+            <div class="ce-big-number">{% if social_summary.available %}{{ social_summary.followers }}{% else %}-{% endif %}</div>
+          </div>
+          {% if social_summary.available %}
+            <div class="ce-mini-stat-grid">
+              <div class="ce-mini-stat">
+                <div class="ce-mini-stat-k">Follower change</div>
+                <div class="ce-mini-stat-v">{{ social_summary.follower_growth }}</div>
+                <div class="ce-mini-stat-note">{{ social_summary.date_from }}–{{ social_summary.date_to }}</div>
+              </div>
+              <div class="ce-mini-stat">
+                <div class="ce-mini-stat-k">Reach</div>
+                <div class="ce-mini-stat-v">{{ social_summary.reach }}</div>
+              </div>
+            </div>
+            {% if social_summary.stale %}<p class="ce-box-note">Showing the last saved value because refresh failed: {{ social_summary.error }}</p>{% endif %}
+          {% else %}
+            <p class="ce-box-note">{{ social_summary.error }}</p>
+          {% endif %}
+        </section>
+
+        <section class="ce-metric-box">
+          <div class="ce-box-head">
+            <div>
+              <p class="ce-box-kicker">Course reach · global</p>
+              <h2 class="ce-box-title">Course Completions Outside Mentoring</h2>
+              <p class="ce-box-note">{{ course_usage_summary.note }}</p>
+            </div>
+            <div class="ce-big-number">{% if course_usage_summary.available %}{{ course_usage_summary.outside_program }}{% else %}-{% endif %}</div>
+          </div>
+          {% if course_usage_summary.available %}
+            <div class="ce-mini-stat-grid">
+              <div class="ce-mini-stat">
+                <div class="ce-mini-stat-k">All Wix completions</div>
+                <div class="ce-mini-stat-v">{{ course_usage_summary.completed }}</div>
+              </div>
+              <div class="ce-mini-stat">
+                <div class="ce-mini-stat-k">Known participants</div>
+                <div class="ce-mini-stat-v">{{ course_usage_summary.participant_completions }}</div>
+              </div>
+              <div class="ce-mini-stat">
+                <div class="ce-mini-stat-k">Outside participant history</div>
+                <div class="ce-mini-stat-v">{{ course_usage_summary.outside_program }}</div>
+              </div>
+            </div>
+          {% else %}
+            <p class="ce-box-note">No saved Wix completion snapshot yet. Use Refresh data after configuring the Wix endpoint, or run Check Capacitación for a group.</p>
+          {% endif %}
+          {% if course_usage_summary.error %}<p class="ce-box-note">{{ course_usage_summary.error }}</p>{% endif %}
+        </section>
+
+        <section class="ce-metric-box">
+          <div class="ce-box-head">
+            <div>
+              <p class="ce-box-kicker">Qualitative signals</p>
+              <h2 class="ce-box-title">Structured Outcome Signals</h2>
+              <p class="ce-box-note">{{ qualitative_summary.note }}</p>
+            </div>
+            <div class="ce-big-number">{{ qualitative_summary.excellent_count }}</div>
+          </div>
+          <div class="ce-mini-stat-grid">
+            <div class="ce-mini-stat">
+              <div class="ce-mini-stat-k">Excelente / testimonial</div>
+              <div class="ce-mini-stat-v">{{ qualitative_summary.excellent_count }}</div>
+            </div>
+            <div class="ce-mini-stat">
+              <div class="ce-mini-stat-k">Program dropout</div>
+              <div class="ce-mini-stat-v">{{ qualitative_summary.program_dropout_count }}</div>
+            </div>
+            <div class="ce-mini-stat">
+              <div class="ce-mini-stat-k">Personal dropout</div>
+              <div class="ce-mini-stat-v">{{ qualitative_summary.personal_dropout_count }}</div>
+            </div>
+            <div class="ce-mini-stat">
+              <div class="ce-mini-stat-k">Difficult / no contact</div>
+              <div class="ce-mini-stat-v">{{ qualitative_summary.hard_contact_count }}</div>
+            </div>
+          </div>
+        </section>
+
+        <section class="ce-metric-box">
+          <div class="ce-box-head">
+            <div>
+              <p class="ce-box-kicker">Operations · global</p>
+              <h2 class="ce-box-title">Automation Health</h2>
+              <p class="ce-box-note">{{ automation_summary.scope_label }}. Success rate covers completed versus failed grading and pairing jobs.</p>
+            </div>
+            <div class="ce-big-number">{% if automation_summary.job_total %}{{ automation_summary.job_success_rate }}%{% else %}-{% endif %}</div>
+          </div>
+          <div class="ce-mini-stat-grid">
+            <div class="ce-mini-stat">
+              <div class="ce-mini-stat-k">Jobs completed</div>
+              <div class="ce-mini-stat-v">{{ automation_summary.jobs_done }}</div>
+              <div class="ce-mini-stat-note">{{ automation_summary.jobs_failed }} failed</div>
+            </div>
+            <div class="ce-mini-stat">
+              <div class="ce-mini-stat-k">Participant checks</div>
+              <div class="ce-mini-stat-v">{{ automation_summary.participant_check_runs }}</div>
+            </div>
+            <div class="ce-mini-stat">
+              <div class="ce-mini-stat-k">Dropbox events processed</div>
+              <div class="ce-mini-stat-v">{% if automation_summary.webhook_total %}{{ automation_summary.webhook_success_rate }}%{% else %}-{% endif %}</div>
+              <div class="ce-mini-stat-note">{{ automation_summary.webhook_processed }} of {{ automation_summary.webhook_total }}</div>
+            </div>
+          </div>
+        </section>
+
+        <section class="ce-metric-box ce-metric-box--wide">
+          <div class="ce-box-head">
+            <div>
+              <p class="ce-box-kicker">Data still needed</p>
+              <h2 class="ce-box-title">Metrics Awaiting a Reliable Source</h2>
+              <p class="ce-box-note">These are intentionally not estimated: collaborations, group activities, narrative qualitative achievements, total program expenses, program expense ratio, spend per woman impacted, and Club Emprendo team size. They need a defined source and reporting period before they can be calculated accurately.</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="ce-metric-box ce-metric-box--wide">
+          <div class="ce-box-head">
+            <div>
+              <p class="ce-box-kicker">Groups</p>
+              <h2 class="ce-box-title">Number of Groups</h2>
+              <p class="ce-box-note">Includes current program groups and uploaded historical imports, even when a legacy group has no linked Google Sheet. Intake source is inferred by matching participant emails back to application emails.</p>
+            </div>
+            <div class="ce-big-number">{{ participant_summary.overall.groups_in_system }}</div>
+          </div>
+          <div class="ce-mini-stat-grid">
             <div class="ce-mini-stat">
               <div class="ce-mini-stat-k">Groups in system</div>
               <div class="ce-mini-stat-v">{{ participant_summary.overall.groups_in_system }}</div>
+              <div class="ce-mini-stat-note">Includes uploaded historical group records.</div>
+            </div>
+            <div class="ce-mini-stat">
+              <div class="ce-mini-stat-k">Groups with participants</div>
+              <div class="ce-mini-stat-v">{{ participant_summary.overall.groups_with_participants }}</div>
             </div>
           </div>
           <div class="ce-table-wrap">

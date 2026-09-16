@@ -60,9 +60,12 @@ from .meta_marketing import (
 from .participant_statuses import (
     PARTICIPANT_STATUS_CHOICES,
     PARTICIPANT_STATUS_COLORS,
+    PARTICIPANT_STATUS_DROPPED_OUT,
     PARTICIPANT_STATUS_GRADUATED,
+    PARTICIPANT_STATUS_NOT_STARTED,
     PARTICIPANT_STATUS_SHEET_LABELS,
     PARTICIPANT_STATUS_STARTED,
+    PARTICIPANT_STATUS_TRANSFERRED,
     normalize_participant_status,
 )
 from .traffic import BOGOTA_TIMEZONE
@@ -1038,7 +1041,16 @@ def _participant_records() -> list[dict]:
 
                 status = _status_label(_metric_cell(row, cfg["status_col"]))
                 progress = any(_metric_bool(row[idx]) for idx in cfg["progress_cols"] if idx < len(row))
-                started = progress or status in PARTICIPANT_STATUS_STARTED
+                if status in PARTICIPANT_STATUS_NOT_STARTED:
+                    # No firmó Acta / No Capacitación remain pre-start even if
+                    # an administrative checkbox was already marked.
+                    started = False
+                elif status in PARTICIPANT_STATUS_STARTED:
+                    started = True
+                else:
+                    # Keep progress as a fallback only for blank or unfamiliar
+                    # legacy statuses.
+                    started = progress
                 graduated = status in PARTICIPANT_STATUS_GRADUATED
                 country = _canonical_country(_metric_cell(row, cfg["country_col"]))
                 email = _metric_email(_metric_cell(row, cfg["email_col"]))
@@ -1113,6 +1125,20 @@ def _participant_summary(records: list[dict], group_numbers: set[int] | None = N
         graduated_emails = {record["email"] for record in track_records if record["email"] and record["graduated"]}
         graduation_started = len([record for record in graduation_scope_records if record["started"]])
         graduation_graduated = len([record for record in graduation_scope_records if record["graduated"]])
+        graduation_dropped_out = len(
+            [
+                record
+                for record in graduation_scope_records
+                if record.get("status") in PARTICIPANT_STATUS_DROPPED_OUT
+            ]
+        )
+        graduation_transferred = len(
+            [
+                record
+                for record in graduation_scope_records
+                if record.get("status") in PARTICIPANT_STATUS_TRANSFERRED
+            ]
+        )
         status_counts: dict[str, int] = defaultdict(int)
         track_country_counts: dict[str, int] = defaultdict(int)
         initial_responses = 0
@@ -1162,6 +1188,16 @@ def _participant_summary(records: list[dict], group_numbers: set[int] | None = N
             "graduated_unique": len(graduated_people),
             "graduation_started": graduation_started,
             "graduation_graduated": graduation_graduated,
+            "graduation_dropped_out": graduation_dropped_out,
+            "graduation_dropout_rate": _rate(
+                graduation_dropped_out,
+                graduation_started,
+            ),
+            "graduation_transferred": graduation_transferred,
+            "graduation_transfer_rate": _rate(
+                graduation_transferred,
+                graduation_started,
+            ),
             "graduation_rate": _rate(
                 graduation_graduated,
                 graduation_started,
@@ -1190,6 +1226,20 @@ def _participant_summary(records: list[dict], group_numbers: set[int] | None = N
     overall_graduation_started = len(overall_graduation_scope_records)
     overall_graduation_graduated = len(
         [record for record in overall_graduation_scope_records if record["graduated"]]
+    )
+    overall_graduation_dropped_out = len(
+        [
+            record
+            for record in overall_graduation_scope_records
+            if record.get("status") in PARTICIPANT_STATUS_DROPPED_OUT
+        ]
+    )
+    overall_graduation_transferred = len(
+        [
+            record
+            for record in overall_graduation_scope_records
+            if record.get("status") in PARTICIPANT_STATUS_TRANSFERRED
+        ]
     )
     overall_initial_survey = len([record for record in records if record["initial_survey"]])
     overall_final_survey = len([record for record in records if record["final_survey"]])
@@ -1227,6 +1277,16 @@ def _participant_summary(records: list[dict], group_numbers: set[int] | None = N
             "graduated_unique": len(all_graduated_people),
             "graduation_started": overall_graduation_started,
             "graduation_graduated": overall_graduation_graduated,
+            "graduation_dropped_out": overall_graduation_dropped_out,
+            "graduation_dropout_rate": _rate(
+                overall_graduation_dropped_out,
+                overall_graduation_started,
+            ),
+            "graduation_transferred": overall_graduation_transferred,
+            "graduation_transfer_rate": _rate(
+                overall_graduation_transferred,
+                overall_graduation_started,
+            ),
             "graduation_completed_groups": len(completed_group_numbers),
             "graduation_rate": _rate(overall_graduation_graduated, overall_graduation_started),
             "initial_survey_responses": overall_initial_survey,
@@ -3322,7 +3382,7 @@ def _render_group_impact_report_pdf(payload: dict) -> bytes:
         notes = [
             "Number of participants: participation rows shown in Grupos -> Participantes, including uploaded historical groups; unique people are shown separately.",
             "Application conversion: submitted applicant emails that match a participant record marked as having started.",
-            "Graduation rate: Graduada participation records divided by started records after a group's end month/year or archive date.",
+            "Graduation rate: Graduada divided by started records in completed groups. No Firmo A and No Capacitacion are excluded even if a checkbox is marked; No Continua P/PP are dropouts; Siguiente/Cambio de grupo are transfers, not dropouts.",
             "Alumni returnee: a Mentora cohort must start after the same email's earlier Emprendedora cohort.",
             "Group source: inferred from matching participant emails back to intake/application emails.",
             payload["survey_source_note"],

@@ -7408,15 +7408,20 @@ class ImpactDashboardMetricTests(TestCase):
             start_day=1,
             start_month="julio",
             end_month="septiembre",
-            year=2026,
+            year=2025,
         )
         GroupParticipantList.objects.create(
             group=status_group,
             google_sheet_url="https://docs.google.com/spreadsheets/d/group983/edit",
             emprendedoras_sheet_rows=[
                 ["", "NCP", 1, "Started by status", "E3", "started-status@example.com", "", "Colombia", "", False, False, False, False, False],
-                ["", "NC", 2, "Not started by status", "E4", "not-started-status@example.com", "", "Colombia", "", False, False, False, False, False],
+                ["", "NC", 2, "Not started by status", "E4", "not-started-status@example.com", "", "Colombia", "", True, True, True, False, False],
                 ["", "Graduada", 3, "Graduated by status", "E5", "graduated-status@example.com", "", "Colombia", "", False, False, False, False, False],
+                ["", "No Firmo A", 4, "No acta", "E6", "no-acta@example.com", "", "Colombia", "", True, True, True, False, False],
+                ["", "Siguiente grupo", 5, "Next group", "E7", "next-group@example.com", "", "Colombia", "", False, False, False, False, False],
+                ["", "Cambio de grupo", 6, "Changed group", "E8", "changed-group@example.com", "", "Colombia", "", False, False, False, False, False],
+                ["", "No Continua PP", 7, "Personal dropout", "E9", "personal-dropout@example.com", "", "Colombia", "", False, False, False, False, False],
+                ["", "Activa", 8, "Active", "E10", "active-status@example.com", "", "Colombia", "", False, False, False, False, False],
             ],
         )
 
@@ -7424,6 +7429,11 @@ class ImpactDashboardMetricTests(TestCase):
             "started-status@example.com",
             "not-started-status@example.com",
             "graduated-status@example.com",
+            "no-acta@example.com",
+            "next-group@example.com",
+            "changed-group@example.com",
+            "personal-dropout@example.com",
+            "active-status@example.com",
         }
         records_by_email = {
             record["email"]: record
@@ -7433,10 +7443,23 @@ class ImpactDashboardMetricTests(TestCase):
 
         self.assertTrue(records_by_email["started-status@example.com"]["started"])
         self.assertFalse(records_by_email["not-started-status@example.com"]["started"])
+        self.assertFalse(records_by_email["no-acta@example.com"]["started"])
         self.assertTrue(records_by_email["graduated-status@example.com"]["started"])
         self.assertTrue(records_by_email["graduated-status@example.com"]["graduated"])
+        self.assertTrue(records_by_email["next-group@example.com"]["started"])
+        self.assertTrue(records_by_email["changed-group@example.com"]["started"])
+        self.assertTrue(records_by_email["personal-dropout@example.com"]["started"])
+        self.assertTrue(records_by_email["active-status@example.com"]["started"])
 
         participant_summary = admin_dashboard_views._participant_summary(records_by_email.values())
+        overall = participant_summary["overall"]
+        self.assertEqual(overall["graduation_started"], 6)
+        self.assertEqual(overall["graduation_graduated"], 1)
+        self.assertEqual(overall["graduation_rate"], 16.7)
+        self.assertEqual(overall["graduation_dropped_out"], 2)
+        self.assertEqual(overall["graduation_dropout_rate"], 33.3)
+        self.assertEqual(overall["graduation_transferred"], 2)
+        self.assertEqual(overall["graduation_transfer_rate"], 33.3)
         status_labels = {
             row["status"]: row["label"]
             for row in participant_summary["tracks"]["e"]["status_rows"]

@@ -675,7 +675,7 @@
             <div>
               <p class="ce-box-kicker">Completion</p>
               <h2 class="ce-box-title">Graduation Rate</h2>
-              <p class="ce-box-note">Graduated participation records use Estatus Graduada. A group enters the denominator after its end month/year, or when it is archived—not when its first participant graduates.</p>
+              <p class="ce-box-note">Graduada divided by participants who started in completed groups. No Firmo A and No Capacitacion are excluded even when a checkbox is marked. Transfers remain started participants, not dropouts.</p>
             </div>
             <div class="ce-big-number">{{ participant_summary.overall.graduation_rate }}%</div>
           </div>
@@ -684,6 +684,16 @@
               <div class="ce-mini-stat-k">Graduated</div>
               <div class="ce-mini-stat-v">{{ participant_summary.overall.graduation_graduated }}</div>
               <div class="ce-mini-stat-note">{{ participant_summary.overall.graduation_started }} started participation records across {{ participant_summary.overall.graduation_completed_groups }} completed groups</div>
+            </div>
+            <div class="ce-mini-stat">
+              <div class="ce-mini-stat-k">Program dropouts</div>
+              <div class="ce-mini-stat-v">{{ participant_summary.overall.graduation_dropped_out }}</div>
+              <div class="ce-mini-stat-note">{{ participant_summary.overall.graduation_dropout_rate }}% · No Continua P or No Continua PP</div>
+            </div>
+            <div class="ce-mini-stat">
+              <div class="ce-mini-stat-k">Continued in another group</div>
+              <div class="ce-mini-stat-v">{{ participant_summary.overall.graduation_transferred }}</div>
+              <div class="ce-mini-stat-note">{{ participant_summary.overall.graduation_transfer_rate }}% · Siguiente grupo or Cambio de grupo</div>
             </div>
           </div>
           <div id="ce-graduation-rate-chart" class="ce-bars">

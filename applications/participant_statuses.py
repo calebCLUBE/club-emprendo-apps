@@ -52,7 +52,13 @@ def normalize_participant_status(value: str | None) -> str:
         return ""
     return _PARTICIPANT_STATUS_ALIASES.get(status.upper(), status.upper())
 
-PARTICIPANT_STATUS_STARTED = {"NCP", "NCPP", "CG", "CP", "D/NC", "E", "G", "A"}
+PARTICIPANT_STATUS_NOT_STARTED = {"NFA", "NC"}
+# Every other recognized status describes someone who entered the program.
+# This includes SG/CG participants who continue in another group and the
+# legacy CP, D/NC, and E statuses, all of which can only occur after starting.
+PARTICIPANT_STATUS_STARTED = set(PARTICIPANT_STATUS_CODES) - PARTICIPANT_STATUS_NOT_STARTED
+PARTICIPANT_STATUS_DROPPED_OUT = {"NCP", "NCPP"}
+PARTICIPANT_STATUS_TRANSFERRED = {"SG", "CG"}
 PARTICIPANT_STATUS_GRADUATED = {"G"}
 
 PARTICIPANT_STATUS_COLORS = {

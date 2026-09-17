@@ -4924,6 +4924,34 @@ def profiles_participants(request):
             messages.error(request, "Selected group does not exist or is archived.")
             return redirect(reverse("admin_profiles_participants"))
 
+        if action == "rename_group":
+            custom_name = (request.POST.get("custom_name") or "").strip()
+            max_length = FormGroup._meta.get_field("custom_name").max_length or 120
+            if len(custom_name) > max_length:
+                messages.error(
+                    request,
+                    f"Group names must be {max_length} characters or fewer.",
+                )
+                return redirect(
+                    f"{reverse('admin_profiles_participants')}?group={selected_group.number}"
+                )
+
+            selected_group.custom_name = custom_name
+            selected_group.save(update_fields=["custom_name"])
+            if custom_name:
+                messages.success(
+                    request,
+                    f"Renamed Group {selected_group.number} to {custom_name}.",
+                )
+            else:
+                messages.success(
+                    request,
+                    f"Removed the custom name from Group {selected_group.number}.",
+                )
+            return redirect(
+                f"{reverse('admin_profiles_participants')}?group={selected_group.number}"
+            )
+
         selected_participant_list = GroupParticipantList.objects.filter(group=selected_group).first()
         if (
             selected_participant_list

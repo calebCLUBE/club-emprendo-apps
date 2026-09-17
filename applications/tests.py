@@ -8576,6 +8576,64 @@ class ParticipantsPageSafetyTests(TestCase):
         self.assertEqual(self.participant_list.mentoras_emails_text, "mentor@example.com")
         self.assertEqual(self.participant_list.emprendedoras_emails_text, "founder@example.com")
 
+    def test_participants_page_can_rename_group_without_changing_participant_data(self):
+        response = self.client.post(
+            reverse("admin_profiles_participants"),
+            data={
+                "group": str(self.group.number),
+                "action": "rename_group",
+                "custom_name": "  Grupo de Liderazgo  ",
+            },
+        )
+
+        self.assertRedirects(
+            response,
+            f"{reverse('admin_profiles_participants')}?group={self.group.number}",
+        )
+        self.group.refresh_from_db()
+        self.assertEqual(self.group.custom_name, "Grupo de Liderazgo")
+        self.participant_list.refresh_from_db()
+        self.assertEqual(self.participant_list.mentoras_emails_text, "mentor@example.com")
+        self.assertEqual(self.participant_list.emprendedoras_emails_text, "founder@example.com")
+
+        page = self.client.get(
+            f"{reverse('admin_profiles_participants')}?group={self.group.number}"
+        )
+        self.assertContains(page, "Group 991 · Grupo de Liderazgo")
+        self.assertContains(page, 'value="Grupo de Liderazgo"')
+
+    def test_participants_page_can_clear_group_custom_name(self):
+        self.group.custom_name = "Old name"
+        self.group.save(update_fields=["custom_name"])
+
+        response = self.client.post(
+            reverse("admin_profiles_participants"),
+            data={
+                "group": str(self.group.number),
+                "action": "rename_group",
+                "custom_name": "   ",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.group.refresh_from_db()
+        self.assertEqual(self.group.custom_name, "")
+
+    def test_participants_page_rejects_group_name_over_120_characters(self):
+        response = self.client.post(
+            reverse("admin_profiles_participants"),
+            data={
+                "group": str(self.group.number),
+                "action": "rename_group",
+                "custom_name": "x" * 121,
+            },
+            follow=True,
+        )
+
+        self.assertContains(response, "Group names must be 120 characters or fewer.")
+        self.group.refresh_from_db()
+        self.assertEqual(self.group.custom_name, "")
+
 
 class ParticipantsCapacitacionCheckTests(TestCase):
     def setUp(self):

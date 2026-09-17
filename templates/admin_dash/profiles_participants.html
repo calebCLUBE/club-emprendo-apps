@@ -67,6 +67,27 @@
         {% endif %}
       </div>
       <div class="ce-work-panel__body">
+        <form class="ce-work-picker" method="post" style="margin-bottom:18px;">
+          {% csrf_token %}
+          <input type="hidden" name="group" value="{{ selected_group.number }}">
+          <div class="ce-work-field">
+            <label for="custom-group-name">Group name</label>
+            <input
+              class="ce-work-input"
+              id="custom-group-name"
+              name="custom_name"
+              type="text"
+              maxlength="120"
+              value="{{ selected_group.custom_name }}"
+              placeholder="Optional custom name"
+            >
+            <span class="ce-work-muted">The group number and all connected participant data stay unchanged. Clear the field to remove the custom name.</span>
+          </div>
+          <button class="ce-work-btn ce-work-btn--secondary" type="submit" name="action" value="rename_group">
+            Save group name
+          </button>
+        </form>
+
         <div class="ce-work-summary">
           <div class="ce-work-stat">
             <div class="ce-work-stat__label">Mentoras</div>

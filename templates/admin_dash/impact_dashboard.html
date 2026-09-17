@@ -675,7 +675,7 @@
             <div>
               <p class="ce-box-kicker">Completion</p>
               <h2 class="ce-box-title">Graduation Rate</h2>
-              <p class="ce-box-note">Graduada divided by the only two statuses included in this rate: Graduada and No Continua PP. Every other status is excluded.</p>
+              <p class="ce-box-note">Graduada divided by the three statuses included in this rate: Graduada, No Continua P, and No Continua PP. Every other status is excluded.</p>
             </div>
             <div class="ce-big-number">{{ participant_summary.overall.graduation_rate }}%</div>
           </div>
@@ -686,14 +686,14 @@
               <div class="ce-mini-stat-note">{{ participant_summary.overall.graduation_eligible }} eligible outcomes across {{ participant_summary.overall.graduation_completed_groups }} completed groups</div>
             </div>
             <div class="ce-mini-stat">
-              <div class="ce-mini-stat-k">No Continua PP</div>
+              <div class="ce-mini-stat-k">Program dropouts</div>
               <div class="ce-mini-stat-v">{{ participant_summary.overall.graduation_dropped_out }}</div>
-              <div class="ce-mini-stat-note">{{ participant_summary.overall.graduation_dropout_rate }}% · The only non-graduate status included</div>
+              <div class="ce-mini-stat-note">{{ participant_summary.overall.graduation_dropout_rate }}% · No Continua P or No Continua PP</div>
             </div>
             <div class="ce-mini-stat">
               <div class="ce-mini-stat-k">Eligible outcomes</div>
               <div class="ce-mini-stat-v">{{ participant_summary.overall.graduation_eligible }}</div>
-              <div class="ce-mini-stat-note">Graduada + No Continua PP</div>
+              <div class="ce-mini-stat-note">Graduada + No Continua P + No Continua PP</div>
             </div>
           </div>
           <div id="ce-graduation-rate-chart" class="ce-bars">

@@ -7453,12 +7453,12 @@ class ImpactDashboardMetricTests(TestCase):
 
         participant_summary = admin_dashboard_views._participant_summary(records_by_email.values())
         overall = participant_summary["overall"]
-        self.assertEqual(overall["graduation_eligible"], 2)
-        self.assertEqual(overall["graduation_started"], 2)
+        self.assertEqual(overall["graduation_eligible"], 3)
+        self.assertEqual(overall["graduation_started"], 3)
         self.assertEqual(overall["graduation_graduated"], 1)
-        self.assertEqual(overall["graduation_rate"], 50.0)
-        self.assertEqual(overall["graduation_dropped_out"], 1)
-        self.assertEqual(overall["graduation_dropout_rate"], 50.0)
+        self.assertEqual(overall["graduation_rate"], 33.3)
+        self.assertEqual(overall["graduation_dropped_out"], 2)
+        self.assertEqual(overall["graduation_dropout_rate"], 66.7)
         self.assertNotIn("graduation_transferred", overall)
         status_labels = {
             row["status"]: row["label"]

@@ -60,6 +60,7 @@ from .meta_marketing import (
 from .participant_statuses import (
     PARTICIPANT_STATUS_CHOICES,
     PARTICIPANT_STATUS_COLORS,
+    PARTICIPANT_STATUS_DROPPED_OUT,
     PARTICIPANT_STATUS_GRADUATION_ELIGIBLE,
     PARTICIPANT_STATUS_GRADUATED,
     PARTICIPANT_STATUS_NOT_STARTED,
@@ -1134,7 +1135,7 @@ def _participant_summary(records: list[dict], group_numbers: set[int] | None = N
             [
                 record
                 for record in graduation_scope_records
-                if record.get("status") == "NCPP"
+                if record.get("status") in PARTICIPANT_STATUS_DROPPED_OUT
             ]
         )
         status_counts: dict[str, int] = defaultdict(int)
@@ -1186,7 +1187,7 @@ def _participant_summary(records: list[dict], group_numbers: set[int] | None = N
             "graduated_unique": len(graduated_people),
             "graduation_eligible": graduation_eligible,
             # Retained as an internal compatibility alias for older report
-            # consumers; it now means the G + NCPP graduation denominator.
+            # consumers; it now means the G + NCP + NCPP graduation denominator.
             "graduation_started": graduation_eligible,
             "graduation_graduated": graduation_graduated,
             "graduation_dropped_out": graduation_dropped_out,
@@ -1228,7 +1229,7 @@ def _participant_summary(records: list[dict], group_numbers: set[int] | None = N
         [
             record
             for record in overall_graduation_scope_records
-            if record.get("status") == "NCPP"
+            if record.get("status") in PARTICIPANT_STATUS_DROPPED_OUT
         ]
     )
     overall_initial_survey = len([record for record in records if record["initial_survey"]])
@@ -3190,7 +3191,7 @@ def _render_group_impact_report_pdf(payload: dict) -> bytes:
             "note": (
                 f"{overall_participants.get('graduation_graduated', 0)} graduated of "
                 f"{overall_participants.get('graduation_eligible', 0)} eligible outcomes "
-                "(Graduada + No Continua PP)"
+                "(Graduada + No Continua P/PP)"
             ),
             "color": "#22C55E",
         },
@@ -3372,7 +3373,7 @@ def _render_group_impact_report_pdf(payload: dict) -> bytes:
         notes = [
             "Number of participants: participation rows shown in Grupos -> Participantes, including uploaded historical groups; unique people are shown separately.",
             "Application conversion: submitted applicant emails that match a participant record marked as having started.",
-            "Graduation rate: Graduada divided by Graduada plus No Continua PP in completed groups. Every other status is excluded from this rate.",
+            "Graduation rate: Graduada divided by Graduada plus No Continua P plus No Continua PP in completed groups. Every other status is excluded from this rate.",
             "Alumni returnee: a Mentora cohort must start after the same email's earlier Emprendedora cohort.",
             "Group source: inferred from matching participant emails back to intake/application emails.",
             payload["survey_source_note"],

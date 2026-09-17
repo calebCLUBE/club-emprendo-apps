@@ -7453,13 +7453,13 @@ class ImpactDashboardMetricTests(TestCase):
 
         participant_summary = admin_dashboard_views._participant_summary(records_by_email.values())
         overall = participant_summary["overall"]
-        self.assertEqual(overall["graduation_started"], 6)
+        self.assertEqual(overall["graduation_eligible"], 2)
+        self.assertEqual(overall["graduation_started"], 2)
         self.assertEqual(overall["graduation_graduated"], 1)
-        self.assertEqual(overall["graduation_rate"], 16.7)
-        self.assertEqual(overall["graduation_dropped_out"], 2)
-        self.assertEqual(overall["graduation_dropout_rate"], 33.3)
-        self.assertEqual(overall["graduation_transferred"], 2)
-        self.assertEqual(overall["graduation_transfer_rate"], 33.3)
+        self.assertEqual(overall["graduation_rate"], 50.0)
+        self.assertEqual(overall["graduation_dropped_out"], 1)
+        self.assertEqual(overall["graduation_dropout_rate"], 50.0)
+        self.assertNotIn("graduation_transferred", overall)
         status_labels = {
             row["status"]: row["label"]
             for row in participant_summary["tracks"]["e"]["status_rows"]
@@ -7498,15 +7498,17 @@ class ImpactDashboardMetricTests(TestCase):
         self.assertEqual(participant_summary["overall"]["started"], 6)
         self.assertEqual(participant_summary["overall"]["graduated"], 3)
         self.assertEqual(participant_summary["overall"]["unique"], 5)
-        self.assertEqual(participant_summary["overall"]["graduation_started"], 6)
+        self.assertEqual(participant_summary["overall"]["graduation_eligible"], 3)
+        self.assertEqual(participant_summary["overall"]["graduation_started"], 3)
         self.assertEqual(participant_summary["overall"]["graduation_graduated"], 3)
         self.assertEqual(participant_summary["overall"]["graduation_completed_groups"], 3)
-        self.assertEqual(participant_summary["overall"]["graduation_rate"], 50.0)
+        self.assertEqual(participant_summary["overall"]["graduation_rate"], 100.0)
         self.assertEqual(participant_summary["tracks"]["e"]["started"], 2)
         self.assertEqual(participant_summary["tracks"]["e"]["graduation_rate"], 100.0)
         self.assertEqual(participant_summary["tracks"]["m"]["graduated"], 1)
-        self.assertEqual(participant_summary["tracks"]["m"]["graduation_started"], 4)
-        self.assertEqual(participant_summary["tracks"]["m"]["graduation_rate"], 25.0)
+        self.assertEqual(participant_summary["tracks"]["m"]["graduation_eligible"], 1)
+        self.assertEqual(participant_summary["tracks"]["m"]["graduation_started"], 1)
+        self.assertEqual(participant_summary["tracks"]["m"]["graduation_rate"], 100.0)
 
         self.assertEqual(application_summary["overall"]["raw"], 7)
         self.assertEqual(application_summary["overall"]["unique"], 5)

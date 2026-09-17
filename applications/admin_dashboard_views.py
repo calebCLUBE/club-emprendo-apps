@@ -60,12 +60,11 @@ from .meta_marketing import (
 from .participant_statuses import (
     PARTICIPANT_STATUS_CHOICES,
     PARTICIPANT_STATUS_COLORS,
-    PARTICIPANT_STATUS_DROPPED_OUT,
+    PARTICIPANT_STATUS_GRADUATION_ELIGIBLE,
     PARTICIPANT_STATUS_GRADUATED,
     PARTICIPANT_STATUS_NOT_STARTED,
     PARTICIPANT_STATUS_SHEET_LABELS,
     PARTICIPANT_STATUS_STARTED,
-    PARTICIPANT_STATUS_TRANSFERRED,
     normalize_participant_status,
 )
 from .traffic import BOGOTA_TIMEZONE
@@ -1123,20 +1122,19 @@ def _participant_summary(records: list[dict], group_numbers: set[int] | None = N
         started_emails = {record["email"] for record in track_records if record["email"] and record["started"]}
         graduated_people = {record["person_key"] for record in track_records if record["graduated"]}
         graduated_emails = {record["email"] for record in track_records if record["email"] and record["graduated"]}
-        graduation_started = len([record for record in graduation_scope_records if record["started"]])
+        graduation_eligible = len(
+            [
+                record
+                for record in graduation_scope_records
+                if record.get("status") in PARTICIPANT_STATUS_GRADUATION_ELIGIBLE
+            ]
+        )
         graduation_graduated = len([record for record in graduation_scope_records if record["graduated"]])
         graduation_dropped_out = len(
             [
                 record
                 for record in graduation_scope_records
-                if record.get("status") in PARTICIPANT_STATUS_DROPPED_OUT
-            ]
-        )
-        graduation_transferred = len(
-            [
-                record
-                for record in graduation_scope_records
-                if record.get("status") in PARTICIPANT_STATUS_TRANSFERRED
+                if record.get("status") == "NCPP"
             ]
         )
         status_counts: dict[str, int] = defaultdict(int)
@@ -1186,21 +1184,19 @@ def _participant_summary(records: list[dict], group_numbers: set[int] | None = N
             "started_unique": len(started_people),
             "graduated": len([record for record in track_records if record["graduated"]]),
             "graduated_unique": len(graduated_people),
-            "graduation_started": graduation_started,
+            "graduation_eligible": graduation_eligible,
+            # Retained as an internal compatibility alias for older report
+            # consumers; it now means the G + NCPP graduation denominator.
+            "graduation_started": graduation_eligible,
             "graduation_graduated": graduation_graduated,
             "graduation_dropped_out": graduation_dropped_out,
             "graduation_dropout_rate": _rate(
                 graduation_dropped_out,
-                graduation_started,
-            ),
-            "graduation_transferred": graduation_transferred,
-            "graduation_transfer_rate": _rate(
-                graduation_transferred,
-                graduation_started,
+                graduation_eligible,
             ),
             "graduation_rate": _rate(
                 graduation_graduated,
-                graduation_started,
+                graduation_eligible,
             ),
             "initial_survey_responses": initial_responses,
             "initial_survey_rate": _rate(initial_responses, len(track_records)),
@@ -1221,9 +1217,10 @@ def _participant_summary(records: list[dict], group_numbers: set[int] | None = N
     overall_graduation_scope_records = [
         record
         for record in records
-        if record.get("group_number") in completed_group_numbers and record.get("started")
+        if record.get("group_number") in completed_group_numbers
+        and record.get("status") in PARTICIPANT_STATUS_GRADUATION_ELIGIBLE
     ]
-    overall_graduation_started = len(overall_graduation_scope_records)
+    overall_graduation_eligible = len(overall_graduation_scope_records)
     overall_graduation_graduated = len(
         [record for record in overall_graduation_scope_records if record["graduated"]]
     )
@@ -1231,14 +1228,7 @@ def _participant_summary(records: list[dict], group_numbers: set[int] | None = N
         [
             record
             for record in overall_graduation_scope_records
-            if record.get("status") in PARTICIPANT_STATUS_DROPPED_OUT
-        ]
-    )
-    overall_graduation_transferred = len(
-        [
-            record
-            for record in overall_graduation_scope_records
-            if record.get("status") in PARTICIPANT_STATUS_TRANSFERRED
+            if record.get("status") == "NCPP"
         ]
     )
     overall_initial_survey = len([record for record in records if record["initial_survey"]])
@@ -1275,20 +1265,19 @@ def _participant_summary(records: list[dict], group_numbers: set[int] | None = N
             "started_unique": len(all_started_people),
             "graduated": overall_graduated,
             "graduated_unique": len(all_graduated_people),
-            "graduation_started": overall_graduation_started,
+            "graduation_eligible": overall_graduation_eligible,
+            "graduation_started": overall_graduation_eligible,
             "graduation_graduated": overall_graduation_graduated,
             "graduation_dropped_out": overall_graduation_dropped_out,
             "graduation_dropout_rate": _rate(
                 overall_graduation_dropped_out,
-                overall_graduation_started,
-            ),
-            "graduation_transferred": overall_graduation_transferred,
-            "graduation_transfer_rate": _rate(
-                overall_graduation_transferred,
-                overall_graduation_started,
+                overall_graduation_eligible,
             ),
             "graduation_completed_groups": len(completed_group_numbers),
-            "graduation_rate": _rate(overall_graduation_graduated, overall_graduation_started),
+            "graduation_rate": _rate(
+                overall_graduation_graduated,
+                overall_graduation_eligible,
+            ),
             "initial_survey_responses": overall_initial_survey,
             "initial_survey_rate": _rate(overall_initial_survey, len(records)),
             "final_survey_responses": overall_final_survey,
@@ -3200,7 +3189,8 @@ def _render_group_impact_report_pdf(payload: dict) -> bytes:
             "value": _impact_pdf_value(overall_participants["graduation_rate"], "%"),
             "note": (
                 f"{overall_participants.get('graduation_graduated', 0)} graduated of "
-                f"{overall_participants.get('graduation_started', 0)} began in completed groups"
+                f"{overall_participants.get('graduation_eligible', 0)} eligible outcomes "
+                "(Graduada + No Continua PP)"
             ),
             "color": "#22C55E",
         },
@@ -3382,7 +3372,7 @@ def _render_group_impact_report_pdf(payload: dict) -> bytes:
         notes = [
             "Number of participants: participation rows shown in Grupos -> Participantes, including uploaded historical groups; unique people are shown separately.",
             "Application conversion: submitted applicant emails that match a participant record marked as having started.",
-            "Graduation rate: Graduada divided by started records in completed groups. No Firmo A and No Capacitacion are excluded even if a checkbox is marked; No Continua P/PP are dropouts; Siguiente/Cambio de grupo are transfers, not dropouts.",
+            "Graduation rate: Graduada divided by Graduada plus No Continua PP in completed groups. Every other status is excluded from this rate.",
             "Alumni returnee: a Mentora cohort must start after the same email's earlier Emprendedora cohort.",
             "Group source: inferred from matching participant emails back to intake/application emails.",
             payload["survey_source_note"],

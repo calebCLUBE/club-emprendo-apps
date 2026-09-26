@@ -4,651 +4,175 @@
 <div class="ce-admin-wrap">
   <div class="ce-admin-card ce-admin-card--wide ce-impact-wrap">
     <style>
-      .ce-admin-wrap {
-        width: 100%;
-        box-sizing: border-box;
-        padding: 14px;
-      }
-      .ce-admin-card.ce-admin-card--wide {
-        box-sizing: border-box;
-        width: 100%;
-        max-width: none;
-        margin-left: auto;
-        margin-right: auto;
-      }
+      * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .ce-admin-wrap { width: 100%; box-sizing: border-box; padding: 14px; }
+      .ce-admin-card.ce-admin-card--wide { box-sizing: border-box; width: 100%; max-width: none; margin: 0 auto; }
       .ce-impact-shell {
-        --ce-bg-soft: #f7f9fc;
-        --ce-surface: #ffffff;
-        --ce-border: #e3e9f2;
-        --ce-text: #1f2937;
-        --ce-muted: #667085;
-        --ce-accent: #2c3f66;
+        --ink: #14213d;
+        --text: #26324a;
+        --muted: #6b7690;
+        --line: #e4e9f2;
+        --soft: #f4f7fc;
+        --card: #ffffff;
+        --navy: #22345f;
+        --e: #3b6fd8;
+        --m: #0e9f8e;
+        --good: #1f9d6b;
+        --warn: #d98a1c;
+        color: var(--text);
       }
+      .ce-impact-shell h1, .ce-impact-shell h2, .ce-impact-shell h3, .ce-impact-shell p { margin: 0; }
+
+      /* Header */
       .ce-impact-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: flex-start;
-        gap: 12px;
-        flex-wrap: wrap;
+        display: flex; justify-content: space-between; align-items: flex-end; gap: 14px; flex-wrap: wrap;
         margin-bottom: 14px;
       }
-      .ce-impact-title {
-        margin: 0;
-        font-size: 28px;
-        line-height: 1.15;
-        color: var(--ce-text);
-      }
-      .ce-impact-subtitle {
-        margin-top: 5px;
-        color: var(--ce-muted);
-        font-size: 14px;
-      }
-      .ce-actions {
-        display: flex;
-        gap: 8px;
-        flex-wrap: wrap;
-        margin: 0;
-      }
-      .ce-btn {
-        display: inline-block;
-        padding: 8px 12px;
-        border-radius: 8px;
-        border: 1px solid var(--ce-accent);
-        background: var(--ce-accent);
-        color: #fff !important;
-        text-decoration: none;
-        font-weight: 600;
-      }
-      .ce-btn--ghost {
-        background: #fff;
-        color: var(--ce-accent) !important;
-      }
-      .ce-metric-board {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 14px;
-        align-items: start;
-      }
-      .ce-metric-box {
-        background: var(--ce-surface);
-        border: 1px solid var(--ce-border);
-        border-radius: 8px;
-        padding: 16px;
-        min-width: 0;
-      }
-      .ce-metric-box--wide {
-        grid-column: 1 / -1;
-      }
-      .ce-box-head {
-        display: flex;
-        justify-content: space-between;
-        gap: 14px;
-        align-items: flex-start;
-        margin-bottom: 12px;
-      }
-      .ce-box-kicker {
-        margin: 0 0 4px;
-        color: #516079;
-        font-size: 11px;
-        font-weight: 800;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-      }
-      .ce-box-title {
-        margin: 0;
-        color: var(--ce-text);
-        font-size: 18px;
-      }
-      .ce-box-note {
-        margin: 4px 0 0;
-        color: var(--ce-muted);
-        font-size: 12px;
-        line-height: 1.45;
-      }
-      .ce-big-number {
-        min-width: 96px;
-        text-align: right;
-        color: #0f172a;
-        font-size: 30px;
-        line-height: 1;
-        font-weight: 850;
-        font-variant-numeric: tabular-nums;
-      }
-      .ce-mini-stat-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(135px, 1fr));
-        gap: 10px;
-        margin: 10px 0 12px;
-      }
-      .ce-mini-stat {
-        border: 1px solid #dde6f1;
-        border-radius: 8px;
-        background: #f8fbff;
-        padding: 10px;
-      }
-      .ce-mini-stat-k {
-        color: #64748b;
-        font-size: 11px;
-        font-weight: 800;
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
-      }
-      .ce-mini-stat-v {
-        margin-top: 5px;
-        color: #111827;
-        font-size: 24px;
-        line-height: 1;
-        font-weight: 850;
-        font-variant-numeric: tabular-nums;
-      }
-      .ce-mini-stat-note {
-        margin-top: 5px;
-        color: #64748b;
-        font-size: 12px;
-      }
-      .ce-track-split {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 12px;
-      }
-      .ce-funnel-strip {
-        display: grid;
-        grid-template-columns: repeat(4, minmax(110px, 1fr));
-        gap: 10px;
-        margin-top: 12px;
-      }
-      .ce-funnel-item {
-        border: 1px solid #e2e8f0;
-        background: #f8fafc;
-        border-radius: 8px;
-        padding: 8px 10px;
-      }
-      .ce-funnel-label {
-        font-size: 11px;
-        color: #64748b;
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
-        font-weight: 800;
-      }
-      .ce-funnel-value {
-        margin-top: 5px;
-        font-size: 22px;
-        line-height: 1.1;
-        color: #0f172a;
-        font-weight: 850;
-        font-variant-numeric: tabular-nums;
-      }
-      .ce-funnel-meta {
-        margin-top: 4px;
-        font-size: 11px;
-        color: #475569;
-      }
-      .ce-track-card {
-        border: 1px solid #e2e8f0;
-        border-radius: 8px;
-        background: #ffffff;
-        padding: 12px;
-        min-width: 0;
-      }
-      .ce-track-card h3,
-      .ce-chart-heading {
-        margin: 0 0 8px;
-        color: #1f2937;
-        font-size: 14px;
-      }
-      .ce-chart-pair {
-        display: grid;
-        grid-template-columns: 190px 1fr;
-        gap: 12px;
-        align-items: center;
-      }
-      .ce-donut-wrap {
-        margin-top: 10px;
-        display: grid;
-        justify-content: center;
-      }
-      .ce-donut {
-        width: 168px;
-        height: 168px;
-        border-radius: 50%;
-        background: #e5e7eb;
-        position: relative;
-        display: grid;
-        place-items: center;
-      }
-      .ce-donut-hole {
-        width: 92px;
-        height: 92px;
-        border-radius: 50%;
-        background: #fff;
-        box-shadow: inset 0 0 0 1px #e5e7eb;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-      }
-      .ce-donut-total {
-        font-size: 22px;
-        color: #0f172a;
-        line-height: 1;
-      }
-      .ce-donut-sub {
-        font-size: 11px;
-        color: #64748b;
-        margin-top: 3px;
-      }
-      .ce-legend {
-        list-style: none;
-        margin: 10px 0 0;
-        padding: 0;
-        display: grid;
-        gap: 7px;
-      }
-      .ce-legend li {
-        display: grid;
-        grid-template-columns: 14px 1fr auto;
-        gap: 8px;
-        align-items: center;
-        font-size: 12px;
-        color: #334155;
-      }
-      .ce-legend-dot {
-        width: 11px;
-        height: 11px;
-        border-radius: 999px;
-      }
-      .ce-bars {
-        margin-top: 12px;
-      }
-      .ce-bar-row {
-        display: grid;
-        grid-template-columns: minmax(132px, 210px) 1fr 66px;
-        align-items: center;
-        gap: 10px;
-        margin: 9px 0;
-      }
-      .ce-bar-label {
-        font-size: 12px;
-        color: #334155;
-        overflow: hidden;
-        white-space: nowrap;
-        text-overflow: ellipsis;
-      }
-      .ce-bar-track {
-        position: relative;
-        height: 13px;
-        border-radius: 999px;
-        background: #e8edf4;
-        overflow: hidden;
-      }
-      .ce-bar-fill {
-        position: absolute;
-        top: 0;
-        left: 0;
-        height: 100%;
-        border-radius: 999px;
-      }
-      .ce-bar-zero {
-        position: absolute;
-        top: 0;
-        bottom: 0;
-        width: 2px;
-        background: #94a3b8;
-      }
-      .ce-bar-val {
-        text-align: right;
-        font-size: 12px;
-        color: #475569;
-        font-variant-numeric: tabular-nums;
-      }
-      .ce-table {
-        width: 100%;
-        border-collapse: collapse;
-        margin-top: 10px;
-        font-size: 13px;
-      }
-      .ce-table th,
-      .ce-table td {
-        border-bottom: 1px solid #edf2f7;
-        padding: 9px 8px;
-        text-align: left;
-        vertical-align: top;
-      }
-      .ce-table th {
-        color: #334155;
-        font-size: 11px;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-        background: #f8fafc;
-      }
-      .ce-table td.ce-num,
-      .ce-table th.ce-num {
-        text-align: right;
-        font-variant-numeric: tabular-nums;
-      }
-      .ce-table-wrap {
-        overflow-x: auto;
-        margin-top: 10px;
-      }
-      .ce-compact-table {
-        font-size: 12px;
-      }
-      .ce-muted-row {
-        display: block;
-        margin-top: 2px;
-        color: #64748b;
-        font-size: 11px;
-        line-height: 1.35;
-      }
-      .ce-report-form {
-        display: grid;
-        grid-template-columns: minmax(220px, 1fr) auto;
-        gap: 10px;
-        align-items: end;
-      }
-      .ce-filter-form {
-        display: grid;
-        grid-template-columns: repeat(3, minmax(150px, 1fr)) auto auto auto;
-        gap: 10px;
-        align-items: end;
-        margin-bottom: 14px;
-      }
-      .ce-report-form label,
-      .ce-filter-form label {
-        display: block;
-        margin-bottom: 5px;
-        color: #344054;
-        font-size: 12px;
-        font-weight: 700;
-      }
-      .ce-report-select {
-        width: 100%;
-        box-sizing: border-box;
-        min-height: 42px;
-        padding: 8px 10px;
-        border: 1px solid #d4dce8;
-        border-radius: 8px;
-        background: #fff;
-        color: #1f2937;
-        font-size: 13px;
-        line-height: 20px;
-      }
-      .ce-empty {
-        color: #6b7280;
-        font-style: italic;
-      }
+      .ce-impact-title { font-size: 30px; line-height: 1.1; color: var(--ink); font-weight: 800; letter-spacing: -0.02em; }
+      .ce-impact-subtitle { margin-top: 6px; color: var(--muted); font-size: 13.5px; max-width: 760px; line-height: 1.5; }
       .ce-scope-pill {
-        display: inline-block;
-        margin-top: 10px;
-        padding: 4px 10px;
-        border-radius: 999px;
-        background: #eaf0fa;
-        color: var(--ce-accent);
-        font-size: 12px;
-        font-weight: 700;
+        display: inline-block; margin-top: 10px; padding: 4px 12px; border-radius: 999px;
+        background: #e8eefc; color: var(--navy); font-size: 12px; font-weight: 700;
       }
-      .ce-scope-line {
-        margin: 8px 0 0;
-        color: #516079;
-        font-size: 12px;
-        line-height: 1.45;
-        font-style: italic;
+      .ce-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+      .ce-btn {
+        display: inline-block; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--navy);
+        background: var(--navy); color: #fff !important; text-decoration: none; font-weight: 600; font-size: 13px; cursor: pointer;
       }
-      .ce-about {
-        background: var(--ce-bg-soft);
-        border: 1px solid var(--ce-border);
-        border-radius: 8px;
-        padding: 14px 16px;
-        margin-bottom: 14px;
+      .ce-btn--ghost { background: #fff; color: var(--navy) !important; }
+
+      /* Filters */
+      .ce-filter-form {
+        display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap;
+        background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; margin-bottom: 14px;
       }
-      .ce-about-title { margin: 0 0 8px; font-size: 15px; color: var(--ce-text); }
-      .ce-about-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
-      .ce-about h3 { margin: 0 0 4px; font-size: 12px; color: #516079; text-transform: uppercase; letter-spacing: 0.06em; }
-      .ce-about ul { margin: 0; padding-left: 18px; color: #334155; font-size: 12.5px; line-height: 1.5; }
-      .ce-about-details { margin-top: 10px; font-size: 12.5px; }
-      .ce-about-details summary { cursor: pointer; font-weight: 700; color: var(--ce-accent); }
-      .ce-hero {
-        display: grid;
-        grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
-        gap: 20px;
-        align-items: center;
+      .ce-filter-form > div { flex: 1 1 150px; min-width: 130px; }
+      .ce-filter-form label { display: block; margin-bottom: 4px; color: var(--muted); font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; }
+      .ce-report-select {
+        width: 100%; box-sizing: border-box; min-height: 38px; padding: 6px 10px; border: 1px solid #d4dce8;
+        border-radius: 8px; background: #fff; color: var(--text); font-size: 13px;
       }
-      .ce-hero-number {
-        font-size: 64px;
-        line-height: 1;
-        font-weight: 850;
-        color: #0f172a;
-        font-variant-numeric: tabular-nums;
+      .ce-report-form { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+      .ce-report-form > div { flex: 1 1 220px; }
+      .ce-report-form label { display: block; margin-bottom: 4px; color: var(--muted); font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; }
+
+      /* KPI strip */
+      .ce-kpis { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+      .ce-kpi {
+        flex: 1 1 170px; background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+        padding: 14px 16px; border-top: 4px solid var(--navy); box-shadow: 0 1px 2px rgba(20,33,61,0.04);
       }
-      .ce-hero-caption { margin: 8px 0 0; color: #334155; font-size: 14px; line-height: 1.45; }
-      .ce-hero-side { display: grid; gap: 8px; }
-      .ce-hero-side .ce-mini-stat { display: grid; grid-template-columns: auto 1fr; column-gap: 12px; align-items: center; }
-      .ce-hero-side .ce-mini-stat-k { grid-column: 1 / -1; }
-      .ce-hero-side .ce-mini-stat-v { margin: 0; }
-      .ce-hero-side .ce-mini-stat-note { margin: 0; }
-      .ce-funnel-table td { vertical-align: top; }
-      .ce-funnel-count { display: block; font-size: 20px; font-weight: 850; color: #0f172a; }
-      .ce-funnel-pct { display: block; font-size: 11px; color: #475569; }
-      .ce-funnel-bar { display: block; height: 5px; margin-top: 4px; border-radius: 999px; background: #e8edf4; overflow: hidden; }
-      .ce-funnel-bar span { display: block; height: 100%; background: #3B82F6; border-radius: 999px; }
-      .ce-def { color: #64748b; font-size: 12px; line-height: 1.4; max-width: 340px; }
-      .ce-subrow td { background: #fbfcfe; color: #475569; font-size: 12px; }
-      .ce-total-row td { background: #f8fafc; font-weight: 800; }
-      @media (max-width: 980px) {
-        .ce-about-grid, .ce-hero { grid-template-columns: 1fr; }
+      .ce-kpi--e { border-top-color: var(--e); }
+      .ce-kpi--m { border-top-color: var(--m); }
+      .ce-kpi--good { border-top-color: var(--good); }
+      .ce-kpi--warn { border-top-color: var(--warn); }
+      .ce-kpi-k { color: var(--muted); font-size: 11px; font-weight: 800; letter-spacing: 0.07em; text-transform: uppercase; }
+      .ce-kpi-v { margin-top: 6px; color: var(--ink); font-size: 34px; line-height: 1; font-weight: 850; font-variant-numeric: tabular-nums; }
+      .ce-kpi-n { margin-top: 6px; color: var(--muted); font-size: 12px; line-height: 1.35; }
+
+      /* Cards */
+      .ce-row { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 14px; align-items: stretch; }
+      .ce-card {
+        flex: 1 1 340px; min-width: 0; box-sizing: border-box; background: var(--card); border: 1px solid var(--line);
+        border-radius: 12px; padding: 16px 18px; box-shadow: 0 1px 2px rgba(20,33,61,0.04);
       }
-      @page {
-        size: letter landscape;
-        margin: 0.35in;
+      .ce-card--wide { flex-basis: 100%; }
+      .ce-card-head { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; margin-bottom: 10px; }
+      .ce-head-num { color: var(--ink); font-size: 30px; line-height: 1; font-weight: 850; font-variant-numeric: tabular-nums; }
+      .ce-kicker { color: var(--muted); font-size: 10.5px; font-weight: 800; letter-spacing: 0.09em; text-transform: uppercase; }
+      .ce-title { margin-top: 2px; color: var(--ink); font-size: 17px; font-weight: 800; }
+      .ce-badge { display: inline-block; padding: 2px 8px; border-radius: 999px; background: var(--soft); color: var(--muted); font-size: 10.5px; font-weight: 700; white-space: nowrap; }
+      .ce-split { display: flex; gap: 18px; flex-wrap: wrap; align-items: flex-start; }
+      .ce-main { flex: 1 1 320px; min-width: 0; }
+      .ce-aside {
+        flex: 0 1 240px; min-width: 180px; box-sizing: border-box; padding: 2px 0 2px 14px; border-left: 3px solid var(--line);
+        color: var(--muted); font-size: 12px; line-height: 1.5;
       }
+      .ce-aside--under { margin-top: 10px; padding-left: 0; border-left: 0; flex-basis: auto; }
+      .ce-aside p + p { margin-top: 6px; }
+      .ce-aside strong { color: var(--text); }
+      .ce-note { color: var(--muted); font-size: 12px; line-height: 1.5; }
+      .ce-empty { color: var(--muted); font-style: italic; font-size: 12.5px; }
+
+      /* Participants hero */
+      .ce-hero-num { color: var(--ink); font-size: 60px; line-height: 1; font-weight: 850; font-variant-numeric: tabular-nums; letter-spacing: -0.03em; }
+      .ce-hero-cap { margin-top: 4px; color: var(--muted); font-size: 13px; }
+      .ce-splitbar { display: flex; height: 12px; margin-top: 14px; border-radius: 999px; overflow: hidden; background: #e8edf4; }
+      .ce-splitbar span { display: block; height: 100%; }
+      .ce-legend-row { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 8px; font-size: 12.5px; color: var(--text); }
+      .ce-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; }
+
+      /* Group column chart */
+      .ce-cols { display: flex; align-items: flex-end; gap: 4px; height: 120px; margin-top: 6px; }
+      .ce-col { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; height: 100%; }
+      .ce-col-val { font-size: 9.5px; color: var(--muted); margin-bottom: 2px; font-variant-numeric: tabular-nums; }
+      .ce-col-bar { display: block; width: 100%; border-radius: 4px 4px 0 0; background: var(--e); }
+      .ce-col-lab { margin-top: 4px; font-size: 10px; color: var(--muted); font-weight: 700; }
+
+      /* Funnel */
+      .ce-funnel { width: 100%; border-collapse: collapse; }
+      .ce-funnel th {
+        padding: 0 8px 8px; text-align: left; color: var(--muted); font-size: 10.5px; font-weight: 800; letter-spacing: 0.07em; text-transform: uppercase;
+      }
+      .ce-funnel th.ce-c, .ce-funnel td.ce-c { text-align: left; width: 21%; }
+      .ce-funnel td { padding: 9px 8px; border-top: 1px solid var(--line); vertical-align: top; }
+      .ce-step-name { color: var(--ink); font-size: 14px; font-weight: 800; }
+      .ce-step-sub { margin-top: 2px; color: var(--muted); font-size: 11.5px; line-height: 1.35; }
+      .ce-cell-n { color: var(--ink); font-size: 20px; line-height: 1.15; font-weight: 850; font-variant-numeric: tabular-nums; }
+      .ce-cell-p { margin-top: 1px; color: var(--muted); font-size: 11px; line-height: 1.3; }
+      .ce-cell-bar { height: 5px; margin-top: 5px; border-radius: 999px; background: #e8edf4; overflow: hidden; }
+      .ce-cell-bar span { display: block; height: 100%; border-radius: 999px; }
+      .ce-funnel .ce-sub td { padding: 4px 8px; border-top: 0; background: #fafcff; color: var(--muted); font-size: 12px; }
+      .ce-funnel .ce-sub td.ce-c { font-variant-numeric: tabular-nums; }
+      .ce-funnel .ce-out td { background: #fffaf3; }
+
+      /* Stat tiles */
+      .ce-tiles { display: flex; gap: 10px; flex-wrap: wrap; }
+      .ce-tile { flex: 1 1 150px; min-width: 0; box-sizing: border-box; background: var(--soft); border: 1px solid var(--line); border-radius: 10px; padding: 11px 12px; }
+      .ce-tile-k { color: var(--muted); font-size: 10.5px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; }
+      .ce-tile-v { margin-top: 4px; color: var(--ink); font-size: 26px; line-height: 1; font-weight: 850; font-variant-numeric: tabular-nums; }
+      .ce-tile-n { margin-top: 5px; color: var(--muted); font-size: 11.5px; line-height: 1.35; }
+
+      /* Bars */
+      .ce-bars { margin-top: 10px; }
+      .ce-bar-row { display: flex; align-items: center; gap: 10px; margin: 7px 0; }
+      .ce-bar-label { flex: 0 0 38%; min-width: 0; font-size: 12px; color: var(--text); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+      .ce-bar-track { position: relative; flex: 1 1 auto; height: 10px; border-radius: 999px; background: #e8edf4; overflow: hidden; }
+      .ce-bar-fill { position: absolute; top: 0; height: 100%; border-radius: 999px; }
+      .ce-bar-zero { position: absolute; top: 0; bottom: 0; width: 2px; background: #94a3b8; }
+      .ce-bar-val { flex: 0 0 48px; text-align: right; font-size: 12px; color: var(--text); font-weight: 700; font-variant-numeric: tabular-nums; }
+
+      /* Tables */
+      .ce-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+      .ce-table th { padding: 6px 8px; text-align: left; color: var(--muted); font-size: 10.5px; font-weight: 800; letter-spacing: 0.07em; text-transform: uppercase; }
+      .ce-table td { padding: 7px 8px; border-top: 1px solid var(--line); }
+      .ce-table .ce-num { text-align: right; font-variant-numeric: tabular-nums; }
+      .ce-table .ce-total-row td { background: var(--soft); font-weight: 800; }
+      .ce-table-wrap { overflow-x: auto; }
+
+      /* Details / footer */
+      .ce-foot { color: var(--muted); font-size: 12px; line-height: 1.55; }
+      .ce-foot ul { margin: 6px 0 0; padding-left: 18px; }
+      .ce-foot details { margin-top: 10px; }
+      .ce-foot summary { cursor: pointer; color: var(--navy); font-weight: 700; }
+      .ce-gloss { display: flex; flex-wrap: wrap; gap: 4px 24px; margin-top: 8px; }
+      .ce-gloss div { flex: 1 1 320px; }
+      .ce-gloss strong { color: var(--text); }
+
+      @page { size: letter landscape; margin: 0.35in; }
       @media print {
-        html,
-        body {
-          background: #fff;
-          color: #1f2937;
-          font-family: Arial, Helvetica, sans-serif;
-          font-size: 10px;
-          line-height: 1.28;
-        }
-        .ce-admin-wrap {
-          padding: 0;
-        }
-        .ce-admin-card.ce-admin-card--wide {
-          box-shadow: none;
-          border: 0;
-          padding: 0;
-        }
-        .ce-impact-shell {
-          --ce-border: #d8e0ec;
-        }
-        .ce-impact-header {
-          border-bottom: 1px solid #d8e0ec;
-          margin-bottom: 10px;
-          padding-bottom: 8px;
-        }
-        .ce-impact-title {
-          font-size: 22px;
-        }
-        .ce-impact-subtitle {
-          font-size: 10px;
-        }
-        .ce-metric-board {
-          display: block;
-          font-size: 0;
-        }
-        .ce-metric-box {
-          display: inline-block;
-          width: 48.8%;
-          box-sizing: border-box;
-          margin: 0 1.2% 10px 0;
-          padding: 10px;
-          border-radius: 6px;
-          vertical-align: top;
-          font-size: 10px;
-          break-inside: avoid;
-          page-break-inside: avoid;
-        }
-        .ce-metric-box--wide {
-          display: block;
-          width: 100%;
-          margin-right: 0;
-        }
-        .ce-box-head {
-          margin-bottom: 7px;
-          gap: 8px;
-        }
-        .ce-box-kicker {
-          font-size: 8px;
-          letter-spacing: 0.06em;
-        }
-        .ce-box-title {
-          font-size: 13px;
-        }
-        .ce-box-note,
-        .ce-mini-stat-note,
-        .ce-muted-row {
-          font-size: 8.5px;
-          line-height: 1.25;
-        }
-        .ce-big-number {
-          min-width: 58px;
-          font-size: 20px;
-        }
-        .ce-mini-stat-grid {
-          display: block;
-          margin: 6px 0 8px;
-          font-size: 0;
-        }
-        .ce-mini-stat {
-          display: inline-block;
-          width: 31.6%;
-          box-sizing: border-box;
-          margin: 0 1.6% 6px 0;
-          padding: 7px;
-          border-radius: 6px;
-          vertical-align: top;
-          font-size: 9px;
-        }
-        .ce-mini-stat-k {
-          font-size: 7.5px;
-          letter-spacing: 0.03em;
-        }
-        .ce-mini-stat-v {
-          font-size: 17px;
-        }
-        .ce-track-split {
-          display: block;
-          font-size: 0;
-        }
-        .ce-track-card {
-          display: inline-block;
-          width: 49%;
-          box-sizing: border-box;
-          margin-right: 1%;
-          padding: 8px;
-          vertical-align: top;
-          font-size: 9px;
-        }
-        .ce-track-card h3,
-        .ce-chart-heading {
-          font-size: 10px;
-          margin-bottom: 5px;
-        }
-        .ce-chart-pair {
-          display: block;
-        }
-        .ce-donut-wrap {
-          margin-top: 4px;
-        }
-        .ce-donut {
-          width: 88px;
-          height: 88px;
-          margin: 0 auto;
-        }
-        .ce-donut-hole {
-          width: 48px;
-          height: 48px;
-        }
-        .ce-donut-total {
-          font-size: 13px;
-        }
-        .ce-donut-sub {
-          font-size: 7.5px;
-        }
-        .ce-legend {
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-          column-gap: 10px;
-          row-gap: 3px;
-          margin-top: 5px;
-        }
-        .ce-legend li {
-          grid-template-columns: 9px 1fr auto;
-          gap: 4px;
-          min-width: 0;
-          break-inside: avoid;
-          page-break-inside: avoid;
-          font-size: 7.5px;
-        }
-        .ce-legend-dot {
-          width: 7px;
-          height: 7px;
-        }
-        .ce-bars {
-          margin-top: 6px;
-        }
-        .ce-bar-row {
-          grid-template-columns: minmax(72px, 130px) 1fr 42px;
-          gap: 5px;
-          margin: 4px 0;
-        }
-        .ce-bar-label,
-        .ce-bar-val {
-          font-size: 8px;
-        }
-        .ce-bar-track {
-          height: 8px;
-        }
-        .ce-table {
-          margin-top: 6px;
-          font-size: 8px;
-        }
-        .ce-table th,
-        .ce-table td {
-          padding: 4px 5px;
-        }
-        .ce-table th {
-          font-size: 7.5px;
-          letter-spacing: 0.02em;
-        }
-        .ce-table-wrap {
-          overflow: visible;
-        }
-        .ce-empty {
-          font-size: 9px;
-        }
-        .ce-actions,
-        .ce-pdf-hidden {
-          display: none !important;
-        }
+        html, body { background: #fff; font-family: Arial, Helvetica, sans-serif; font-size: 10px; line-height: 1.3; }
+        .ce-admin-wrap { padding: 0; }
+        .ce-card, .ce-kpi { box-shadow: none; break-inside: avoid; page-break-inside: avoid; }
+        .ce-impact-title { font-size: 22px; }
+        .ce-hero-num { font-size: 40px; }
+        .ce-kpi-v { font-size: 24px; }
+        .ce-cell-n { font-size: 15px; }
+        .ce-tile-v { font-size: 20px; }
+        .ce-actions, .ce-pdf-hidden { display: none !important; }
       }
-      @media (max-width: 980px) {
-        .ce-metric-board,
-        .ce-track-split,
-        .ce-chart-pair,
-        .ce-report-form,
-        .ce-filter-form {
-          grid-template-columns: 1fr;
-        }
-        .ce-big-number {
-          text-align: left;
-        }
-        .ce-bar-row {
-          grid-template-columns: 1fr;
-          gap: 5px;
-        }
-        .ce-bar-val {
-          text-align: left;
-        }
+      @media (max-width: 720px) {
+        .ce-aside { flex-basis: 100%; border-left: 0; border-top: 3px solid var(--line); padding: 8px 0 0; }
       }
     </style>
 
@@ -657,8 +181,7 @@
         <div>
           <h1 class="ce-impact-title">Impact Dashboard</h1>
           <div class="ce-impact-subtitle">
-            Club Emprendo pairs women entrepreneurs (<strong>Emprendedoras</strong>) with volunteer mentors (<strong>Mentoras</strong>) in cohorts called <strong>groups</strong>.
-            This page summarizes who took part, how far they progressed, and what changed for them.
+            Club Emprendo pairs women entrepreneurs (<strong>Emprendedoras</strong>) with volunteer mentors (<strong>Mentoras</strong>) in cohorts called <strong>groups</strong>. Small notes beside each figure explain what it counts and which groups it covers.
           </div>
           {% if impact_report_group_label %}<div class="ce-scope-pill">Showing: {{ impact_report_group_label }}</div>{% endif %}
         </div>
@@ -698,518 +221,388 @@
               {% endfor %}
             </select>
           </div>
-          <button class="ce-btn" type="submit">Apply filters</button>
+          <button class="ce-btn" type="submit">Apply</button>
           <button class="ce-btn ce-btn--ghost" type="submit" name="refresh" value="1">Refresh data</button>
           <a class="ce-btn ce-btn--ghost" href="{% url 'admin_impact_dashboard' %}">Reset</a>
         </form>
         {% for warning in survey_scope_warnings %}
-          <div class="ce-metric-box" style="margin-bottom:14px; border-color:#f59e0b; background:#fffbeb;">
+          <div class="ce-card ce-pdf-hidden" style="margin-bottom:14px; border-color:#f59e0b; background:#fffbeb;">
             <strong>Survey scope:</strong> {{ warning }}
           </div>
         {% endfor %}
       {% endif %}
 
-      <section class="ce-about">
-        <h2 class="ce-about-title">How to read this dashboard</h2>
-        <div class="ce-about-grid">
-          <div>
-            <h3>Where the numbers come from</h3>
-            <ul>
-              <li><strong>Participation and progress:</strong> each group’s Participants page (Grupos → Participantes), including uploaded historical groups.</li>
-              <li><strong>Applicants:</strong> the application forms on this site.</li>
-              <li><strong>Surveys:</strong> the initial and final participant surveys.</li>
-              <li><strong>Website, social and course reach:</strong> Wix, our website analytics and the Marketing Dashboard. These are overall totals and do not change with the filters.</li>
-            </ul>
-          </div>
-          <div>
-            <h3>Limitations to keep in mind</h3>
-            <ul>
-              <li>Application and survey questions changed over time, so metrics only cover the groups named in each section. Older groups are not always comparable.</li>
-              <li>Progress statuses are entered by program staff on the Participants pages.</li>
-              <li>Groups still in progress are left out of graduation and dropout figures, because their outcome is not final yet.</li>
-              <li>People are matched across sources by email address. A person without an email on file cannot be matched.</li>
-            </ul>
-          </div>
+      <!-- Headline numbers -->
+      <div class="ce-kpis">
+        <div class="ce-kpi">
+          <div class="ce-kpi-k">Participants</div>
+          <div class="ce-kpi-v">{{ participant_summary.overall.unique }}</div>
+          <div class="ce-kpi-n">women, each counted once</div>
         </div>
-        {% if participant_status_key %}
-          <details class="ce-about-details">
-            <summary>Status definitions used on the Participants pages</summary>
-            <table class="ce-table ce-compact-table">
-              <tbody>
-                {% for item in participant_status_key %}
-                  <tr><td><strong>{{ item.label }}</strong></td><td>{{ item.code }}</td><td>{{ item.description|default:"" }}</td></tr>
+        <div class="ce-kpi">
+          <div class="ce-kpi-k">Groups</div>
+          <div class="ce-kpi-v">{{ participant_summary.overall.groups_with_participants }}</div>
+          <div class="ce-kpi-n">cohorts run so far</div>
+        </div>
+        <div class="ce-kpi ce-kpi--e">
+          <div class="ce-kpi-k">Started program</div>
+          <div class="ce-kpi-v">{{ funnel.summary.started_pct|floatformat:"-1" }}%</div>
+          <div class="ce-kpi-n">{{ funnel.summary.started }} of {{ funnel.summary.applicants }} applicants</div>
+        </div>
+        <div class="ce-kpi ce-kpi--good">
+          <div class="ce-kpi-k">Graduated</div>
+          <div class="ce-kpi-v">{{ funnel.summary.graduated_pct|floatformat:"-1" }}%</div>
+          <div class="ce-kpi-n">{{ funnel.summary.graduated }} of {{ funnel.summary.started_completed }} who started*</div>
+        </div>
+        <div class="ce-kpi ce-kpi--warn">
+          <div class="ce-kpi-k">Dropped out</div>
+          <div class="ce-kpi-v">{{ funnel.summary.dropped_out_pct|floatformat:"-1" }}%</div>
+          <div class="ce-kpi-n">{{ funnel.summary.dropped_out }} of {{ funnel.summary.started_completed }} who started*</div>
+        </div>
+      </div>
+      <p class="ce-note" style="margin: -6px 0 14px;">* Finished groups only ({{ scope_notes.completed_groups }}); groups still running have no final outcome yet.</p>
+
+      <!-- Participants and groups -->
+      <div class="ce-row">
+        <section class="ce-card">
+          <div class="ce-card-head">
+            <div><p class="ce-kicker">Who took part</p><h2 class="ce-title">Participants</h2></div>
+          </div>
+          <div class="ce-split">
+            <div class="ce-main">
+              <div class="ce-hero-cap" style="margin:0 0 4px;"><strong style="color:var(--ink);font-size:20px;">{{ participant_summary.overall.rows }}</strong> total participations by <strong style="color:var(--ink);font-size:20px;">{{ participant_summary.overall.unique }}</strong> women</div>
+              {% with e=participant_summary.tracks.e.unique m=participant_summary.tracks.m.unique %}
+                {% widthratio e e|add:m 100 as e_pct %}
+                <div class="ce-splitbar"><span style="width: {{ e_pct }}%; background: var(--e);"></span><span style="flex: 1; background: var(--m);"></span></div>
+                <div class="ce-legend-row">
+                  <span><i class="ce-dot" style="background: var(--e);"></i><strong>{{ e }}</strong> Emprendedoras</span>
+                  <span><i class="ce-dot" style="background: var(--m);"></i><strong>{{ m }}</strong> Mentoras</span>
+                </div>
+              {% endwith %}
+            </div>
+            <div class="ce-aside">
+              <p>Counted once per woman, even if she joined several groups or both roles, so the two roles add up to slightly more than the total.</p>
+              <p>A woman who joins another group counts again in <strong>total participations</strong>.</p>
+              <p><strong>Covers:</strong> {{ scope_notes.participants }}</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="ce-card">
+          <div class="ce-card-head">
+            <div><p class="ce-kicker">Cohorts</p><h2 class="ce-title">Participations by Group</h2></div>
+            <span class="ce-badge">{{ participant_summary.overall.groups_with_participants }} groups</span>
+          </div>
+          <div class="ce-split">
+            <div class="ce-main">
+              {% if group_chart %}
+                <div class="ce-cols">
+                  {% for g in group_chart %}
+                    <div class="ce-col" title="{{ g.label }}: {{ g.count }}">
+                      <span class="ce-col-val">{{ g.count }}</span>
+                      <span class="ce-col-bar" style="height: {{ g.height }}%;"></span>
+                      <span class="ce-col-lab">{{ g.number }}</span>
+                    </div>
+                  {% endfor %}
+                </div>
+              {% else %}
+                <p class="ce-empty">No participant group data available.</p>
+              {% endif %}
+            </div>
+            <div class="ce-aside">
+              <p>A <strong>group</strong> is one cohort of Emprendedoras and Mentoras who go through the program together. The number under each bar is the group number.</p>
+              <p>Includes uploaded historical groups.</p>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- Funnel -->
+      <div class="ce-row">
+        <section class="ce-card ce-card--wide">
+          <div class="ce-card-head">
+            <div><p class="ce-kicker">Program funnel</p><h2 class="ce-title">From Application to Graduation</h2></div>
+          </div>
+          <div class="ce-split">
+            <div class="ce-main" style="flex-basis: 560px;">
+              <div class="ce-table-wrap">
+                <table class="ce-funnel">
+                  <thead>
+                    <tr>
+                      <th>Step</th>
+                      {% for column in funnel.columns %}<th class="ce-c">{{ column.label }}</th>{% endfor %}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for stage in funnel.stages %}
+                      <tr {% if stage.label == "Graduated" or stage.label == "Dropped out" %}class="ce-out"{% endif %}>
+                        <td>
+                          <div class="ce-step-name">{{ stage.label }}</div>
+                          <div class="ce-step-sub">{{ stage.short }}</div>
+                        </td>
+                        {% for cell in stage.cells %}
+                          <td class="ce-c">
+                            <div class="ce-cell-n">{{ cell.count }}</div>
+                            {% if cell.pct is not None %}
+                              <div class="ce-cell-p">{{ cell.pct|floatformat:"-1" }}% {{ stage.pct_label }}</div>
+                              <div class="ce-cell-bar"><span style="width: {{ cell.pct_width }}%; background: {% if stage.label == 'Dropped out' %}#d98a1c{% elif stage.label == 'Graduated' %}#1f9d6b{% else %}#3b6fd8{% endif %};"></span></div>
+                            {% endif %}
+                          </td>
+                        {% endfor %}
+                      </tr>
+                      {% if forloop.first and funnel.two_stage_groups %}
+                        <tr class="ce-sub">
+                          <td>&nbsp;&nbsp;↳ first application</td>
+                          {% for column in funnel.columns %}<td class="ce-c">{{ column.first_applicants }}</td>{% endfor %}
+                        </tr>
+                        <tr class="ce-sub">
+                          <td>&nbsp;&nbsp;↳ also sent second application</td>
+                          {% for column in funnel.columns %}<td class="ce-c">{{ column.second_applicants }}</td>{% endfor %}
+                        </tr>
+                      {% endif %}
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <div class="ce-aside">
+              <p><strong>Applicants</strong> are unique people (matched by email) who submitted an application form.</p>
+              <p>Percentages down to <em>Started program</em> are a share of applicants. <em>Graduated</em> and <em>Dropped out</em> are a share of women who started, counting finished groups only.</p>
+              <p><strong>Applications on file:</strong> {{ scope_notes.applications }} {{ scope_notes.two_stage }}</p>
+              <p>{{ funnel.summary.unmatched_participants }} participants with no application on file (mostly historical groups) are left out of the applicant-based steps.</p>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- Community -->
+      <div class="ce-row">
+        <section class="ce-card ce-card--wide">
+          <div class="ce-card-head">
+            <div><p class="ce-kicker">Community</p><h2 class="ce-title">Alumni and Returning Volunteers</h2></div>
+          </div>
+          <div class="ce-split">
+            <div class="ce-main" style="flex-basis: 560px;">
+              <div class="ce-tiles">
+                <div class="ce-tile">
+                  <div class="ce-tile-k">Known graduates</div>
+                  <div class="ce-tile-v">{{ alumni_summary.alumni_count }}</div>
+                  <div class="ce-tile-n">women marked Graduada in any group</div>
+                </div>
+                <div class="ce-tile">
+                  <div class="ce-tile-k">Returned as Mentoras</div>
+                  <div class="ce-tile-v">{{ alumni_summary.returnee_count }}</div>
+                  <div class="ce-tile-n">Emprendedoras who later mentored</div>
+                </div>
+                <div class="ce-tile">
+                  <div class="ce-tile-k">Repeat Mentoras</div>
+                  <div class="ce-tile-v">{{ alumni_summary.repeated_mentor_count }}</div>
+                  <div class="ce-tile-n">mentored in 2+ groups</div>
+                </div>
+                <div class="ce-tile">
+                  <div class="ce-tile-k">In 2+ groups</div>
+                  <div class="ce-tile-v">{{ alumni_summary.multi_group_people_count }}</div>
+                  <div class="ce-tile-n">women in any role</div>
+                </div>
+              </div>
+            </div>
+            <div class="ce-aside">
+              <p><strong>Returned as Mentoras:</strong> took part as an Emprendedora, then came back as a Mentora in a later group. {{ alumni_summary.cross_role_overlap_count }} women appear in both roles; the rest were in both in the same group or mentored first.</p>
+              <p>Only {{ alumni_summary.graduated_e_returnee_count }} graduated Emprendedoras ({{ alumni_summary.graduated_e_return_rate }}%) have returned as Mentoras so far.</p>
+              <p>These are graduates on record, not membership in a separate alumni platform.</p>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- Outcomes -->
+      <div class="ce-row">
+        <section class="ce-card">
+          <div class="ce-card-head">
+            <div><p class="ce-kicker">Satisfaction</p><h2 class="ce-title">Net Promoter Score</h2></div>
+            <div class="ce-head-num">{{ nps_summary.score|default_if_none:"–" }}</div>
+          </div>
+          <div class="ce-bars">
+            {% include "admin_dash/includes/impact_bar_chart.html" with rows=nps_bar_rows empty_text="No 0–10 recommendation question found in the surveys." %}
+          </div>
+          <div class="ce-aside ce-aside--under">
+            <p>Share who would strongly recommend the program (9–10) minus share who would not (0–6), from −100 to +100. Based on {{ nps_summary.responses }} responses, and only groups whose survey asked this 0–10 question.</p>
+          </div>
+        </section>
+
+        <section class="ce-card">
+          <div class="ce-card-head">
+            <div><p class="ce-kicker">Wellbeing</p><h2 class="ce-title">Quality of Life</h2></div>
+            <div class="ce-head-num">{% if wellbeing_summary.change is not None %}{% if wellbeing_summary.change > 0 %}+{% endif %}{{ wellbeing_summary.change }}{% else %}–{% endif %}</div>
+          </div>
+          <div class="ce-tiles">
+            <div class="ce-tile">
+              <div class="ce-tile-k">At start</div>
+              <div class="ce-tile-v">{{ wellbeing_summary.initial.avg|default_if_none:"–" }}</div>
+              <div class="ce-tile-n">{{ wellbeing_summary.initial.responses }} responses</div>
+            </div>
+            <div class="ce-tile">
+              <div class="ce-tile-k">At finish</div>
+              <div class="ce-tile-v">{{ wellbeing_summary.final.avg|default_if_none:"–" }}</div>
+              <div class="ce-tile-n">{{ wellbeing_summary.final.responses }} responses</div>
+            </div>
+          </div>
+          <div class="ce-aside ce-aside--under">
+            <p>Self-rated life satisfaction, averaged. The headline change compares {% if wellbeing_summary.paired_responses %}the {{ wellbeing_summary.paired_responses }} women who answered both surveys{% else %}the start and finish averages{% endif %}. Final answers come only from finished groups, and earlier groups may have been asked different questions.</p>
+          </div>
+        </section>
+
+        <section class="ce-card">
+          <div class="ce-card-head">
+            <div><p class="ce-kicker">Data quality</p><h2 class="ce-title">Survey Response Rate</h2></div>
+            <div class="ce-head-num">{{ survey_response_summary.final_rate }}%</div>
+          </div>
+          <div class="ce-bars">
+            {% include "admin_dash/includes/impact_bar_chart.html" with rows=survey_response_rate_bar_rows empty_text="No survey response data available." %}
+          </div>
+          <div class="ce-aside ce-aside--under">
+            <p>Share of participants (matched by email) who answered each survey. Headline is the final survey: {{ survey_response_summary.final_responses }} of {{ survey_response_summary.final_eligible }} women in finished groups. Initial: {{ survey_response_summary.initial_responses }} of {{ survey_response_summary.initial_eligible }}.</p>
+          </div>
+        </section>
+      </div>
+
+      <!-- Milestones -->
+      <div class="ce-row">
+        <section class="ce-card ce-card--wide">
+          <div class="ce-card-head">
+            <div><p class="ce-kicker">Program steps</p><h2 class="ce-title">Completion Checks</h2></div>
+          </div>
+          <div class="ce-split">
+            <div class="ce-main" style="flex-basis: 560px;">
+              <div class="ce-tiles">
+                {% for row in milestone_summary.rows %}
+                  <div class="ce-tile" style="flex-basis:110px;">
+                    <div class="ce-tile-k">{{ row.label }}</div>
+                    <div class="ce-tile-v">{{ row.rate|floatformat:"-1" }}%</div>
+                    <div class="ce-tile-n">{{ row.completed }} of {{ row.eligible }}</div>
+                  </div>
                 {% endfor %}
-              </tbody>
-            </table>
+              </div>
+            </div>
+            <div class="ce-aside">
+              <p>Share of participation records with each step ticked by staff on the Participants pages. Older groups were tracked less consistently, so a low percentage can mean “not recorded”.</p>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- Reach -->
+      <div class="ce-row">
+        <section class="ce-card ce-card--wide">
+          <div class="ce-card-head">
+            <div><p class="ce-kicker">Reach</p><h2 class="ce-title">Website, Social and Courses</h2></div>
+            <span class="ce-badge">Overall totals · not affected by filters</span>
+          </div>
+          <div class="ce-tiles">
+            <div class="ce-tile">
+              <div class="ce-tile-k">Website visitors · 30 days</div>
+              <div class="ce-tile-v">{{ website_traffic_summary.month_visitors }}</div>
+              <div class="ce-tile-n">{{ website_traffic_summary.month_pageviews }} pageviews · {{ website_traffic_summary.all_visitors }} visitors since tracking began</div>
+            </div>
+            <div class="ce-tile">
+              <div class="ce-tile-k">Social followers</div>
+              <div class="ce-tile-v">{% if social_summary.available %}{{ social_summary.followers }}{% else %}–{% endif %}</div>
+              <div class="ce-tile-n">{% if social_summary.available %}{{ social_summary.follower_growth }} change ({{ social_summary.date_from }}–{{ social_summary.date_to }}){% else %}Not loaded yet. Use Refresh data once.{% endif %}</div>
+            </div>
+            <div class="ce-tile">
+              <div class="ce-tile-k">Course completions outside mentoring</div>
+              <div class="ce-tile-v">{% if course_usage_summary.available %}{{ course_usage_summary.outside_program }}{% else %}–{% endif %}</div>
+              <div class="ce-tile-n">{% if course_usage_summary.available %}of {{ course_usage_summary.completed }} Wix course completions{% else %}No saved Wix snapshot yet.{% endif %}</div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- Country -->
+      <div class="ce-row">
+        <section class="ce-card ce-card--wide">
+          <div class="ce-card-head">
+            <div><p class="ce-kicker">Geography</p><h2 class="ce-title">Where Participants Live</h2></div>
+          </div>
+          <div class="ce-split">
+            <div class="ce-main" style="flex-basis: 560px;">
+              <div class="ce-table-wrap">
+                <table class="ce-table">
+                  <thead>
+                    <tr><th>Country</th><th class="ce-num">Emprendedoras</th><th class="ce-num">Mentoras</th><th class="ce-num">Total</th></tr>
+                  </thead>
+                  <tbody>
+                    {% for row in country_table.rows %}
+                      <tr><td>{{ row.country }}</td><td class="ce-num">{{ row.e }}</td><td class="ce-num">{{ row.m }}</td><td class="ce-num"><strong>{{ row.total }}</strong></td></tr>
+                    {% empty %}
+                      <tr><td colspan="4">No country data available.</td></tr>
+                    {% endfor %}
+                    {% if country_table.rows %}
+                      <tr class="ce-total-row"><td>All countries</td><td class="ce-num">{{ country_table.e_total }}</td><td class="ce-num">{{ country_table.m_total }}</td><td class="ce-num">{{ country_table.total }}</td></tr>
+                    {% endif %}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <div class="ce-aside">
+              <p>Country of residence from the Participants pages, counted per participation. Spelling variants are combined; entries that are not a recognizable country are grouped as “País por revisar”. Smaller countries are combined into “Other”.</p>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- Notes -->
+      <section class="ce-card ce-card--wide ce-foot" style="margin-bottom:14px;">
+        <strong style="color: var(--ink);">Data notes</strong>
+        <ul>
+          <li>Participation and progress come from each group’s Participants page (including uploaded historical groups); applicants from the application forms; satisfaction from the initial and final surveys.</li>
+          <li>Application and survey questions changed over time, so each figure covers only the groups named beside it. Older groups are not always comparable.</li>
+          <li>Statuses are entered by program staff. People are matched across sources by email, so someone without an email on file cannot be matched.</li>
+        </ul>
+        {% if participant_status_key %}
+          <details {% if is_pdf_export %}open{% endif %}>
+            <summary>What each status means</summary>
+            <div class="ce-gloss">
+              {% for item in participant_status_key %}
+                <div><strong>{{ item.label }}</strong> — {{ item.description }}</div>
+              {% endfor %}
+            </div>
           </details>
         {% endif %}
       </section>
 
-      <div class="ce-metric-board">
-        <section class="ce-metric-box ce-metric-box--wide">
-          <div class="ce-hero">
-            <div class="ce-hero-main">
-              <p class="ce-box-kicker">Participants</p>
-              <div class="ce-hero-number">{{ participant_summary.overall.unique }}</div>
-              <p class="ce-hero-caption">women have taken part in Club Emprendo as an Emprendedora or a Mentora. Each woman is counted once, even if she joined several groups or both roles.</p>
-              <p class="ce-scope-line">Covers: {{ scope_notes.participants }}</p>
+      {% if not is_pdf_export %}
+        <details class="ce-card ce-card--wide ce-pdf-hidden ce-foot" style="margin-bottom:14px;">
+          <summary>Internal operations and metrics still needed</summary>
+          <div class="ce-tiles" style="margin-top:10px;">
+            <div class="ce-tile">
+              <div class="ce-tile-k">Automation jobs completed</div>
+              <div class="ce-tile-v">{{ automation_summary.jobs_done }}</div>
+              <div class="ce-tile-n">{{ automation_summary.jobs_failed }} failed · {% if automation_summary.job_total %}{{ automation_summary.job_success_rate }}% success{% else %}no jobs{% endif %} · {{ automation_summary.scope_label }}</div>
             </div>
-            <div class="ce-hero-side">
-              <div class="ce-mini-stat">
-                <div class="ce-mini-stat-k">Emprendedoras</div>
-                <div class="ce-mini-stat-v">{{ participant_summary.tracks.e.unique }}</div>
-                <div class="ce-mini-stat-note">entrepreneurs who received mentoring</div>
-              </div>
-              <div class="ce-mini-stat">
-                <div class="ce-mini-stat-k">Mentoras</div>
-                <div class="ce-mini-stat-v">{{ participant_summary.tracks.m.unique }}</div>
-                <div class="ce-mini-stat-note">volunteers who mentored</div>
-              </div>
-              <div class="ce-mini-stat">
-                <div class="ce-mini-stat-k">Total participations</div>
-                <div class="ce-mini-stat-v">{{ participant_summary.overall.rows }}</div>
-                <div class="ce-mini-stat-note">a woman who joins another group is counted again here</div>
-              </div>
+            <div class="ce-tile">
+              <div class="ce-tile-k">Participant checks run</div>
+              <div class="ce-tile-v">{{ automation_summary.participant_check_runs }}</div>
+            </div>
+            <div class="ce-tile">
+              <div class="ce-tile-k">Dropped out · program reasons</div>
+              <div class="ce-tile-v">{{ qualitative_summary.program_dropout_count }}</div>
+            </div>
+            <div class="ce-tile">
+              <div class="ce-tile-k">Dropped out · personal reasons</div>
+              <div class="ce-tile-v">{{ qualitative_summary.personal_dropout_count }}</div>
+            </div>
+            <div class="ce-tile">
+              <div class="ce-tile-k">Difficult / no contact</div>
+              <div class="ce-tile-v">{{ qualitative_summary.hard_contact_count }}</div>
             </div>
           </div>
-        </section>
+          <p style="margin-top:10px;"><strong>Metrics awaiting a reliable source</strong> (intentionally not estimated): collaborations, group activities, narrative achievements, total program expenses, expense ratio, spend per woman impacted, and team size.</p>
+        </details>
 
-        <section class="ce-metric-box ce-metric-box--wide">
-          <div class="ce-box-head">
-            <div>
-              <p class="ce-box-kicker">Groups</p>
-              <h2 class="ce-box-title">Number of Groups</h2>
-              <p class="ce-box-note">A group is one cohort of Emprendedoras and Mentoras who go through the program together. Includes current groups and uploaded historical groups.</p>
-            </div>
-            <div class="ce-big-number">{{ participant_summary.overall.groups_with_participants }}</div>
-          </div>
-          <div class="ce-table-wrap">
-            <table class="ce-table ce-compact-table">
-              <thead>
-                <tr>
-                  <th>Group</th>
-                  <th class="ce-num">Participations</th>
-                </tr>
-              </thead>
-              <tbody>
-                {% for row in group_source_rows %}
-                  <tr>
-                    <td>{{ row.group_label }}</td>
-                    <td class="ce-num">{{ row.participants }}</td>
-                  </tr>
-                {% empty %}
-                  <tr><td colspan="2">No participant group data available.</td></tr>
-                {% endfor %}
-              </tbody>
-            </table>
-          </div>
-        </section>
-
-        <section class="ce-metric-box ce-metric-box--wide">
-          <div class="ce-box-head">
-            <div>
-              <p class="ce-box-kicker">Program funnel</p>
-              <h2 class="ce-box-title">From Application to Graduation</h2>
-              <p class="ce-box-note">
-                Each step shows the number of women and the share they represent. Steps up to <em>Started program</em> are a share of applicants (matched by email);
-                <em>Graduated</em> and <em>Dropped out</em> are a share of women who started, counting only groups that have finished ({{ scope_notes.completed_groups }}).
-              </p>
-              <p class="ce-scope-line">Applications: {{ scope_notes.applications }} {{ scope_notes.two_stage }}</p>
-            </div>
-          </div>
-          <div class="ce-table-wrap">
-            <table class="ce-table ce-funnel-table">
-              <thead>
-                <tr>
-                  <th>Step</th>
-                  {% for column in funnel.columns %}<th class="ce-num">{{ column.label }}</th>{% endfor %}
-                  <th>What it means</th>
-                </tr>
-              </thead>
-              <tbody>
-                {% for stage in funnel.stages %}
-                  <tr>
-                    <td><strong>{{ stage.label }}</strong></td>
-                    {% for cell in stage.cells %}
-                      <td class="ce-num">
-                        <span class="ce-funnel-count">{{ cell.count }}</span>
-                        {% if cell.pct is not None %}
-                          <span class="ce-funnel-pct">{{ cell.pct|floatformat:"-1" }}% {{ stage.pct_label }}</span>
-                          <span class="ce-funnel-bar"><span style="width: {{ cell.pct_width }}%"></span></span>
-                        {% endif %}
-                      </td>
-                    {% endfor %}
-                    <td class="ce-def">{{ stage.definition }}</td>
-                  </tr>
-                  {% if forloop.first %}
-                    <tr class="ce-subrow">
-                      <td>&nbsp;&nbsp;First application</td>
-                      {% for column in funnel.columns %}<td class="ce-num">{{ column.first_applicants }}</td>{% endfor %}
-                      <td class="ce-def">People who submitted the first-stage application.</td>
-                    </tr>
-                    <tr class="ce-subrow">
-                      <td>&nbsp;&nbsp;Second application</td>
-                      {% for column in funnel.columns %}<td class="ce-num">{{ column.second_applicants }}</td>{% endfor %}
-                      <td class="ce-def">People who also submitted the second-stage application (only groups that used two applications). A person in both rows is counted once in “Applied”.</td>
-                    </tr>
-                  {% endif %}
-                {% endfor %}
-              </tbody>
-            </table>
-          </div>
-          <p class="ce-box-note">
-            {% for column in funnel.columns %}{{ column.unmatched_participants }} {{ column.label }} participant{{ column.unmatched_participants|pluralize }} in this view had no matching application on file (for example, historical groups from before applications were collected here){% if not forloop.last %}; {% endif %}{% endfor %}. They are excluded from the applicant-based percentages.
-          </p>
-        </section>
-
-        <section class="ce-metric-box">
-          <div class="ce-box-head">
-            <div>
-              <p class="ce-box-kicker">Alumni</p>
-              <h2 class="ce-box-title">Emprendedoras Returning as Mentoras</h2>
-              <p class="ce-box-note">Women who took part as an Emprendedora in one group and later came back as a Mentora in a later group. Women who were in both roles in the same group, or who mentored first, are not counted.</p>
-            </div>
-            <div class="ce-big-number">{{ alumni_summary.returnee_count }}</div>
-          </div>
-          <div id="ce-alumni-returnee-chart" class="ce-bars">
-            {% include "admin_dash/includes/impact_bar_chart.html" with rows=alumni_returnee_bar_rows empty_text="No returning alumni found." %}
-          </div>
-        </section>
-
-        <section class="ce-metric-box">
-          <div class="ce-box-head">
-            <div>
-              <p class="ce-box-kicker">Mentoras</p>
-              <h2 class="ce-box-title">Repeat Mentoras</h2>
-              <p class="ce-box-note">Mentoras who volunteered in two or more different groups.</p>
-            </div>
-            <div class="ce-big-number">{{ alumni_summary.repeated_mentor_count }}</div>
-          </div>
-          <div id="ce-repeat-mentor-chart" class="ce-bars">
-            {% include "admin_dash/includes/impact_bar_chart.html" with rows=repeat_mentor_bar_rows empty_text="No repeat mentoras found." %}
-          </div>
-        </section>
-
-        <section class="ce-metric-box">
-          <div class="ce-box-head">
-            <div>
-              <p class="ce-box-kicker">Alumni community</p>
-              <h2 class="ce-box-title">Known Graduates</h2>
-              <p class="ce-box-note">Women marked Graduada in any group, current or historical, counted once each. This counts graduates on record; it is not membership in a separate alumni platform.</p>
-            </div>
-            <div class="ce-big-number">{{ alumni_summary.alumni_count }}</div>
-          </div>
-          <div class="ce-mini-stat-grid">
-            <div class="ce-mini-stat">
-              <div class="ce-mini-stat-k">People in 2+ groups</div>
-              <div class="ce-mini-stat-v">{{ alumni_summary.multi_group_people_count }}</div>
-            </div>
-            <div class="ce-mini-stat">
-              <div class="ce-mini-stat-k">Graduated E → later M</div>
-              <div class="ce-mini-stat-v">{{ alumni_summary.graduated_e_returnee_count }}</div>
-              <div class="ce-mini-stat-note">{{ alumni_summary.graduated_e_return_rate }}% of graduated Emprendedoras with email</div>
-            </div>
-          </div>
-        </section>
-
-        <section class="ce-metric-box">
-          <div class="ce-box-head">
-            <div>
-              <p class="ce-box-kicker">Survey</p>
-              <h2 class="ce-box-title">NPS</h2>
-              <p class="ce-box-note">Net Promoter Score: the share of respondents who would strongly recommend the program (9–10) minus the share who would not (0–6), from −100 to +100. Only survey questions phrased as a 0–10 recommendation are included, so groups surveyed with different wording are not covered.</p>
-            </div>
-            <div class="ce-big-number">{{ nps_summary.score|default_if_none:"-" }}</div>
-          </div>
-          <p class="ce-scope-line">{{ survey_source_note }}</p>
-          <div class="ce-mini-stat-grid">
-            <div class="ce-mini-stat">
-              <div class="ce-mini-stat-k">Responses</div>
-              <div class="ce-mini-stat-v">{{ nps_summary.responses }}</div>
-            </div>
-          </div>
-          <div id="ce-nps-chart" class="ce-bars">
-            {% include "admin_dash/includes/impact_bar_chart.html" with rows=nps_bar_rows empty_text="No NPS-like survey fields detected." %}
-          </div>
-        </section>
-
-        <section class="ce-metric-box">
-          <div class="ce-box-head">
-            <div>
-              <p class="ce-box-kicker">Impact</p>
-              <h2 class="ce-box-title">Quality of Life</h2>
-              <p class="ce-box-note">Self-rated life satisfaction from the initial and final surveys. Change compares the same woman’s two answers when both exist. Final answers come only from finished groups, and earlier groups may have been asked different questions.</p>
-            </div>
-            <div class="ce-big-number">{{ wellbeing_summary.final.avg|default_if_none:"-" }}</div>
-          </div>
-          <div class="ce-mini-stat-grid">
-            <div class="ce-mini-stat">
-              <div class="ce-mini-stat-k">Initial avg</div>
-              <div class="ce-mini-stat-v">{{ wellbeing_summary.initial.avg|default_if_none:"-" }}</div>
-              <div class="ce-mini-stat-note">{{ wellbeing_summary.initial.responses }} responses</div>
-            </div>
-            <div class="ce-mini-stat">
-              <div class="ce-mini-stat-k">Final avg</div>
-              <div class="ce-mini-stat-v">{{ wellbeing_summary.final.avg|default_if_none:"-" }}</div>
-              <div class="ce-mini-stat-note">{{ wellbeing_summary.final.responses }} completed-group responses</div>
-            </div>
-            <div class="ce-mini-stat">
-              <div class="ce-mini-stat-k">Change</div>
-              <div class="ce-mini-stat-v">{{ wellbeing_summary.change|default_if_none:"-" }}</div>
-              <div class="ce-mini-stat-note">{{ wellbeing_summary.change_method }}{% if wellbeing_summary.paired_responses %} · {{ wellbeing_summary.paired_responses }} paired participants{% endif %}</div>
-            </div>
-          </div>
-          <div id="ce-wellbeing-chart" class="ce-bars">
-            {% include "admin_dash/includes/impact_bar_chart.html" with rows=wellbeing_bar_rows empty_text="No quality-of-life survey fields detected." %}
-          </div>
-        </section>
-
-        <section class="ce-metric-box">
-          <div class="ce-box-head">
-            <div>
-              <p class="ce-box-kicker">Survey</p>
-              <h2 class="ce-box-title">Survey Response Rate</h2>
-              <p class="ce-box-note">Share of participants (matched by email) who answered each survey. The final survey is only counted for groups that have finished.</p>
-            </div>
-            <div class="ce-big-number">{{ survey_response_summary.final_rate }}%</div>
-          </div>
-          <div class="ce-mini-stat-grid">
-            <div class="ce-mini-stat">
-              <div class="ce-mini-stat-k">Final responses</div>
-              <div class="ce-mini-stat-v">{{ survey_response_summary.final_responses }}</div>
-              <div class="ce-mini-stat-note">{{ survey_response_summary.final_eligible }} eligible participants</div>
-            </div>
-            <div class="ce-mini-stat">
-              <div class="ce-mini-stat-k">Initial responses</div>
-              <div class="ce-mini-stat-v">{{ survey_response_summary.initial_responses }}</div>
-              <div class="ce-mini-stat-note">{{ survey_response_summary.initial_eligible }} eligible participants</div>
-            </div>
-          </div>
-          <div id="ce-survey-response-rate-chart" class="ce-bars">
-            {% include "admin_dash/includes/impact_bar_chart.html" with rows=survey_response_rate_bar_rows empty_text="No survey response data available." %}
-          </div>
-        </section>
-
-        <section class="ce-metric-box ce-metric-box--wide">
-          <div class="ce-box-head">
-            <div>
-              <p class="ce-box-kicker">Program milestones</p>
-              <h2 class="ce-box-title">Participant Completion Checks</h2>
-              <p class="ce-box-note">Share of participation records with each step ticked on the Participants pages (Acta, Website, Capacitación, Certificación, and the initial and final surveys).</p>
-            </div>
-          </div>
-          <div class="ce-mini-stat-grid">
-            {% for row in milestone_summary.rows %}
-              <div class="ce-mini-stat">
-                <div class="ce-mini-stat-k">{{ row.label }}</div>
-                <div class="ce-mini-stat-v">{{ row.rate }}%</div>
-                <div class="ce-mini-stat-note">{{ row.completed }} of {{ row.eligible }} participation records</div>
-              </div>
-            {% endfor %}
-          </div>
-        </section>
-
-        <section class="ce-metric-box">
-          <div class="ce-box-head">
-            <div>
-              <p class="ce-box-kicker">Marketing · global</p>
-              <h2 class="ce-box-title">Website Traffic</h2>
-              <p class="ce-box-note">{{ website_traffic_summary.scope_label }}</p>
-            </div>
-            <div class="ce-big-number">{{ website_traffic_summary.month_visitors }}</div>
-          </div>
-          <div class="ce-mini-stat-grid">
-            <div class="ce-mini-stat">
-              <div class="ce-mini-stat-k">Visitors · 30 days</div>
-              <div class="ce-mini-stat-v">{{ website_traffic_summary.month_visitors }}</div>
-              <div class="ce-mini-stat-note">{{ website_traffic_summary.month_pageviews }} pageviews</div>
-            </div>
-            <div class="ce-mini-stat">
-              <div class="ce-mini-stat-k">Since tracking began</div>
-              <div class="ce-mini-stat-v">{{ website_traffic_summary.all_visitors }}</div>
-              <div class="ce-mini-stat-note">{{ website_traffic_summary.all_pageviews }} pageviews</div>
-            </div>
-            <div class="ce-mini-stat">
-              <div class="ce-mini-stat-k">Active now</div>
-              <div class="ce-mini-stat-v">{{ website_traffic_summary.active_visitors }}</div>
-              <div class="ce-mini-stat-note">Last 5 minutes</div>
-            </div>
-          </div>
-        </section>
-
-        <section class="ce-metric-box">
-          <div class="ce-box-head">
-            <div>
-              <p class="ce-box-kicker">Marketing · global</p>
-              <h2 class="ce-box-title">Social Media Followers</h2>
-              <p class="ce-box-note">Cached from the connected Marketing Dashboard so Impact does not make slow social API calls on every visit.</p>
-            </div>
-            <div class="ce-big-number">{% if social_summary.available %}{{ social_summary.followers }}{% else %}-{% endif %}</div>
-          </div>
-          {% if social_summary.available %}
-            <div class="ce-mini-stat-grid">
-              <div class="ce-mini-stat">
-                <div class="ce-mini-stat-k">Follower change</div>
-                <div class="ce-mini-stat-v">{{ social_summary.follower_growth }}</div>
-                <div class="ce-mini-stat-note">{{ social_summary.date_from }}–{{ social_summary.date_to }}</div>
-              </div>
-              <div class="ce-mini-stat">
-                <div class="ce-mini-stat-k">Reach</div>
-                <div class="ce-mini-stat-v">{{ social_summary.reach }}</div>
-              </div>
-            </div>
-            {% if social_summary.stale %}<p class="ce-box-note">Showing the last saved value because refresh failed: {{ social_summary.error }}</p>{% endif %}
-          {% else %}
-            <p class="ce-box-note">{{ social_summary.error }}</p>
-          {% endif %}
-        </section>
-
-        <section class="ce-metric-box">
-          <div class="ce-box-head">
-            <div>
-              <p class="ce-box-kicker">Course reach · global</p>
-              <h2 class="ce-box-title">Course Completions Outside Mentoring</h2>
-              <p class="ce-box-note">{{ course_usage_summary.note }}</p>
-            </div>
-            <div class="ce-big-number">{% if course_usage_summary.available %}{{ course_usage_summary.outside_program }}{% else %}-{% endif %}</div>
-          </div>
-          {% if course_usage_summary.available %}
-            <div class="ce-mini-stat-grid">
-              <div class="ce-mini-stat">
-                <div class="ce-mini-stat-k">All Wix completions</div>
-                <div class="ce-mini-stat-v">{{ course_usage_summary.completed }}</div>
-              </div>
-              <div class="ce-mini-stat">
-                <div class="ce-mini-stat-k">Known participants</div>
-                <div class="ce-mini-stat-v">{{ course_usage_summary.participant_completions }}</div>
-              </div>
-              <div class="ce-mini-stat">
-                <div class="ce-mini-stat-k">Outside participant history</div>
-                <div class="ce-mini-stat-v">{{ course_usage_summary.outside_program }}</div>
-              </div>
-            </div>
-          {% else %}
-            <p class="ce-box-note">No saved Wix completion snapshot yet. Use Refresh data after configuring the Wix endpoint, or run Check Capacitación for a group.</p>
-          {% endif %}
-          {% if course_usage_summary.error %}<p class="ce-box-note">{{ course_usage_summary.error }}</p>{% endif %}
-        </section>
-
-        <section class="ce-metric-box">
-          <div class="ce-box-head">
-            <div>
-              <p class="ce-box-kicker">Qualitative signals</p>
-              <h2 class="ce-box-title">Structured Outcome Signals</h2>
-              <p class="ce-box-note">{{ qualitative_summary.note }}</p>
-            </div>
-            <div class="ce-big-number">{{ qualitative_summary.excellent_count }}</div>
-          </div>
-          <div class="ce-mini-stat-grid">
-            <div class="ce-mini-stat">
-              <div class="ce-mini-stat-k">Excelente / testimonial</div>
-              <div class="ce-mini-stat-v">{{ qualitative_summary.excellent_count }}</div>
-            </div>
-            <div class="ce-mini-stat">
-              <div class="ce-mini-stat-k">Dropped out · program reasons</div>
-              <div class="ce-mini-stat-v">{{ qualitative_summary.program_dropout_count }}</div>
-            </div>
-            <div class="ce-mini-stat">
-              <div class="ce-mini-stat-k">Dropped out · personal reasons</div>
-              <div class="ce-mini-stat-v">{{ qualitative_summary.personal_dropout_count }}</div>
-            </div>
-            <div class="ce-mini-stat">
-              <div class="ce-mini-stat-k">Difficult / no contact</div>
-              <div class="ce-mini-stat-v">{{ qualitative_summary.hard_contact_count }}</div>
-            </div>
-          </div>
-        </section>
-
-        <section class="ce-metric-box">
-          <div class="ce-box-head">
-            <div>
-              <p class="ce-box-kicker">Operations · global</p>
-              <h2 class="ce-box-title">Automation Health</h2>
-              <p class="ce-box-note">{{ automation_summary.scope_label }}. Success rate covers completed versus failed grading and pairing jobs.</p>
-            </div>
-            <div class="ce-big-number">{% if automation_summary.job_total %}{{ automation_summary.job_success_rate }}%{% else %}-{% endif %}</div>
-          </div>
-          <div class="ce-mini-stat-grid">
-            <div class="ce-mini-stat">
-              <div class="ce-mini-stat-k">Jobs completed</div>
-              <div class="ce-mini-stat-v">{{ automation_summary.jobs_done }}</div>
-              <div class="ce-mini-stat-note">{{ automation_summary.jobs_failed }} failed</div>
-            </div>
-            <div class="ce-mini-stat">
-              <div class="ce-mini-stat-k">Participant checks</div>
-              <div class="ce-mini-stat-v">{{ automation_summary.participant_check_runs }}</div>
-            </div>
-            <div class="ce-mini-stat">
-              <div class="ce-mini-stat-k">Dropbox events processed</div>
-              <div class="ce-mini-stat-v">{% if automation_summary.webhook_total %}{{ automation_summary.webhook_success_rate }}%{% else %}-{% endif %}</div>
-              <div class="ce-mini-stat-note">{{ automation_summary.webhook_processed }} of {{ automation_summary.webhook_total }}</div>
-            </div>
-          </div>
-        </section>
-
-        <section class="ce-metric-box ce-metric-box--wide">
-          <div class="ce-box-head">
-            <div>
-              <p class="ce-box-kicker">Data still needed</p>
-              <h2 class="ce-box-title">Metrics Awaiting a Reliable Source</h2>
-              <p class="ce-box-note">These are intentionally not estimated: collaborations, group activities, narrative qualitative achievements, total program expenses, program expense ratio, spend per woman impacted, and Club Emprendo team size. They need a defined source and reporting period before they can be calculated accurately.</p>
-            </div>
-          </div>
-        </section>
-
-        <section class="ce-metric-box ce-metric-box--wide">
-          <div class="ce-box-head">
-            <div>
-              <p class="ce-box-kicker">Where participants live</p>
-              <h2 class="ce-box-title">By Country</h2>
-              <p class="ce-box-note">Country of residence from the Participants pages, counted per participation. Spelling variants are combined and unrecognized entries are grouped as “País por revisar”. Smaller countries are combined into “Other”.</p>
-            </div>
-          </div>
-          <div class="ce-table-wrap">
-            <table class="ce-table ce-compact-table">
-              <thead>
-                <tr>
-                  <th>Country</th>
-                  <th class="ce-num">Emprendedoras</th>
-                  <th class="ce-num">Mentoras</th>
-                  <th class="ce-num">Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {% for row in country_table.rows %}
-                  <tr>
-                    <td>{{ row.country }}</td>
-                    <td class="ce-num">{{ row.e }}</td>
-                    <td class="ce-num">{{ row.m }}</td>
-                    <td class="ce-num"><strong>{{ row.total }}</strong></td>
-                  </tr>
-                {% empty %}
-                  <tr><td colspan="4">No country data available.</td></tr>
-                {% endfor %}
-                {% if country_table.rows %}
-                  <tr class="ce-total-row">
-                    <td>All countries</td>
-                    <td class="ce-num">{{ country_table.e_total }}</td>
-                    <td class="ce-num">{{ country_table.m_total }}</td>
-                    <td class="ce-num">{{ country_table.total }}</td>
-                  </tr>
-                {% endif %}
-              </tbody>
-            </table>
-          </div>
-        </section>
-
-        {% if not is_pdf_export %}
-        <section class="ce-metric-box ce-pdf-hidden">
-          <div class="ce-box-head">
-            <div>
-              <p class="ce-box-kicker">Export</p>
-              <h2 class="ce-box-title">Download PDF Report</h2>
-              <p class="ce-box-note">Choose one participant group, or export all groups.</p>
-            </div>
+        <section class="ce-card ce-card--wide ce-pdf-hidden">
+          <div class="ce-card-head">
+            <div><p class="ce-kicker">Export</p><h2 class="ce-title">Download PDF Report</h2></div>
           </div>
           <form class="ce-report-form" method="get" action="{% url 'admin_impact_dashboard_pdf' %}">
             <div>
@@ -1226,171 +619,8 @@
             <button class="ce-btn" type="submit">Download PDF report</button>
           </form>
         </section>
-        {% endif %}
-      </div>
+      {% endif %}
     </div>
   </div>
 </div>
-
-{{ alumni_returnee_chart_data|json_script:"ceAlumniReturneeData" }}
-{{ repeat_mentor_chart_data|json_script:"ceRepeatMentorData" }}
-{{ nps_summary.chart_data|json_script:"ceNpsData" }}
-{{ wellbeing_summary.chart_data|json_script:"ceWellbeingData" }}
-{{ survey_response_rate_data|json_script:"ceSurveyResponseRateData" }}
-
-<script>
-  (function () {
-    function byId(id) {
-      return document.getElementById(id);
-    }
-
-    function parseJsonScript(id) {
-      const node = byId(id);
-      if (!node) return [];
-      try {
-        return JSON.parse(node.textContent || "[]");
-      } catch (e) {
-        return [];
-      }
-    }
-
-    function escapeHtml(value) {
-      return String(value)
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/\"/g, "&quot;")
-        .replace(/'/g, "&#039;");
-    }
-
-    function formatValue(value, suffix) {
-      const numeric = Number(value || 0);
-      const rounded = Math.round(numeric * 10) / 10;
-      return String(rounded).replace(/\.0$/, "") + (suffix || "");
-    }
-
-    function renderDonut(donutId, legendId, totalId, rawData) {
-      const donut = byId(donutId);
-      const legend = byId(legendId);
-      const totalNode = byId(totalId);
-      if (!donut || !legend || !totalNode) return;
-
-      const data = (Array.isArray(rawData) ? rawData : [])
-        .map(function (item) {
-          return {
-            label: item.label,
-            value: Number(item.value || 0),
-            color: item.color || "#94a3b8",
-          };
-        })
-        .filter(function (item) { return item.value > 0; });
-
-      const total = data.reduce(function (sum, item) { return sum + item.value; }, 0);
-      totalNode.textContent = String(total);
-
-      if (total <= 0) {
-        donut.style.background = "#e5e7eb";
-        legend.innerHTML = '<li><span class="ce-empty">No data available.</span></li>';
-        return;
-      }
-
-      let current = 0;
-      const parts = data.map(function (item) {
-        const start = (current / total) * 360;
-        current += item.value;
-        const end = (current / total) * 360;
-        return item.color + " " + start + "deg " + end + "deg";
-      });
-      donut.style.background = "conic-gradient(" + parts.join(", ") + ")";
-
-      legend.innerHTML = data.map(function (item) {
-        const pct = ((item.value / total) * 100).toFixed(1);
-        return (
-          '<li>' +
-            '<span class="ce-legend-dot" style="background:' + item.color + ';"></span>' +
-            '<span>' + escapeHtml(item.label) + '</span>' +
-            '<strong>' + item.value + ' (' + pct + '%)</strong>' +
-          '</li>'
-        );
-      }).join("");
-    }
-
-    function renderHorizontalBars(containerId, rawData, options) {
-      const container = byId(containerId);
-      if (!container) return;
-
-      const settings = Object.assign({
-        minValue: 0,
-        maxValue: null,
-        suffix: "",
-        emptyText: "No data available.",
-      }, options || {});
-      const data = (Array.isArray(rawData) ? rawData : [])
-        .map(function (item) {
-          return {
-            label: item.label || "",
-            value: Number(item.value || 0),
-            color: item.color || "#3B82F6",
-            displayValue: item.display_value,
-          };
-        })
-        .filter(function (item) { return item.label; });
-
-      if (!data.length) {
-        container.innerHTML = '<p class="ce-empty">' + escapeHtml(settings.emptyText) + '</p>';
-        return;
-      }
-
-      const values = data.map(function (item) { return item.value; });
-      const minValue = Number(settings.minValue);
-      const maxValue = Number(settings.maxValue !== null ? settings.maxValue : Math.max.apply(null, values.concat([1])));
-      const range = Math.max(maxValue - minValue, 1);
-      const hasZero = minValue < 0 && maxValue > 0;
-      const zeroPct = hasZero ? ((0 - minValue) / range) * 100 : 0;
-
-      container.innerHTML = data.map(function (item) {
-        const clamped = Math.max(minValue, Math.min(maxValue, item.value));
-        const valuePct = ((clamped - minValue) / range) * 100;
-        const left = hasZero ? Math.min(zeroPct, valuePct) : 0;
-        const width = hasZero ? Math.abs(valuePct - zeroPct) : Math.max(1, valuePct);
-        const displayValue = item.displayValue !== undefined && item.displayValue !== null
-          ? item.displayValue
-          : formatValue(item.value, settings.suffix);
-        const zeroLine = hasZero
-          ? '<span class="ce-bar-zero" style="left:' + zeroPct + '%;"></span>'
-          : '';
-        return (
-          '<div class="ce-bar-row">' +
-            '<div class="ce-bar-label" title="' + escapeHtml(item.label) + '">' + escapeHtml(item.label) + '</div>' +
-            '<div class="ce-bar-track">' +
-              zeroLine +
-              '<div class="ce-bar-fill" style="left:' + left + '%; width:' + width + '%; background:' + item.color + ';"></div>' +
-            '</div>' +
-            '<div class="ce-bar-val">' + escapeHtml(displayValue) + '</div>' +
-          '</div>'
-        );
-      }).join("");
-    }
-
-    renderHorizontalBars("ce-alumni-returnee-chart", parseJsonScript("ceAlumniReturneeData"), {
-      emptyText: "No returning alumni found.",
-    });
-    renderHorizontalBars("ce-repeat-mentor-chart", parseJsonScript("ceRepeatMentorData"), {
-      emptyText: "No repeat mentoras found.",
-    });
-    renderHorizontalBars("ce-nps-chart", parseJsonScript("ceNpsData"), {
-      minValue: -100,
-      maxValue: 100,
-      emptyText: "No NPS-like survey fields detected.",
-    });
-    renderHorizontalBars("ce-wellbeing-chart", parseJsonScript("ceWellbeingData"), {
-      emptyText: "No quality-of-life survey fields detected.",
-    });
-    renderHorizontalBars("ce-survey-response-rate-chart", parseJsonScript("ceSurveyResponseRateData"), {
-      maxValue: 100,
-      suffix: "%",
-      emptyText: "No survey response data available.",
-    });
-  })();
-</script>
 {% endblock %}

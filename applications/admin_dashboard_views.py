@@ -1584,7 +1584,7 @@ def _impact_funnel_summary(
             }
         )
 
-    def stage(key: str, label: str, definition: str, *, pct_of: str | None, pct_label: str) -> dict:
+    def stage(key: str, label: str, definition: str, *, pct_of: str | None, pct_label: str, short: str = "") -> dict:
         cells = []
         for column in columns:
             count = column[key]
@@ -1596,7 +1596,7 @@ def _impact_funnel_summary(
                     "pct_width": min(100, _rate(count, base)) if base else 0,
                 }
             )
-        return {"label": label, "definition": definition, "pct_label": pct_label, "cells": cells}
+        return {"label": label, "definition": definition, "short": short, "pct_label": pct_label, "cells": cells}
 
     stages = [
         stage(
@@ -1605,6 +1605,7 @@ def _impact_funnel_summary(
             "Unique people (by email) who submitted at least one application form for a group in this view.",
             pct_of=None,
             pct_label="",
+            short="Submitted an application",
         ),
         stage(
             "training",
@@ -1612,6 +1613,7 @@ def _impact_funnel_summary(
             "Applicants who finished the online course (Capacitación) or went on to sign the Acta or start.",
             pct_of="applicants",
             pct_label="of applicants",
+            short="Finished the online course",
         ),
         stage(
             "acta",
@@ -1619,6 +1621,7 @@ def _impact_funnel_summary(
             "Applicants who signed the Acta de compromiso (the participation agreement) or went on to start.",
             pct_of="applicants",
             pct_label="of applicants",
+            short="Signed the participation agreement",
         ),
         stage(
             "started",
@@ -1626,6 +1629,7 @@ def _impact_funnel_summary(
             "Applicants whose status shows they began the mentoring program (any status other than No firmó Acta / No Capacitación).",
             pct_of="applicants",
             pct_label="of applicants",
+            short="Began mentoring",
         ),
         stage(
             "graduated",
@@ -1633,6 +1637,7 @@ def _impact_funnel_summary(
             "Women with status Graduada, out of women who started in groups that have finished.",
             pct_of="started_completed",
             pct_label="of women who started",
+            short="Completed the program",
         ),
         stage(
             "dropped_out",
@@ -1640,10 +1645,16 @@ def _impact_funnel_summary(
             "Women who started but stopped (No Continúa P or PP), out of women who started in groups that have finished.",
             pct_of="started_completed",
             pct_label="of women who started",
+            short="Started, then stopped",
         ),
     ]
+    summary = dict(columns[-1])
+    summary["started_pct"] = _rate(summary["started"], summary["applicants"])
+    summary["graduated_pct"] = _rate(summary["graduated"], summary["started_completed"])
+    summary["dropped_out_pct"] = _rate(summary["dropped_out"], summary["started_completed"])
     return {
         "columns": columns,
+        "summary": summary,
         "stages": stages,
         "first_second_note": bool(application_summary.get("two_stage_groups")),
         "two_stage_groups": application_summary.get("two_stage_groups", []),
@@ -3055,7 +3066,25 @@ def _impact_dashboard_donut(data: list[dict]) -> dict:
     }
 
 
+def _impact_group_chart(group_rows: list[dict]) -> list[dict]:
+    rows = sorted(
+        (row for row in group_rows or [] if row.get("group_number") is not None),
+        key=lambda row: row["group_number"],
+    )
+    peak = max([row.get("participants") or 0 for row in rows] + [1])
+    return [
+        {
+            "number": row["group_number"],
+            "label": row.get("group_label") or f"Group {row['group_number']}",
+            "count": row.get("participants") or 0,
+            "height": max(3, round((row.get("participants") or 0) / peak * 100)),
+        }
+        for row in rows
+    ]
+
+
 def _prepare_impact_dashboard_chart_context(context: dict) -> dict:
+    context["group_chart"] = _impact_group_chart(context.get("group_source_rows") or [])
     country_data = context.get("participant_country_chart_data") or {}
     status_data = context.get("participant_status_chart_data") or {}
     context.update(
@@ -4700,6 +4729,7 @@ def impact_dashboard(request):
                 "track": track_filter,
             },
             "impact_group_options": _impact_group_options(),
+            "impact_report_group_options": _impact_group_options(),
             "impact_year_options": _impact_year_options(),
             "impact_track_options": [
                 {"value": "all", "label": "Both"},

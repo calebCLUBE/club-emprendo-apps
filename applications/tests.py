@@ -7846,8 +7846,10 @@ class ImpactDashboardMetricTests(TestCase):
         response = self.client.get(reverse("admin_impact_dashboard"))
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Number of Participants")
-        self.assertContains(response, "Application Conversion")
+        self.assertNotContains(response, "Number of Participants")
+        self.assertContains(response, "From Application to Graduation")
+        self.assertContains(response, "How to read this dashboard")
+        self.assertNotContains(response, "Program dropouts")
         self.assertContains(response, "Number of Groups")
         self.assertContains(response, "Emprendedoras Returning as Mentoras")
         self.assertContains(response, "Repeat Mentoras")
@@ -7863,6 +7865,64 @@ class ImpactDashboardMetricTests(TestCase):
         self.assertContains(response, "Metrics Awaiting a Reliable Source")
         self.assertContains(response, "Group scope")
         self.assertContains(response, "Download PDF report")
+        self.assertContains(response, "By Country")
+        self.assertNotContains(response, "Matched intake source")
+        self.assertNotContains(response, "Emprendedoras by Estatus")
+        self.assertNotContains(response, "Mentoras by Estatus")
+
+    def test_impact_funnel_uses_applicant_matched_counts_and_completed_group_outcomes(self):
+        def rec(email, status, group_completed=True, **extra):
+            started = status not in {"NFA", "NC"}
+            base = {
+                "track": "e",
+                "email": email,
+                "person_key": f"email:{email}",
+                "status": status,
+                "started": started,
+                "graduated": status == "G",
+                "acta": False,
+                "capacitacion": False,
+                "group_completed": group_completed,
+            }
+            base.update(extra)
+            return base
+
+        records = [
+            rec("a@x.com", "G"),
+            rec("b@x.com", "NCP"),
+            rec("c@x.com", "NFA"),
+            rec("d@x.com", "NC"),
+            rec("e@x.com", "A", group_completed=False),
+            rec("nomatch@x.com", "G"),
+        ]
+        application_summary = {
+            "email_sets": {"e": {"a@x.com", "b@x.com", "c@x.com", "d@x.com", "e@x.com", "z@x.com"}, "m": set()},
+            "a1_email_sets": {"e": {"a@x.com", "b@x.com", "c@x.com", "d@x.com", "e@x.com", "z@x.com"}, "m": set()},
+            "a2_email_sets": {"e": {"a@x.com"}, "m": set()},
+            "two_stage_groups": [3],
+        }
+
+        funnel = admin_dashboard_views._impact_funnel_summary(
+            records, application_summary, track_filter="e"
+        )
+
+        column = funnel["columns"][0]
+        self.assertEqual(column["applicants"], 6)
+        self.assertEqual(column["first_applicants"], 6)
+        self.assertEqual(column["second_applicants"], 1)
+        # d@x.com (No Capacitación) is the only matched applicant who did not finish training.
+        self.assertEqual(column["training"], 4)
+        self.assertEqual(column["acta"], 3)
+        self.assertEqual(column["started"], 3)
+        self.assertEqual(column["unmatched_participants"], 1)
+        # Outcomes cover finished groups only: a, b and the unmatched graduate started.
+        self.assertEqual(column["started_completed"], 3)
+        self.assertEqual(column["graduated"], 2)
+        self.assertEqual(column["dropped_out"], 1)
+        applied, *_rest, graduated, dropped = funnel["stages"]
+        self.assertIsNone(applied["cells"][0]["pct"])
+        self.assertEqual(graduated["cells"][0]["pct"], 66.7)
+        self.assertEqual(dropped["cells"][0]["pct"], 33.3)
 
     @patch("applications.admin_dashboard_views._build_impact_dataset")
     def test_impact_dashboard_pdf_download_for_specific_group(self, mock_build_dataset):

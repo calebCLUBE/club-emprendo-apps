@@ -523,11 +523,27 @@ def _status_counts_to_rows(status_counts: dict[str, int]) -> list[dict]:
     ]
 
 
+IMPACT_STATUS_DESCRIPTIONS = {
+    "NFA": "Completed the application but did not sign the Acta (participation agreement). Never started.",
+    "NC": "Did not complete the online training. Never started.",
+    "NCP": "Started, then stopped because of problems with the program. Counted as dropped out.",
+    "NCPP": "Started, then stopped for personal reasons. Counted as dropped out.",
+    "SG": "Held for a later group. Counted as started.",
+    "CG": "Moved to a group running at a different time. Counted as started.",
+    "CP": "Started and was matched with a different mentor or mentee. Counted as started.",
+    "D/NC": "Difficult to reach but still continuing. Counted as started.",
+    "E": "Excellent progress or a testimonial. Counted as started.",
+    "G": "Completed the program. Counted as graduated.",
+    "A": "Currently active in the program. Counted as started.",
+}
+
+
 def _participant_status_key() -> list[dict]:
     return [
         {
             "code": code,
             "label": PARTICIPANT_STATUS_SHEET_LABELS.get(code, label),
+            "description": IMPACT_STATUS_DESCRIPTIONS.get(code, label),
         }
         for code, label in PARTICIPANT_STATUS_CHOICES
     ]
@@ -1215,6 +1231,27 @@ def _participant_summary(records: list[dict], group_numbers: set[int] | None = N
 
     overall_started = len([record for record in records if record["started"]])
     overall_graduated = len([record for record in records if record["graduated"]])
+    overall_initial_survey = len([record for record in records if record["initial_survey"]])
+    overall_final_survey = len([record for record in records if record["final_survey"]])
+    groups_with_participants = {
+        record["group_number"]
+        for record in records
+        if record.get("group_number") is not None
+    }
+
+    if group_numbers is not None:
+        groups_in_system = len(group_numbers)
+    else:
+        try:
+            groups_in_system = len(_impact_allowed_group_numbers())
+        except Exception:
+            groups_in_system = 0
+
+    overall_started_rate = _rate(overall_started, len(records))
+    overall_group_participation_rate = _rate(
+        len(groups_with_participants),
+        groups_in_system,
+    ) if groups_in_system else 0
     overall_graduation_scope_records = [
         record
         for record in records
@@ -1232,22 +1269,6 @@ def _participant_summary(records: list[dict], group_numbers: set[int] | None = N
             if record.get("status") in PARTICIPANT_STATUS_DROPPED_OUT
         ]
     )
-    overall_initial_survey = len([record for record in records if record["initial_survey"]])
-    overall_final_survey = len([record for record in records if record["final_survey"]])
-    groups_with_participants = {
-        record["group_number"]
-        for record in records
-        if record.get("group_number") is not None
-    }
-
-    if group_numbers is not None:
-        groups_in_system = len(group_numbers)
-    else:
-        try:
-            groups_in_system = len(_impact_allowed_group_numbers())
-        except Exception:
-            groups_in_system = 0
-
     group_summary_rows = list(group_rows.values())
     group_summary_rows.sort(
         key=lambda item: (
@@ -1264,6 +1285,7 @@ def _participant_summary(records: list[dict], group_numbers: set[int] | None = N
             "unique_with_email": len({record["email"] for record in records if record.get("email")}),
             "started": overall_started,
             "started_unique": len(all_started_people),
+            "started_rate": overall_started_rate,
             "graduated": overall_graduated,
             "graduated_unique": len(all_graduated_people),
             "graduation_eligible": overall_graduation_eligible,
@@ -1285,6 +1307,7 @@ def _participant_summary(records: list[dict], group_numbers: set[int] | None = N
             "final_survey_rate": _rate(overall_final_survey, len(records)),
             "groups_in_system": groups_in_system,
             "groups_with_participants": len(groups_with_participants),
+            "groups_with_participants_rate": overall_group_participation_rate,
             "historical_participations": len(
                 [record for record in records if record.get("source") == "historical_import"]
             ),
@@ -1322,9 +1345,11 @@ def _application_summary(
     apps = Application.objects.select_related("form", "form__group").order_by("created_at", "id")
     group_map = {group.number: group for group in FormGroup.objects.all()}
     track_data: dict[str, dict] = {
-        "e": {"label": "Emprendedoras", "raw": 0, "a1": 0, "a2": 0, "emails": set()},
-        "m": {"label": "Mentoras", "raw": 0, "a1": 0, "a2": 0, "emails": set()},
+        "e": {"label": "Emprendedoras", "raw": 0, "a1": 0, "a2": 0, "emails": set(), "a1_emails": set(), "a2_emails": set()},
+        "m": {"label": "Mentoras", "raw": 0, "a1": 0, "a2": 0, "emails": set(), "a1_emails": set(), "a2_emails": set()},
     }
+    two_stage_groups: set[int] = set()
+    application_groups: set[int] = set()
     group_data: dict[tuple[int | None, str], dict] = {}
     all_emails: set[str] = set()
     raw_total = 0
@@ -1360,10 +1385,18 @@ def _application_summary(
         raw_total += 1
         track_data[track_key]["raw"] += 1
         group_row["raw"] += 1
+        if group_number is not None:
+            application_groups.add(int(group_number))
         if "_A1" in slug.upper():
             track_data[track_key]["a1"] += 1
+            if email:
+                track_data[track_key]["a1_emails"].add(email)
         elif "_A2" in slug.upper():
             track_data[track_key]["a2"] += 1
+            if email:
+                track_data[track_key]["a2_emails"].add(email)
+            if group_number is not None:
+                two_stage_groups.add(int(group_number))
 
         if email:
             track_data[track_key]["emails"].add(email)
@@ -1382,6 +1415,8 @@ def _application_summary(
                 "duplicate_or_repeat": max(data["raw"] - unique, 0),
                 "a1": data["a1"],
                 "a2": data["a2"],
+                "a1_unique": len(data["a1_emails"]),
+                "a2_unique": len(data["a2_emails"]),
             }
         )
 
@@ -1419,6 +1454,10 @@ def _application_summary(
             "e": track_data["e"]["emails"],
             "m": track_data["m"]["emails"],
         },
+        "a1_email_sets": {key: track_data[key]["a1_emails"] for key in ("e", "m")},
+        "a2_email_sets": {key: track_data[key]["a2_emails"] for key in ("e", "m")},
+        "two_stage_groups": sorted(two_stage_groups),
+        "application_groups": sorted(application_groups),
     }
 
 
@@ -1473,6 +1512,237 @@ def _conversion_summary(participant_summary: dict, application_summary: dict) ->
         }
     )
     return rows
+
+
+def _impact_funnel_summary(
+    records: list[dict],
+    application_summary: dict,
+    *,
+    track_filter: str = "all",
+) -> dict:
+    """Applicant-to-graduate funnel, one column per track plus a combined column.
+
+    Applicants are unique emails from the application forms. Training, Acta and
+    program start are matched to those applicants by email so every percentage
+    is "of applicants" and can never exceed 100%. Graduated and Dropped out are
+    measured against women who started, in groups that have finished.
+    """
+    track_filter = _normalize_impact_track_filter(track_filter)
+    if track_filter == "all":
+        column_specs = [("Emprendedoras", ("e",)), ("Mentoras", ("m",)), ("Both tracks", ("e", "m"))]
+    else:
+        label = PARTICIPANT_TRACK_CONFIGS[track_filter]["label"]
+        column_specs = [(label, (track_filter,))]
+
+    columns: list[dict] = []
+    for label, track_keys in column_specs:
+        track_records = [record for record in records if record["track"] in track_keys]
+        applicants: set[str] = set()
+        first_applicants: set[str] = set()
+        second_applicants: set[str] = set()
+        for key in track_keys:
+            applicants |= application_summary["email_sets"].get(key, set())
+            first_applicants |= application_summary.get("a1_email_sets", {}).get(key, set())
+            second_applicants |= application_summary.get("a2_email_sets", {}).get(key, set())
+
+        flags: dict[str, dict[str, bool]] = {}
+        for record in track_records:
+            email = record.get("email")
+            if not email:
+                continue
+            entry = flags.setdefault(email, {"training": False, "acta": False, "started": False})
+            signed_acta = bool(record.get("acta")) or bool(record.get("started"))
+            entry["acta"] = entry["acta"] or signed_acta
+            entry["training"] = entry["training"] or (
+                bool(record.get("capacitacion")) or signed_acta or record.get("status") == "NFA"
+            )
+            entry["started"] = entry["started"] or bool(record.get("started"))
+        matched = applicants & set(flags)
+
+        completed = [record for record in track_records if record.get("group_completed")]
+        started_people = {record["person_key"] for record in completed if record["started"]}
+        graduated_people = {record["person_key"] for record in completed if record["graduated"]}
+        dropped_people = {
+            record["person_key"]
+            for record in completed
+            if record.get("status") in PARTICIPANT_STATUS_DROPPED_OUT
+        } - graduated_people
+
+        columns.append(
+            {
+                "label": label,
+                "applicants": len(applicants),
+                "first_applicants": len(first_applicants),
+                "second_applicants": len(second_applicants),
+                "training": sum(1 for email in matched if flags[email]["training"]),
+                "acta": sum(1 for email in matched if flags[email]["acta"]),
+                "started": sum(1 for email in matched if flags[email]["started"]),
+                "unmatched_participants": len(set(flags) - applicants),
+                "started_completed": len(started_people),
+                "graduated": len(graduated_people),
+                "dropped_out": len(dropped_people),
+            }
+        )
+
+    def stage(key: str, label: str, definition: str, *, pct_of: str | None, pct_label: str) -> dict:
+        cells = []
+        for column in columns:
+            count = column[key]
+            base = column[pct_of] if pct_of else None
+            cells.append(
+                {
+                    "count": count,
+                    "pct": _rate(count, base) if base else None,
+                    "pct_width": min(100, _rate(count, base)) if base else 0,
+                }
+            )
+        return {"label": label, "definition": definition, "pct_label": pct_label, "cells": cells}
+
+    stages = [
+        stage(
+            "applicants",
+            "Applied",
+            "Unique people (by email) who submitted at least one application form for a group in this view.",
+            pct_of=None,
+            pct_label="",
+        ),
+        stage(
+            "training",
+            "Completed training",
+            "Applicants who finished the online course (Capacitación) or went on to sign the Acta or start.",
+            pct_of="applicants",
+            pct_label="of applicants",
+        ),
+        stage(
+            "acta",
+            "Signed Acta",
+            "Applicants who signed the Acta de compromiso (the participation agreement) or went on to start.",
+            pct_of="applicants",
+            pct_label="of applicants",
+        ),
+        stage(
+            "started",
+            "Started program",
+            "Applicants whose status shows they began the mentoring program (any status other than No firmó Acta / No Capacitación).",
+            pct_of="applicants",
+            pct_label="of applicants",
+        ),
+        stage(
+            "graduated",
+            "Graduated",
+            "Women with status Graduada, out of women who started in groups that have finished.",
+            pct_of="started_completed",
+            pct_label="of women who started",
+        ),
+        stage(
+            "dropped_out",
+            "Dropped out",
+            "Women who started but stopped (No Continúa P or PP), out of women who started in groups that have finished.",
+            pct_of="started_completed",
+            pct_label="of women who started",
+        ),
+    ]
+    return {
+        "columns": columns,
+        "stages": stages,
+        "first_second_note": bool(application_summary.get("two_stage_groups")),
+        "two_stage_groups": application_summary.get("two_stage_groups", []),
+        "started_completed": [column["started_completed"] for column in columns],
+    }
+
+
+def _impact_group_range_label(group_numbers) -> str:
+    numbers = sorted({int(number) for number in group_numbers if number is not None})
+    if not numbers:
+        return "no groups"
+    ranges: list[str] = []
+    start = prev = numbers[0]
+    for number in numbers[1:] + [None]:
+        if number is not None and number == prev + 1:
+            prev = number
+            continue
+        ranges.append(str(start) if start == prev else f"{start}–{prev}")
+        if number is not None:
+            start = prev = number
+    return ("Group " if len(numbers) == 1 else "Groups ") + ", ".join(ranges)
+
+
+def _impact_scope_notes(
+    participant_records: list[dict],
+    application_summary: dict,
+    *,
+    datasets: dict | None = None,
+) -> dict:
+    """Plain-language statements of which groups and years each metric covers."""
+    group_numbers = {
+        record["group_number"] for record in participant_records if record.get("group_number") is not None
+    }
+    years = sorted({record["group_year"] for record in participant_records if record.get("group_year")})
+    completed = {
+        record["group_number"]
+        for record in participant_records
+        if record.get("group_number") is not None and record.get("group_completed")
+    }
+    year_text = ""
+    if years:
+        year_text = f" ({years[0]})" if len(years) == 1 else f" ({years[0]}–{years[-1]})"
+    application_groups = application_summary.get("application_groups") or []
+    two_stage = application_summary.get("two_stage_groups") or []
+    survey_groups = ""
+    if datasets:
+        survey_groups = " ".join(
+            dict.fromkeys(d.get("scope_warning") for d in datasets.values() if d.get("scope_warning"))
+        )
+    return {
+        "participants": f"{_impact_group_range_label(group_numbers)}{year_text}, including uploaded historical groups.",
+        "completed_groups": _impact_group_range_label(completed) if completed else "no finished groups yet",
+        "applications": (
+            f"{_impact_group_range_label(application_groups)} with application forms on file."
+            if application_groups
+            else "No application forms on file for this view."
+        ),
+        "two_stage": (
+            f"Two-stage applications (a first and a second application) were used in {_impact_group_range_label(two_stage)}; "
+            "other groups had a single application."
+            if two_stage
+            else "All groups in this view used a single application."
+        ),
+        "survey_warning": survey_groups,
+    }
+
+
+def _impact_country_table(participant_summary: dict, *, limit: int = 8) -> dict:
+    per_track = {
+        key: {row["country"]: row["count"] for row in track.get("country_rows", [])}
+        for key, track in participant_summary.get("tracks", {}).items()
+    }
+    countries = {country for counts in per_track.values() for country in counts}
+    rows = [
+        {
+            "country": country,
+            "e": per_track.get("e", {}).get(country, 0),
+            "m": per_track.get("m", {}).get(country, 0),
+            "total": per_track.get("e", {}).get(country, 0) + per_track.get("m", {}).get(country, 0),
+        }
+        for country in countries
+    ]
+    rows.sort(key=lambda row: (-row["total"], row["country"]))
+    head, tail = rows[:limit], rows[limit:]
+    if tail:
+        head.append(
+            {
+                "country": f"Other ({len(tail)} countries)",
+                "e": sum(row["e"] for row in tail),
+                "m": sum(row["m"] for row in tail),
+                "total": sum(row["total"] for row in tail),
+            }
+        )
+    return {
+        "rows": head,
+        "total": sum(row["total"] for row in rows),
+        "e_total": sum(row["e"] for row in rows),
+        "m_total": sum(row["m"] for row in rows),
+    }
 
 
 def _alumni_mentor_summary(records: list[dict]) -> dict:
@@ -2919,6 +3189,13 @@ def _build_group_impact_report_payload(
         "participant_summary": participant_summary,
         "application_summary": application_summary,
         "conversion_rows": conversion_rows,
+        "funnel": _impact_funnel_summary(
+            participant_records, application_summary, track_filter=track_filter
+        ),
+        "scope_notes": _impact_scope_notes(
+            participant_records, application_summary, datasets=datasets
+        ),
+        "country_table": _impact_country_table(participant_summary),
         "alumni_summary": alumni_summary,
         "milestone_summary": _impact_milestone_summary(participant_records),
         "qualitative_summary": _impact_qualitative_summary(participant_records),
@@ -3390,43 +3667,32 @@ def _render_group_impact_report_pdf(payload: dict) -> bytes:
         plt.close(fig)
 
         fig = plt.figure(figsize=(11, 8.5), facecolor="white")
-        fig.text(0.06, 0.94, "Participants by Country and Estatus", fontsize=18, weight="bold", color="#111827")
+        fig.text(0.06, 0.94, "Number of Groups", fontsize=18, weight="bold", color="#111827")
         fig.text(0.06, 0.91, f"Groups: {payload['group_label']}", fontsize=9, color="#64748b")
         grid = fig.add_gridspec(
-            2,
-            2,
-            left=0.12,
+            1,
+            1,
+            left=0.10,
             right=0.96,
-            top=0.86,
-            bottom=0.08,
-            hspace=0.35,
-            wspace=0.55,
+            top=0.82,
+            bottom=0.12,
         )
-        _impact_pdf_draw_pie(
+        group_rows = [
+            [row["group_label"][:44], row["participants"]]
+            for row in payload.get("group_source_rows", [])[:20]
+        ]
+        _impact_pdf_draw_table(
             fig.add_subplot(grid[0, 0]),
-            country_data.get("e", []),
-            "Emprendedoras by country",
-        )
-        _impact_pdf_draw_pie(
-            fig.add_subplot(grid[0, 1]),
-            country_data.get("m", []),
-            "Mentoras by country",
-        )
-        _impact_pdf_draw_barh(
-            fig.add_subplot(grid[1, 0]),
-            status_data.get("e", []),
-            "Emprendedoras by Estatus",
-        )
-        _impact_pdf_draw_barh(
-            fig.add_subplot(grid[1, 1]),
-            status_data.get("m", []),
-            "Mentoras by Estatus",
+            "Participant groups",
+            ["Group", "Participants"],
+            group_rows,
+            font_size=7,
         )
         pdf.savefig(fig)
         plt.close(fig)
 
         fig = plt.figure(figsize=(11, 8.5), facecolor="white")
-        fig.text(0.06, 0.94, "Conversion, Graduation, Groups, and Survey Response", fontsize=18, weight="bold", color="#111827")
+        fig.text(0.06, 0.94, "Conversion, Graduation, and Survey Response", fontsize=18, weight="bold", color="#111827")
         fig.text(0.06, 0.91, f"Groups: {payload['group_label']}", fontsize=9, color="#64748b")
         grid = fig.add_gridspec(
             2,
@@ -3458,21 +3724,6 @@ def _render_group_impact_report_pdf(payload: dict) -> bytes:
             "Survey response rate",
             suffix="%",
             max_value=100,
-        )
-        group_source_rows = [
-            [
-                row["group_label"][:32],
-                row["participants"],
-                row["source_label"][:42],
-            ]
-            for row in payload.get("group_source_rows", [])[:10]
-        ]
-        _impact_pdf_draw_table(
-            fig.add_subplot(grid[1, 1]),
-            "Participant groups and matched intake source",
-            ["Group", "Rows", "Intake source"],
-            group_source_rows,
-            font_size=6,
         )
         pdf.savefig(fig)
         plt.close(fig)
@@ -3515,6 +3766,31 @@ def _render_group_impact_report_pdf(payload: dict) -> bytes:
         pdf.savefig(fig)
         plt.close(fig)
 
+        fig = plt.figure(figsize=(11, 8.5), facecolor="white")
+        fig.text(0.06, 0.94, "By Country", fontsize=18, weight="bold", color="#111827")
+        fig.text(0.06, 0.91, f"Groups: {payload['group_label']}", fontsize=9, color="#64748b")
+        grid = fig.add_gridspec(
+            1,
+            2,
+            left=0.12,
+            right=0.96,
+            top=0.86,
+            bottom=0.12,
+            wspace=0.55,
+        )
+        _impact_pdf_draw_pie(
+            fig.add_subplot(grid[0, 0]),
+            country_data.get("e", []),
+            "Emprendedoras by country",
+        )
+        _impact_pdf_draw_pie(
+            fig.add_subplot(grid[0, 1]),
+            country_data.get("m", []),
+            "Mentoras by country",
+        )
+        pdf.savefig(fig)
+        plt.close(fig)
+
     buffer.seek(0)
     return buffer.getvalue()
 
@@ -3538,6 +3814,10 @@ def _impact_dashboard_context_from_payload(payload: dict) -> dict:
             "participant_summary": payload["participant_summary"],
             "application_summary": payload["application_summary"],
             "conversion_rows": payload["conversion_rows"],
+            "funnel": payload.get("funnel", {}),
+            "scope_notes": payload.get("scope_notes", {}),
+            "country_table": payload.get("country_table", {}),
+            "participant_status_key": payload.get("participant_status_key", []),
             "alumni_summary": payload["alumni_summary"],
             "milestone_summary": payload.get("milestone_summary", {}),
             "qualitative_summary": payload.get("qualitative_summary", {}),
@@ -4434,6 +4714,14 @@ def impact_dashboard(request):
             "participant_summary": participant_summary,
             "application_summary": application_summary,
             "conversion_rows": conversion_rows,
+            "funnel": _impact_funnel_summary(
+                participant_records, application_summary, track_filter=track_filter
+            ),
+            "scope_notes": _impact_scope_notes(
+                participant_records, application_summary, datasets=datasets
+            ),
+            "country_table": _impact_country_table(participant_summary),
+            "participant_status_key": _participant_status_key(),
             "alumni_summary": alumni_summary,
             "milestone_summary": _impact_milestone_summary(participant_records),
             "qualitative_summary": _impact_qualitative_summary(participant_records),

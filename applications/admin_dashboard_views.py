@@ -523,18 +523,27 @@ def _status_counts_to_rows(status_counts: dict[str, int]) -> list[dict]:
     ]
 
 
+# Impact status rules (per leadership):
+# - Selected: any row on a group's Participants sheet, except the two statuses below.
+# - Started: Graduada, Activa, No Continua P, No Continua PP.
+# - Lost from a group: No Continua P, No Continua PP.
+# - Siguiente grupo / Cambio de grupo are not counted in the group at all.
+IMPACT_STATUS_EXCLUDED = {"SG", "CG"}
+IMPACT_STATUS_STARTED = {"G", "A", "NCP", "NCPP"}
+IMPACT_STATUS_ACTIVE = {"A"}
+
 IMPACT_STATUS_DESCRIPTIONS = {
-    "NFA": "Completed the application but did not sign the Acta (participation agreement). Never started.",
-    "NC": "Did not complete the online training. Never started.",
-    "NCP": "Started, then stopped because of problems with the program. Counted as dropped out.",
-    "NCPP": "Started, then stopped for personal reasons. Counted as dropped out.",
-    "SG": "Held for a later group. Counted as started.",
-    "CG": "Moved to a group running at a different time. Counted as started.",
-    "CP": "Started and was matched with a different mentor or mentee. Counted as started.",
-    "D/NC": "Difficult to reach but still continuing. Counted as started.",
-    "E": "Excellent progress or a testimonial. Counted as started.",
-    "G": "Completed the program. Counted as graduated.",
-    "A": "Currently active in the program. Counted as started.",
+    "NFA": "Selected, but did not sign the Acta (participation agreement). Did not start.",
+    "NC": "Selected, but did not complete the online training. Did not start.",
+    "NCP": "Started, then left because of problems with the program. Counted as dropped out.",
+    "NCPP": "Started, then left for personal reasons. Counted as dropped out.",
+    "SG": "Held for a later group. Not counted in this group.",
+    "CG": "Moved to another group. Not counted in this group.",
+    "CP": "Changed partner. Selected; not counted as started or dropped out.",
+    "D/NC": "Difficult to reach. Selected; not counted as started or dropped out.",
+    "E": "Excellent / testimonial. Selected; not counted as started or dropped out.",
+    "G": "Completed the program. Counted as started and graduated.",
+    "A": "Currently active. Counted as started.",
 }
 
 
@@ -1056,17 +1065,10 @@ def _participant_records() -> list[dict]:
                 row = list(raw_row)
 
                 status = _status_label(_metric_cell(row, cfg["status_col"]))
-                progress = any(_metric_bool(row[idx]) for idx in cfg["progress_cols"] if idx < len(row))
-                if status in PARTICIPANT_STATUS_NOT_STARTED:
-                    # No firmó Acta / No Capacitación remain pre-start even if
-                    # an administrative checkbox was already marked.
-                    started = False
-                elif status in PARTICIPANT_STATUS_STARTED:
-                    started = True
-                else:
-                    # Keep progress as a fallback only for blank or unfamiliar
-                    # legacy statuses.
-                    started = progress
+                if status in IMPACT_STATUS_EXCLUDED:
+                    # Siguiente grupo / Cambio de grupo are not counted in this group.
+                    continue
+                started = status in IMPACT_STATUS_STARTED
                 graduated = status in PARTICIPANT_STATUS_GRADUATED
                 country = _canonical_country(_metric_cell(row, cfg["country_col"]))
                 email = _metric_email(_metric_cell(row, cfg["email_col"]))
@@ -1128,24 +1130,14 @@ def _participant_summary(records: list[dict], group_numbers: set[int] | None = N
 
     for track_key, cfg in PARTICIPANT_TRACK_CONFIGS.items():
         track_records = [record for record in records if record["track"] == track_key]
-        graduation_scope_records = [
-            record
-            for record in track_records
-            if record.get("group_number") in completed_group_numbers
-        ]
+        graduation_scope_records = track_records
         participant_people = {record["person_key"] for record in track_records}
         participant_emails = {record["email"] for record in track_records if record["email"]}
         started_people = {record["person_key"] for record in track_records if record["started"]}
         started_emails = {record["email"] for record in track_records if record["email"] and record["started"]}
         graduated_people = {record["person_key"] for record in track_records if record["graduated"]}
         graduated_emails = {record["email"] for record in track_records if record["email"] and record["graduated"]}
-        graduation_eligible = len(
-            [
-                record
-                for record in graduation_scope_records
-                if record.get("status") in PARTICIPANT_STATUS_GRADUATION_ELIGIBLE
-            ]
-        )
+        graduation_eligible = len([record for record in graduation_scope_records if record["started"]])
         graduation_graduated = len([record for record in graduation_scope_records if record["graduated"]])
         graduation_dropped_out = len(
             [
@@ -1252,12 +1244,7 @@ def _participant_summary(records: list[dict], group_numbers: set[int] | None = N
         len(groups_with_participants),
         groups_in_system,
     ) if groups_in_system else 0
-    overall_graduation_scope_records = [
-        record
-        for record in records
-        if record.get("group_number") in completed_group_numbers
-        and record.get("status") in PARTICIPANT_STATUS_GRADUATION_ELIGIBLE
-    ]
+    overall_graduation_scope_records = [record for record in records if record["started"]]
     overall_graduation_eligible = len(overall_graduation_scope_records)
     overall_graduation_graduated = len(
         [record for record in overall_graduation_scope_records if record["graduated"]]
@@ -1520,12 +1507,13 @@ def _impact_funnel_summary(
     *,
     track_filter: str = "all",
 ) -> dict:
-    """Applicant-to-graduate funnel, one column per track plus a combined column.
+    """Recruitment funnel plus program outcomes, one column per track and combined.
 
-    Applicants are unique emails from the application forms. Training, Acta and
-    program start are matched to those applicants by email so every percentage
-    is "of applicants" and can never exceed 100%. Graduated and Dropped out are
-    measured against women who started, in groups that have finished.
+    Recruitment steps (Applied -> Selected -> Training -> Acta -> Started) are
+    matched to applicant emails, so each is a share of applicants and never
+    exceeds 100%. Outcomes cover every woman who started, in any group on the
+    Participants pages: each is classified once as Graduated, Still active or
+    Dropped out, so the three add up to exactly the number who started.
     """
     track_filter = _normalize_impact_track_filter(track_filter)
     if track_filter == "all":
@@ -1559,14 +1547,15 @@ def _impact_funnel_summary(
             entry["started"] = entry["started"] or bool(record.get("started"))
         matched = applicants & set(flags)
 
-        completed = [record for record in track_records if record.get("group_completed")]
-        started_people = {record["person_key"] for record in completed if record["started"]}
-        graduated_people = {record["person_key"] for record in completed if record["graduated"]}
-        dropped_people = {
+        # Outcomes: one bucket per woman (graduated beats active beats dropped out).
+        started_people = {record["person_key"] for record in track_records if record["started"]}
+        graduated_people = {record["person_key"] for record in track_records if record["graduated"]}
+        active_people = {
             record["person_key"]
-            for record in completed
-            if record.get("status") in PARTICIPANT_STATUS_DROPPED_OUT
+            for record in track_records
+            if record.get("status") in IMPACT_STATUS_ACTIVE
         } - graduated_people
+        dropped_people = started_people - graduated_people - active_people
 
         columns.append(
             {
@@ -1574,17 +1563,28 @@ def _impact_funnel_summary(
                 "applicants": len(applicants),
                 "first_applicants": len(first_applicants),
                 "second_applicants": len(second_applicants),
+                "selected": len(matched),
                 "training": sum(1 for email in matched if flags[email]["training"]),
                 "acta": sum(1 for email in matched if flags[email]["acta"]),
                 "started": sum(1 for email in matched if flags[email]["started"]),
                 "unmatched_participants": len(set(flags) - applicants),
-                "started_completed": len(started_people),
+                "started_all": len(started_people),
                 "graduated": len(graduated_people),
+                "active": len(active_people),
                 "dropped_out": len(dropped_people),
             }
         )
 
-    def stage(key: str, label: str, definition: str, *, pct_of: str | None, pct_label: str, short: str = "") -> dict:
+    def stage(
+        key: str,
+        label: str,
+        definition: str,
+        *,
+        pct_of: str | None,
+        pct_label: str,
+        short: str = "",
+        section: str = "",
+    ) -> dict:
         cells = []
         for column in columns:
             count = column[key]
@@ -1596,21 +1596,36 @@ def _impact_funnel_summary(
                     "pct_width": min(100, _rate(count, base)) if base else 0,
                 }
             )
-        return {"label": label, "definition": definition, "short": short, "pct_label": pct_label, "cells": cells}
+        return {
+            "label": label,
+            "definition": definition,
+            "short": short,
+            "pct_label": pct_label,
+            "section": section,
+            "cells": cells,
+        }
 
     stages = [
         stage(
             "applicants",
             "Applied",
-            "Unique people (by email) who submitted at least one application form for a group in this view.",
+            "Unique people (by email) who submitted at least one application form.",
             pct_of=None,
             pct_label="",
             short="Submitted an application",
         ),
         stage(
+            "selected",
+            "Selected",
+            "Applicants who appear on a group's Participants sheet, with any status.",
+            pct_of="applicants",
+            pct_label="of applicants",
+            short="On a group's Participants sheet",
+        ),
+        stage(
             "training",
             "Completed training",
-            "Applicants who finished the online course (Capacitación) or went on to sign the Acta or start.",
+            "Applicants who finished the online course or went on to sign the Acta or start.",
             pct_of="applicants",
             pct_label="of applicants",
             short="Finished the online course",
@@ -1618,7 +1633,7 @@ def _impact_funnel_summary(
         stage(
             "acta",
             "Signed Acta",
-            "Applicants who signed the Acta de compromiso (the participation agreement) or went on to start.",
+            "Applicants who signed the Acta (participation agreement) or went on to start.",
             pct_of="applicants",
             pct_label="of applicants",
             short="Signed the participation agreement",
@@ -1626,39 +1641,56 @@ def _impact_funnel_summary(
         stage(
             "started",
             "Started program",
-            "Applicants whose status shows they began the mentoring program (any status other than No firmó Acta / No Capacitación).",
+            "Applicants with status Graduada, Activa, No Continúa P or No Continúa PP.",
             pct_of="applicants",
             pct_label="of applicants",
             short="Began mentoring",
         ),
         stage(
+            "started_all",
+            "Women who started",
+            "Everyone with status Graduada, Activa, No Continúa P or No Continúa PP, whether or not an application is on file.",
+            pct_of=None,
+            pct_label="",
+            short="All groups on the Participants pages",
+            section="Outcomes",
+        ),
+        stage(
             "graduated",
             "Graduated",
-            "Women with status Graduada, out of women who started in groups that have finished.",
-            pct_of="started_completed",
+            "Status Graduada.",
+            pct_of="started_all",
             pct_label="of women who started",
             short="Completed the program",
         ),
         stage(
+            "active",
+            "Still active",
+            "Status Activa.",
+            pct_of="started_all",
+            pct_label="of women who started",
+            short="Currently in the program",
+        ),
+        stage(
             "dropped_out",
             "Dropped out",
-            "Women who started but stopped (No Continúa P or PP), out of women who started in groups that have finished.",
-            pct_of="started_completed",
+            "Status No Continúa P or No Continúa PP.",
+            pct_of="started_all",
             pct_label="of women who started",
-            short="Started, then stopped",
+            short="Started, then left",
         ),
     ]
     summary = dict(columns[-1])
     summary["started_pct"] = _rate(summary["started"], summary["applicants"])
-    summary["graduated_pct"] = _rate(summary["graduated"], summary["started_completed"])
-    summary["dropped_out_pct"] = _rate(summary["dropped_out"], summary["started_completed"])
+    summary["graduated_pct"] = _rate(summary["graduated"], summary["started_all"])
+    summary["active_pct"] = _rate(summary["active"], summary["started_all"])
+    summary["dropped_out_pct"] = _rate(summary["dropped_out"], summary["started_all"])
     return {
         "columns": columns,
         "summary": summary,
         "stages": stages,
         "first_second_note": bool(application_summary.get("two_stage_groups")),
         "two_stage_groups": application_summary.get("two_stage_groups", []),
-        "started_completed": [column["started_completed"] for column in columns],
     }
 
 
@@ -3496,7 +3528,7 @@ def _render_group_impact_report_pdf(payload: dict) -> bytes:
             "value": _impact_pdf_value(overall_participants["graduation_rate"], "%"),
             "note": (
                 f"{overall_participants.get('graduation_graduated', 0)} graduated of "
-                f"{overall_participants.get('graduation_eligible', 0)} eligible outcomes "
+                f"{overall_participants.get('graduation_eligible', 0)} who started "
                 "(Graduada + No Continua P/PP)"
             ),
             "color": "#22C55E",

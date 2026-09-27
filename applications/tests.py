@@ -1564,7 +1564,7 @@ class WebsiteTrafficTrackingTests(TestCase):
         response = self.client.get(reverse("admin_website_traffic_dashboard"))
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Website, Social and Courses")
+        self.assertContains(response, "Website Traffic")
         self.assertContains(response, "Active now")
         self.assertEqual(response.context["active_visitors"], 1)
         cards = {card["label"]: card for card in response.context["period_cards"]}
@@ -6975,7 +6975,7 @@ class ImpactDashboardMetricTests(TestCase):
         self.assertTrue(dataset["stale"])
         self.assertEqual(dataset["responses_count"], 1)
 
-    def test_participant_aggregates_include_stored_group_workbooks_without_google_link(self):
+    def test_participant_aggregates_exclude_stored_group_workbooks_without_google_link(self):
         unlinked_group = FormGroup.objects.create(
             number=985,
             custom_name="Group 985",
@@ -6995,11 +6995,13 @@ class ImpactDashboardMetricTests(TestCase):
         records = admin_dashboard_views._participant_records()
         profile_email_keys = admin_profiles_views._participant_list_email_keys()
 
-        self.assertIn("unlinked@example.com", {row["email"] for row in records})
+        # Only groups with a linked Google Sheet feed the impact dashboard.
+        self.assertNotIn("unlinked@example.com", {row["email"] for row in records})
+        self.assertNotIn(985, admin_dashboard_views._impact_allowed_group_numbers())
         self.assertNotIn("unlinked@example.com", profile_email_keys)
         self.assertIn("founder@example.com", profile_email_keys)
 
-    def test_uploaded_historical_group_is_included_without_google_link_or_group_label(self):
+    def test_uploaded_historical_group_needs_a_linked_sheet_to_be_included(self):
         historical_group = FormGroup.objects.create(
             number=986,
             custom_name="Cohorte histórica 986",
@@ -7026,7 +7028,7 @@ class ImpactDashboardMetricTests(TestCase):
         row[4] = "H986"
         row[5] = "historical986@example.com"
         row[7] = "Colombia"
-        GroupParticipantList.objects.create(
+        historical_list = GroupParticipantList.objects.create(
             group=historical_group,
             emprendedoras_sheet_rows=[row],
         )
@@ -7041,12 +7043,20 @@ class ImpactDashboardMetricTests(TestCase):
             source_row_number=2,
         )
 
-        records = admin_dashboard_views._participant_records()
-        matching = [
-            record
-            for record in records
-            if record["email"] == "historical986@example.com"
-        ]
+        def historical_records():
+            return [
+                record
+                for record in admin_dashboard_views._participant_records()
+                if record["email"] == "historical986@example.com"
+            ]
+
+        # Without a linked Google Sheet the group is left out of impact totals.
+        self.assertEqual(historical_records(), [])
+        self.assertNotIn(986, {row["number"] for row in admin_dashboard_views._impact_group_options()})
+
+        historical_list.google_sheet_url = "https://docs.google.com/spreadsheets/d/group986/edit"
+        historical_list.save(update_fields=["google_sheet_url", "updated_at"])
+        matching = historical_records()
 
         self.assertEqual(len(matching), 1)
         self.assertEqual(matching[0]["source"], "historical_import")
@@ -7134,6 +7144,7 @@ class ImpactDashboardMetricTests(TestCase):
             rows.append(row)
         GroupParticipantList.objects.create(
             group=country_group,
+            google_sheet_url="https://docs.google.com/spreadsheets/d/country/edit",
             mentoras_sheet_rows=rows,
         )
 
@@ -7365,6 +7376,7 @@ class ImpactDashboardMetricTests(TestCase):
         legacy[13] = False
         GroupParticipantList.objects.create(
             group=group,
+            google_sheet_url="https://docs.google.com/spreadsheets/d/columns/edit",
             emprendedoras_sheet_rows=[current, legacy],
         )
 

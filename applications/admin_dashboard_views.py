@@ -1029,6 +1029,7 @@ def _participant_records() -> list[dict]:
     participant_lists = (
         GroupParticipantList.objects.select_related("group")
         .filter(group__is_active=True)
+        .exclude(google_sheet_url="")
         .order_by("group__number", "id")
     )
     group_map = {group.number: group for group in FormGroup.objects.all()}
@@ -1042,10 +1043,12 @@ def _participant_records() -> list[dict]:
         group_label = _impact_group_label(group_number, group_map)
         group_completed = _impact_group_is_completed(group)
         group_start_date = _impact_group_start_date(group)
+        if not str(participant_list.google_sheet_url or "").strip():
+            continue
         source = (
             "historical_import"
             if group_number in historical_group_numbers
-            else ("google_sheet" if participant_list.google_sheet_url else "stored_workbook")
+            else "google_sheet"
         )
 
         for track_key, cfg in PARTICIPANT_TRACK_CONFIGS.items():
@@ -2875,9 +2878,24 @@ def _load_impact_survey_datasets(
     return datasets, email_sets
 
 
+def _impact_linked_group_numbers() -> set[int]:
+    """Groups whose Participants page has a linked Google Sheet.
+
+    Impact reports only use these groups so that auto-built or unlinked
+    participant lists never inflate the totals.
+    """
+    return {
+        int(number)
+        for number in GroupParticipantList.objects.exclude(google_sheet_url="")
+        .filter(group__number__isnull=False)
+        .values_list("group__number", flat=True)
+    }
+
+
 def _impact_group_options() -> list[dict]:
     group_map = {group.number: group for group in FormGroup.objects.order_by("-number")}
     historical_group_numbers = _impact_historical_group_numbers()
+    linked_group_numbers = _impact_linked_group_numbers()
     return [
         {
             "number": group.number,
@@ -2885,27 +2903,33 @@ def _impact_group_options() -> list[dict]:
         }
         for group in group_map.values()
         for label in [_impact_group_label(group.number, group_map)]
-        if _impact_group_is_program(group, historical_group_numbers)
+        if group.number in linked_group_numbers
+        and _impact_group_is_program(group, historical_group_numbers)
     ]
 
 
 def _impact_allowed_group_numbers() -> set[int]:
     group_map = {group.number: group for group in FormGroup.objects.all()}
     historical_group_numbers = _impact_historical_group_numbers()
+    linked_group_numbers = _impact_linked_group_numbers()
     return {
         int(group.number)
         for group in group_map.values()
-        if _impact_group_is_program(group, historical_group_numbers)
+        if group.number in linked_group_numbers
+        and _impact_group_is_program(group, historical_group_numbers)
     }
 
 
 def _impact_year_options() -> list[int]:
     group_map = {group.number: group for group in FormGroup.objects.exclude(year__isnull=True)}
     historical_group_numbers = _impact_historical_group_numbers()
+    linked_group_numbers = _impact_linked_group_numbers()
     years = {
         int(group.year)
         for group in group_map.values()
-        if group.year and _impact_group_is_program(group, historical_group_numbers)
+        if group.year
+        and group.number in linked_group_numbers
+        and _impact_group_is_program(group, historical_group_numbers)
     }
     return sorted(years, reverse=True)
 

@@ -499,33 +499,6 @@
         </section>
       </div>
 
-      <!-- Reach -->
-      <div class="ce-row">
-        <section class="ce-card ce-card--wide">
-          <div class="ce-card-head">
-            <div><p class="ce-kicker">Reach</p><h2 class="ce-title">Website, Social and Courses</h2></div>
-            <span class="ce-badge">Overall totals · not affected by filters</span>
-          </div>
-          <div class="ce-tiles">
-            <div class="ce-tile">
-              <div class="ce-tile-k">Website visitors · 30 days</div>
-              <div class="ce-tile-v">{{ website_traffic_summary.month_visitors }}</div>
-              <div class="ce-tile-n">{{ website_traffic_summary.month_pageviews }} pageviews · {{ website_traffic_summary.all_visitors }} visitors since tracking began</div>
-            </div>
-            <div class="ce-tile">
-              <div class="ce-tile-k">Social followers</div>
-              <div class="ce-tile-v">{% if social_summary.available %}{{ social_summary.followers }}{% else %}–{% endif %}</div>
-              <div class="ce-tile-n">{% if social_summary.available %}{{ social_summary.follower_growth }} change ({{ social_summary.date_from }}–{{ social_summary.date_to }}){% else %}Not loaded yet. Use Refresh data once.{% endif %}</div>
-            </div>
-            <div class="ce-tile">
-              <div class="ce-tile-k">Course completions outside mentoring</div>
-              <div class="ce-tile-v">{% if course_usage_summary.available %}{{ course_usage_summary.outside_program }}{% else %}–{% endif %}</div>
-              <div class="ce-tile-n">{% if course_usage_summary.available %}of {{ course_usage_summary.completed }} Wix course completions{% else %}No saved Wix snapshot yet.{% endif %}</div>
-            </div>
-          </div>
-        </section>
-      </div>
-
       <!-- Country -->
       <div class="ce-row">
         <section class="ce-card ce-card--wide">

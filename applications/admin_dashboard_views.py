@@ -3284,9 +3284,6 @@ def _build_group_impact_report_payload(
         "alumni_summary": alumni_summary,
         "milestone_summary": _impact_milestone_summary(participant_records),
         "qualitative_summary": _impact_qualitative_summary(participant_records),
-        "website_traffic_summary": _impact_website_traffic_summary(),
-        "social_summary": _impact_social_summary(),
-        "course_usage_summary": _impact_course_usage_summary(all_records),
         "automation_summary": _impact_automation_summary(),
         "group_source_rows": group_source_rows,
         "participant_country_chart_data": _participant_country_chart_data(participant_summary),
@@ -3528,9 +3525,6 @@ def _render_group_impact_report_pdf(payload: dict) -> bytes:
         row.get("key"): row for row in milestone_summary.get("rows", [])
     }
     qualitative_summary = payload.get("qualitative_summary", {})
-    website_traffic_summary = payload.get("website_traffic_summary", {})
-    social_summary = payload.get("social_summary", {})
-    course_usage_summary = payload.get("course_usage_summary", {})
     automation_summary = payload.get("automation_summary", {})
     country_data = payload.get("participant_country_chart_data", {})
     status_data = payload.get("participant_status_chart_data", {})
@@ -3644,26 +3638,6 @@ def _render_group_impact_report_pdf(payload: dict) -> bytes:
         milestone_card("certificacion", "#6366F1"),
         milestone_card("initial_survey", "#F59E0B"),
         milestone_card("final_survey", "#F97316"),
-        {
-            "label": "Website Visitors · 30 Days",
-            "value": website_traffic_summary.get("month_visitors", 0),
-            "note": f"{website_traffic_summary.get('month_pageviews', 0)} pageviews · global",
-            "color": "#0EA5E9",
-        },
-        {
-            "label": "Social Media Followers",
-            "value": social_summary.get("followers", "-") if social_summary.get("available") else "-",
-            "note": "Latest saved social snapshot · global",
-            "color": "#EC4899",
-        },
-        {
-            "label": "Courses Outside Mentoring",
-            "value": course_usage_summary.get("outside_program", "-")
-            if course_usage_summary.get("available")
-            else "-",
-            "note": "Wix completions absent from participant history",
-            "color": "#06B6D4",
-        },
         {
             "label": "Excelente / Testimonial",
             "value": qualitative_summary.get("excellent_count", 0),
@@ -3906,9 +3880,6 @@ def _impact_dashboard_context_from_payload(payload: dict) -> dict:
             "alumni_summary": payload["alumni_summary"],
             "milestone_summary": payload.get("milestone_summary", {}),
             "qualitative_summary": payload.get("qualitative_summary", {}),
-            "website_traffic_summary": payload.get("website_traffic_summary", {}),
-            "social_summary": payload.get("social_summary", {}),
-            "course_usage_summary": payload.get("course_usage_summary", {}),
             "automation_summary": payload.get("automation_summary", {}),
             "group_source_rows": payload["group_source_rows"],
             "nps_rows": payload.get("nps_rows", [])[:12],
@@ -4811,12 +4782,6 @@ def impact_dashboard(request):
             "alumni_summary": alumni_summary,
             "milestone_summary": _impact_milestone_summary(participant_records),
             "qualitative_summary": _impact_qualitative_summary(participant_records),
-            "website_traffic_summary": _impact_website_traffic_summary(),
-            "social_summary": _impact_social_summary(refresh=refresh_data),
-            "course_usage_summary": _impact_course_usage_summary(
-                all_participant_records,
-                refresh=refresh_data,
-            ),
             "automation_summary": _impact_automation_summary(),
             "survey_source_note": (
                 "Survey metrics are limited to known participant emails and use the survey group column for cohort filters."

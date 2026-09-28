@@ -3383,6 +3383,41 @@ def _sync_group_from_linked_google_sheet(
     }
 
 
+def _sync_all_linked_group_sheets(request=None) -> dict:
+    """Refresh every group's own linked Google Sheet, one group at a time.
+
+    Used by the "Refresh all linked sheets" action on the Participants page,
+    and by anything else that wants every group's cached rows brought current
+    (the impact dashboard only reads these cached rows, so this is how staff
+    refresh it in bulk instead of visiting each group).
+    """
+    linked_lists = (
+        GroupParticipantList.objects.select_related("group")
+        .exclude(google_sheet_url="")
+        .order_by("group__number")
+    )
+    synced: list[dict] = []
+    failed: list[dict] = []
+    for participant_list in linked_lists:
+        group = participant_list.group
+        if not group:
+            continue
+        try:
+            result = _sync_group_from_linked_google_sheet(
+                group=group,
+                participant_list=participant_list,
+                sheet_url=participant_list.google_sheet_url,
+                request=request,
+            )
+        except Exception as exc:
+            participant_list.google_sheet_sync_error = str(exc)
+            participant_list.save(update_fields=["google_sheet_sync_error", "updated_at"])
+            failed.append({"group_number": group.number, "error": str(exc)})
+            continue
+        synced.append({"group_number": group.number, **result})
+    return {"synced": synced, "failed": failed}
+
+
 def _push_linked_participant_checkboxes(participant_list) -> int:
     if not participant_list or not str(participant_list.google_sheet_url or "").strip():
         return 0
@@ -4849,6 +4884,27 @@ def profiles_participants(request):
 
     if request.method == "POST":
         action = (request.POST.get("action") or "save_sheet").strip()
+        if action == "sync_all_linked_google_sheets":
+            summary = _sync_all_linked_group_sheets(request=request)
+            synced, failed = summary["synced"], summary["failed"]
+            if synced:
+                groups_text = ", ".join(str(item["group_number"]) for item in synced)
+                messages.success(
+                    request,
+                    f"Refreshed {len(synced)} linked sheet{'s' if len(synced) != 1 else ''}: Group {groups_text}.",
+                )
+            if failed:
+                for item in failed:
+                    messages.error(
+                        request,
+                        f"Could not refresh Group {item['group_number']}: {item['error']}",
+                    )
+            if not synced and not failed:
+                messages.info(request, "No groups have a linked Google Sheet yet.")
+            redirect_group = group_raw if group_raw.isdigit() else ""
+            suffix = f"?group={redirect_group}" if redirect_group else ""
+            return redirect(f"{reverse('admin_profiles_participants')}{suffix}")
+
         if action in {"save_google_sheet_link", "sync_linked_google_sheet", "unlink_google_sheet"}:
             posted_group = (request.POST.get("group") or "").strip()
             target_group = groups_qs.filter(number=int(posted_group)).first() if posted_group.isdigit() else None

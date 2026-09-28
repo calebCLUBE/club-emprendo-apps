@@ -9175,6 +9175,43 @@ class ParticipantsCapacitacionCheckTests(TestCase):
 
     @patch("applications.admin_profiles_views.update_google_spreadsheet_values")
     @patch("applications.admin_profiles_views.fetch_google_spreadsheet_tabs")
+    def test_refresh_all_syncs_every_linked_group_and_skips_unlinked_ones(
+        self,
+        mock_fetch_tabs,
+        mock_update_values,
+    ):
+        mock_fetch_tabs.return_value = self._linked_google_workbook_payload()
+        mock_update_values.return_value = 0
+        self.participant_list.google_sheet_url = "https://docs.google.com/spreadsheets/d/linked-sheet-123/edit"
+        self.participant_list.google_sheet_id = "linked-sheet-123"
+        self.participant_list.save(update_fields=["google_sheet_url", "google_sheet_id", "updated_at"])
+
+        other_group = FormGroup.objects.create(
+            number=994,
+            start_day=1,
+            start_month="mayo",
+            end_month="mayo",
+            year=2026,
+        )
+        # No linked sheet on this one; the bulk refresh must leave it alone.
+        GroupParticipantList.objects.create(group=other_group)
+
+        response = self.client.post(
+            reverse("admin_profiles_participants"),
+            data={"action": "sync_all_linked_google_sheets"},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.participant_list.refresh_from_db()
+        self.assertEqual(self.participant_list.mentoras_sheet_rows[0][3], "Mentora from Google")
+        mock_fetch_tabs.assert_called_once()
+
+        summary = admin_profiles_views._sync_all_linked_group_sheets()
+        self.assertEqual([item["group_number"] for item in summary["synced"]], [993])
+        self.assertEqual(summary["failed"], [])
+
+    @patch("applications.admin_profiles_views.update_google_spreadsheet_values")
+    @patch("applications.admin_profiles_views.fetch_google_spreadsheet_tabs")
     def test_group_link_merges_checked_values_from_google_and_website(
         self,
         mock_fetch_tabs,

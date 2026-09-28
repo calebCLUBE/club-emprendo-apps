@@ -15,6 +15,19 @@
       </p>
     </div>
     <nav class="ce-work-actions" aria-label="Participant page links">
+      <form method="post" style="display:inline;">
+        {% csrf_token %}
+        {% if selected_group %}<input type="hidden" name="group" value="{{ selected_group.number }}">{% endif %}
+        <button
+          class="ce-work-btn ce-work-btn--secondary"
+          type="submit"
+          name="action"
+          value="sync_all_linked_google_sheets"
+          title="Refresh every group's linked Google Sheet. Groups with no linked sheet are skipped; this can take a moment."
+        >
+          Refresh all linked sheets
+        </button>
+      </form>
       <a class="ce-work-btn ce-work-btn--secondary" href="{% url 'admin_profiles_list' %}">All profiles</a>
       <a class="ce-work-btn ce-work-btn--secondary" href="{% url 'admin_emparejamiento_home' %}">Emparejamiento</a>
       <a class="ce-work-btn ce-work-btn--secondary" href="{% url 'admin_historical_group_import' %}">Import historical group</a>

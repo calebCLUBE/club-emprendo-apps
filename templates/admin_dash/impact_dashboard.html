@@ -387,14 +387,15 @@
       <div class="ce-row">
         <section class="ce-card ce-card--wide" id="cohort-summary">
           <div class="ce-card-head">
-            <div><p class="ce-kicker">Cohort outcomes</p><h2 class="ce-title">Group Summary</h2></div>
+            <div><p class="ce-kicker">Cohort outcomes</p><h2 class="ce-title">Combined Group Summary</h2></div>
             <span class="ce-badge">Updated from participant records</span>
           </div>
-          <p class="ce-note">Each percentage uses the women who started in that role: Graduada, Activa, No Continua P or No Continua PP. Other statuses are excluded. A dash means nobody has started.</p>
-          {% for cohort in cohort_summaries %}
+          <p class="ce-note">Totals combine the groups selected by the filters. Each person counts once per group and role. Percentages use all started participations in that role: Graduada, Activa, No Continua P or No Continua PP. Other statuses are excluded. A dash means nobody has started.</p>
+          {% if combined_group_summary %}
+          {% with cohort=combined_group_summary %}
             <div class="ce-cohort-summary" style="margin-top:18px; break-inside:avoid;">
               <h3>{{ cohort.label }}</h3>
-              <p class="ce-note">Scheduled end: {{ cohort.end_label }} · {% if cohort.completed %}Program period ended{% else %}Program period not yet ended{% endif %}. Results reflect the latest saved statuses.</p>
+              <p class="ce-note">{{ cohort.group_count }} group{{ cohort.group_count|pluralize }} · Results reflect the latest saved statuses and selected filters.</p>
               <div style="overflow-x:auto;">
                 <table class="ce-table" style="width:100%;">
                   <thead><tr><th scope="col">Outcome / milestone</th>{% for column in cohort.columns %}<th scope="col">{{ column }} · count (%)</th>{% endfor %}</tr></thead>
@@ -404,8 +405,9 @@
                 </table>
               </div>
             </div>
-          {% empty %}<p class="ce-empty">No participant records for the selected filters.</p>{% endfor %}
-          <p class="ce-note" style="margin-top:14px;">“Mentored in a later group” counts mentoras who repeated and emprendedoras who became mentoras, once per person. It checks all available linked-group history beyond the selected group/year, matches email (or document when email is missing), and requires a later start date and evidence that they started as a mentora. Missing identity, dates or unrecorded future participation cannot be confirmed. Milestones can overlap.</p>
+          {% endwith %}
+          {% else %}<p class="ce-empty">No participant records for the selected filters.</p>{% endif %}
+          <p class="ce-note" style="margin-top:14px;">“Mentored in a later group” counts mentoras who repeated and emprendedoras who became mentoras, once per source participation. It checks all available linked-group history beyond the selected group/year, matches email (or document when email is missing), and requires a later start date and evidence that they started as a mentora. Missing identity, dates or unrecorded future participation cannot be confirmed. Milestones can overlap.</p>
         </section>
       </div>
 

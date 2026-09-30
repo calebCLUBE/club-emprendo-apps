@@ -1791,73 +1791,65 @@ def _impact_country_table(participant_summary: dict, *, limit: int = 8) -> dict:
     }
 
 
-def _impact_cohort_summaries(records: list[dict], history: list[dict]) -> list[dict]:
-    """Summarize scoped cohorts while looking forward across the full history."""
+def _impact_combined_group_summary(records: list[dict], history: list[dict]) -> dict:
+    """Pool filtered participations; compare each with the full later history."""
     records = _dedupe_participant_records(records)
+    if not records:
+        return {}
     later_mentoring = defaultdict(list)
     for record in _dedupe_participant_records(history):
         if record.get("track") == "m" and record.get("started") and record.get("group_start_date"):
             later_mentoring[record["person_key"]].append(record)
 
-    grouped = defaultdict(list)
-    for record in records:
-        grouped[record["group_number"]].append(record)
-    groups = {group.number: group for group in FormGroup.objects.filter(number__in=grouped)}
-    summaries = []
-    for number in sorted(grouped):
-        cohort = grouped[number]
-        group = groups.get(number)
-        tracks = [key for key in ("m", "e") if any(r["track"] == key for r in cohort)]
-        track_data = {}
-        for track in tracks:
-            started = [r for r in cohort if r["track"] == track and r.get("started")]
-            counts = {"started": len(started)}
-            # One outcome per person; graduation takes precedence for duplicate rows.
-            counts["graduated"] = sum(bool(r.get("graduated")) for r in started)
-            counts["active"] = sum(not r.get("graduated") and r.get("status") == "A" for r in started)
-            for key, status in (("drop_program", "NCP"), ("drop_personal", "NCPP")):
-                counts[key] = sum(not r.get("graduated") and r.get("status") == status for r in started)
-            for key in ("acta", "capacitacion", "initial_survey", "final_survey", "certificacion"):
-                counts[key] = sum(bool(r.get(key)) for r in started)
-            counts["later_mentor"] = sum(
-                any(
-                    later["group_number"] != number
-                    and later["group_start_date"] > r["group_start_date"]
-                    for later in later_mentoring.get(r["person_key"], [])
-                )
-                for r in started if r.get("group_start_date")
+    tracks = [key for key in ("m", "e") if any(r["track"] == key for r in records)]
+    track_data = {}
+    for track in tracks:
+        started = [r for r in records if r["track"] == track and r.get("started")]
+        counts = {"started": len(started)}
+        # One outcome per person; graduation takes precedence for duplicate rows.
+        counts["graduated"] = sum(bool(r.get("graduated")) for r in started)
+        counts["active"] = sum(not r.get("graduated") and r.get("status") == "A" for r in started)
+        for key, status in (("drop_program", "NCP"), ("drop_personal", "NCPP")):
+            counts[key] = sum(not r.get("graduated") and r.get("status") == status for r in started)
+        for key in ("acta", "capacitacion", "initial_survey", "final_survey", "certificacion"):
+            counts[key] = sum(bool(r.get(key)) for r in started)
+        counts["later_mentor"] = sum(
+            any(
+                later["group_number"] != r["group_number"]
+                and later["group_start_date"] > r["group_start_date"]
+                for later in later_mentoring.get(r["person_key"], [])
             )
-            track_data[track] = counts
-        metrics = [
-            ("started", "Started program"),
-            ("graduated", "Graduated"),
-            ("active", "Still active"),
-            ("drop_program", "Dropped out — program reasons"),
-            ("drop_personal", "Dropped out — personal reasons"),
-            ("acta", "Signed agreement"),
-            ("capacitacion", "Completed training"),
-            ("initial_survey", "Initial survey recorded"),
-            ("final_survey", "Final survey recorded"),
-            ("certificacion", "Certification recorded"),
-            ("later_mentor", "Mentored in a later group"),
-        ]
-        rows = []
-        for key, label in metrics:
-            cells = []
-            for track in tracks:
-                count = track_data[track][key]
-                base = track_data[track]["started"]
-                cells.append({"count": count, "pct": _rate(count, base) if base else None})
-            rows.append({"key": key, "label": label, "cells": cells})
-        summaries.append({
-            "group_number": number,
-            "label": cohort[0]["group_label"],
-            "end_label": f"{group.end_month} {group.end_year or group.year}" if group else "Unknown",
-            "completed": cohort[0].get("group_completed", False),
-            "columns": [PARTICIPANT_TRACK_CONFIGS[t]["label"] for t in tracks],
-            "rows": rows,
-        })
-    return summaries
+            for r in started if r.get("group_start_date")
+        )
+        track_data[track] = counts
+    metrics = [
+        ("started", "Started program"),
+        ("graduated", "Graduated"),
+        ("active", "Still active"),
+        ("drop_program", "Dropped out — program reasons"),
+        ("drop_personal", "Dropped out — personal reasons"),
+        ("acta", "Signed agreement"),
+        ("capacitacion", "Completed training"),
+        ("initial_survey", "Initial survey recorded"),
+        ("final_survey", "Final survey recorded"),
+        ("certificacion", "Certification recorded"),
+        ("later_mentor", "Mentored in a later group"),
+    ]
+    rows = []
+    for key, label in metrics:
+        cells = []
+        for track in tracks:
+            count = track_data[track][key]
+            base = track_data[track]["started"]
+            cells.append({"count": count, "pct": _rate(count, base) if base else None})
+        rows.append({"key": key, "label": label, "cells": cells})
+    numbers = {record["group_number"] for record in records if record.get("group_number") is not None}
+    return {
+        "label": _impact_group_range_label(numbers),
+        "group_count": len(numbers),
+        "columns": [PARTICIPANT_TRACK_CONFIGS[t]["label"] for t in tracks],
+        "rows": rows,
+    }
 
 
 def _alumni_mentor_summary(records: list[dict]) -> dict:
@@ -3340,7 +3332,7 @@ def _build_group_impact_report_payload(
         "filter_year": year,
         "track_filter": track_filter,
         "generated_at": timezone.localtime(timezone.now()).strftime("%Y-%m-%d %H:%M"),
-        "cohort_summaries": _impact_cohort_summaries(participant_records, all_records),
+        "combined_group_summary": _impact_combined_group_summary(participant_records, all_records),
         "participant_summary": participant_summary,
         "application_summary": application_summary,
         "conversion_rows": conversion_rows,
@@ -3920,10 +3912,11 @@ def _render_group_impact_report_pdf(payload: dict) -> bytes:
         pdf.savefig(fig)
         plt.close(fig)
 
-        for cohort in payload.get("cohort_summaries", []):
+        cohort = payload.get("combined_group_summary", {})
+        if cohort:
             fig = plt.figure(figsize=(11.7, 8.3))
-            fig.text(0.06, 0.94, f"Group summary — {cohort['label']}", fontsize=18, weight="bold")
-            fig.text(0.06, 0.89, f"Scheduled end: {cohort['end_label']} | Percentages of those who started in each role.", fontsize=10)
+            fig.text(0.06, 0.94, "Combined Group Summary", fontsize=18, weight="bold")
+            fig.text(0.06, 0.89, f"{cohort['label']} | Percentages of started participations in each role.", fontsize=10)
             ax = fig.add_axes([0.06, 0.22, 0.88, 0.61])
             rows = [
                 [row["label"]] + [
@@ -3932,8 +3925,8 @@ def _render_group_impact_report_pdf(payload: dict) -> bytes:
                 ] for row in cohort["rows"]
             ]
             _impact_pdf_draw_table(ax, "", ["Outcome / milestone"] + cohort["columns"], rows, font_size=10)
-            fig.text(0.06, 0.14, "Later mentoring: repeat mentoras or emprendedoras who became mentoras, counted once per person.", fontsize=9)
-            fig.text(0.06, 0.10, "Uses all linked-group history, matched by participant identity and a strictly later start date.", fontsize=9)
+            fig.text(0.06, 0.14, "Later mentoring: repeat mentoras or emprendedoras who became mentoras, once per source participation.", fontsize=9)
+            fig.text(0.06, 0.10, "Counts each person once per group and role; later mentoring checks all linked groups and later start dates.", fontsize=9)
             pdf.savefig(fig)
             plt.close(fig)
 
@@ -3957,7 +3950,7 @@ def _impact_dashboard_context_from_payload(payload: dict) -> dict:
                 {"value": "e", "label": "Emprendedoras"},
                 {"value": "m", "label": "Mentoras"},
             ],
-            "cohort_summaries": payload.get("cohort_summaries", []),
+            "combined_group_summary": payload.get("combined_group_summary", {}),
             "participant_summary": payload["participant_summary"],
             "application_summary": payload["application_summary"],
             "conversion_rows": payload["conversion_rows"],
@@ -4856,7 +4849,7 @@ def impact_dashboard(request):
                 year=year_filter,
                 track_filter=track_filter,
             ),
-            "cohort_summaries": _impact_cohort_summaries(participant_records, all_participant_records),
+            "combined_group_summary": _impact_combined_group_summary(participant_records, all_participant_records),
             "participant_summary": participant_summary,
             "application_summary": application_summary,
             "conversion_rows": conversion_rows,

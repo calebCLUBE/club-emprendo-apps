@@ -7950,7 +7950,7 @@ class ImpactDashboardMetricTests(TestCase):
 
     def test_cohort_summary_uses_starters_and_finds_later_mentoring_outside_filters(self):
         from datetime import date
-        from applications.admin_dashboard_views import _impact_cohort_summaries
+        from applications.admin_dashboard_views import _impact_combined_group_summary
 
         def rec(person, status, track="m", number=981, start=date(2026, 1, 1)):
             return {
@@ -7972,21 +7972,29 @@ class ImpactDashboardMetricTests(TestCase):
             rec("drop1", "A", number=983, start=date(2026, 1, 1)),
             rec("drop2", "NFA", number=982, start=date(2027, 1, 1)),
         ]
-        summary = _impact_cohort_summaries(records, history)
-        self.assertEqual(len(summary), 1)
-        rows = {row["key"]: row["cells"] for row in summary[0]["rows"]}
+        summary = _impact_combined_group_summary(records, history)
+        self.assertEqual(summary["group_count"], 1)
+        rows = {row["key"]: row["cells"] for row in summary["rows"]}
         self.assertEqual(rows["started"][0], {"count": 4, "pct": 100.0})
         for key in ("graduated", "active", "drop_program", "drop_personal"):
             self.assertEqual(rows[key][0], {"count": 1, "pct": 25.0})
         self.assertEqual(rows["later_mentor"], [{"count": 1, "pct": 25.0}, {"count": 1, "pct": 100.0}])
-        founders_only = _impact_cohort_summaries([r for r in records if r["track"] == "e"], history)
-        self.assertEqual(len(founders_only[0]["columns"]), 1)
-        self.assertEqual(founders_only[0]["rows"][-1]["cells"][0]["count"], 1)
-        no_starters = _impact_cohort_summaries([rec("none", "NFA")], history)
-        self.assertEqual(no_starters[0]["rows"][0]["cells"], [{"count": 0, "pct": None}])
+        # Pool counts, not group percentages: 2 graduates / 5 starts = 40%.
+        combined = _impact_combined_group_summary(
+            records + [rec("other", "G", number=982, start=date(2027, 1, 1))], history,
+        )
+        self.assertEqual(combined["group_count"], 2)
+        combined_rows = {row["key"]: row["cells"] for row in combined["rows"]}
+        self.assertEqual(combined_rows["started"][0], {"count": 5, "pct": 100.0})
+        self.assertEqual(combined_rows["graduated"][0], {"count": 2, "pct": 40.0})
+        founders_only = _impact_combined_group_summary([r for r in records if r["track"] == "e"], history)
+        self.assertEqual(len(founders_only["columns"]), 1)
+        self.assertEqual(founders_only["rows"][-1]["cells"][0]["count"], 1)
+        no_starters = _impact_combined_group_summary([rec("none", "NFA")], history)
+        self.assertEqual(no_starters["rows"][0]["cells"], [{"count": 0, "pct": None}])
         unknown_date = rec("founder", "G", "e", start=None)
-        self.assertEqual(_impact_cohort_summaries([unknown_date], history)[0]["rows"][-1]["cells"][0]["count"], 0)
-        self.assertEqual(_impact_cohort_summaries([], history), [])
+        self.assertEqual(_impact_combined_group_summary([unknown_date], history)["rows"][-1]["cells"][0]["count"], 0)
+        self.assertEqual(_impact_combined_group_summary([], history), {})
 
     @patch("applications.admin_dashboard_views._load_impact_survey_datasets", return_value=({}, {}))
     @patch("applications.admin_dashboard_views._final_completed_wellbeing_data", return_value=([], {}))
@@ -8000,12 +8008,19 @@ class ImpactDashboardMetricTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Group Summary")
         self.assertContains(response, "Mentored in a later group")
-        summary = response.context["cohort_summaries"]
-        self.assertEqual(len(summary), 1)
-        self.assertEqual(summary[0]["rows"][-1]["cells"][0], {"count": 1, "pct": 100.0})
+        summary = response.context["combined_group_summary"]
+        self.assertEqual(summary["group_count"], 1)
+        self.assertEqual(summary["rows"][-1]["cells"][0], {"count": 1, "pct": 100.0})
+        combined_response = self.client.get(reverse("admin_impact_dashboard"), {"year": 2026})
+        combined = combined_response.context["combined_group_summary"]
+        self.assertEqual(combined["group_count"], 2)
+        self.assertContains(combined_response, 'class="ce-cohort-summary"', count=1)
+        self.assertEqual(combined["rows"][0]["cells"][0]["count"], 3)
+        earlier_year = self.client.get(reverse("admin_impact_dashboard"), {"year": 2025})
+        self.assertEqual(earlier_year.context["combined_group_summary"]["group_count"], 1)
         payload = _build_group_impact_report_payload({981}, year=2026, track_filter="e")
-        self.assertEqual(payload["cohort_summaries"], summary)
-        self.assertEqual(_impact_dashboard_context_from_payload(payload)["cohort_summaries"], summary)
+        self.assertEqual(payload["combined_group_summary"], summary)
+        self.assertEqual(_impact_dashboard_context_from_payload(payload)["combined_group_summary"], summary)
 
     def test_impact_funnel_outcomes_add_up_to_everyone_who_started(self):
         def rec(email, status, **extra):

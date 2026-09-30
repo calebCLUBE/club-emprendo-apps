@@ -3630,6 +3630,71 @@ class GradingAndPairingConfigEditorTests(TestCase):
         )
         self.assertContains(response, "If one application type is still in a shared recruitment source")
 
+    def test_pairing_only_includes_active_participants_and_rechecks_at_job_start(self):
+        from applications.admin_views import _run_pair_job
+        from applications.models import PairingJob
+        from applications.pairing_forms import active_pairing_participant_emails
+        import pandas as pd
+
+        group = FormGroup.objects.create(
+            number=919, start_day=1, start_month="enero", end_month="abril", year=2026,
+        )
+        rows = [
+            ["", status, i, "Person", "ID", f"person{i}@example.com"]
+            for i, status in enumerate([
+                "Activa", " a ", "Graduada", "No Continua P", "No Continua PP",
+                "Siguiente grupo", "Cambio de grupo", "", "unknown", "Exelente",
+            ])
+        ]
+        participants = GroupParticipantList.objects.create(
+            group=group, mentoras_sheet_rows=rows, emprendedoras_sheet_rows=rows,
+            mentoras_emails_text="legacy@example.com",
+            emprendedoras_emails_text="legacy@example.com",
+        )
+        active = {"person0@example.com", "person1@example.com"}
+        for track in ("M", "E"):
+            self.assertEqual(active_pairing_participant_emails(group, track), active)
+        response = self.client.get(reverse("admin_emparejamiento_home"), {"group": group.number})
+        self.assertEqual(set(response.context["mentoras_emails"].splitlines()), active)
+        self.assertEqual(set(response.context["emprendedoras_emails"].splitlines()), active)
+
+        submitted = "\n".join([row[5] for row in rows] + ["legacy@example.com", "outsider@example.com"])
+        with patch("applications.admin_views.threading.Thread") as thread:
+            self.client.post(reverse("admin_emparejamiento_run", args=[group.number]), {
+                "mentoras_emails": submitted, "emprendedoras_emails": submitted,
+            })
+        job_id, number, emp_emails, mentor_emails = thread.call_args.kwargs["args"]
+        self.assertEqual(set(emp_emails), active)
+        self.assertEqual(set(mentor_emails), active)
+
+        rows[0][1] = "Graduada"
+        participants.mentoras_sheet_rows = rows
+        participants.emprendedoras_sheet_rows = rows
+        participants.save()
+        with patch("applications.admin_views._pair_one_group", return_value=pd.DataFrame()) as pair, patch(
+            "applications.admin_views.sync_generated_csv_artifact"
+        ):
+            _run_pair_job(job_id, number, emp_emails, mentor_emails)
+            self.assertEqual(pair.call_args.kwargs["emp_emails"], ["person1@example.com"])
+            self.assertEqual(pair.call_args.kwargs["mentor_emails"], ["person1@example.com"])
+
+        participants.mentoras_sheet_rows = []
+        participants.save()
+        self.assertEqual(active_pairing_participant_emails(group, "M"), set())
+        existing_output = GradedFile.objects.get(form_slug=f"PAIR_G{group.number}")
+        with patch("applications.admin_views._pair_one_group") as pair:
+            _run_pair_job(job_id, number, emp_emails, mentor_emails)
+        pair.assert_not_called()
+        self.assertEqual(PairingJob.objects.get(pk=job_id).status, PairingJob.STATUS_FAILED)
+        self.assertTrue(GradedFile.objects.filter(pk=existing_output.pk).exists())
+        count = PairingJob.objects.count()
+        with patch("applications.admin_views.threading.Thread") as thread:
+            self.client.post(reverse("admin_emparejamiento_run", args=[group.number]), {
+                "mentoras_emails": submitted, "emprendedoras_emails": submitted,
+            })
+        thread.assert_not_called()
+        self.assertEqual(PairingJob.objects.count(), count)
+
     def test_pairing_rule_form_accepts_only_selected_groups_current_questions(self):
         group = FormGroup.objects.create(
             number=910,
@@ -7882,6 +7947,65 @@ class ImpactDashboardMetricTests(TestCase):
         self.assertNotContains(response, "Matched intake source")
         self.assertNotContains(response, "Emprendedoras by Estatus")
         self.assertNotContains(response, "Mentoras by Estatus")
+
+    def test_cohort_summary_uses_starters_and_finds_later_mentoring_outside_filters(self):
+        from datetime import date
+        from applications.admin_dashboard_views import _impact_cohort_summaries
+
+        def rec(person, status, track="m", number=981, start=date(2026, 1, 1)):
+            return {
+                "person_key": person, "track": track, "group_number": number,
+                "group_label": f"Group {number}", "group_start_date": start,
+                "group_completed": True, "status": status,
+                "started": status in {"A", "G", "NCP", "NCPP"},
+                "graduated": status == "G", "acta": True,
+            }
+
+        records = [rec("grad", "G"), rec("active", "A"), rec("drop1", "NCP"),
+                   rec("drop2", "NCPP"), rec("excluded", "NFA"),
+                   rec("founder", "G", "e"), rec("grad", "G")]
+        history = records + [
+            rec("grad", "A", number=982, start=date(2027, 1, 1)),
+            rec("grad", "G", number=983, start=date(2028, 1, 1)),
+            rec("founder", "A", number=982, start=date(2027, 1, 1)),
+            rec("active", "A", number=980, start=date(2025, 1, 1)),
+            rec("drop1", "A", number=983, start=date(2026, 1, 1)),
+            rec("drop2", "NFA", number=982, start=date(2027, 1, 1)),
+        ]
+        summary = _impact_cohort_summaries(records, history)
+        self.assertEqual(len(summary), 1)
+        rows = {row["key"]: row["cells"] for row in summary[0]["rows"]}
+        self.assertEqual(rows["started"][0], {"count": 4, "pct": 100.0})
+        for key in ("graduated", "active", "drop_program", "drop_personal"):
+            self.assertEqual(rows[key][0], {"count": 1, "pct": 25.0})
+        self.assertEqual(rows["later_mentor"], [{"count": 1, "pct": 25.0}, {"count": 1, "pct": 100.0}])
+        founders_only = _impact_cohort_summaries([r for r in records if r["track"] == "e"], history)
+        self.assertEqual(len(founders_only[0]["columns"]), 1)
+        self.assertEqual(founders_only[0]["rows"][-1]["cells"][0]["count"], 1)
+        no_starters = _impact_cohort_summaries([rec("none", "NFA")], history)
+        self.assertEqual(no_starters[0]["rows"][0]["cells"], [{"count": 0, "pct": None}])
+        unknown_date = rec("founder", "G", "e", start=None)
+        self.assertEqual(_impact_cohort_summaries([unknown_date], history)[0]["rows"][-1]["cells"][0]["count"], 0)
+        self.assertEqual(_impact_cohort_summaries([], history), [])
+
+    @patch("applications.admin_dashboard_views._load_impact_survey_datasets", return_value=({}, {}))
+    @patch("applications.admin_dashboard_views._final_completed_wellbeing_data", return_value=([], {}))
+    def test_cohort_summary_is_shared_by_dashboard_and_pdf_payload(self, *_mocks):
+        from applications.admin_dashboard_views import (
+            _build_group_impact_report_payload, _impact_dashboard_context_from_payload,
+        )
+        user = get_user_model().objects.create_superuser(email="cohort@example.com", password="testpass")
+        self.client.force_login(user)
+        response = self.client.get(reverse("admin_impact_dashboard"), {"group": 981, "year": 2026, "track": "e"})
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Group Summary")
+        self.assertContains(response, "Mentored in a later group")
+        summary = response.context["cohort_summaries"]
+        self.assertEqual(len(summary), 1)
+        self.assertEqual(summary[0]["rows"][-1]["cells"][0], {"count": 1, "pct": 100.0})
+        payload = _build_group_impact_report_payload({981}, year=2026, track_filter="e")
+        self.assertEqual(payload["cohort_summaries"], summary)
+        self.assertEqual(_impact_dashboard_context_from_payload(payload)["cohort_summaries"], summary)
 
     def test_impact_funnel_outcomes_add_up_to_everyone_who_started(self):
         def rec(email, status, **extra):

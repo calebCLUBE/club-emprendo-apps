@@ -17,6 +17,7 @@ from django.db.models.functions import Lower
 from django.utils.text import slugify
 
 from .models import Application, FormDefinition, FormGroup, GroupParticipantList
+from .participant_statuses import normalize_participant_status
 
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -81,6 +82,19 @@ def pairing_participant_emails(group: FormGroup, track: str) -> set[str]:
     # Match the pairing page: linked sheet rows are authoritative when present,
     # while the legacy pasted-email field remains a fallback.
     return row_emails or _normalized_emails(raw_text)
+
+
+def active_pairing_participant_emails(group: FormGroup, track: str) -> set[str]:
+    """Only explicit active status in this group's participant rows qualifies."""
+    field = "mentoras_sheet_rows" if track == "M" else "emprendedoras_sheet_rows"
+    rows = GroupParticipantList.objects.filter(group=group).values_list(field, flat=True).first()
+    emails: set[str] = set()
+    for row in rows or []:
+        if isinstance(row, (list, tuple)) and len(row) > 5:
+            if normalize_participant_status(row[1]) == "A":
+                emails.update(_normalized_emails([row[5]]))
+    # Pasted legacy lists have no status and cannot establish eligibility.
+    return emails
 
 
 def _expected_group_slugs(group: FormGroup, track: str) -> set[str]:

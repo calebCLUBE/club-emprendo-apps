@@ -45,6 +45,7 @@ from django.db import connection
 from applications.grader_e import grade_from_dataframe as grade_e_df
 from applications.grader_m import grade_from_dataframe as grade_m_df
 from applications.pairing_forms import (
+    active_pairing_participant_emails,
     pairing_participant_emails,
     resolve_pairing_application_form,
 )
@@ -3641,26 +3642,8 @@ def emparejamiento_home(request):
     if group_raw.isdigit():
         selected_group = FormGroup.objects.filter(number=int(group_raw)).first()
         if selected_group:
-            participant_list = GroupParticipantList.objects.filter(
-                group=selected_group
-            ).first()
-            if participant_list:
-                def emails_from_participant_rows(rows, fallback_text):
-                    row_emails = "\n".join(
-                        str(row[5])
-                        for row in (rows or [])
-                        if isinstance(row, (list, tuple)) and len(row) > 5 and row[5]
-                    )
-                    return _norm_email_list(row_emails) or _norm_email_list(fallback_text)
-
-                mentoras_emails = emails_from_participant_rows(
-                    participant_list.mentoras_sheet_rows,
-                    participant_list.mentoras_emails_text,
-                )
-                emprendedoras_emails = emails_from_participant_rows(
-                    participant_list.emprendedoras_sheet_rows,
-                    participant_list.emprendedoras_emails_text,
-                )
+            mentoras_emails = sorted(active_pairing_participant_emails(selected_group, "M"))
+            emprendedoras_emails = sorted(active_pairing_participant_emails(selected_group, "E"))
 
     job_id = (request.GET.get("job") or "").strip()
     if job_id.isdigit():
@@ -3707,6 +3690,15 @@ def run_emparejamiento(request, group_num: int):
 
     mentor_list = _norm_email_list(mentoras_emails)
     emp_list = _norm_email_list(emprendedoras_emails)
+
+    group = get_object_or_404(FormGroup, number=group_num)
+    active_mentors = active_pairing_participant_emails(group, "M")
+    active_entrepreneurs = active_pairing_participant_emails(group, "E")
+    mentor_list = [email for email in mentor_list if email in active_mentors]
+    emp_list = [email for email in emp_list if email in active_entrepreneurs]
+    if not mentor_list or not emp_list:
+        messages.error(request, "Pairing requires at least one Activa participant in each role. Update the group's participant statuses first.")
+        return redirect(f"{reverse('admin_emparejamiento_home')}?group={group_num}")
 
     job = PairingJob.objects.create(
         group_number=group_num,
@@ -5409,6 +5401,15 @@ def _run_pair_job(job_id: int, group_num: int, emp_list: list[str], mentor_list:
     try:
         job.status = PairingJob.STATUS_RUNNING
         job.save(update_fields=["status"])
+
+        group = FormGroup.objects.get(number=group_num)
+        active_mentors = active_pairing_participant_emails(group, "M")
+        active_entrepreneurs = active_pairing_participant_emails(group, "E")
+        mentor_list = [email for email in mentor_list if email.strip().lower() in active_mentors]
+        emp_list = [email for email in emp_list if email.strip().lower() in active_entrepreneurs]
+        _pair_log(job, "Only participants with Activa (A) status are eligible for pairing.")
+        if not mentor_list or not emp_list:
+            raise ValueError("No active participants selected for one or both roles.")
 
         _pair_log(job, "✅ Starting emparejamiento job")
         _pair_log(job, f"Group: {group_num}")

@@ -224,7 +224,7 @@
           <div>
             <h2>Review the participants</h2>
             <p class="ce-pairing-muted">
-              These emails are loaded from Group {{ selected_group.number }}’s participant database. You can edit this run without changing the database.
+              These emails are loaded from Group {{ selected_group.number }}’s participant database. Only participants with Activa (A) status are included. You can remove emails for this run; added emails must also have Activa status in this group.
             </p>
           </div>
           <a class="ce-btn ce-btn--secondary" href="{% url 'admin_profiles_participants' %}?group={{ selected_group.number }}">
@@ -251,7 +251,7 @@
 
         {% if not mentoras_count or not emprendedoras_count %}
           <p class="ce-warning">
-            One side has no participant emails. Add them on the Participants page or paste them here before running.
+            One side has no active participants. Update their status to Activa on the Participants page before running.
           </p>
         {% endif %}
 

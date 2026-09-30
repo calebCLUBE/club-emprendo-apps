@@ -1026,14 +1026,14 @@ def _participant_records() -> list[dict]:
     )
 
     records: list[dict] = []
+    historical_group_numbers = _impact_historical_group_numbers()
+    source_group_numbers = _impact_linked_group_numbers() | historical_group_numbers
     participant_lists = (
         GroupParticipantList.objects.select_related("group")
-        .filter(group__is_active=True)
-        .exclude(google_sheet_url="")
+        .filter(group__is_active=True, group__number__in=source_group_numbers)
         .order_by("group__number", "id")
     )
     group_map = {group.number: group for group in FormGroup.objects.all()}
-    historical_group_numbers = _impact_historical_group_numbers()
     page_configs = _participant_track_sheet_configs()
 
     for participant_list in participant_lists:
@@ -1043,8 +1043,6 @@ def _participant_records() -> list[dict]:
         group_label = _impact_group_label(group_number, group_map)
         group_completed = _impact_group_is_completed(group)
         group_start_date = _impact_group_start_date(group)
-        if not str(participant_list.google_sheet_url or "").strip():
-            continue
         source = (
             "historical_import"
             if group_number in historical_group_numbers
@@ -1739,7 +1737,21 @@ def _impact_scope_notes(
         survey_groups = " ".join(
             dict.fromkeys(d.get("scope_warning") for d in datasets.values() if d.get("scope_warning"))
         )
+    historical_rows = {}
+    for record in participant_records:
+        if record.get("source") != "historical_import":
+            continue
+        number = record["group_number"]
+        row = historical_rows.setdefault(number, {
+            "number": number, "label": record["group_label"], "year": record["group_year"],
+            "mentoras": 0, "emprendedoras": 0, "total": 0,
+        })
+        row["mentoras" if record["track"] == "m" else "emprendedoras"] += 1
+        row["total"] += 1
     return {
+        "historical_rows": [historical_rows[number] for number in sorted(historical_rows)],
+        "historical_group_count": len(historical_rows),
+        "historical_participations": sum(row["total"] for row in historical_rows.values()),
         "participants": f"{_impact_group_range_label(group_numbers)}{year_text}, including uploaded historical groups.",
         "completed_groups": _impact_group_range_label(completed) if completed else "no finished groups yet",
         "applications": (
@@ -2942,21 +2954,21 @@ def _load_impact_survey_datasets(
 def _impact_linked_group_numbers() -> set[int]:
     """Groups whose Participants page has a linked Google Sheet.
 
-    Impact reports only use these groups so that auto-built or unlinked
-    participant lists never inflate the totals.
+    These are one valid source; completed historical imports are the other.
+    Other auto-built or unlinked lists must not inflate the totals.
     """
     return {
         int(number)
-        for number in GroupParticipantList.objects.exclude(google_sheet_url="")
-        .filter(group__number__isnull=False)
-        .values_list("group__number", flat=True)
+        for number, url in GroupParticipantList.objects.filter(group__number__isnull=False)
+        .values_list("group__number", "google_sheet_url")
+        if str(url or "").strip()
     }
 
 
 def _impact_group_options() -> list[dict]:
     group_map = {group.number: group for group in FormGroup.objects.order_by("-number")}
     historical_group_numbers = _impact_historical_group_numbers()
-    linked_group_numbers = _impact_linked_group_numbers()
+    source_group_numbers = _impact_linked_group_numbers() | historical_group_numbers
     return [
         {
             "number": group.number,
@@ -2964,7 +2976,7 @@ def _impact_group_options() -> list[dict]:
         }
         for group in group_map.values()
         for label in [_impact_group_label(group.number, group_map)]
-        if group.number in linked_group_numbers
+        if group.number in source_group_numbers
         and _impact_group_is_program(group, historical_group_numbers)
     ]
 
@@ -2972,11 +2984,11 @@ def _impact_group_options() -> list[dict]:
 def _impact_allowed_group_numbers() -> set[int]:
     group_map = {group.number: group for group in FormGroup.objects.all()}
     historical_group_numbers = _impact_historical_group_numbers()
-    linked_group_numbers = _impact_linked_group_numbers()
+    source_group_numbers = _impact_linked_group_numbers() | historical_group_numbers
     return {
         int(group.number)
         for group in group_map.values()
-        if group.number in linked_group_numbers
+        if group.number in source_group_numbers
         and _impact_group_is_program(group, historical_group_numbers)
     }
 
@@ -2984,12 +2996,12 @@ def _impact_allowed_group_numbers() -> set[int]:
 def _impact_year_options() -> list[int]:
     group_map = {group.number: group for group in FormGroup.objects.exclude(year__isnull=True)}
     historical_group_numbers = _impact_historical_group_numbers()
-    linked_group_numbers = _impact_linked_group_numbers()
+    source_group_numbers = _impact_linked_group_numbers() | historical_group_numbers
     years = {
         int(group.year)
         for group in group_map.values()
         if group.year
-        and group.number in linked_group_numbers
+        and group.number in source_group_numbers
         and _impact_group_is_program(group, historical_group_numbers)
     }
     return sorted(years, reverse=True)
@@ -3926,7 +3938,7 @@ def _render_group_impact_report_pdf(payload: dict) -> bytes:
             ]
             _impact_pdf_draw_table(ax, "", ["Outcome / milestone"] + cohort["columns"], rows, font_size=10)
             fig.text(0.06, 0.14, "Later mentoring: repeat mentoras or emprendedoras who became mentoras, once per source participation.", fontsize=9)
-            fig.text(0.06, 0.10, "Counts each person once per group and role; later mentoring checks all linked groups and later start dates.", fontsize=9)
+            fig.text(0.06, 0.10, "Counts each person once per group and role; later mentoring checks linked and imported groups with later start dates.", fontsize=9)
             pdf.savefig(fig)
             plt.close(fig)
 

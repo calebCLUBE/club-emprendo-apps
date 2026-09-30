@@ -7060,13 +7060,13 @@ class ImpactDashboardMetricTests(TestCase):
         records = admin_dashboard_views._participant_records()
         profile_email_keys = admin_profiles_views._participant_list_email_keys()
 
-        # Only groups with a linked Google Sheet feed the impact dashboard.
+        # Unlinked lists without a completed historical import remain excluded.
         self.assertNotIn("unlinked@example.com", {row["email"] for row in records})
         self.assertNotIn(985, admin_dashboard_views._impact_allowed_group_numbers())
         self.assertNotIn("unlinked@example.com", profile_email_keys)
         self.assertIn("founder@example.com", profile_email_keys)
 
-    def test_uploaded_historical_group_needs_a_linked_sheet_to_be_included(self):
+    def test_uploaded_historical_group_is_included_without_linked_sheet(self):
         historical_group = FormGroup.objects.create(
             number=986,
             custom_name="Cohorte histórica 986",
@@ -7115,19 +7115,55 @@ class ImpactDashboardMetricTests(TestCase):
                 if record["email"] == "historical986@example.com"
             ]
 
-        # Without a linked Google Sheet the group is left out of impact totals.
-        self.assertEqual(historical_records(), [])
-        self.assertNotIn(986, {row["number"] for row in admin_dashboard_views._impact_group_options()})
-
-        historical_list.google_sheet_url = "https://docs.google.com/spreadsheets/d/group986/edit"
-        historical_list.save(update_fields=["google_sheet_url", "updated_at"])
         matching = historical_records()
+        self.assertEqual(historical_list.google_sheet_url, "")
+        self.assertIn(986, admin_dashboard_views._impact_allowed_group_numbers())
 
         self.assertEqual(len(matching), 1)
         self.assertEqual(matching[0]["source"], "historical_import")
         self.assertTrue(matching[0]["group_completed"])
         self.assertIn(986, {row["number"] for row in admin_dashboard_views._impact_group_options()})
         self.assertIn(2024, admin_dashboard_views._impact_year_options())
+
+    @patch("applications.admin_dashboard_views._load_impact_survey_datasets", return_value=({}, {}))
+    @patch("applications.admin_dashboard_views._final_completed_wellbeing_data", return_value=([], {}))
+    def test_five_legacy_groups_feed_year_filters_totals_and_source_audit(self, *_mocks):
+        for number, year in enumerate(range(2020, 2025), start=990):
+            group = FormGroup.objects.create(number=number, year=year, start_day=1,
+                start_month="enero", end_month="abril", end_year=year)
+            HistoricalGroupImport.objects.create(group=group, group_number=number, year=year,
+                end_year=year, start_month="enero", end_month="abril", status="imported")
+            GroupParticipantList.objects.create(group=group,
+                mentoras_sheet_rows=[["", "G", 1, "Legacy mentor", f"M{number}", f"m{number}@example.com"]],
+                emprendedoras_sheet_rows=[["", "G", 1, "Legacy founder", f"E{number}", f"e{number}@example.com"]])
+        records = admin_dashboard_views._participant_records()
+        legacy = [row for row in records if row["source"] == "historical_import"]
+        self.assertEqual(len(legacy), 10)
+        self.assertTrue(set(range(2020, 2025)) <= set(admin_dashboard_views._impact_year_options()))
+        self.assertTrue(set(range(990, 995)) <= admin_dashboard_views._impact_allowed_group_numbers())
+        notes = admin_dashboard_views._impact_scope_notes(records, {})
+        self.assertEqual(notes["historical_group_count"], 5)
+        self.assertEqual(notes["historical_participations"], 10)
+        self.assertEqual({row["year"] for row in notes["historical_rows"]}, set(range(2020, 2025)))
+        summary = admin_dashboard_views._participant_summary(records)
+        self.assertEqual(summary["overall"]["historical_participations"], 10)
+        self.assertEqual(summary["overall"]["graduated"], 13)
+        user = get_user_model().objects.create_superuser(email="history-impact@example.com", password="testpass")
+        self.client.force_login(user)
+        response = self.client.get(reverse("admin_impact_dashboard"), {"year": 2021, "track": "m"})
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Historical data included: 1 group")
+        self.assertEqual(response.context["participant_summary"]["overall"]["rows"], 1)
+        self.assertEqual(response.context["combined_group_summary"]["rows"][1]["cells"][0]["count"], 1)
+        payload = admin_dashboard_views._build_group_impact_report_payload({991}, year=2021, track_filter="m")
+        self.assertEqual(payload["scope_notes"]["historical_participations"], 1)
+        self.assertEqual(payload["participant_summary"]["overall"]["graduated"], 1)
+        # A preview is not a completed import, and archived groups retain existing exclusions.
+        HistoricalGroupImport.objects.filter(group_number=990).update(status="preview")
+        FormGroup.objects.filter(number=994).update(is_active=False)
+        self.assertNotIn(2020, admin_dashboard_views._impact_year_options())
+        self.assertNotIn(2024, admin_dashboard_views._impact_year_options())
+        self.assertEqual(len([r for r in admin_dashboard_views._participant_records() if r["source"] == "historical_import"]), 6)
 
     def test_dashboard_participants_use_the_same_rows_and_acta_overlay_as_group_page(self):
         ParticipantEmailStatus.objects.update_or_create(
@@ -8623,6 +8659,14 @@ class HistoricalGroupImportTests(TestCase):
         draft.refresh_from_db()
         self.assertEqual(draft.status, HistoricalGroupImport.STATUS_IMPORTED)
         self.assertEqual(draft.import_summary["mentoras"]["duplicates_skipped"], 1)
+        self.assertEqual(participant_list.google_sheet_url, "")
+        self.assertIn(2023, admin_dashboard_views._impact_year_options())
+        self.assertIn(4, admin_dashboard_views._impact_allowed_group_numbers())
+        imported_records = [r for r in admin_dashboard_views._participant_records() if r["group_number"] == 4]
+        self.assertEqual(len(imported_records), 1)
+        self.assertEqual(imported_records[0]["source"], "historical_import")
+        self.assertEqual(imported_records[0]["group_year"], 2023)
+
 
         cache.clear()
         profiles_response = self.client.get(reverse("admin_profiles_list"))

@@ -404,7 +404,7 @@
             </div>
           {% endwith %}
           {% else %}<p class="ce-empty">No participant records for the selected filters.</p>{% endif %}
-          <p class="ce-note" style="margin-top:14px;">“Mentored in a later group” counts mentoras who repeated and emprendedoras who became mentoras, once per source participation. It checks all available linked-group history beyond the selected group/year, matches email (or document when email is missing), and requires a later start date and evidence that they started as a mentora. Missing identity, dates or unrecorded future participation cannot be confirmed. Milestones can overlap.</p>
+          <p class="ce-note" style="margin-top:14px;">“Mentored in a later group” counts mentoras who repeated and emprendedoras who became mentoras, once per source participation. It checks all available linked-sheet and imported-group history beyond the selected group/year, matches email (or document when email is missing), and requires a later start date and evidence that they started as a mentora. Missing identity, dates or unrecorded future participation cannot be confirmed. Milestones can overlap.</p>
         </section>
       </div>
 
@@ -561,10 +561,22 @@
       <section class="ce-card ce-card--wide ce-foot" style="margin-bottom:14px;">
         <strong style="color: var(--ink);">Data notes</strong>
         <ul>
-          <li>Participation and progress come from each group’s Participants page (including uploaded historical groups); applicants from the application forms; satisfaction from the initial and final surveys.</li>
+          <li>Participation and progress come from linked Google Sheets and completed historical imports on each group’s Participants page; applicants from the application forms; satisfaction from the initial and final surveys.</li>
           <li>Application and survey questions changed over time, so each figure covers only the groups named beside it. Older groups are not always comparable.</li>
           <li>Statuses are entered by program staff. People are matched across sources by email, so someone without an email on file cannot be matched.</li>
         </ul>
+        <details {% if is_pdf_export %}open{% endif %}>
+          <summary>Historical data included: {{ scope_notes.historical_group_count|default:0 }} group{{ scope_notes.historical_group_count|pluralize }} · {{ scope_notes.historical_participations|default:0 }} participations</summary>
+          <p class="ce-note">Counts reflect the current year, group and role filters and the dashboard’s status rules. Historical imports do not need a linked Google Sheet.</p>
+          <div class="ce-table-wrap">
+            <table class="ce-table">
+              <thead><tr><th>Imported group</th><th>Year</th><th>Mentoras</th><th>Emprendedoras</th><th>Total included</th></tr></thead>
+              <tbody>{% for row in scope_notes.historical_rows %}
+                <tr><td>{{ row.label }}</td><td>{{ row.year }}</td><td>{{ row.mentoras }}</td><td>{{ row.emprendedoras }}</td><td>{{ row.total }}</td></tr>
+              {% empty %}<tr><td colspan="5">No historical participations match the current filters.</td></tr>{% endfor %}</tbody>
+            </table>
+          </div>
+        </details>
         {% if participant_status_key %}
           <details {% if is_pdf_export %}open{% endif %}>
             <summary>What each status means</summary>

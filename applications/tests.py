@@ -7158,12 +7158,12 @@ class ImpactDashboardMetricTests(TestCase):
         payload = admin_dashboard_views._build_group_impact_report_payload({991}, year=2021, track_filter="m")
         self.assertEqual(payload["scope_notes"]["historical_participations"], 1)
         self.assertEqual(payload["participant_summary"]["overall"]["graduated"], 1)
-        # A preview is not a completed import, and archived groups retain existing exclusions.
+        # Preview imports are excluded; finished groups remain included even when archived.
         HistoricalGroupImport.objects.filter(group_number=990).update(status="preview")
         FormGroup.objects.filter(number=994).update(is_active=False)
         self.assertNotIn(2020, admin_dashboard_views._impact_year_options())
-        self.assertNotIn(2024, admin_dashboard_views._impact_year_options())
-        self.assertEqual(len([r for r in admin_dashboard_views._participant_records() if r["source"] == "historical_import"]), 6)
+        self.assertIn(2024, admin_dashboard_views._impact_year_options())
+        self.assertEqual(len([r for r in admin_dashboard_views._participant_records() if r["source"] == "historical_import"]), 8)
 
     def test_dashboard_participants_use_the_same_rows_and_acta_overlay_as_group_page(self):
         ParticipantEmailStatus.objects.update_or_create(
@@ -7409,13 +7409,13 @@ class ImpactDashboardMetricTests(TestCase):
 
         self.assertNotIn("history-only@example.com", emails)
 
-    def test_group_completion_uses_archive_or_end_month_not_first_graduate(self):
+    def test_group_completion_uses_end_month_not_archive_or_first_graduate(self):
         as_of = date(2026, 9, 13)
         cases = (
             (SimpleNamespace(is_active=True, end_month="agosto", end_year=2026, year=2026), True),
             (SimpleNamespace(is_active=True, end_month="septiembre", end_year=2026, year=2026), False),
             (SimpleNamespace(is_active=True, end_month="febrero", end_year=2027, year=2026), False),
-            (SimpleNamespace(is_active=False, end_month="diciembre", end_year=2027, year=2027), True),
+            (SimpleNamespace(is_active=False, end_month="diciembre", end_year=2027, year=2027), False),
             (SimpleNamespace(is_active=True, end_month="unknown", end_year=2025, year=2025), False),
         )
         for group, expected in cases:
@@ -7563,17 +7563,17 @@ class ImpactDashboardMetricTests(TestCase):
         self.assertNotIn("next-group@example.com", records_by_email)
         self.assertNotIn("changed-group@example.com", records_by_email)
         self.assertTrue(records_by_email["personal-dropout@example.com"]["started"])
-        self.assertTrue(records_by_email["active-status@example.com"]["started"])
+        self.assertFalse(records_by_email["active-status@example.com"]["started"])
 
         participant_summary = admin_dashboard_views._participant_summary(records_by_email.values())
         overall = participant_summary["overall"]
-        # Started = Graduada, Activa, No Continua P, No Continua PP.
-        self.assertEqual(overall["graduation_eligible"], 4)
-        self.assertEqual(overall["graduation_started"], 4)
+        # Started = Graduada, No Continua P, No Continua PP.
+        self.assertEqual(overall["graduation_eligible"], 3)
+        self.assertEqual(overall["graduation_started"], 3)
         self.assertEqual(overall["graduation_graduated"], 1)
-        self.assertEqual(overall["graduation_rate"], 25.0)
+        self.assertEqual(overall["graduation_rate"], 33.3)
         self.assertEqual(overall["graduation_dropped_out"], 2)
-        self.assertEqual(overall["graduation_dropout_rate"], 50.0)
+        self.assertEqual(overall["graduation_dropout_rate"], 66.7)
         self.assertNotIn("graduation_transferred", overall)
         status_labels = {
             row["status"]: row["label"]
@@ -7610,19 +7610,19 @@ class ImpactDashboardMetricTests(TestCase):
         group_source_rows = admin_dashboard_views._group_recruitment_source_rows(records)
 
         self.assertEqual(participant_summary["overall"]["rows"], 7)
-        self.assertEqual(participant_summary["overall"]["started"], 5)
+        self.assertEqual(participant_summary["overall"]["started"], 3)
         self.assertEqual(participant_summary["overall"]["graduated"], 3)
         self.assertEqual(participant_summary["overall"]["unique"], 5)
-        self.assertEqual(participant_summary["overall"]["graduation_eligible"], 5)
-        self.assertEqual(participant_summary["overall"]["graduation_started"], 5)
+        self.assertEqual(participant_summary["overall"]["graduation_eligible"], 3)
+        self.assertEqual(participant_summary["overall"]["graduation_started"], 3)
         self.assertEqual(participant_summary["overall"]["graduation_graduated"], 3)
-        self.assertEqual(participant_summary["overall"]["graduation_rate"], 60.0)
+        self.assertEqual(participant_summary["overall"]["graduation_rate"], 100.0)
         self.assertEqual(participant_summary["tracks"]["e"]["started"], 2)
         self.assertEqual(participant_summary["tracks"]["e"]["graduation_rate"], 100.0)
         self.assertEqual(participant_summary["tracks"]["m"]["graduated"], 1)
-        self.assertEqual(participant_summary["tracks"]["m"]["graduation_eligible"], 3)
-        self.assertEqual(participant_summary["tracks"]["m"]["graduation_started"], 3)
-        self.assertEqual(participant_summary["tracks"]["m"]["graduation_rate"], 33.3)
+        self.assertEqual(participant_summary["tracks"]["m"]["graduation_eligible"], 1)
+        self.assertEqual(participant_summary["tracks"]["m"]["graduation_started"], 1)
+        self.assertEqual(participant_summary["tracks"]["m"]["graduation_rate"], 100.0)
 
         self.assertEqual(application_summary["overall"]["raw"], 7)
         self.assertEqual(application_summary["overall"]["unique"], 5)
@@ -7993,7 +7993,7 @@ class ImpactDashboardMetricTests(TestCase):
                 "person_key": person, "track": track, "group_number": number,
                 "group_label": f"Group {number}", "group_start_date": start,
                 "group_completed": True, "status": status,
-                "started": status in {"A", "G", "NCP", "NCPP"},
+                "started": status in {"G", "NCP", "NCPP"},
                 "graduated": status == "G", "acta": True,
             }
 
@@ -8011,18 +8011,18 @@ class ImpactDashboardMetricTests(TestCase):
         summary = _impact_combined_group_summary(records, history)
         self.assertEqual(summary["group_count"], 1)
         rows = {row["key"]: row["cells"] for row in summary["rows"]}
-        self.assertEqual(rows["started"][0], {"count": 4, "pct": 100.0})
-        for key in ("graduated", "active", "drop_program", "drop_personal"):
-            self.assertEqual(rows[key][0], {"count": 1, "pct": 25.0})
-        self.assertEqual(rows["later_mentor"], [{"count": 1, "pct": 25.0}, {"count": 1, "pct": 100.0}])
-        # Pool counts, not group percentages: 2 graduates / 5 starts = 40%.
+        self.assertEqual(rows["started"][0], {"count": 3, "pct": 100.0})
+        for key in ("graduated", "drop_program", "drop_personal"):
+            self.assertEqual(rows[key][0], {"count": 1, "pct": 33.3})
+        self.assertEqual(rows["later_mentor"], [{"count": 1, "pct": 33.3}, {"count": 1, "pct": 100.0}])
+        # Pool counts, not group percentages: 2 graduates / 4 starts = 50%.
         combined = _impact_combined_group_summary(
             records + [rec("other", "G", number=982, start=date(2027, 1, 1))], history,
         )
         self.assertEqual(combined["group_count"], 2)
         combined_rows = {row["key"]: row["cells"] for row in combined["rows"]}
-        self.assertEqual(combined_rows["started"][0], {"count": 5, "pct": 100.0})
-        self.assertEqual(combined_rows["graduated"][0], {"count": 2, "pct": 40.0})
+        self.assertEqual(combined_rows["started"][0], {"count": 4, "pct": 100.0})
+        self.assertEqual(combined_rows["graduated"][0], {"count": 2, "pct": 50.0})
         founders_only = _impact_combined_group_summary([r for r in records if r["track"] == "e"], history)
         self.assertEqual(len(founders_only["columns"]), 1)
         self.assertEqual(founders_only["rows"][-1]["cells"][0]["count"], 1)
@@ -8051,12 +8051,79 @@ class ImpactDashboardMetricTests(TestCase):
         combined = combined_response.context["combined_group_summary"]
         self.assertEqual(combined["group_count"], 2)
         self.assertContains(combined_response, 'class="ce-cohort-summary"', count=1)
-        self.assertEqual(combined["rows"][0]["cells"][0]["count"], 3)
+        self.assertEqual(combined["rows"][0]["cells"][0]["count"], 1)
         earlier_year = self.client.get(reverse("admin_impact_dashboard"), {"year": 2025})
         self.assertEqual(earlier_year.context["combined_group_summary"]["group_count"], 1)
         payload = _build_group_impact_report_payload({981}, year=2026, track_filter="e")
         self.assertEqual(payload["combined_group_summary"], summary)
         self.assertEqual(_impact_dashboard_context_from_payload(payload)["combined_group_summary"], summary)
+
+    @patch("applications.admin_dashboard_views.timezone.localdate", return_value=date(2026, 9, 30))
+    @patch("applications.admin_dashboard_views._load_impact_survey_datasets", return_value=({}, {}))
+    @patch("applications.admin_dashboard_views._final_completed_wellbeing_data", return_value=([], {}))
+    def test_finished_groups_use_status_starters_and_cross_reference_current_groups(self, *_mocks):
+        self.group1.year = 2025
+        self.group1.end_year = 2025
+        self.group1.save()
+        self.group2.end_month = "diciembre"
+        self.group2.end_year = 2026
+        self.group2.save()
+        # A future cohort must neither appear in results nor count as currently active.
+        self.non_program_group.year = 2027
+        self.non_program_group.end_year = 2027
+        self.non_program_group.save()
+        old_list = GroupParticipantList.objects.get(group=self.group1)
+        old_list.emprendedoras_sheet_rows = [
+            ["", status, i, email, f"ID{i}", email]
+            for i, (status, email) in enumerate([
+                ("Graduada", "founder@example.com"),
+                ("Graduada", "graduate@example.com"),
+                ("No Continua PP", "drop@example.com"),
+                ("Activa", "stale-active@example.com"),
+            ])
+        ]
+        old_list.mentoras_sheet_rows = []
+        old_list.save()
+        current_list = GroupParticipantList.objects.get(group=self.group2)
+        current_list.mentoras_sheet_rows = [
+            ["", "Activa", 1, "Founder now mentor", "E1", "founder@example.com"],
+            ["", "No Continua P", 2, "Not active", "E2", "drop@example.com"],
+        ]
+        current_list.save()
+        future_list = GroupParticipantList.objects.get(group=self.non_program_group)
+        future_list.emprendedoras_sheet_rows = [["", "Activa", 1, "Future", "E3", "graduate@example.com"]]
+        future_list.save()
+        Application.objects.all().delete()  # Imported participant history without applications.
+        user = get_user_model().objects.create_superuser(email="finished-impact@example.com", password="testpass")
+        self.client.force_login(user)
+        response = self.client.get(reverse("admin_impact_dashboard"), {"year": 2025, "track": "e"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["impact_year_options"], [2025])
+        self.assertEqual([r["number"] for r in response.context["impact_group_options"]], [981])
+        summary = response.context["funnel"]["summary"]
+        self.assertEqual(summary["applicants"], 0)
+        self.assertEqual(summary["started"], 3)
+        self.assertEqual(summary["started_all"], 3)
+        self.assertEqual(summary["graduated"], 2)
+        self.assertEqual(summary["graduated_pct"], 66.7)
+        self.assertEqual(summary["dropped_out"], 1)
+        self.assertEqual(summary["active"], 1)
+        self.assertEqual(summary["active_pct"], 33.3)
+        combined = {r["key"]: r["cells"][0] for r in response.context["combined_group_summary"]["rows"]}
+        self.assertEqual(combined["started"]["count"], 3)
+        self.assertEqual(combined["active"], {"count": 1, "pct": 33.3})
+        self.assertNotContains(response, "0 of 0 applicants")
+        payload = admin_dashboard_views._build_group_impact_report_payload(year=2025, track_filter="e")
+        self.assertEqual(payload["funnel"]["summary"], summary)
+        self.assertEqual(payload["participant_summary"]["overall"]["groups_with_participants"], 1)
+        # The ending month is inclusive: a group ending this month stays out until next month.
+        self.group2.end_month = "septiembre"
+        self.group2.save()
+        self.assertNotIn(982, admin_dashboard_views._impact_allowed_group_numbers())
+        self.group2.end_month = "agosto"
+        self.group2.save()
+        self.assertIn(982, admin_dashboard_views._impact_allowed_group_numbers())
+        self.assertFalse(any(r["active_elsewhere"] for r in admin_dashboard_views._participant_records()))
 
     def test_impact_funnel_outcomes_add_up_to_everyone_who_started(self):
         def rec(email, status, **extra):
@@ -8065,7 +8132,7 @@ class ImpactDashboardMetricTests(TestCase):
                 "email": email,
                 "person_key": f"email:{email}",
                 "status": status,
-                "started": status in {"G", "A", "NCP", "NCPP"},
+                "started": status in {"G", "NCP", "NCPP"},
                 "graduated": status == "G",
                 "acta": False,
                 "capacitacion": False,
@@ -8098,15 +8165,15 @@ class ImpactDashboardMetricTests(TestCase):
         self.assertEqual(column["second_applicants"], 1)
         # Everyone matched to an application is Selected, regardless of status.
         self.assertEqual(column["selected"], 5)
-        # d@x.com (No Capacitación) is the only selected applicant who did not finish training.
-        self.assertEqual(column["training"], 4)
-        self.assertEqual(column["acta"], 3)
+        # Only status-based starters and NFA imply completed training.
+        self.assertEqual(column["training"], 3)
+        self.assertEqual(column["acta"], 2)
         self.assertEqual(column["started"], 3)
         self.assertEqual(column["unmatched_participants"], 1)
         # Outcomes cover all women who started, applicant match or not.
-        self.assertEqual(column["started_all"], 4)
+        self.assertEqual(column["started_all"], 3)
         self.assertEqual(column["graduated"], 2)
-        self.assertEqual(column["active"], 1)
+        self.assertEqual(column["active"], 0)
         self.assertEqual(column["dropped_out"], 1)
         self.assertEqual(
             column["graduated"] + column["active"] + column["dropped_out"],

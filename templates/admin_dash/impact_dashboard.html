@@ -217,7 +217,7 @@
           <div>
             <label for="impact-filter-group">Group</label>
             <select id="impact-filter-group" class="ce-report-select" name="group">
-              <option value="">All groups</option>
+              <option value="">All finished groups</option>
               {% for group in impact_group_options %}
                 <option value="{{ group.number }}" {% if group.number|stringformat:"s" == impact_filters.group %}selected{% endif %}>{{ group.label }}</option>
               {% endfor %}
@@ -244,12 +244,12 @@
         <div class="ce-kpi">
           <div class="ce-kpi-k">Groups</div>
           <div class="ce-kpi-v">{{ participant_summary.overall.groups_with_participants }}</div>
-          <div class="ce-kpi-n">cohorts run so far</div>
+          <div class="ce-kpi-n">finished cohorts</div>
         </div>
         <div class="ce-kpi ce-kpi--e">
           <div class="ce-kpi-k">Started program</div>
-          <div class="ce-kpi-v">{{ funnel.summary.started_pct|floatformat:"-1" }}%</div>
-          <div class="ce-kpi-n">{{ funnel.summary.started }} of {{ funnel.summary.applicants }} applicants</div>
+          <div class="ce-kpi-v">{{ funnel.summary.started_all }}</div>
+          <div class="ce-kpi-n">women with Graduada or No Continúa P / PP status</div>
         </div>
         <div class="ce-kpi ce-kpi--good">
           <div class="ce-kpi-k">Graduated</div>
@@ -267,7 +267,7 @@
           <div class="ce-kpi-n">{{ funnel.summary.dropped_out }} of {{ funnel.summary.started_all }} who started</div>
         </div>
       </div>
-      <p class="ce-note" style="margin: -6px 0 14px;">Graduated + Still active + Dropped out = 100% of the {{ funnel.summary.started_all }} women who started (status Graduada, Activa, No Continúa P or PP).</p>
+      <p class="ce-note" style="margin: -6px 0 14px;">Graduated + Dropped out = 100% of those who started in finished groups. Still active is a separate measure: those same women who have Activa status in a currently running group, in either role.</p>
 
       <!-- Participants and groups -->
       <div class="ce-row">
@@ -339,7 +339,7 @@
                   </thead>
                   <tbody>
                     {% for stage in funnel.stages %}
-                      {% if stage.section %}<tr class="ce-divider"><td colspan="{{ funnel.columns|length|add:1 }}">{{ stage.section }} — women who started, all groups</td></tr>{% endif %}
+                      {% if stage.section %}<tr class="ce-divider"><td colspan="{{ funnel.columns|length|add:1 }}">{{ stage.section }} — women who started, finished groups</td></tr>{% endif %}
                       <tr {% if stage.label == "Graduated" or stage.label == "Dropped out" or stage.label == "Still active" %}class="ce-out"{% endif %}>
                         <td>
                           <div class="ce-step-name">{{ stage.label }}</div>
@@ -372,7 +372,7 @@
             </div>
             <div class="ce-aside">
               <p><strong>Applicants</strong> are unique people (matched by email) who submitted an application form.</p>
-              <p>Steps down to <em>Started program</em> are a share of applicants, so they only include women with an application on file. <em>Outcomes</em> cover every woman who started in any group, so they can be larger; Graduated + Still active + Dropped out always adds to 100%.</p>
+              <p>Steps through <em>Signed Acta</em> use applications on file. <em>Started program</em> and outcomes use participant statuses in finished groups, including historical imports without applications. Still active checks currently running groups outside the selected filters and can overlap graduation or dropout.</p>
               <p><strong>Selected</strong> = on a group’s Participants sheet with any status. <em>Siguiente grupo</em> and <em>Cambio de grupo</em> are not counted in the group.</p>
               <p><strong>Applications on file:</strong> {{ scope_notes.applications }} {{ scope_notes.two_stage }}</p>
               <p>{{ funnel.summary.unmatched_participants }} selected participants have no application on file (mostly earlier groups) and are left out of the applicant-based steps.</p>
@@ -387,7 +387,7 @@
             <div><p class="ce-kicker">Cohort outcomes</p><h2 class="ce-title">Combined Group Summary</h2></div>
             <span class="ce-badge">Updated from participant records</span>
           </div>
-          <p class="ce-note">Totals combine the groups selected by the filters. Each person counts once per group and role. Percentages use all started participations in that role: Graduada, Activa, No Continua P or No Continua PP. Other statuses are excluded. A dash means nobody has started.</p>
+          <p class="ce-note">Totals combine the groups selected by the filters. Each person counts once per group and role. Percentages use all started participations in that role: Graduada, No Continua P or No Continua PP. Other statuses are excluded. A dash means nobody has started.</p>
           {% if combined_group_summary %}
           {% with cohort=combined_group_summary %}
             <div class="ce-cohort-summary" style="margin-top:18px; break-inside:avoid;">
@@ -404,7 +404,7 @@
             </div>
           {% endwith %}
           {% else %}<p class="ce-empty">No participant records for the selected filters.</p>{% endif %}
-          <p class="ce-note" style="margin-top:14px;">“Mentored in a later group” counts mentoras who repeated and emprendedoras who became mentoras, once per source participation. It checks all available linked-sheet and imported-group history beyond the selected group/year, matches email (or document when email is missing), and requires a later start date and evidence that they started as a mentora. Missing identity, dates or unrecorded future participation cannot be confirmed. Milestones can overlap.</p>
+          <p class="ce-note" style="margin-top:14px;">“Mentored in a later group” counts mentoras who repeated and emprendedoras who became mentoras, once per source participation. It checks all available linked-sheet and imported-group history beyond the selected group/year, matches email (or document when email is missing), and requires a later start date and evidence that they started as a mentora. Missing identity, dates or unrecorded future participation cannot be confirmed. Still active cross-references Activa participants in currently running groups across both roles and all years. It can overlap graduation or dropout. Milestones can overlap.</p>
         </section>
       </div>
 
@@ -626,7 +626,7 @@
             <div>
               <label for="impact-report-groups">Group scope</label>
               <select id="impact-report-groups" class="ce-report-select" name="groups">
-                <option value="">All groups</option>
+                <option value="">All finished groups</option>
                 {% for group in impact_report_group_options %}
                   <option value="{{ group.number }}" {% if group.number|stringformat:"s" == impact_filters.group %}selected{% endif %}>{{ group.label }}</option>
                 {% endfor %}

@@ -525,11 +525,11 @@ def _status_counts_to_rows(status_counts: dict[str, int]) -> list[dict]:
 
 # Impact status rules (per leadership):
 # - Selected: any row on a group's Participants sheet, except the two statuses below.
-# - Started: Graduada, Activa, No Continua P, No Continua PP.
+# - Started in finished cohorts: Graduada, No Continua P, No Continua PP.
 # - Lost from a group: No Continua P, No Continua PP.
 # - Siguiente grupo / Cambio de grupo are not counted in the group at all.
 IMPACT_STATUS_EXCLUDED = {"SG", "CG"}
-IMPACT_STATUS_STARTED = {"G", "A", "NCP", "NCPP"}
+IMPACT_STATUS_STARTED = {"G", "NCP", "NCPP"}
 IMPACT_STATUS_ACTIVE = {"A"}
 
 IMPACT_STATUS_DESCRIPTIONS = {
@@ -543,7 +543,7 @@ IMPACT_STATUS_DESCRIPTIONS = {
     "D/NC": "Difficult to reach. Selected; not counted as started or dropped out.",
     "E": "Excellent / testimonial. Selected; not counted as started or dropped out.",
     "G": "Completed the program. Counted as started and graduated.",
-    "A": "Currently active. Counted as started.",
+    "A": "Counts toward Still active only in a currently running group; excluded from the finished-group started total.",
 }
 
 
@@ -584,17 +584,14 @@ def _impact_group_is_program(
 ) -> bool:
     if not group or getattr(group, "number", None) is None:
         return False
-    # Grupos -> Participantes exposes every active FormGroup, including custom
-    # cohort names and historical imports. Impact uses the same group scope.
-    return bool(getattr(group, "is_active", True))
+    # Impact reports finished cohorts; ongoing cohorts are reference data only.
+    return _impact_group_is_completed(group)
 
 
 def _impact_group_is_completed(group: FormGroup | None, *, as_of: date | None = None) -> bool:
     """Return whether a cohort has actually reached the end of its program window."""
     if not group:
         return False
-    if not getattr(group, "is_active", True):
-        return True
     month_number = _month_name_to_number(getattr(group, "end_month", ""))
     try:
         end_year = int(getattr(group, "end_year", None) or getattr(group, "year", 0) or 0)
@@ -1030,7 +1027,7 @@ def _participant_records() -> list[dict]:
     source_group_numbers = _impact_linked_group_numbers() | historical_group_numbers
     participant_lists = (
         GroupParticipantList.objects.select_related("group")
-        .filter(group__is_active=True, group__number__in=source_group_numbers)
+        .filter(group__number__in=source_group_numbers)
         .order_by("group__number", "id")
     )
     group_map = {group.number: group for group in FormGroup.objects.all()}
@@ -1098,6 +1095,10 @@ def _participant_records() -> list[dict]:
                         "group_year": group_year,
                         "group_label": group_label,
                         "group_completed": group_completed,
+                        "group_current": bool(
+                            not group_completed and group_start_date
+                            and group_start_date <= timezone.localdate()
+                        ),
                         "group_start_date": group_start_date,
                         "source": source,
                         "acta": _metric_bool(row[cfg["acta_col"]]),
@@ -1112,7 +1113,17 @@ def _participant_records() -> list[dict]:
                         else False,
                     }
                 )
+    active_people = _impact_currently_active_people(records)
+    for record in records:
+        record["active_elsewhere"] = record["person_key"] in active_people
     return records
+
+
+def _impact_currently_active_people(records: list[dict]) -> set[str]:
+    return {
+        record["person_key"] for record in records
+        if record.get("group_current") and record.get("status") in IMPACT_STATUS_ACTIVE
+    }
 
 
 def _participant_summary(records: list[dict], group_numbers: set[int] | None = None) -> dict:
@@ -1508,14 +1519,7 @@ def _impact_funnel_summary(
     *,
     track_filter: str = "all",
 ) -> dict:
-    """Recruitment funnel plus program outcomes, one column per track and combined.
-
-    Recruitment steps (Applied -> Selected -> Training -> Acta -> Started) are
-    matched to applicant emails, so each is a share of applicants and never
-    exceeds 100%. Outcomes cover every woman who started, in any group on the
-    Participants pages: each is classified once as Graduated, Still active or
-    Dropped out, so the three add up to exactly the number who started.
-    """
+    """Finished-cohort outcomes with current participation as an overlapping metric."""
     track_filter = _normalize_impact_track_filter(track_filter)
     if track_filter == "all":
         column_specs = [("Emprendedoras", ("e",)), ("Mentoras", ("m",)), ("Both tracks", ("e", "m"))]
@@ -1548,15 +1552,15 @@ def _impact_funnel_summary(
             entry["started"] = entry["started"] or bool(record.get("started"))
         matched = applicants & set(flags)
 
-        # Outcomes: one bucket per woman (graduated beats active beats dropped out).
+        # Historical outcomes partition starters; current participation can overlap either.
         started_people = {record["person_key"] for record in track_records if record["started"]}
         graduated_people = {record["person_key"] for record in track_records if record["graduated"]}
         active_people = {
             record["person_key"]
             for record in track_records
-            if record.get("status") in IMPACT_STATUS_ACTIVE
-        } - graduated_people
-        dropped_people = started_people - graduated_people - active_people
+            if record.get("active_elsewhere")
+        } & started_people
+        dropped_people = started_people - graduated_people
 
         columns.append(
             {
@@ -1567,7 +1571,8 @@ def _impact_funnel_summary(
                 "selected": len(matched),
                 "training": sum(1 for email in matched if flags[email]["training"]),
                 "acta": sum(1 for email in matched if flags[email]["acta"]),
-                "started": sum(1 for email in matched if flags[email]["started"]),
+                "started": len(started_people),
+                "participants": len({record["person_key"] for record in track_records}),
                 "unmatched_participants": len(set(flags) - applicants),
                 "started_all": len(started_people),
                 "graduated": len(graduated_people),
@@ -1640,20 +1645,12 @@ def _impact_funnel_summary(
             short="Signed the participation agreement",
         ),
         stage(
-            "started",
-            "Started program",
-            "Applicants with status Graduada, Activa, No Continúa P or No Continúa PP.",
-            pct_of="applicants",
-            pct_label="of applicants",
-            short="Began mentoring",
-        ),
-        stage(
             "started_all",
-            "Women who started",
-            "Everyone with status Graduada, Activa, No Continúa P or No Continúa PP, whether or not an application is on file.",
+            "Started program",
+            "Status Graduada, No Continúa P or No Continúa PP, whether or not an application is on file.",
             pct_of=None,
             pct_label="",
-            short="All groups on the Participants pages",
+            short="Started in finished groups",
             section="Outcomes",
         ),
         stage(
@@ -1667,7 +1664,7 @@ def _impact_funnel_summary(
         stage(
             "active",
             "Still active",
-            "Status Activa.",
+            "Participants from these finished groups with Activa status in a currently running group, in either role.",
             pct_of="started_all",
             pct_label="of women who started",
             short="Currently in the program",
@@ -1682,7 +1679,7 @@ def _impact_funnel_summary(
         ),
     ]
     summary = dict(columns[-1])
-    summary["started_pct"] = _rate(summary["started"], summary["applicants"])
+    summary["started_pct"] = _rate(summary["started_all"], summary["participants"])
     summary["graduated_pct"] = _rate(summary["graduated"], summary["started_all"])
     summary["active_pct"] = _rate(summary["active"], summary["started_all"])
     summary["dropped_out_pct"] = _rate(summary["dropped_out"], summary["started_all"])
@@ -1808,9 +1805,10 @@ def _impact_combined_group_summary(records: list[dict], history: list[dict]) -> 
     records = _dedupe_participant_records(records)
     if not records:
         return {}
+    active_people = _impact_currently_active_people(history)
     later_mentoring = defaultdict(list)
     for record in _dedupe_participant_records(history):
-        if record.get("track") == "m" and record.get("started") and record.get("group_start_date"):
+        if record.get("track") == "m" and record.get("status") in (IMPACT_STATUS_STARTED | IMPACT_STATUS_ACTIVE) and record.get("group_start_date"):
             later_mentoring[record["person_key"]].append(record)
 
     tracks = [key for key in ("m", "e") if any(r["track"] == key for r in records)]
@@ -1820,7 +1818,7 @@ def _impact_combined_group_summary(records: list[dict], history: list[dict]) -> 
         counts = {"started": len(started)}
         # One outcome per person; graduation takes precedence for duplicate rows.
         counts["graduated"] = sum(bool(r.get("graduated")) for r in started)
-        counts["active"] = sum(not r.get("graduated") and r.get("status") == "A" for r in started)
+        counts["active"] = sum(r["person_key"] in active_people for r in started)
         for key, status in (("drop_program", "NCP"), ("drop_personal", "NCPP")):
             counts[key] = sum(not r.get("graduated") and r.get("status") == status for r in started)
         for key in ("acta", "capacitacion", "initial_survey", "final_survey", "certificacion"):
@@ -3053,7 +3051,8 @@ def _filter_records_by_impact_scope(
     return [
         record
         for record in records
-        if (group_numbers is None or record.get("group_number") in group_numbers)
+        if record.get("group_completed")
+        and (group_numbers is None or record.get("group_number") in group_numbers)
         and (year is None or record.get("group_year") == year)
         and (track_filter == "all" or record.get("track") == track_filter)
     ]
@@ -3065,7 +3064,7 @@ def _impact_group_short_label(group: FormGroup | None, group_number: int) -> str
 
 def _impact_group_scope_label(group_numbers: set[int] | None) -> str:
     if group_numbers is None:
-        return "All groups"
+        return "All finished groups"
     groups_by_number = {
         group.number: group
         for group in FormGroup.objects.filter(number__in=group_numbers)
@@ -3303,9 +3302,7 @@ def _build_group_impact_report_payload(
         if record.get("email")
     }
     completed_participant_emails = _completed_group_participant_emails(participant_records)
-    survey_group_scope = (
-        filtered_group_numbers if (group_numbers is not None or year is not None) else None
-    )
+    survey_group_scope = filtered_group_numbers
     datasets, email_sets = _load_impact_survey_datasets(
         top_n=10,
         scoped_emails=participant_emails,
@@ -3939,6 +3936,7 @@ def _render_group_impact_report_pdf(payload: dict) -> bytes:
             _impact_pdf_draw_table(ax, "", ["Outcome / milestone"] + cohort["columns"], rows, font_size=10)
             fig.text(0.06, 0.14, "Later mentoring: repeat mentoras or emprendedoras who became mentoras, once per source participation.", fontsize=9)
             fig.text(0.06, 0.10, "Counts each person once per group and role; later mentoring checks linked and imported groups with later start dates.", fontsize=9)
+            fig.text(0.06, 0.06, "Still active matches Activa status in a currently running group and can overlap graduation or dropout.", fontsize=9)
             pdf.savefig(fig)
             plt.close(fig)
 
@@ -4783,11 +4781,7 @@ def impact_dashboard(request):
         for record in participant_records
         if record.get("email")
     }
-    survey_group_scope = (
-        filtered_group_numbers
-        if (group_numbers is not None or year_filter is not None)
-        else None
-    )
+    survey_group_scope = filtered_group_numbers
     datasets, email_sets = _load_impact_survey_datasets(
         top_n=top_n,
         scoped_emails=scoped_participant_emails,

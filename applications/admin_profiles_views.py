@@ -5510,8 +5510,45 @@ def profiles_participants_google_sheet(request):
     return redirect(reverse("admin_profiles_participants"))
 
 
+def _participant_sheet_revision(participant_list, track: str) -> str:
+    key = (track or "").lower()
+    fields = ["mentoras_sheet_rows", "emprendedoras_sheet_rows"]
+    if key.startswith("m"):
+        fields = fields[:1]
+    elif key.startswith("e"):
+        fields = fields[1:]
+    payload = [getattr(participant_list, field, []) for field in fields]
+    return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+
+
 @staff_member_required
 def profiles_participants_track_sheet(request, group_num: int, track: str):
+    if request.method != "POST":
+        return _profiles_participants_track_sheet(request, group_num, track)
+    # Serialize edits across the individual-role and combined workbook pages.
+    with transaction.atomic():
+        participant_list = GroupParticipantList.objects.select_for_update().filter(group__number=group_num).first()
+        action = request.POST.get("action") or "save_sheet"
+        if action == "save_sheet" and not (participant_list and participant_list.google_sheet_url):
+            expected = request.POST.get("sheet_revision")
+            is_async = request.headers.get("x-requested-with") == "XMLHttpRequest"
+            if (is_async or expected is not None) and expected != _participant_sheet_revision(participant_list, track):
+                message = "Not saved: this sheet changed or this tab is outdated. Download your backup before reloading."
+                if is_async:
+                    return JsonResponse({"ok": False, "error": message}, status=409)
+                messages.error(request, message)
+                return redirect(request.path)
+        response = _profiles_participants_track_sheet(request, group_num, track)
+        if isinstance(response, JsonResponse) and response.status_code == 200:
+            data = json.loads(response.content)
+            if data.get("ok"):
+                participant_list = GroupParticipantList.objects.filter(group__number=group_num).first()
+                data["revision"] = _participant_sheet_revision(participant_list, track)
+                return JsonResponse(data)
+        return response
+
+
+def _profiles_participants_track_sheet(request, group_num: int, track: str):
     group = _formgroup_safe_queryset().filter(number=group_num).first()
     if not group:
         messages.error(request, "Group not found.")
@@ -6054,6 +6091,7 @@ def profiles_participants_track_sheet(request, group_num: int, track: str):
         if getattr(participant_obj, rows_field) != rows:
             setattr(participant_obj, rows_field, rows)
             participant_obj.save(update_fields=[rows_field, "updated_at"])
+            participant_list = participant_obj
 
     rows = _apply_contract_signed_to_rows(
         rows,
@@ -6094,6 +6132,7 @@ def profiles_participants_track_sheet(request, group_num: int, track: str):
     context = {
         "group": group,
         "track_slug": track_slug,
+        "sheet_revision": _participant_sheet_revision(participant_list, track_slug),
         "track_label": track_label,
         "sheet_headers": display_headers,
         "sheet_column_types": display_column_types,
@@ -6525,6 +6564,7 @@ def _profiles_participants_combined_sheet(request, group):
             if cfg["rows_field"] in repaired_fields:
                 setattr(participant_obj, cfg["rows_field"], rows_by_track[cfg["slug"]])
         participant_obj.save(update_fields=repaired_fields + ["updated_at"])
+        participant_list = participant_obj
 
     for cfg in ordered_configs:
         rows = rows_by_track[cfg["slug"]]
@@ -6555,6 +6595,7 @@ def _profiles_participants_combined_sheet(request, group):
     context = {
         "group": group,
         "track_slug": "all",
+        "sheet_revision": _participant_sheet_revision(participant_list, "all"),
         "track_label": "Participants",
         "combined_sheet": True,
         "sheet_headers": first_display_tab["headers"] if first_display_tab else MENTORAS_HEADERS,

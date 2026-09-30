@@ -9028,6 +9028,41 @@ class ParticipantsCapacitacionCheckTests(TestCase):
         self.assertContains(response, "ce-mentoras-sheet-data")
         self.assertContains(response, "ce-emprendedoras-sheet-data")
 
+    def test_stale_sheet_cannot_overwrite_saved_status_and_refresh_keeps_edit(self):
+        for track in ("mentoras", "all"):
+            with self.subTest(track=track):
+                url = reverse("admin_profiles_participants_track_sheet", args=[self.group.number, track])
+                page = self.client.get(url)
+                revision = page.context["sheet_revision"]
+                self.participant_list.refresh_from_db()
+                rows = [list(row) for row in self.participant_list.mentoras_sheet_rows]
+                rows[0][1] = "Graduada" if track == "mentoras" else "Activa"
+                field = "sheet_data" if track == "mentoras" else "mentoras_sheet_data"
+                data = {"action": "save_sheet", "sheet_revision": revision, field: json.dumps(rows)}
+                saved = self.client.post(url, data, HTTP_X_REQUESTED_WITH="XMLHttpRequest")
+                self.assertEqual(saved.status_code, 200)
+                self.assertTrue(saved.json()["ok"])
+                self.assertNotEqual(saved.json()["revision"], revision)
+                rows[0][1] = "No Continua P"
+                data[field] = json.dumps(rows)
+                stale = self.client.post(url, data, HTTP_X_REQUESTED_WITH="XMLHttpRequest")
+                self.assertEqual(stale.status_code, 409)
+                self.assertFalse(stale.json()["ok"])
+                cache.clear()
+                self.client.get(url)
+                self.participant_list.refresh_from_db()
+                self.assertEqual(self.participant_list.mentoras_sheet_rows[0][1], "Graduada" if track == "mentoras" else "Activa")
+                version = ParticipantSheetVersion.objects.filter(group=self.group, track="mentoras").latest("id")
+                self.assertEqual(version.rows[0][1], self.participant_list.mentoras_sheet_rows[0][1])
+
+    def test_old_autosave_client_without_revision_is_rejected(self):
+        url = reverse("admin_profiles_participants_track_sheet", args=[self.group.number, "mentoras"])
+        original_rows = self.participant_list.mentoras_sheet_rows
+        response = self.client.post(url, {"sheet_data": "[]"}, HTTP_X_REQUESTED_WITH="XMLHttpRequest")
+        self.assertEqual(response.status_code, 409)
+        self.participant_list.refresh_from_db()
+        self.assertEqual(self.participant_list.mentoras_sheet_rows, original_rows)
+
     def test_combined_track_sheet_autosave_updates_both_tracks(self):
         url = reverse(
             "admin_profiles_participants_track_sheet",
@@ -9043,7 +9078,7 @@ class ParticipantsCapacitacionCheckTests(TestCase):
         response = self.client.post(
             url,
             data={
-                "action": "save_sheet",
+                "action": "save_sheet", "sheet_revision": self.client.get(url).context["sheet_revision"],
                 "mentoras_sheet_data": json.dumps(mentoras_rows),
                 "emprendedoras_sheet_data": json.dumps(emprendedoras_rows),
             },
@@ -9074,11 +9109,11 @@ class ParticipantsCapacitacionCheckTests(TestCase):
         ]
         response = self.client.post(
             url,
-            data={"action": "save_sheet", "sheet_data": json.dumps(first_rows)},
+            data={"action": "save_sheet", "sheet_revision": self.client.get(url).context["sheet_revision"], "sheet_data": json.dumps(first_rows)},
             HTTP_X_REQUESTED_WITH="XMLHttpRequest",
         )
         self.assertEqual(response.status_code, 200)
-        version = ParticipantSheetVersion.objects.get(group=self.group, track="mentoras")
+        version = ParticipantSheetVersion.objects.filter(group=self.group, track="mentoras", action="autosave").latest("id")
         self.assertEqual(version.action, "autosave")
 
         second_rows = [
@@ -9086,12 +9121,12 @@ class ParticipantsCapacitacionCheckTests(TestCase):
         ]
         response = self.client.post(
             url,
-            data={"action": "save_sheet", "sheet_data": json.dumps(second_rows)},
+            data={"action": "save_sheet", "sheet_revision": self.client.get(url).context["sheet_revision"], "sheet_data": json.dumps(second_rows)},
             HTTP_X_REQUESTED_WITH="XMLHttpRequest",
         )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
-            ParticipantSheetVersion.objects.filter(group=self.group, track="mentoras").count(),
+            ParticipantSheetVersion.objects.filter(group=self.group, track="mentoras", action="autosave").count(),
             2,
         )
 

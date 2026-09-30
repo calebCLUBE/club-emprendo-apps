@@ -131,6 +131,7 @@
       <button class="ce-sheet-btn ce-sheet-btn--ghost" type="submit">Restore</button>
     </form>
     {% endif %}
+    {% if not linked_google_sheet %}<button type="button" id="ce-download-sheet-backup" class="ce-sheet-btn ce-sheet-btn--ghost">Download backup</button>{% endif %}
     <span id="ce-sheet-autosave-status" class="ce-autosave-status">
       {% if linked_google_sheet %}Google Sheet linked · website is read-only{% else %}Autosave ready{% endif %}
     </span>
@@ -170,6 +171,7 @@
   <form method="post" id="ce-sheet-save-form" style="display:none;">
     {% csrf_token %}
     <input type="hidden" name="action" value="save_sheet">
+    <input type="hidden" name="sheet_revision" value="{{ sheet_revision }}">
     {% if combined_sheet %}
       <input type="hidden" id="ce-mentoras-sheet-data" name="mentoras_sheet_data" value="" data-ce-sheet-payload="mentoras">
       <input type="hidden" id="ce-emprendedoras-sheet-data" name="emprendedoras_sheet_data" value="" data-ce-sheet-payload="emprendedoras">
@@ -200,6 +202,32 @@
     let lastSavedPayload = '';
     let saveInFlight = false;
     let checkSubmitInProgress = false;
+    let saveBlocked = false;
+    const revisionInput = form.querySelector('[name="sheet_revision"]');
+    const backupKey = 'ce-participant-draft:' + window.location.pathname;
+    function preserveDraft(payload) {
+      try {
+        localStorage.setItem(backupKey, JSON.stringify({
+          group: {{ group.number }}, track: '{{ track_slug|escapejs }}',
+          savedAt: new Date().toISOString(), payload: payload,
+        }));
+      } catch (err) { /* Download backup remains available if storage is full. */ }
+    }
+    const backupButton = document.getElementById('ce-download-sheet-backup');
+    if (backupButton) backupButton.addEventListener('click', function () {
+      const payload = currentRowsPayload();
+      const signature = IS_COMBINED ? JSON.stringify(payload) : payload;
+      if (payload != null && signature !== lastSavedPayload) preserveDraft(payload);
+      let stored = null;
+      try { stored = localStorage.getItem(backupKey); } catch (err) {}
+      const blob = new Blob([stored || JSON.stringify({payload: payload})], {type: 'application/json'});
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'group-{{ group.number }}-{{ track_slug|escapejs }}-backup.json';
+      link.click();
+      window.setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+    });
 
     function normalizeCellForSave(value) {
       if (value === null || value === undefined) {
@@ -325,6 +353,8 @@
         return;
       }
 
+      preserveDraft(payload);
+      if (saveBlocked) return;
       saveInFlight = true;
       setAutosaveStatus('Saving...');
       if (IS_COMBINED) {
@@ -343,14 +373,18 @@
           credentials: 'same-origin',
           body: body,
         });
-        if (response.ok) {
+        const contentType = response.headers.get('content-type') || '';
+        const result = contentType.includes('application/json') ? await response.json() : null;
+        if (response.ok && !response.redirected && result && result.ok === true && result.revision) {
+          revisionInput.value = result.revision;
           lastSavedPayload = payloadSignature;
           setAutosaveStatus(`Autosaved ${autosaveTimeLabel()}`);
         } else {
-          setAutosaveStatus('Autosave failed');
+          saveBlocked = response.status === 409 || response.redirected || !result;
+          setAutosaveStatus(result && result.error ? result.error : 'Not saved. Download backup, then sign in again or reload.');
         }
       } catch (err) {
-        setAutosaveStatus('Autosave failed');
+        setAutosaveStatus('Not saved — connection failed. Download backup before leaving.');
       } finally {
         saveInFlight = false;
       }
@@ -387,6 +421,16 @@
       });
     });
 
+    window.addEventListener('beforeunload', function (event) {
+      if (IS_LINKED || checkSubmitInProgress) return;
+      const payload = currentRowsPayload();
+      const signature = IS_COMBINED ? JSON.stringify(payload) : payload;
+      if (payload != null && (saveInFlight || signature !== lastSavedPayload)) {
+        preserveDraft(payload);
+        event.preventDefault();
+        event.returnValue = '';
+      }
+    });
     if (!IS_LINKED) {
       bootstrapSavedPayloadWhenReady();
       window.setInterval(function () {

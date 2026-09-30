@@ -273,11 +273,11 @@
       <div class="ce-row">
         <section class="ce-card">
           <div class="ce-card-head">
-            <div><p class="ce-kicker">Who took part</p><h2 class="ce-title">Participants</h2></div>
+            <div><h2 class="ce-title">Participants</h2></div>
           </div>
           <div class="ce-split">
             <div class="ce-main">
-              <div class="ce-hero-cap" style="margin:0 0 4px;"><strong style="color:var(--ink);font-size:20px;">{{ participant_summary.overall.rows }}</strong> total participations by <strong style="color:var(--ink);font-size:20px;">{{ participant_summary.overall.unique }}</strong> women</div>
+              <div class="ce-hero-cap" style="margin:0 0 4px;"><strong style="color:var(--ink);font-size:20px;">{{ participant_summary.overall.unique }}</strong> women{% if participant_summary.overall.rows != participant_summary.overall.unique %} · {{ participant_summary.overall.rows }} participations{% endif %}</div>
               {% with e=participant_summary.tracks.e.unique m=participant_summary.tracks.m.unique %}
                 {% widthratio e e|add:m 100 as e_pct %}
                 <div class="ce-splitbar"><span style="width: {{ e_pct }}%; background: var(--e);"></span><span style="flex: 1; background: var(--m);"></span></div>
@@ -285,12 +285,9 @@
                   <span><i class="ce-dot" style="background: var(--e);"></i><strong>{{ e }}</strong> Emprendedoras</span>
                   <span><i class="ce-dot" style="background: var(--m);"></i><strong>{{ m }}</strong> Mentoras</span>
                 </div>
+                {% if e|add:m > participant_summary.overall.unique %}<p class="ce-note">Women who held both roles appear in both counts.</p>{% endif %}
               {% endwith %}
-            </div>
-            <div class="ce-aside">
-              <p>Counted once per woman, even if she joined several groups or both roles, so the two roles add up to slightly more than the total.</p>
-              <p>A woman who joins another group counts again in <strong>total participations</strong>.</p>
-              <p><strong>Covers:</strong> {{ scope_notes.participants }}</p>
+              {% if participant_summary.overall.rows != participant_summary.overall.unique %}<p class="ce-note">Participations count each group and role separately.</p>{% endif %}
             </div>
           </div>
         </section>

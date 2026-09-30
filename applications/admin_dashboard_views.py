@@ -1281,6 +1281,8 @@ def _participant_summary(records: list[dict], group_numbers: set[int] | None = N
         "overall": {
             "rows": len(records),
             "unique": len(all_participant_people),
+            "repeat_participations": len(records) - len(all_participant_people),
+            "both_roles": sum(track["unique"] for track in summary_by_track.values()) - len(all_participant_people),
             "unique_with_email": len({record["email"] for record in records if record.get("email")}),
             "started": overall_started,
             "started_unique": len(all_started_people),

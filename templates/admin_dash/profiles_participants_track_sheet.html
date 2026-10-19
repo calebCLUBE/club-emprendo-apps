@@ -121,7 +121,7 @@
     </div>
   {% endif %}
   <div class="ce-sheet-actions">
-    <span class="ce-sheet-debug">Participants sheet patch v2026.06.03.6</span>
+    <span class="ce-sheet-debug">G{{ group.number }} · {{ track_label }}</span>
     {% if not linked_google_sheet %}
     <form class="ce-version-form" method="post">
       {% csrf_token %}
@@ -139,7 +139,7 @@
     {% endif %}
     {% if not linked_google_sheet %}<button type="button" id="ce-download-sheet-backup" class="ce-sheet-btn ce-sheet-btn--ghost">Download backup</button>{% endif %}
     <span id="ce-sheet-autosave-status" class="ce-autosave-status">
-      {% if linked_google_sheet %}Google Sheet linked · website is read-only{% else %}Autosave ready{% endif %}
+      {% if linked_google_sheet %}Google Sheet linked · website is read-only{% else %}No linked Google Sheet · Autosave ready{% endif %}
     </span>
     <a class="ce-sheet-btn ce-sheet-btn--ghost" href="{% url 'admin_profiles_participants' %}?group={{ group.number }}">
       Back
@@ -150,6 +150,7 @@
       <button class="ce-sheet-btn" type="submit">Check Acta</button>
     </form>
     {% if linked_google_sheet_url %}
+      <a class="ce-sheet-btn ce-sheet-btn--ghost" href="{{ request.path }}">Refresh from Google</a>
       <a class="ce-sheet-btn ce-sheet-btn--ghost" href="{{ linked_google_sheet_url }}" target="_blank" rel="noopener">Open Google Sheet</a>
     {% endif %}
     <form method="post" data-ce-check-form>

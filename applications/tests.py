@@ -9193,7 +9193,7 @@ class ParticipantsCapacitacionCheckTests(TestCase):
         verify_patcher = patch("applications.admin_profiles_views._verify_linked_participant_sheet_writeback")
         self.mock_verify_writeback = verify_patcher.start()
         self.addCleanup(verify_patcher.stop)
-        status_patcher = patch("applications.admin_profiles_views.ensure_google_spreadsheet_status_columns")
+        status_patcher = patch("applications.drive_sync.ensure_google_spreadsheet_status_columns")
         self.mock_status_columns = status_patcher.start()
         self.addCleanup(status_patcher.stop)
         move_patcher = patch("applications.admin_profiles_views.move_google_spreadsheet_columns_first")
@@ -9691,9 +9691,9 @@ class ParticipantsCapacitacionCheckTests(TestCase):
         self.assertEqual([item["header"] for item in created], ["Historial", "Historial"])
         self.assertTrue(all(item["checkbox"] is False for item in created))
         expected = "G993 · Emprendedora · Graduada | G993 · Mentora · Activa"
-        updates = {item["range"]: item["values"] for item in mock_update.call_args.args[1]}
-        self.assertEqual(updates["'Mentoras'!T1"], [["Historial"], [""], [expected]])
-        self.assertEqual(updates["'Emprendedoras'!S1"], [["Historial"], [expected]])
+        updates = {item["range"]: item["values"] for call in mock_update.call_args_list for item in call.args[1]}
+        self.assertEqual(updates["'Mentoras'!T2:T3"], [[""], [expected]])
+        self.assertEqual(updates["'Emprendedoras'!S2:S2"], [[expected]])
         self.participant_list.refresh_from_db()
         self.assertEqual(self.participant_list.mentoras_sheet_rows[0][-1], expected)
         self.assertEqual(self.participant_list.emprendedoras_sheet_rows[0][-1], expected)
@@ -9713,9 +9713,9 @@ class ParticipantsCapacitacionCheckTests(TestCase):
         admin_profiles_views._sync_group_from_linked_google_sheet(
             group=self.group, participant_list=self.participant_list, sheet_url=url,
         )
-        self.assertEqual(mock_ensure.call_args.args[1], [])
-        updates = {item["range"]: item["values"] for item in mock_update.call_args.args[1]}
-        self.assertEqual(updates["'Mentoras'!A1"][-1], [expected])
+        self.assertEqual(mock_ensure.call_count, 1)  # Existing Historial needs no schema writes.
+        updates = {item["range"]: item["values"] for call in mock_update.call_args_list for item in call.args[1]}
+        self.assertEqual(updates["'Mentoras'!A2:A3"][-1], [expected])
         self.assertEqual(self.mock_move_columns.call_args.args[1], [])
 
     @patch("applications.admin_profiles_views.update_google_spreadsheet_values")
@@ -9765,9 +9765,7 @@ class ParticipantsCapacitacionCheckTests(TestCase):
                 status_index = tab["headers"].index("Estatus")
                 self.assertEqual(tab["rows"][0][info_index], "NC - Personal")
                 self.assertEqual(tab["rows"][0][status_index], status)
-                requested = self.mock_status_columns.call_args.args[1][0]
-                self.assertEqual(requested["column_index"], source["values"][0].index("Estatus"))
-                self.assertEqual(self.mock_status_columns.call_args.args[2], admin_profiles_views.MENTORAS_STATUS_OPTIONS)
+                self.mock_status_columns.assert_not_called()
 
     def test_status_header_matching_never_uses_info_or_old_status_notes(self):
         self.assertIsNone(admin_profiles_views._participant_source_field_index(
@@ -9798,6 +9796,12 @@ class ParticipantsCapacitacionCheckTests(TestCase):
              "values": [headers[:],
                         ["", "NC - Programa", "SC2", "G16", 8, "Emprendedora Updated", "+58", "e1@example.com", "Venezuela", "E1", "Venezolana", 40, False, True, False, True, True, False]]},
         ]}
+        statuses = admin_profiles_views.PARTICIPANT_STATUS_SHEET_OPTIONS
+        for index in range(70):
+            row = list(source["tabs"][0]["values"][1])
+            row[0], row[1], row[3], row[7] = "", statuses[index % len(statuses)], "", f"mentor{index}@example.com"
+            source["tabs"][0]["values"].append(row)
+        ordinary_before = deepcopy(source)
         self.participant_list.google_sheet_url = "https://docs.google.com/spreadsheets/d/linked-sheet-123/edit"
         self.participant_list.mentoras_sheet_rows[0][0] = "NC Personal"
         self.participant_list.mentoras_sheet_rows[0][1] = "No Continua PP"
@@ -9839,7 +9843,10 @@ class ParticipantsCapacitacionCheckTests(TestCase):
         response = self.client.get(reverse("admin_profiles_participants_track_sheet", args=[10, "all"]))
         self.assertEqual(response.status_code, 200)
         tab = response.context["sheet_tabs"][0]
-        self.assertEqual(tab["headers"][:18], headers)
+        self.assertEqual(tab["headers"], headers)
+        self.assertEqual([tab["values"][0] for tab in source["tabs"]], [headers, headers])
+        mock_ensure.assert_not_called()
+        self.mock_status_columns.assert_not_called()
         self.assertNotIn("Info", tab["headers"])
         self.assertEqual(tab["rows"][0][1], "NC - Sin Respuesta")
         self.assertEqual(tab["rows"][0][3], "Reubicación pendiente")
@@ -9847,6 +9854,94 @@ class ParticipantsCapacitacionCheckTests(TestCase):
         self.assertEqual(tab["rows"][0][0], source["tabs"][0]["values"][1][0])
         self.assertEqual(mock_fetch.call_count, 4)  # Import + read-back for refresh and open.
         self.assertEqual(self.participant_list.google_sheet_sync_error, "")
+        self.assertEqual([row[1] for row in tab["rows"]],
+                         [row[1] for row in ordinary_before["tabs"][0]["values"][1:]])
+        for before, after in zip(ordinary_before["tabs"], source["tabs"]):
+            for old_row, new_row in zip(before["values"][1:], after["values"][1:]):
+                # Ordinary fields and the custom W/C checkbox are source-owned.
+                for index in list(range(1, 12)) + [15]:
+                    self.assertEqual(new_row[index], old_row[index])
+        writes = [item for call in mock_update.call_args_list for item in call.args[1]]
+        self.assertTrue(any(item["range"] == "'G10 Mentoras'!A2:A72" for item in writes))
+        self.assertTrue(all(re.search(r"[A-Z]+2:", item["range"]) for item in writes))
+        self.assertFalse(any("!P" in item["range"] for item in writes))  # W/C is untouched.
+        self.assertContains(response, "Refresh from Google")
+        self.assertEqual(response.context["sheet_save_headers"]["mentoras"], headers)
+
+    @patch("applications.admin_profiles_views.fetch_google_spreadsheet_tabs")
+    def test_missing_google_cache_never_falls_back_to_legacy_info_workbook(self, mock_fetch):
+        self.participant_list.google_sheet_url = "https://docs.google.com/spreadsheets/d/linked-sheet-123/edit"
+        self.participant_list.google_sheet_tabs = []
+        self.participant_list.mentoras_sheet_rows[0][0] = "wrong legacy info"
+        self.participant_list.save()
+        mock_fetch.side_effect = RuntimeError("Google read unavailable")
+        for track in ("all", "mentoras"):
+            with self.subTest(track=track):
+                response = self.client.get(reverse("admin_profiles_participants_track_sheet", args=[self.group.number, track]))
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.context["sheet_headers"], [])
+                self.assertEqual(response.context["sheet_rows"], [])
+                self.assertContains(response, "Google sync incomplete.")
+                self.assertContains(response, "Google read unavailable")
+                self.assertNotContains(response, "wrong legacy info")
+
+    @patch("applications.admin_profiles_views.ensure_google_spreadsheet_checkbox_columns")
+    @patch("applications.admin_profiles_views.update_google_spreadsheet_values")
+    @patch("applications.admin_profiles_views.fetch_google_spreadsheet_tabs")
+    def test_local_automated_checks_survive_refresh_without_adding_google_columns(
+        self, mock_fetch, mock_update, mock_ensure,
+    ):
+        payload = self._linked_google_workbook_payload()
+        for source in payload["tabs"][:2]:
+            email = source["values"][1][5]
+            source["values"] = [["Historial", "Estatus", "Notas", "Email"], ["", "NC - Personal", "", email]]
+        mock_fetch.return_value = payload
+        self.participant_list.mentoras_sheet_rows[0][11] = True
+        self.participant_list.mentoras_sheet_rows[0][10] = True
+        self.participant_list.mentoras_sheet_rows[0][13] = True
+        self.participant_list.save()
+        for _ in range(2):
+            admin_profiles_views._sync_group_from_linked_google_sheet(
+                group=self.group, participant_list=self.participant_list,
+                sheet_url="https://docs.google.com/spreadsheets/d/linked-sheet-123/edit",
+            )
+            self.participant_list.refresh_from_db()
+            display = admin_profiles_views._participant_google_tabs_for_display(self.participant_list)[0]
+            self.assertEqual(display["headers"][:4], ["Historial", "Estatus", "Notas", "Email"])
+            self.assertEqual(len(display["headers"]), 9)
+            self.assertTrue(display["rows"][0][display["headers"].index("Capacitacion")])
+            self.assertTrue(display["rows"][0][display["headers"].index("Encuesta inicial")])
+            self.assertEqual(self.participant_list.google_sheet_tabs[0]["headers"], payload["tabs"][0]["values"][0])
+            self.assertEqual(display["rows"][0][1:3], ["NC - Personal", ""])
+        mock_ensure.assert_not_called()
+        self.mock_status_columns.assert_not_called()
+        self.assertEqual(mock_update.call_count, 2)  # Only history, no source checkbox columns.
+        self.assertTrue(all("!A2:A2" in item["range"] for call in mock_update.call_args_list for item in call.args[1]))
+        self.client.get(reverse("admin_profiles_participants"), {"group": self.group.number})
+        self.participant_list.refresh_from_db()
+        self.assertTrue(self.participant_list.mentoras_sheet_rows[0][11])
+
+    @patch("applications.admin_profiles_views._fetch_wix_capacitacion_completed_emails")
+    @patch("applications.admin_profiles_views.update_google_spreadsheet_values", return_value=2)
+    @patch("applications.admin_profiles_views.fetch_google_spreadsheet_tabs")
+    def test_check_capacitacion_works_when_google_has_no_check_column(self, mock_fetch, mock_update, mock_wix):
+        payload = self._linked_google_workbook_payload()
+        for source in payload["tabs"][:2]:
+            email = source["values"][1][5]
+            source["values"] = [["Historial", "Estatus", "Notas", "Email"], ["", "Activa", "", email]]
+        mock_fetch.return_value = payload
+        mock_wix.return_value = (True, {"m1@example.com"}, "Wix scanned.")
+        self.participant_list.google_sheet_url = "https://docs.google.com/spreadsheets/d/linked-sheet-123/edit"
+        self.participant_list.save()
+        url = reverse("admin_profiles_participants_track_sheet", args=[self.group.number, "all"])
+        response = self.client.post(url, {"action": "check_capacitacion"}, follow=True)
+        self.assertEqual(response.status_code, 200)
+        self.participant_list.refresh_from_db()
+        tab = response.context["sheet_tabs"][0]
+        self.assertTrue(tab["rows"][0][tab["headers"].index("Capacitacion")])
+        self.assertTrue(self.participant_list.mentoras_sheet_rows[0][11])
+        self.assertEqual(self.participant_list.google_sheet_tabs[0]["headers"], ["Historial", "Estatus", "Notas", "Email"])
+        self.assertTrue(all("!A2:A2" in item["range"] for call in mock_update.call_args_list for item in call.args[1]))
 
     @patch("applications.admin_profiles_views.ensure_google_spreadsheet_checkbox_columns")
     @patch("applications.admin_profiles_views.update_google_spreadsheet_values")
@@ -9887,6 +9982,9 @@ class ParticipantsCapacitacionCheckTests(TestCase):
     def test_refresh_cannot_report_success_if_google_history_readback_is_stale(self, mock_fetch, mock_update):
         payload = self._linked_google_workbook_payload()
         payload["tabs"][0]["values"][1][1] = "NC - Programa"
+        for source in payload["tabs"][:2]:
+            headers, row = source["values"]
+            source["values"] = [[headers[-1]] + headers[:-1], [""] + row]
         mock_fetch.return_value = payload
         mock_update.return_value = 50  # A reported cell count is not proof of a written value.
         self.mock_verify_writeback.side_effect = self.real_verify_writeback
@@ -10250,7 +10348,7 @@ class ParticipantsCapacitacionCheckTests(TestCase):
     @patch("applications.admin_profiles_views.ensure_google_spreadsheet_checkbox_columns")
     @patch("applications.admin_profiles_views.update_google_spreadsheet_values")
     @patch("applications.admin_profiles_views.fetch_google_spreadsheet_tabs")
-    def test_link_adds_missing_google_checkbox_columns_instead_of_rejecting(
+    def test_link_keeps_missing_automated_checks_on_website_only(
         self,
         mock_fetch_tabs,
         mock_update_values,
@@ -10278,19 +10376,21 @@ class ParticipantsCapacitacionCheckTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 302)
-        requested_headers = {
-            item["header"] for item in mock_ensure_columns.call_args.args[1]
-        }
-        self.assertEqual(
-            requested_headers,
-            {"Website", "Encuesta inicial", "Plazo extra", "Lanzamiento"},
-        )
+        mock_ensure_columns.assert_not_called()
+        self.participant_list.refresh_from_db()
+        stored = self.participant_list.google_sheet_tabs[0]
+        self.assertEqual(stored["headers"], ["Historial"] + headers[:-1])
+        display = admin_profiles_views._participant_google_tabs_for_display(self.participant_list)[0]
+        self.assertEqual(display["headers"], stored["headers"] + ["Encuesta inicial"])
+        self.assertNotIn("Website", display["headers"])
+        self.assertNotIn("Plazo extra", display["headers"])
+        self.assertNotIn("Lanzamiento", display["headers"])
 
     @patch("applications.admin_profiles_views.ensure_google_spreadsheet_checkbox_columns")
-    @patch("applications.admin_profiles_views.delete_google_spreadsheet_columns")
+    @patch("applications.drive_sync.delete_google_spreadsheet_columns")
     @patch("applications.admin_profiles_views.update_google_spreadsheet_values")
     @patch("applications.admin_profiles_views.fetch_google_spreadsheet_tabs")
-    def test_link_recognizes_enuesta_inicial_and_removes_appended_duplicate(
+    def test_link_recognizes_enuesta_inicial_without_deleting_source_columns(
         self,
         mock_fetch_tabs,
         mock_update_values,
@@ -10320,15 +10420,15 @@ class ParticipantsCapacitacionCheckTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 302)
-        mock_delete_columns.assert_called_once_with(
-            "https://docs.google.com/spreadsheets/d/linked-sheet-123/edit",
-            [{"sheet_id": 1, "column_index": len(admin_profiles_views.MENTORAS_HEADERS)}],
-        )
-        self.assertEqual(mock_ensure_columns.call_args.args[1], [])
+        mock_delete_columns.assert_not_called()
+        mock_ensure_columns.assert_not_called()
         self.participant_list.refresh_from_db()
-        stored_headers = self.participant_list.google_sheet_tabs[0]["headers"]
+        stored = self.participant_list.google_sheet_tabs[0]
+        stored_headers = stored["headers"]
+        self.assertEqual(stored_headers, ["Historial"] + headers[:19] + headers[20:])
         self.assertEqual(stored_headers[14], "Enuesta inicial")
-        self.assertNotIn("Encuesta inicial", stored_headers)
+        initial = next(item for item in stored["checkbox_columns"] if item["field"] == "encuesta_inicial")
+        self.assertEqual(initial["index"], 14)
 
     @patch("applications.admin_profiles_views._fetch_encuestas_emails_for_group")
     @patch("applications.admin_profiles_views.update_google_spreadsheet_values")

@@ -36,9 +36,7 @@ from django.core.paginator import Paginator
 from django.views.decorators.csrf import csrf_exempt
 
 from .drive_sync import (
-    delete_google_spreadsheet_columns,
     ensure_google_spreadsheet_checkbox_columns,
-    ensure_google_spreadsheet_status_columns,
     fetch_drive_csv_file_text,
     fetch_google_spreadsheet_tabs,
     move_google_spreadsheet_columns_first,
@@ -3140,33 +3138,68 @@ def _participant_historial_first_tab(tab: dict) -> dict:
             {**item, "index": order.index(item["index"])}
             for item in tab["checkbox_columns"]
         ]
+    if "checkbox_column_indexes" in tab:
+        result["checkbox_column_indexes"] = [
+            order.index(index) for index in tab["checkbox_column_indexes"]
+            if index in order
+        ]
     return result
 
 
 def _participant_google_tabs_for_display(participant_list) -> list[dict]:
+    """Mirror source columns; add missing automated checks only to the website."""
     tabs: list[dict] = []
+    configs = _participant_track_sheet_configs()
     for tab in list(getattr(participant_list, "google_sheet_tabs", []) or []):
         if not isinstance(tab, dict):
             continue
         headers = [str(value or "") for value in (tab.get("headers") or [])]
         rows = [list(row) for row in (tab.get("rows") or []) if isinstance(row, list)]
         checkbox_columns = [
-            item for item in (tab.get("checkbox_columns") or []) if isinstance(item, dict)
+            dict(item) for item in (tab.get("checkbox_columns") or []) if isinstance(item, dict)
         ]
-        tabs.append(
-            {
-                "key": str(tab.get("track") or f"google-{len(tabs) + 1}"),
-                "name": str(tab.get("title") or f"Sheet {len(tabs) + 1}"),
-                "headers": headers,
-                "rows": rows,
-                "column_types": _participant_google_column_types(headers, checkbox_columns),
-                "status_options": PARTICIPANT_STATUS_SHEET_OPTIONS,
-            }
-        )
-    return [
-        _participant_historial_first_tab(tab) if tab["key"] in {"mentoras", "emprendedoras"} else tab
-        for tab in tabs
-    ]
+        cfg = configs.get(tab.get("track"))
+        email_index = _participant_source_field_index(headers, "email")
+        if cfg and email_index is not None:
+            canonical_checks = dict(_participant_checkbox_specs(cfg))
+            # These checks have website actions; optional legacy flags are only
+            # shown when they are actually present in the source workbook.
+            for field in ("acta", "capacitacion", "certificacion", "encuesta_inicial", "encuesta_final"):
+                canonical_index = canonical_checks[field]
+                if any(item.get("field") == field for item in checkbox_columns):
+                    continue
+                source_index = _participant_source_field_index(headers, field)
+                if source_index is None:
+                    source_index = len(headers)
+                    headers.append(cfg["headers"][canonical_index].strip())
+                checkbox_columns.append({"field": field, "index": source_index,
+                                         "canonical_index": canonical_index})
+            states = _participant_checkbox_state_by_email(
+                getattr(participant_list, cfg["rows_field"], []), cfg,
+            )
+            for row in rows:
+                row.extend([""] * max(0, len(headers) - len(row)))
+                email = _normalize_email(row[email_index])
+                for item in checkbox_columns:
+                    index = item["index"]
+                    row[index] = bool(_as_checkbox_bool(row[index]) or
+                                      states.get(email, {}).get(item["canonical_index"], False))
+        # Preserve native source checkboxes with custom labels (e.g. W/C)
+        # without assigning them to unrelated website fields.
+        type_columns = checkbox_columns + [
+            {"index": index} for index in tab.get("checkbox_column_indexes", [])
+            if isinstance(index, int) and 0 <= index < len(headers)
+        ]
+        display = {
+            "key": str(tab.get("track") or f"google-{len(tabs) + 1}"),
+            "name": str(tab.get("title") or f"Sheet {len(tabs) + 1}"),
+            "headers": headers,
+            "rows": rows,
+            "column_types": _participant_google_column_types(headers, type_columns),
+            "status_options": PARTICIPANT_STATUS_SHEET_OPTIONS,
+        }
+        tabs.append(_participant_historial_first_tab(display) if cfg else display)
+    return tabs
 
 
 def _participant_checkbox_state_by_email(rows: list[list], cfg: dict) -> dict[str, dict[int, bool]]:
@@ -3259,11 +3292,12 @@ def _verify_linked_participant_sheet_writeback(sheet_url: str, expected_tabs: li
         status_index = _participant_source_field_index(headers, "status")
         if None in (history_index, email_index, status_index):
             raise ValueError(f"Could not verify Historial, Email and Estatus in Google tab '{title}'.")
+        if headers != expected["headers"]:
+            raise ValueError(f"Columns changed in Google tab '{title}' during sync. Refresh again.")
         expected_history = next(i for i, header in enumerate(expected["headers"])
                                 if _normalized_source_header(header) == "historial")
         expected_status = _participant_source_field_index(expected["headers"], "status")
-        expected_info = _participant_source_field_index(expected["headers"], "info")
-        actual_info = _participant_source_field_index(headers, "info")
+        checkbox_indexes = {item["index"] for item in expected.get("checkbox_columns", [])}
         expected_rows = [row for row in expected["rows"]
                          if _normalize_email(_participant_source_value(row, expected["email_index"]))]
         actual_rows = [row for row in values[1:]
@@ -3277,10 +3311,11 @@ def _verify_linked_participant_sheet_writeback(sheet_url: str, expected_tabs: li
                 raise ValueError(f"Historial write-back was not confirmed in Google tab '{title}', participant row {row_number}.")
             if _participant_source_value(found, status_index) != _participant_source_value(wanted, expected_status):
                 raise ValueError(f"Estatus changed in Google tab '{title}' during sync. Refresh again.")
-            if expected_info is not None and (
-                actual_info is None or _participant_source_value(found, actual_info) != _participant_source_value(wanted, expected_info)
-            ):
-                raise ValueError(f"Info/Notas changed in Google tab '{title}' during sync. Refresh again.")
+            for index, header in enumerate(headers):
+                if index == history_index or index in checkbox_indexes:
+                    continue
+                if _participant_source_value(found, index) != _participant_source_value(wanted, index):
+                    raise ValueError(f"{header} changed in Google tab '{title}' during sync. Refresh again.")
 
 
 def _sync_group_from_linked_google_sheet(
@@ -3307,7 +3342,6 @@ def _sync_group_from_linked_google_sheet(
     stored_tabs: list[dict] = []
     seen_tracks: set[str] = set()
     missing_google_columns: list[dict] = []
-    duplicate_google_checkbox_columns: list[dict] = []
 
     source_tabs = list(spreadsheet.get("tabs") or [])
     has_group_scoped_tabs = any(
@@ -3325,7 +3359,7 @@ def _sync_group_from_linked_google_sheet(
         if has_group_scoped_tabs and tab_group_number != target_group_number:
             continue
         values = [list(row) for row in (source_tab.get("values") or []) if isinstance(row, list)]
-        headers = [str(value or "").strip() for value in (values[0] if values else [])]
+        headers = [str(value or "") for value in (values[0] if values else [])]
         body_rows = [list(row) for row in values[1:]] if values else []
         track_slug = _participant_google_tab_track(title)
         checkbox_columns: list[dict] = []
@@ -3350,52 +3384,6 @@ def _sync_group_from_linked_google_sheet(
                 }
             )
 
-            # A prior sync may have appended a canonical checkbox header when
-            # the original used a supported typo/alias. Remove only the later
-            # exact canonical duplicate that our sync would have created.
-            duplicate_indexes: list[int] = []
-            normalized_headers = [_normalized_source_header(header) for header in headers]
-            for field_name, canonical_index in checkbox_specs:
-                normalized_aliases = {
-                    _normalized_source_header(alias)
-                    for alias in PARTICIPANT_SOURCE_FIELD_ALIASES.get(field_name, ())
-                }
-                matching_indexes = [
-                    index
-                    for index, normalized in enumerate(normalized_headers)
-                    if normalized in normalized_aliases
-                ]
-                if len(matching_indexes) < 2:
-                    continue
-                primary_index = matching_indexes[0]
-                canonical_header = cfg["headers"][canonical_index].strip()
-                canonical_normalized = _normalized_source_header(canonical_header)
-                for duplicate_index in matching_indexes[1:]:
-                    if (
-                        duplicate_index > primary_index
-                        and normalized_headers[duplicate_index] == canonical_normalized
-                    ):
-                        duplicate_indexes.append(duplicate_index)
-
-            for duplicate_index in sorted(set(duplicate_indexes), reverse=True):
-                duplicate_google_checkbox_columns.append(
-                    {
-                        "sheet_id": int(source_tab.get("sheet_id") or 0),
-                        "column_index": duplicate_index,
-                    }
-                )
-                headers.pop(duplicate_index)
-                for source_row in body_rows:
-                    if duplicate_index < len(source_row):
-                        source_row.pop(duplicate_index)
-                detected_checkbox_indexes = [
-                    index - 1 if index > duplicate_index else index
-                    for index in detected_checkbox_indexes
-                    if index != duplicate_index
-                ]
-                if email_index > duplicate_index:
-                    email_index -= 1
-
             # Named columns take precedence, regardless of their visual order.
             # Positional BOOLEAN matching is only a fallback for the remaining
             # custom labels when the complete set can be mapped unambiguously.
@@ -3416,23 +3404,7 @@ def _sync_group_from_linked_google_sheet(
                 if source_index is None:
                     source_index = fallback_indexes.get(field_name)
                 if source_index is None:
-                    source_index = len(headers)
-                    header_label = cfg["headers"][canonical_index].strip()
-                    headers.append(header_label)
-                    for source_row in body_rows:
-                        source_row.extend([""] * (len(headers) - len(source_row)))
-                    missing_google_columns.append(
-                        {
-                            "sheet_id": int(source_tab.get("sheet_id") or 0),
-                            "column_index": source_index,
-                            "column_count": max(
-                                0,
-                                int(source_tab.get("column_count") or 0)
-                                - len(set(duplicate_indexes)),
-                            ),
-                            "header": header_label,
-                        }
-                    )
+                    continue
                 checkbox_columns.append(
                     {
                         "field": field_name,
@@ -3451,8 +3423,7 @@ def _sync_group_from_linked_google_sheet(
                 missing_google_columns.append({
                     "sheet_id": int(source_tab.get("sheet_id") or 0),
                     "column_index": history_index,
-                    "column_count": max(0, int(source_tab.get("column_count") or 0)
-                                        - len(set(duplicate_indexes))),
+                    "column_count": int(source_tab.get("column_count") or 0),
                     "header": "Historial",
                     "checkbox": False,
                 })
@@ -3460,6 +3431,7 @@ def _sync_group_from_linked_google_sheet(
                 field_name: _participant_source_field_index(headers, field_name)
                 for field_name in PARTICIPANT_SOURCE_FIELD_ALIASES
             }
+            mapped_checks = {item["canonical_index"]: item["index"] for item in checkbox_columns}
             converted_rows: list[list] = []
             for source_row in body_rows:
                 canonical = _participant_source_row_to_sheet_row(
@@ -3474,20 +3446,12 @@ def _sync_group_from_linked_google_sheet(
                 if not email:
                     continue
                 saved_state = existing_states[track_slug].get(email, {})
-                for checkbox_item in checkbox_columns:
-                    source_index = int(checkbox_item["index"])
-                    canonical_index = int(checkbox_item["canonical_index"])
+                for _field, canonical_index in checkbox_specs:
+                    source_index = mapped_checks.get(canonical_index)
                     google_checked = _as_checkbox_bool(
-                        source_row[source_index]
-                        if source_index < len(source_row)
-                        else False
+                        source_row[source_index] if source_index is not None and source_index < len(source_row) else False
                     )
-                    website_checked = bool(
-                        saved_state.get(canonical_index, False)
-                    )
-                    canonical[canonical_index] = bool(
-                        google_checked or website_checked
-                    )
+                    canonical[canonical_index] = bool(google_checked or saved_state.get(canonical_index, False))
                 converted_rows.append(canonical)
             converted_rows = _apply_contract_signed_to_rows(
                 converted_rows,
@@ -3507,6 +3471,7 @@ def _sync_group_from_linked_google_sheet(
                 "rows": body_rows,
                 "email_index": email_index,
                 "checkbox_columns": checkbox_columns,
+                "checkbox_column_indexes": list(source_tab.get("checkbox_column_indexes") or []),
             }
         )
 
@@ -3555,10 +3520,11 @@ def _sync_group_from_linked_google_sheet(
             row[history_index] = history_by_email.get(email, "")
         title = tab["title"].replace("'", "''")
         column = _sheet_column_label(history_index)
-        history_updates.append({
-            "range": f"'{title}'!{column}1",
-            "values": [["Historial"]] + [[row[history_index]] for row in tab["rows"]],
-        })
+        if tab["rows"]:
+            history_updates.append({
+                "range": f"'{title}'!{column}2:{column}{len(tab['rows']) + 1}",
+                "values": [[row[history_index]] for row in tab["rows"]],
+            })
     participant_list.google_sheet_tabs = stored_tabs
     pushed_tabs, checkbox_updates = _linked_google_checkbox_updates(participant_list, stored_tabs)
     participant_list.google_sheet_url = source_url
@@ -3567,20 +3533,14 @@ def _sync_group_from_linked_google_sheet(
     participant_list.google_sheet_sync_error = "Latest Google data imported; Historial/check write-back is pending."
     participant_list.save()
     try:
-        deleted_checkbox_columns = delete_google_spreadsheet_columns(
-            source_url,
-            duplicate_google_checkbox_columns,
-        )
-        ensure_google_spreadsheet_checkbox_columns(
-            source_url,
-            missing_google_columns,
-        )
-        ensure_google_spreadsheet_status_columns(source_url, [
-            {"sheet_id": tab["sheet_id"],
-             "column_index": _participant_source_field_index(tab["headers"], "status")}
-            for tab in stored_tabs if tab.get("track") in configs
-        ], PARTICIPANT_STATUS_SHEET_OPTIONS)
-        updated_cells = update_google_spreadsheet_values(source_url, checkbox_updates + history_updates)
+        # Refresh never changes source dropdowns or adds/deletes checkbox
+        # columns. Only Historial may be created, and its existing header is
+        # never rewritten (Google table headers can be typed).
+        if missing_google_columns:
+            ensure_google_spreadsheet_checkbox_columns(source_url, missing_google_columns)
+        updated_cells = update_google_spreadsheet_values(source_url, history_updates)
+        if checkbox_updates:
+            updated_cells += update_google_spreadsheet_values(source_url, checkbox_updates)
         history_moves = [
             {"sheet_id": tab["sheet_id"], "column_index": index}
             for tab in pushed_tabs if tab.get("track") in configs
@@ -3620,9 +3580,9 @@ def _sync_group_from_linked_google_sheet(
         "mentoras": len(canonical_rows["mentoras"]),
         "emprendedoras": len(canonical_rows["emprendedoras"]),
         "updated_cells": updated_cells,
-        "checkbox_columns_created": sum(item.get("checkbox", True) for item in missing_google_columns),
-        "history_columns_created": sum(not item.get("checkbox", True) for item in missing_google_columns),
-        "checkbox_columns_deleted": deleted_checkbox_columns,
+        "checkbox_columns_created": 0,
+        "history_columns_created": len(missing_google_columns),
+        "checkbox_columns_deleted": 0,
     }
 
 
@@ -3681,6 +3641,17 @@ def _push_linked_participant_checkboxes(participant_list) -> int:
 
 
 def _participant_track_rows_for_group(group, participant_list, cfg: dict) -> tuple[list[list], bool]:
+    if participant_list and str(participant_list.google_sheet_url or "").strip():
+        rows = _participant_linked_track_rows(participant_list, cfg["slug"])
+        if rows is not None:
+            states = _participant_checkbox_state_by_email(getattr(participant_list, cfg["rows_field"], []), cfg)
+            for row in rows:
+                email = _normalize_email(row[cfg["email_col"]])
+                for _field, index in _participant_checkbox_specs(cfg):
+                    row[index] = bool(_as_checkbox_bool(row[index]) or states.get(email, {}).get(index, False))
+            return _number_sheet_rows(rows, number_col=2), False
+        # Retain existing history/metrics for groups that predate the source
+        # cache. Linked workbook rendering never uses this schema fallback.
     rows: list[list] = []
     if participant_list:
         stored_rows = _normalize_sheet_rows(
@@ -3711,23 +3682,6 @@ def _participant_track_rows_for_group(group, participant_list, cfg: dict) -> tup
 
 def _participant_track_rows_visible_on_page(group, participant_list, cfg: dict) -> tuple[list[list], bool]:
     """Return canonical metric rows from the same source rendered on Participants."""
-    linked_google_sheet = bool(
-        participant_list and str(participant_list.google_sheet_url or "").strip()
-    )
-    if linked_google_sheet:
-        rows = _participant_linked_track_rows(participant_list, cfg["slug"])
-        if rows is not None:
-            rows = _normalize_sheet_rows(rows, cfg["headers"])
-            rows = _coerce_bool_columns(rows, cfg["bool_cols"])
-            rows = _number_sheet_rows(rows, number_col=2)
-            rows, repaired_on_load = _repair_progress_defaults_if_legacy(
-                rows, cfg["progress_default_false_cols"],
-            )
-            rows = _apply_contract_signed_to_rows(
-                rows, email_col=cfg["email_col"], acta_col=cfg["acta_col"],
-            )
-            return rows, bool(repaired_on_load)
-
     return _participant_track_rows_for_group(group, participant_list, cfg)
 
 
@@ -5660,7 +5614,7 @@ def profiles_participants(request):
             )
 
     repaired_on_load = 0
-    if selected_group:
+    if selected_group and not (participant_list and participant_list.google_sheet_url):
         mentoras_rows, repaired_m = _repair_progress_defaults_if_legacy(
             mentoras_rows,
             MENTORAS_PROGRESS_DEFAULT_FALSE_COLS,
@@ -6296,22 +6250,8 @@ def _profiles_participants_track_sheet(request, group_num: int, track: str):
                 f"Could not refresh the linked Google Sheet. Showing the last synced copy: {exc}",
             )
 
-    rows: list[list] = []
-    if participant_list:
-        stored_rows = _normalize_sheet_rows(getattr(participant_list, rows_field, []), headers)
-        stored_rows = _coerce_bool_columns(stored_rows, bool_cols)
-        if stored_rows:
-            rows = _number_sheet_rows(stored_rows, number_col=2)
-        else:
-            emails_seed = _norm_email_list(getattr(participant_list, text_field, ""))
-            rows = _number_sheet_rows(
-                build_rows(group.number, emails_seed),
-                number_col=2,
-            )
-
-    rows, repaired_on_load = _repair_progress_defaults_if_legacy(
-        rows,
-        progress_default_false_cols,
+    rows, repaired_on_load = _participant_track_rows_for_group(
+        group, participant_list, _participant_track_sheet_configs()[track_slug],
     )
     if repaired_on_load:
         participant_obj, _ = GroupParticipantList.objects.get_or_create(group=group)
@@ -6319,12 +6259,6 @@ def _profiles_participants_track_sheet(request, group_num: int, track: str):
             setattr(participant_obj, rows_field, rows)
             participant_obj.save(update_fields=[rows_field, "updated_at"])
             participant_list = participant_obj
-
-    rows = _apply_contract_signed_to_rows(
-        rows,
-        email_col=email_col,
-        acta_col=acta_col,
-    )
     emails_text = "\n".join(_emails_from_sheet_rows(rows, email_col))
     if rows and not ParticipantSheetVersion.objects.filter(group=group, track=track_slug).exists():
         _create_participant_sheet_version(
@@ -6340,6 +6274,7 @@ def _profiles_participants_track_sheet(request, group_num: int, track: str):
     display_status_options = status_options
     display_rows = _populate_participant_historial(rows, headers, participant_list=participant_list)
     if linked_google_sheet:
+        display_headers, display_column_types, display_rows = [], [], []
         stored_tabs = list(participant_list.google_sheet_tabs or [])
         display_tabs = _participant_google_tabs_for_display(participant_list)
         linked_tab = next(
@@ -6366,7 +6301,7 @@ def _profiles_participants_track_sheet(request, group_num: int, track: str):
         "group": group,
         "track_slug": track_slug,
         "sheet_revision": _participant_sheet_revision(participant_list, track_slug),
-        "sheet_save_headers": headers,
+        "sheet_save_headers": display_headers if linked_google_sheet else headers,
         "track_label": track_label,
         "sheet_headers": display_headers,
         "sheet_column_types": display_column_types,
@@ -6834,11 +6769,12 @@ def _profiles_participants_combined_sheet(request, group):
         "sheet_revision": _participant_sheet_revision(participant_list, "all"),
         "track_label": "Participants",
         "combined_sheet": True,
-        "sheet_save_headers": {"mentoras": MENTORAS_HEADERS, "emprendedoras": EMPRENDEDORAS_HEADERS},
-        "sheet_headers": first_display_tab["headers"] if first_display_tab else MENTORAS_HEADERS,
-        "sheet_column_types": first_display_tab["column_types"] if first_display_tab else MENTORAS_COLUMN_TYPES,
-        "sheet_status_options": first_display_tab["status_options"] if first_display_tab else MENTORAS_STATUS_OPTIONS,
-        "sheet_rows": first_display_tab["rows"] if first_display_tab else rows_by_track["mentoras"],
+        "sheet_save_headers": ({tab["key"]: tab["headers"] for tab in display_tabs} if linked_google_sheet
+                               else {"mentoras": MENTORAS_HEADERS, "emprendedoras": EMPRENDEDORAS_HEADERS}),
+        "sheet_headers": first_display_tab["headers"] if first_display_tab else [],
+        "sheet_column_types": first_display_tab["column_types"] if first_display_tab else [],
+        "sheet_status_options": first_display_tab["status_options"] if first_display_tab else [],
+        "sheet_rows": first_display_tab["rows"] if first_display_tab else [],
         "sheet_tabs": display_tabs,
         "sheet_versions": sheet_versions,
         "emails_text": "",

@@ -324,6 +324,91 @@ class GoogleSheetsCredentialScopeTests(TestCase):
         self.assertEqual([value["userEnteredValue"] for value in rule["rule"]["condition"]["values"]],
                          admin_profiles_views.MENTORAS_STATUS_OPTIONS)
 
+    def _typed_table_metadata(self):
+        return {"sheets": [{"properties": {"sheetId": 7}, "tables": [{
+            "tableId": "participants-table",
+            "range": {"sheetId": 7, "startRowIndex": 5, "endRowIndex": 20,
+                      "startColumnIndex": 3, "endColumnIndex": 6},
+            "columnProperties": [
+                {"columnIndex": 0, "columnName": "Info", "columnType": "TEXT"},
+                {"columnIndex": 1, "columnName": "Estatus", "columnType": "DROPDOWN",
+                 "dataValidationRule": {"condition": {"type": "ONE_OF_LIST", "values": [{"userEnteredValue": "Old label"}]}}},
+                {"columnIndex": 2, "columnName": "Acta", "columnType": "BOOLEAN"},
+            ],
+        }]}]}
+
+    def _sheets_error(self, status, message):
+        from googleapiclient.errors import HttpError
+        from httplib2 import Response
+        return HttpError(Response({"status": str(status)}), json.dumps({
+            "error": {"code": status, "message": message},
+        }).encode())
+
+    @patch("applications.drive_sync._service_for_sheets")
+    def test_typed_status_error_retries_with_table_dropdown_and_preserves_other_columns(self, mock_service_factory):
+        sheets = mock_service_factory.return_value.spreadsheets.return_value
+        error = self._sheets_error(400, "Invalid requests[0].setDataValidation: This operation is not allowed on cells in typed columns.")
+        sheets.batchUpdate.return_value.execute.side_effect = [error, {}]
+        metadata = self._typed_table_metadata()
+        original = json.loads(json.dumps(metadata))
+        sheets.get.return_value.execute.return_value = metadata
+        options = admin_profiles_views.MENTORAS_STATUS_OPTIONS
+        self.assertEqual(drive_sync.ensure_google_spreadsheet_status_columns(
+            "sheet-123", [{"sheet_id": 7, "column_index": 4}, {"sheet_id": 8, "column_index": 2}], options,
+        ), 2)
+        self.assertEqual(sheets.batchUpdate.call_count, 2)
+        retry = sheets.batchUpdate.call_args.kwargs["body"]["requests"]
+        table = next(request["updateTable"] for request in retry if "updateTable" in request)
+        self.assertEqual(table["fields"], "columnProperties")
+        props = table["table"]["columnProperties"]
+        self.assertEqual(props[0], original["sheets"][0]["tables"][0]["columnProperties"][0])
+        self.assertEqual(props[2], original["sheets"][0]["tables"][0]["columnProperties"][2])
+        self.assertEqual(props[1]["columnType"], "DROPDOWN")
+        self.assertEqual([value["userEnteredValue"] for value in props[1]["dataValidationRule"]["condition"]["values"]], options)
+        ranges = [request["setDataValidation"]["range"] for request in retry if "setDataValidation" in request]
+        self.assertEqual(ranges, [
+            {"sheetId": 7, "startRowIndex": 1, "endRowIndex": 5, "startColumnIndex": 4, "endColumnIndex": 5},
+            {"sheetId": 7, "startRowIndex": 20, "startColumnIndex": 4, "endColumnIndex": 5},
+            {"sheetId": 8, "startRowIndex": 1, "startColumnIndex": 2, "endColumnIndex": 3},
+        ])
+        self.assertTrue(all(set(request) <= {"setDataValidation", "updateTable"} for request in retry))
+        self.assertEqual(metadata, original)
+
+    @patch("applications.drive_sync._service_for_sheets")
+    def test_typed_checkbox_recovery_keeps_checkbox_type_and_header_write(self, mock_service_factory):
+        sheets = mock_service_factory.return_value.spreadsheets.return_value
+        sheets.batchUpdate.return_value.execute.side_effect = [
+            self._sheets_error(400, "This operation is not allowed on cells in typed columns."), {},
+        ]
+        sheets.get.return_value.execute.return_value = self._typed_table_metadata()
+        drive_sync.ensure_google_spreadsheet_checkbox_columns(
+            "sheet-123", [{"sheet_id": 7, "column_index": 5, "column_count": 10, "header": "Acta"}],
+        )
+        retry = sheets.batchUpdate.call_args.kwargs["body"]["requests"]
+        self.assertEqual(retry[0]["updateCells"]["rows"][0]["values"][0],
+                         {"userEnteredValue": {"stringValue": "Acta"}})
+        table = next(request["updateTable"]["table"] for request in retry if "updateTable" in request)
+        self.assertEqual(table["columnProperties"][2]["columnType"], "BOOLEAN")
+        self.assertNotIn("dataValidationRule", table["columnProperties"][2])
+        self.assertEqual(table["columnProperties"][1]["dataValidationRule"]["condition"]["values"],
+                         [{"userEnteredValue": "Old label"}])
+
+    @patch("applications.drive_sync._service_for_sheets")
+    def test_validation_errors_are_not_silenced_or_retried_without_table_match(self, mock_service_factory):
+        sheets = mock_service_factory.return_value.spreadsheets.return_value
+        for status, message in ((403, "Permission denied"), (400, "Invalid range"),
+                                (400, "This operation is not allowed on cells in typed columns.")):
+            with self.subTest(status=status, message=message):
+                sheets.reset_mock()
+                sheets.batchUpdate.return_value.execute.side_effect = self._sheets_error(status, message)
+                sheets.get.return_value.execute.return_value = {"sheets": []}
+                with self.assertRaises(RuntimeError):
+                    drive_sync.ensure_google_spreadsheet_status_columns(
+                        "sheet-123", [{"sheet_id": 7, "column_index": 4}], ["Activa"],
+                    )
+                self.assertEqual(sheets.batchUpdate.call_count, 1)
+                self.assertEqual(sheets.get.call_count, int("typed columns" in message))
+
     @patch("applications.drive_sync._service_for_sheets")
     def test_move_historial_to_first_column_preserves_existing_cells(self, mock_service_factory):
         service = mock_service_factory.return_value
@@ -348,7 +433,7 @@ class GoogleSheetsCredentialScopeTests(TestCase):
         self.assertEqual(requests[0]["appendDimension"]["length"], 1)
         self.assertEqual(requests[1]["updateCells"]["rows"][0]["values"][0],
                          {"userEnteredValue": {"stringValue": "Historial"}})
-        self.assertNotIn("rule", requests[2]["setDataValidation"])
+        self.assertFalse(any("setDataValidation" in request for request in requests))
 
     @patch("applications.drive_sync._service_for_sheets")
     def test_tab_read_preserves_exact_google_title_whitespace(self, mock_service_factory):
@@ -358,7 +443,10 @@ class GoogleSheetsCredentialScopeTests(TestCase):
             "spreadsheetId": "sheet-123",
             "properties": {"title": "Participants"},
             "sheets": [
-                {"properties": {"sheetId": 1, "title": "Mentoras ", "index": 0}},
+                {"properties": {"sheetId": 1, "title": "Mentoras ", "index": 0},
+                 "tables": [{"range": {"startColumnIndex": 2}, "columnProperties": [
+                     {"columnIndex": 1, "columnType": "BOOLEAN"},
+                 ]}]},
             ],
         }
         spreadsheets.values.return_value.batchGetByDataFilter.return_value.execute.return_value = {
@@ -400,7 +488,7 @@ class GoogleSheetsCredentialScopeTests(TestCase):
         )
 
         self.assertEqual(result["tabs"][0]["title"], "Mentoras ")
-        self.assertEqual(result["tabs"][0]["checkbox_column_indexes"], [1])
+        self.assertEqual(result["tabs"][0]["checkbox_column_indexes"], [1, 3])
         self.assertEqual(
             spreadsheets.values.return_value.batchGetByDataFilter.call_args.kwargs["body"]["dataFilters"],
             [{"gridRange": {"sheetId": 1}}],

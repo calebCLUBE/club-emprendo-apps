@@ -1,4 +1,5 @@
 import json
+from copy import deepcopy
 import logging
 import os
 import re
@@ -645,7 +646,8 @@ def fetch_google_spreadsheet_tabs(file_ref: str) -> dict:
                 spreadsheetId=file_id,
                 fields=(
                     "spreadsheetId,properties.title,"
-                    "sheets.properties(sheetId,title,index,gridProperties(columnCount,rowCount))"
+                    "sheets(properties(sheetId,title,index,gridProperties(columnCount,rowCount)),"
+                    "tables(tableId,range,columnProperties))"
                 ),
             )
             .execute()
@@ -735,6 +737,16 @@ def fetch_google_spreadsheet_tabs(file_ref: str) -> dict:
                         checkbox_columns.add(start_column + offset)
         checkbox_columns_by_sheet_id[sheet_id] = checkbox_columns
 
+    for sheet in sheets:
+        sheet_id = int((sheet.get("properties") or {}).get("sheetId") or 0)
+        for table in sheet.get("tables") or []:
+            start_column = int((table.get("range") or {}).get("startColumnIndex") or 0)
+            for position, column in enumerate(table.get("columnProperties") or []):
+                if column.get("columnType") == "BOOLEAN":
+                    checkbox_columns_by_sheet_id.setdefault(sheet_id, set()).add(
+                        start_column + int(column.get("columnIndex", position))
+                    )
+
     tabs = []
     for index, title in enumerate(titles):
         props = sheets[index].get("properties") or {}
@@ -757,6 +769,94 @@ def fetch_google_spreadsheet_tabs(file_ref: str) -> dict:
         "title": str((metadata.get("properties") or {}).get("title") or file_id),
         "tabs": tabs,
     }
+
+
+def _table_compatible_validation_requests(requests: list[dict], sheets: list[dict]) -> list[dict]:
+    """Route validation inside tables to table properties, preserving other columns."""
+    result = []
+    table_updates = {}
+    for request in requests:
+        validation = request.get("setDataValidation")
+        if not validation:
+            result.append(request)
+            continue
+        grid_range = validation["range"]
+        column_index = int(grid_range.get("startColumnIndex", 0))
+        if grid_range.get("endColumnIndex") != column_index + 1:
+            result.append(request)
+            continue
+        start_row = int(grid_range.get("startRowIndex", 0))
+        end_row = grid_range.get("endRowIndex")
+        condition = (validation.get("rule") or {}).get("condition") or {}
+        covered = []
+        for sheet in sheets:
+            if (sheet.get("properties") or {}).get("sheetId") != grid_range["sheetId"]:
+                continue
+            for table in sheet.get("tables") or []:
+                table_range = table.get("range") or {}
+                table_start = int(table_range.get("startColumnIndex", 0))
+                if not table_start <= column_index < table_range.get("endColumnIndex", 0):
+                    continue
+                row_start = max(start_row, int(table_range.get("startRowIndex", 0)))
+                row_end = table_range.get("endRowIndex", 0)
+                if end_row is not None:
+                    row_end = min(end_row, row_end)
+                if row_start >= row_end:
+                    continue
+                # Only our dropdown and checkbox validations have table equivalents.
+                if condition.get("type") not in {"ONE_OF_LIST", "BOOLEAN"}:
+                    continue
+                table_id = table["tableId"]
+                update = table_updates.setdefault(table_id, {
+                    "tableId": table_id,
+                    "columnProperties": deepcopy(table.get("columnProperties") or []),
+                })
+                relative_index = column_index - table_start
+                target = next((column for column in update["columnProperties"]
+                               if int(column.get("columnIndex", 0)) == relative_index), None)
+                if target is None:
+                    raise ValueError(f"Table {table_id} is missing column {relative_index} metadata.")
+                target["columnType"] = "DROPDOWN" if condition["type"] == "ONE_OF_LIST" else "BOOLEAN"
+                target.pop("dataValidationRule", None)
+                if target["columnType"] == "DROPDOWN":
+                    target["dataValidationRule"] = {"condition": deepcopy(condition)}
+                covered.append((row_start, row_end))
+        # Retain regular validation before/after tables, never over typed cells.
+        cursor = start_row
+        for row_start, row_end in sorted(covered):
+            if cursor < row_start:
+                result.append({"setDataValidation": {
+                    **validation, "range": {**grid_range, "startRowIndex": cursor, "endRowIndex": row_start},
+                }})
+            cursor = max(cursor, row_end)
+        if end_row is None or cursor < end_row:
+            result.append({"setDataValidation": {
+                **validation, "range": {**grid_range, "startRowIndex": cursor},
+            }})
+    result.extend({"updateTable": {"table": table, "fields": "columnProperties"}}
+                  for table in table_updates.values())
+    return result
+
+
+def _batch_update_sheet_validations(service, file_id: str, requests: list[dict]):
+    try:
+        return service.spreadsheets().batchUpdate(
+            spreadsheetId=file_id, body={"requests": requests},
+        ).execute()
+    except Exception as exc:
+        # Failed batch updates are atomic. Retry this specific validation error
+        # using table column properties; permission and unrelated errors still fail.
+        if getattr(getattr(exc, "resp", None), "status", None) != 400 or "typed column" not in str(exc).lower():
+            raise
+        metadata = service.spreadsheets().get(
+            spreadsheetId=file_id, fields="sheets(properties(sheetId),tables(tableId,range,columnProperties))",
+        ).execute()
+        compatible = _table_compatible_validation_requests(requests, metadata.get("sheets") or [])
+        if compatible == requests:
+            raise
+        return service.spreadsheets().batchUpdate(
+            spreadsheetId=file_id, body={"requests": compatible},
+        ).execute()
 
 
 def ensure_google_spreadsheet_checkbox_columns(file_ref: str, columns: list[dict]) -> int:
@@ -835,12 +935,12 @@ def ensure_google_spreadsheet_checkbox_columns(file_ref: str, columns: list[dict
             ]
         )
 
+    requests = [request for request in requests
+                if "setDataValidation" not in request or "rule" in request["setDataValidation"]]
+
     service = _service_for_sheets()
     try:
-        service.spreadsheets().batchUpdate(
-            spreadsheetId=file_id,
-            body={"requests": requests},
-        ).execute()
+        _batch_update_sheet_validations(service, file_id, requests)
     except Exception as exc:
         raise RuntimeError(_friendly_sheets_error(exc)) from exc
     return len(clean_columns)
@@ -901,9 +1001,7 @@ def ensure_google_spreadsheet_status_columns(file_ref: str, columns: list[dict],
                  "strict": True, "showCustomUi": True},
     }} for item in columns]
     try:
-        _service_for_sheets().spreadsheets().batchUpdate(
-            spreadsheetId=file_id, body={"requests": requests},
-        ).execute()
+        _batch_update_sheet_validations(_service_for_sheets(), file_id, requests)
     except Exception as exc:
         raise RuntimeError(_friendly_sheets_error(exc)) from exc
     return len(requests)

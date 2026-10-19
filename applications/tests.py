@@ -325,7 +325,7 @@ class GoogleSheetsCredentialScopeTests(TestCase):
                          admin_profiles_views.MENTORAS_STATUS_OPTIONS)
 
     def _typed_table_metadata(self):
-        return {"sheets": [{"properties": {"sheetId": 7}, "tables": [{
+        return {"sheets": [{"properties": {"sheetId": 7, "gridProperties": {"rowCount": 100}}, "tables": [{
             "tableId": "participants-table",
             "range": {"sheetId": 7, "startRowIndex": 5, "endRowIndex": 20,
                       "startColumnIndex": 3, "endColumnIndex": 6},
@@ -368,11 +368,55 @@ class GoogleSheetsCredentialScopeTests(TestCase):
         ranges = [request["setDataValidation"]["range"] for request in retry if "setDataValidation" in request]
         self.assertEqual(ranges, [
             {"sheetId": 7, "startRowIndex": 1, "endRowIndex": 5, "startColumnIndex": 4, "endColumnIndex": 5},
-            {"sheetId": 7, "startRowIndex": 20, "startColumnIndex": 4, "endColumnIndex": 5},
+            {"sheetId": 7, "startRowIndex": 20, "endRowIndex": 100, "startColumnIndex": 4, "endColumnIndex": 5},
             {"sheetId": 8, "startRowIndex": 1, "startColumnIndex": 2, "endColumnIndex": 3},
         ])
         self.assertTrue(all(set(request) <= {"setDataValidation", "updateTable"} for request in retry))
         self.assertEqual(metadata, original)
+
+    @patch("applications.drive_sync._service_for_sheets")
+    def test_typed_status_retry_respects_52_row_sheet_boundary(self, mock_service_factory):
+        sheets = mock_service_factory.return_value.spreadsheets.return_value
+        for table_end in (52, 51):
+            with self.subTest(table_end=table_end):
+                sheets.reset_mock()
+                sheets.batchUpdate.return_value.execute.side_effect = [
+                    self._sheets_error(400, "This operation is not allowed on cells in typed columns."), {},
+                ]
+                metadata = self._typed_table_metadata()
+                sheet = metadata["sheets"][0]
+                sheet["properties"]["gridProperties"]["rowCount"] = 52
+                sheet["tables"][0]["range"].update(
+                    startRowIndex=0, endRowIndex=table_end, startColumnIndex=1, endColumnIndex=4,
+                )
+                sheets.get.return_value.execute.return_value = metadata
+                drive_sync.ensure_google_spreadsheet_status_columns(
+                    "sheet-123", [{"sheet_id": 7, "column_index": 2}], ["Activa", "Graduada"],
+                )
+                retry = sheets.batchUpdate.call_args.kwargs["body"]["requests"]
+                ranges = [request["setDataValidation"]["range"] for request in retry if "setDataValidation" in request]
+                if table_end == 52:
+                    self.assertEqual(ranges, [])  # No invalid C53:C remainder after a full-height table.
+                else:
+                    self.assertEqual(ranges, [{"sheetId": 7, "startRowIndex": 51, "endRowIndex": 52,
+                                               "startColumnIndex": 2, "endColumnIndex": 3}])
+                self.assertTrue(any("updateTable" in request for request in retry))
+                self.assertIn("rowCount", sheets.get.call_args.kwargs["fields"])
+
+    def test_table_validation_clamps_explicit_ranges_and_skips_empty_ranges(self):
+        metadata = self._typed_table_metadata()
+        metadata["sheets"][0]["properties"]["gridProperties"]["rowCount"] = 52
+        base = {"range": {"sheetId": 7, "startRowIndex": 1, "endRowIndex": 100,
+                           "startColumnIndex": 4, "endColumnIndex": 5},
+                "rule": {"condition": {"type": "ONE_OF_LIST", "values": [{"userEnteredValue": "Activa"}]}}}
+        requests = drive_sync._table_compatible_validation_requests([{"setDataValidation": base}], metadata["sheets"])
+        ranges = [request["setDataValidation"]["range"] for request in requests if "setDataValidation" in request]
+        self.assertTrue(all(0 <= r["startRowIndex"] < r["endRowIndex"] <= 52 for r in ranges))
+        self.assertEqual(ranges[-1]["endRowIndex"], 52)
+        base["range"]["startRowIndex"] = 52
+        self.assertEqual(drive_sync._table_compatible_validation_requests(
+            [{"setDataValidation": base}], metadata["sheets"],
+        ), [])
 
     @patch("applications.drive_sync._service_for_sheets")
     def test_typed_checkbox_recovery_keeps_checkbox_type_and_header_write(self, mock_service_factory):

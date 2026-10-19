@@ -787,6 +787,13 @@ def _table_compatible_validation_requests(requests: list[dict], sheets: list[dic
             continue
         start_row = int(grid_range.get("startRowIndex", 0))
         end_row = grid_range.get("endRowIndex")
+        source_sheet = next((sheet for sheet in sheets
+                             if (sheet.get("properties") or {}).get("sheetId") == grid_range["sheetId"]), {})
+        row_count = ((source_sheet.get("properties") or {}).get("gridProperties") or {}).get("rowCount")
+        if isinstance(row_count, int):
+            end_row = row_count if end_row is None else min(end_row, row_count)
+        if end_row is not None and start_row >= end_row:
+            continue
         condition = (validation.get("rule") or {}).get("condition") or {}
         covered = []
         for sheet in sheets:
@@ -830,9 +837,10 @@ def _table_compatible_validation_requests(requests: list[dict], sheets: list[dic
                 }})
             cursor = max(cursor, row_end)
         if end_row is None or cursor < end_row:
-            result.append({"setDataValidation": {
-                **validation, "range": {**grid_range, "startRowIndex": cursor},
-            }})
+            remainder = {**grid_range, "startRowIndex": cursor}
+            if end_row is not None:
+                remainder["endRowIndex"] = end_row
+            result.append({"setDataValidation": {**validation, "range": remainder}})
     result.extend({"updateTable": {"table": table, "fields": "columnProperties"}}
                   for table in table_updates.values())
     return result
@@ -849,7 +857,7 @@ def _batch_update_sheet_validations(service, file_id: str, requests: list[dict])
         if getattr(getattr(exc, "resp", None), "status", None) != 400 or "typed column" not in str(exc).lower():
             raise
         metadata = service.spreadsheets().get(
-            spreadsheetId=file_id, fields="sheets(properties(sheetId),tables(tableId,range,columnProperties))",
+            spreadsheetId=file_id, fields="sheets(properties(sheetId,gridProperties(rowCount)),tables(tableId,range,columnProperties))",
         ).execute()
         compatible = _table_compatible_validation_requests(requests, metadata.get("sheets") or [])
         if compatible == requests:

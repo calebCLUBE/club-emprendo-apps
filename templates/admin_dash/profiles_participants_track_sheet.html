@@ -185,6 +185,7 @@
   </div>
 </div>
 
+{{ sheet_save_headers|json_script:"ce-participant-save-headers" }}
 <script>
   (function () {
     const REGISTRY_ID = 'participants-track-sheet-xsheet';
@@ -247,7 +248,10 @@
       return value;
     }
 
-    function matrixToRows(matrix) {
+    const saveHeadersElement = document.getElementById('ce-participant-save-headers');
+    const saveHeaders = saveHeadersElement ? JSON.parse(saveHeadersElement.textContent || 'null') : null;
+
+    function matrixToRows(matrix, track) {
       if (!Array.isArray(matrix) || !matrix.length) {
         return [];
       }
@@ -257,7 +261,15 @@
           return [];
         }
         const values = row.map(normalizeCellForSave);
-        // Participant storage keeps its canonical field positions for checks.
+        const expected = Array.isArray(saveHeaders) ? saveHeaders : saveHeaders && saveHeaders[track];
+        if (Array.isArray(expected)) {
+          const visibleHeaders = matrix[0].map(value => String(value || '').trim().toLowerCase());
+          return expected.map(header => {
+            const index = visibleHeaders.indexOf(String(header || '').trim().toLowerCase());
+            return index >= 0 && index < values.length ? values[index] : '';
+          });
+        }
+        // Compatibility with older pages without an explicit save schema.
         if (String(matrix[0][0] || '').trim().toLowerCase() === 'historial') {
           const width = matrix[0].length;
           while (values.length < width) values.push('');
@@ -289,7 +301,7 @@
           const tab = Array.isArray(tabs) ? tabs[idx] : null;
           const key = String(tab && tab.key ? tab.key : idx === 0 ? 'mentoras' : 'emprendedoras');
           if (key === 'mentoras' || key === 'emprendedoras') {
-            out[key] = JSON.stringify(matrixToRows(matrix));
+            out[key] = JSON.stringify(matrixToRows(matrix, key));
           }
         });
         if (!out.mentoras || !out.emprendedoras) {

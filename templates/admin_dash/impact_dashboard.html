@@ -249,7 +249,7 @@
         <div class="ce-kpi ce-kpi--e">
           <div class="ce-kpi-k">Started program</div>
           <div class="ce-kpi-v">{{ funnel.summary.started_all }}</div>
-          <div class="ce-kpi-n">women with Graduada or No Continúa P / PP status</div>
+          <div class="ce-kpi-n">women with Activa, Graduada, or NC - Personal / Programa / Sin Respuesta status</div>
         </div>
         <div class="ce-kpi ce-kpi--good">
           <div class="ce-kpi-k">Graduated</div>
@@ -387,7 +387,7 @@
             <div><p class="ce-kicker">Cohort outcomes</p><h2 class="ce-title">Combined Group Summary</h2></div>
             <span class="ce-badge">Updated from participant records</span>
           </div>
-          <p class="ce-note">Totals combine the groups selected by the filters. Each person counts once per group and role. Percentages use all started participations in that role: Graduada, No Continua P or No Continua PP. Other statuses are excluded. A dash means nobody has started.</p>
+          <p class="ce-note">Totals combine the groups selected by the filters. Each person counts once per group and role. Percentages use all started participations in that role: Activa, Graduada, NC - Personal, NC - Programa or NC - Sin Respuesta. Other statuses are excluded. A dash means nobody has started.</p>
           {% if combined_group_summary %}
           {% with cohort=combined_group_summary %}
             <div class="ce-cohort-summary" style="margin-top:18px; break-inside:avoid;">
@@ -609,6 +609,10 @@
             <div class="ce-tile">
               <div class="ce-tile-k">Dropped out · personal reasons</div>
               <div class="ce-tile-v">{{ qualitative_summary.personal_dropout_count }}</div>
+            </div>
+            <div class="ce-tile">
+              <div class="ce-tile-k">Dropped out · no response</div>
+              <div class="ce-tile-v">{{ qualitative_summary.no_response_dropout_count }}</div>
             </div>
             <div class="ce-tile">
               <div class="ce-tile-k">Difficult / no contact</div>

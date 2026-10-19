@@ -885,6 +885,30 @@ def delete_google_spreadsheet_columns(file_ref: str, columns: list[dict]) -> int
     return len(clean_columns)
 
 
+def ensure_google_spreadsheet_status_columns(file_ref: str, columns: list[dict], options: list[str]) -> int:
+    """Update status dropdowns without changing source status or Info values."""
+    if not columns:
+        return 0
+    file_id = _normalize_file_id(file_ref)
+    if not file_id:
+        raise ValueError("Invalid Google Sheet link. Paste the full Sheets URL.")
+    requests = [{"setDataValidation": {
+        "range": {"sheetId": int(item["sheet_id"]), "startRowIndex": 1,
+                  "startColumnIndex": int(item["column_index"]),
+                  "endColumnIndex": int(item["column_index"]) + 1},
+        "rule": {"condition": {"type": "ONE_OF_LIST",
+                                "values": [{"userEnteredValue": option} for option in options]},
+                 "strict": True, "showCustomUi": True},
+    }} for item in columns]
+    try:
+        _service_for_sheets().spreadsheets().batchUpdate(
+            spreadsheetId=file_id, body={"requests": requests},
+        ).execute()
+    except Exception as exc:
+        raise RuntimeError(_friendly_sheets_error(exc)) from exc
+    return len(requests)
+
+
 def move_google_spreadsheet_columns_first(file_ref: str, columns: list[dict]) -> int:
     """Move existing columns to A, preserving their cells and formatting."""
     if not columns:

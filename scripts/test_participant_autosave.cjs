@@ -8,7 +8,7 @@ const source = template.slice(template.lastIndexOf('<script>') + 8, template.las
   .replace(/{{ linked_google_sheet[^}]+}}/g, 'false')
   .replace(/{{ group.number }}/g, '1')
   .replace(/{{ track_slug[^}]*}}/g, 'mentoras');
-function browser(response) {
+function browser(response, saveHeaders = null) {
   let matrix = [['Status'], ['Activa']];
   let tick;
   let requests = 0;
@@ -20,6 +20,7 @@ function browser(response) {
     'ce-sheet-save-form': {querySelector: () => revision},
     'ce-sheet-data': {value: ''},
     'ce-sheet-autosave-status': status,
+    'ce-participant-save-headers': {textContent: JSON.stringify(saveHeaders)},
   };
   const context = {
     document: {getElementById: id => elements[id] || null, querySelectorAll: () => [], addEventListener: () => {}},
@@ -69,6 +70,14 @@ function reply({ok = true, redirected = false, status = 200, type = 'application
   await history.tick();
   assert.deepEqual(JSON.parse(history.payload()), [
     ['', 'Activa', 1, 'Ana', '123', 'ana@example.com', true, 'G1 · Mentora · Activa']
+  ]);
+  const canonicalHeaders = ['Info', 'Estatus', '#', 'Nombre', 'Id', 'Email', 'Acta', 'Historial'];
+  const reordered = browser(reply(), canonicalHeaders);
+  reordered.edit([['Historial', 'Estatus', 'Info', '#', 'Nombre', 'Id', 'Email', 'Acta'],
+    ['history', 'NC - Sin Respuesta', 'G15', 1, 'Ana', '123', 'ana@example.com', 'TRUE']]);
+  await reordered.tick();
+  assert.deepEqual(JSON.parse(reordered.payload()), [
+    ['G15', 'NC - Sin Respuesta', 1, 'Ana', '123', 'ana@example.com', true, 'history']
   ]);
   console.log('Autosave tests passed: confirmation, login redirects, conflicts, backups and unload warning.');
 })().catch(error => {console.error(error); process.exitCode = 1;});

@@ -38,6 +38,7 @@ from django.views.decorators.csrf import csrf_exempt
 from .drive_sync import (
     delete_google_spreadsheet_columns,
     ensure_google_spreadsheet_checkbox_columns,
+    ensure_google_spreadsheet_status_columns,
     fetch_drive_csv_file_text,
     fetch_google_spreadsheet_tabs,
     move_google_spreadsheet_columns_first,
@@ -1196,6 +1197,10 @@ def _participant_source_field_index(headers: list[str], field_name: str) -> int 
     for idx, normalized in enumerate(normalized_headers):
         if normalized in aliases:
             return idx
+    # Info and Estatus are independent fields. Never guess either from a
+    # substring in another column's title (such as "Info estatus anterior").
+    if field_name in {"info", "status"}:
+        return None
     for idx, normalized in enumerate(normalized_headers):
         if any(alias and alias in normalized for alias in aliases):
             return idx
@@ -2223,12 +2228,31 @@ def _normalize_participant_name(value: str | None) -> str:
     return " ".join(re.sub(r"[^a-z0-9]+", " ", without_marks).split())
 
 
+def _participant_linked_track_rows(participant_list, track_slug: str):
+    if not participant_list or not str(participant_list.google_sheet_url or "").strip():
+        return None
+    cfg = _participant_track_sheet_configs()[track_slug]
+    for tab in participant_list.google_sheet_tabs or []:
+        if str(tab.get("track") or "") != track_slug:
+            continue
+        headers = [str(header or "") for header in tab.get("headers", [])]
+        if _participant_source_field_index(headers, "status") is None:
+            raise ValueError(f"Tab '{tab.get('title', track_slug)}' needs an Estatus/Status/Estado column.")
+        indexes = {field: _participant_source_field_index(headers, field)
+                   for field in PARTICIPANT_SOURCE_FIELD_ALIASES}
+        return [_participant_source_row_to_sheet_row(row, headers, cfg, indexes)
+                for row in tab.get("rows", []) if isinstance(row, (list, tuple))]
+    return None
+
+
 def _participant_history_occurrences(participant_list_override=None) -> list[dict]:
     occurrences: dict[tuple, dict] = {}
     participant_lists = (
         GroupParticipantList.objects.select_related("group")
         .only(
             "group__number",
+            "google_sheet_url",
+            "google_sheet_tabs",
             "mentoras_emails_text",
             "emprendedoras_emails_text",
             "mentoras_sheet_rows",
@@ -2260,11 +2284,14 @@ def _participant_history_occurrences(participant_list_override=None) -> list[dic
     for participant_list in participant_lists:
         group_num = int(participant_list.group.number)
         for role_code, role_label, rows_field, emails_field, headers in track_specs:
+            linked_rows = _participant_linked_track_rows(
+                participant_list, "mentoras" if role_code == "M" else "emprendedoras"
+            )
             rows = _normalize_sheet_rows(
-                getattr(participant_list, rows_field, []),
+                linked_rows if linked_rows is not None else getattr(participant_list, rows_field, []),
                 headers,
             )
-            if not rows:
+            if not rows and linked_rows is None:
                 rows = [
                     ["", "", index, "", "", email]
                     for index, email in enumerate(
@@ -3266,6 +3293,8 @@ def _sync_group_from_linked_google_sheet(
                 raise ValueError(f"More than one Google Sheet tab maps to {configs[track_slug]['label']}.")
             seen_tracks.add(track_slug)
             cfg = configs[track_slug]
+            if _participant_source_field_index(headers, "status") is None:
+                raise ValueError(f"Tab '{title}' needs an Estatus/Status/Estado column.")
             email_index = _participant_source_field_index(headers, "email")
             if email_index is None:
                 raise ValueError(f"Tab '{title}' needs an Email/Correo column.")
@@ -3446,6 +3475,7 @@ def _sync_group_from_linked_google_sheet(
             "\n".join(_emails_from_sheet_rows(canonical_rows[slug], cfg["email_col"])),
         )
 
+    participant_list.google_sheet_tabs = stored_tabs
     history_indexes = _participant_history_indexes(
         _participant_history_occurrences(participant_list)
     )
@@ -3488,6 +3518,11 @@ def _sync_group_from_linked_google_sheet(
         source_url,
         missing_google_columns,
     )
+    ensure_google_spreadsheet_status_columns(source_url, [
+        {"sheet_id": tab["sheet_id"],
+         "column_index": _participant_source_field_index(tab["headers"], "status")}
+        for tab in stored_tabs if tab.get("track") in configs
+    ], PARTICIPANT_STATUS_SHEET_OPTIONS)
     updated_cells = update_google_spreadsheet_values(source_url, checkbox_updates + history_updates)
     history_moves = [
         {"sheet_id": tab["sheet_id"], "column_index": index}
@@ -3616,44 +3651,16 @@ def _participant_track_rows_visible_on_page(group, participant_list, cfg: dict) 
         participant_list and str(participant_list.google_sheet_url or "").strip()
     )
     if linked_google_sheet:
-        stored_tabs = list(participant_list.google_sheet_tabs or [])
-        display_tabs = _participant_google_tabs_for_display(participant_list)
-        linked_tab = next(
-            (
-                display_tabs[index]
-                for index, stored in enumerate(stored_tabs)
-                if index < len(display_tabs)
-                and str(stored.get("track") or "") == cfg["slug"]
-            ),
-            None,
-        )
-        if linked_tab and linked_tab.get("headers"):
-            headers = [str(value or "") for value in linked_tab["headers"]]
-            field_indexes = {
-                field_name: _participant_source_field_index(headers, field_name)
-                for field_name in PARTICIPANT_SOURCE_FIELD_ALIASES
-            }
-            rows = [
-                _participant_source_row_to_sheet_row(
-                    list(source_row),
-                    headers,
-                    cfg,
-                    field_indexes,
-                )
-                for source_row in linked_tab.get("rows", [])
-                if isinstance(source_row, (list, tuple))
-            ]
+        rows = _participant_linked_track_rows(participant_list, cfg["slug"])
+        if rows is not None:
             rows = _normalize_sheet_rows(rows, cfg["headers"])
             rows = _coerce_bool_columns(rows, cfg["bool_cols"])
             rows = _number_sheet_rows(rows, number_col=2)
             rows, repaired_on_load = _repair_progress_defaults_if_legacy(
-                rows,
-                cfg["progress_default_false_cols"],
+                rows, cfg["progress_default_false_cols"],
             )
             rows = _apply_contract_signed_to_rows(
-                rows,
-                email_col=cfg["email_col"],
-                acta_col=cfg["acta_col"],
+                rows, email_col=cfg["email_col"], acta_col=cfg["acta_col"],
             )
             return rows, bool(repaired_on_load)
 
@@ -6295,6 +6302,7 @@ def _profiles_participants_track_sheet(request, group_num: int, track: str):
         "group": group,
         "track_slug": track_slug,
         "sheet_revision": _participant_sheet_revision(participant_list, track_slug),
+        "sheet_save_headers": headers,
         "track_label": track_label,
         "sheet_headers": display_headers,
         "sheet_column_types": display_column_types,
@@ -6760,6 +6768,7 @@ def _profiles_participants_combined_sheet(request, group):
         "sheet_revision": _participant_sheet_revision(participant_list, "all"),
         "track_label": "Participants",
         "combined_sheet": True,
+        "sheet_save_headers": {"mentoras": MENTORAS_HEADERS, "emprendedoras": EMPRENDEDORAS_HEADERS},
         "sheet_headers": first_display_tab["headers"] if first_display_tab else MENTORAS_HEADERS,
         "sheet_column_types": first_display_tab["column_types"] if first_display_tab else MENTORAS_COLUMN_TYPES,
         "sheet_status_options": first_display_tab["status_options"] if first_display_tab else MENTORAS_STATUS_OPTIONS,

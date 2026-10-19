@@ -85,6 +85,35 @@ from applications.models import (
 )
 
 
+class ParticipantStatusNamingTests(TestCase):
+    def test_current_and_legacy_statuses_keep_their_meanings(self):
+        from applications.participant_statuses import normalize_participant_status, PARTICIPANT_STATUS_DROPPED_OUT
+        for raw, expected in (
+            ("No firmó acta", "NFA"), ("No Firmo A", "NFA"), ("No Capacitacion", "NC"),
+            ("NC Personal", "NCPP"), ("NC - Personal", "NCPP"), ("No Continua PP", "NCPP"),
+            ("NC - Programa", "NCP"), ("No Continua P", "NCP"),
+            ("NC Sin respuesta", "NCSR"), (" NC - Sin Respuesta ", "NCSR"),
+            ("Activa", "A"), ("Graduada", "G"),
+            ("Siguiente grupo", "SG"), ("Cambio de Grupo", "CG"),
+        ):
+            with self.subTest(raw=raw):
+                self.assertEqual(normalize_participant_status(raw), expected)
+        self.assertEqual(PARTICIPANT_STATUS_DROPPED_OUT, {"NCP", "NCPP", "NCSR"})
+
+    def test_pairing_uses_linked_estatus_and_ignores_info_and_stale_status(self):
+        from applications.pairing_forms import active_pairing_participant_emails
+        group = FormGroup.objects.create(number=995, start_day=1, start_month="enero", end_month="marzo", year=2026)
+        GroupParticipantList.objects.create(
+            group=group, google_sheet_url="https://docs.google.com/spreadsheets/d/status-pairing/edit",
+            mentoras_sheet_rows=[["", "Activa", 1, "Stale", "1", "stale@example.com"]],
+            google_sheet_tabs=[{"track": "mentoras", "title": "Mentoras",
+                                "headers": ["Estatus", "Info", "Email"],
+                                "rows": [["NC - Sin Respuesta", "Activa", "stale@example.com"],
+                                         ["Activa", "No Capacitacion", "active@example.com"]]}],
+        )
+        self.assertEqual(active_pairing_participant_emails(group, "M"), {"active@example.com"})
+
+
 class GoogleSheetsCredentialScopeTests(TestCase):
     @patch("applications.drive_sync._upsert_google_sheet_file")
     @patch("applications.drive_sync._build_group_track_rows")
@@ -280,6 +309,20 @@ class GoogleSheetsCredentialScopeTests(TestCase):
             requests[2]["setDataValidation"]["rule"]["condition"]["type"],
             "BOOLEAN",
         )
+
+    @patch("applications.drive_sync._service_for_sheets")
+    def test_status_dropdown_only_updates_the_status_validation(self, mock_service_factory):
+        drive_sync.ensure_google_spreadsheet_status_columns(
+            "sheet-123", [{"sheet_id": 7, "column_index": 2}],
+            admin_profiles_views.MENTORAS_STATUS_OPTIONS,
+        )
+        requests = mock_service_factory.return_value.spreadsheets.return_value.batchUpdate.call_args.kwargs["body"]["requests"]
+        self.assertEqual(len(requests), 1)
+        rule = requests[0]["setDataValidation"]
+        self.assertEqual(rule["range"], {"sheetId": 7, "startRowIndex": 1, "startColumnIndex": 2, "endColumnIndex": 3})
+        self.assertEqual(rule["rule"]["condition"]["type"], "ONE_OF_LIST")
+        self.assertEqual([value["userEnteredValue"] for value in rule["rule"]["condition"]["values"]],
+                         admin_profiles_views.MENTORAS_STATUS_OPTIONS)
 
     @patch("applications.drive_sync._service_for_sheets")
     def test_move_historial_to_first_column_preserves_existing_cells(self, mock_service_factory):
@@ -7523,19 +7566,41 @@ class ImpactDashboardMetricTests(TestCase):
         self.assertTrue(records["legacy-columns@example.com"]["initial_survey"])
         self.assertFalse(records["legacy-columns@example.com"]["final_survey"])
 
+    def test_linked_statuses_drive_new_dropout_and_started_counts_without_info(self):
+        group = FormGroup.objects.create(
+            number=994, start_day=1, start_month="enero", end_month="marzo", year=2025,
+        )
+        statuses = admin_profiles_views.MENTORAS_STATUS_OPTIONS
+        GroupParticipantList.objects.create(
+            group=group, google_sheet_url="https://docs.google.com/spreadsheets/d/status-source/edit",
+            mentoras_sheet_rows=[["", "Graduada", i, "Person", str(i), f"status{i}@example.com"]
+                                 for i in range(len(statuses))],
+            google_sheet_tabs=[{
+                "title": "G994 M", "track": "mentoras", "sheet_id": 1,
+                "headers": ["Info", "Estatus", "Email", "Nombre"],
+                "rows": [["Graduada", status, f"status{i}@example.com", "Person"]
+                         for i, status in enumerate(statuses)],
+                "checkbox_columns": [], "email_index": 2,
+            }],
+        )
+        records = [record for record in admin_dashboard_views._participant_records()
+                   if record["group_number"] == 994]
+        self.assertEqual(len(records), 7)  # Transfers remain excluded from this group's totals.
+        self.assertEqual(sum(record["started"] for record in records), 5)
+        self.assertEqual({record["status"] for record in records}, {"NFA", "NC", "A", "G", "NCP", "NCPP", "NCSR"})
+        overall = admin_dashboard_views._participant_summary(records)["overall"]
+        self.assertEqual(overall["graduation_started"], 5)
+        self.assertEqual(overall["graduation_dropped_out"], 3)
+        self.assertEqual(overall["graduation_rate"], 20.0)
+        summary = admin_dashboard_views._impact_combined_group_summary(records, records)
+        no_response = next(row for row in summary["rows"] if row["key"] == "drop_no_response")
+        self.assertEqual(no_response["cells"], [{"count": 1, "pct": 20.0}])
+
     def test_participant_sheet_status_options_use_requested_default_labels(self):
         expected = [
-            "No Firmo A",
-            "No Capacitacion",
-            "No Continua P",
-            "No Continua PP",
-            "Siguiente grupo",
-            "Cambio de grupo",
-            "Cambio de pareja",
-            "DIficil/No contacto",
-            "Exelente",
-            "Graduada",
-            "Activa",
+            "No firmo acta", "No Capacitacion", "Activa", "Graduada",
+            "NC - Personal", "NC - Programa", "NC - Sin Respuesta",
+            "Siguiente Grupo", "Cambio de Grupo",
         ]
 
         self.assertEqual(admin_profiles_views.MENTORAS_STATUS_OPTIONS, expected)
@@ -7589,23 +7654,23 @@ class ImpactDashboardMetricTests(TestCase):
         self.assertNotIn("next-group@example.com", records_by_email)
         self.assertNotIn("changed-group@example.com", records_by_email)
         self.assertTrue(records_by_email["personal-dropout@example.com"]["started"])
-        self.assertFalse(records_by_email["active-status@example.com"]["started"])
+        self.assertTrue(records_by_email["active-status@example.com"]["started"])
 
         participant_summary = admin_dashboard_views._participant_summary(records_by_email.values())
         overall = participant_summary["overall"]
-        # Started = Graduada, No Continua P, No Continua PP.
-        self.assertEqual(overall["graduation_eligible"], 3)
-        self.assertEqual(overall["graduation_started"], 3)
+        # Activa is a starter alongside Graduada and the NC dropout categories.
+        self.assertEqual(overall["graduation_eligible"], 4)
+        self.assertEqual(overall["graduation_started"], 4)
         self.assertEqual(overall["graduation_graduated"], 1)
-        self.assertEqual(overall["graduation_rate"], 33.3)
+        self.assertEqual(overall["graduation_rate"], 25.0)
         self.assertEqual(overall["graduation_dropped_out"], 2)
-        self.assertEqual(overall["graduation_dropout_rate"], 66.7)
+        self.assertEqual(overall["graduation_dropout_rate"], 50.0)
         self.assertNotIn("graduation_transferred", overall)
         status_labels = {
             row["status"]: row["label"]
             for row in participant_summary["tracks"]["e"]["status_rows"]
         }
-        self.assertEqual(status_labels["NCP"], "No Continua P")
+        self.assertEqual(status_labels["NCP"], "NC - Programa")
         self.assertEqual(status_labels["NC"], "No Capacitacion")
         self.assertEqual(status_labels["G"], "Graduada")
 
@@ -7613,7 +7678,7 @@ class ImpactDashboardMetricTests(TestCase):
             row["label"]
             for row in admin_dashboard_views._participant_status_chart_data(participant_summary)["e"]
         }
-        self.assertIn("No Continua P", chart_labels)
+        self.assertIn("NC - Programa", chart_labels)
         self.assertIn("No Capacitacion", chart_labels)
         self.assertIn("Graduada", chart_labels)
 
@@ -7636,19 +7701,19 @@ class ImpactDashboardMetricTests(TestCase):
         group_source_rows = admin_dashboard_views._group_recruitment_source_rows(records)
 
         self.assertEqual(participant_summary["overall"]["rows"], 7)
-        self.assertEqual(participant_summary["overall"]["started"], 3)
+        self.assertEqual(participant_summary["overall"]["started"], 5)
         self.assertEqual(participant_summary["overall"]["graduated"], 3)
         self.assertEqual(participant_summary["overall"]["unique"], 5)
-        self.assertEqual(participant_summary["overall"]["graduation_eligible"], 3)
-        self.assertEqual(participant_summary["overall"]["graduation_started"], 3)
+        self.assertEqual(participant_summary["overall"]["graduation_eligible"], 5)
+        self.assertEqual(participant_summary["overall"]["graduation_started"], 5)
         self.assertEqual(participant_summary["overall"]["graduation_graduated"], 3)
-        self.assertEqual(participant_summary["overall"]["graduation_rate"], 100.0)
+        self.assertEqual(participant_summary["overall"]["graduation_rate"], 60.0)
         self.assertEqual(participant_summary["tracks"]["e"]["started"], 2)
         self.assertEqual(participant_summary["tracks"]["e"]["graduation_rate"], 100.0)
         self.assertEqual(participant_summary["tracks"]["m"]["graduated"], 1)
-        self.assertEqual(participant_summary["tracks"]["m"]["graduation_eligible"], 1)
-        self.assertEqual(participant_summary["tracks"]["m"]["graduation_started"], 1)
-        self.assertEqual(participant_summary["tracks"]["m"]["graduation_rate"], 100.0)
+        self.assertEqual(participant_summary["tracks"]["m"]["graduation_eligible"], 3)
+        self.assertEqual(participant_summary["tracks"]["m"]["graduation_started"], 3)
+        self.assertEqual(participant_summary["tracks"]["m"]["graduation_rate"], 33.3)
 
         self.assertEqual(application_summary["overall"]["raw"], 7)
         self.assertEqual(application_summary["overall"]["unique"], 5)
@@ -8077,7 +8142,7 @@ class ImpactDashboardMetricTests(TestCase):
         combined = combined_response.context["combined_group_summary"]
         self.assertEqual(combined["group_count"], 2)
         self.assertContains(combined_response, 'class="ce-cohort-summary"', count=1)
-        self.assertEqual(combined["rows"][0]["cells"][0]["count"], 1)
+        self.assertEqual(combined["rows"][0]["cells"][0]["count"], 3)
         earlier_year = self.client.get(reverse("admin_impact_dashboard"), {"year": 2025})
         self.assertEqual(earlier_year.context["combined_group_summary"]["group_count"], 1)
         payload = _build_group_impact_report_payload({981}, year=2026, track_filter="e")
@@ -8128,16 +8193,16 @@ class ImpactDashboardMetricTests(TestCase):
         self.assertEqual([r["number"] for r in response.context["impact_group_options"]], [981])
         summary = response.context["funnel"]["summary"]
         self.assertEqual(summary["applicants"], 0)
-        self.assertEqual(summary["started"], 3)
-        self.assertEqual(summary["started_all"], 3)
+        self.assertEqual(summary["started"], 4)
+        self.assertEqual(summary["started_all"], 4)
         self.assertEqual(summary["graduated"], 2)
-        self.assertEqual(summary["graduated_pct"], 66.7)
+        self.assertEqual(summary["graduated_pct"], 50.0)
         self.assertEqual(summary["dropped_out"], 1)
         self.assertEqual(summary["active"], 1)
-        self.assertEqual(summary["active_pct"], 33.3)
+        self.assertEqual(summary["active_pct"], 25.0)
         combined = {r["key"]: r["cells"][0] for r in response.context["combined_group_summary"]["rows"]}
-        self.assertEqual(combined["started"]["count"], 3)
-        self.assertEqual(combined["active"], {"count": 1, "pct": 33.3})
+        self.assertEqual(combined["started"]["count"], 4)
+        self.assertEqual(combined["active"], {"count": 1, "pct": 25.0})
         self.assertNotContains(response, "0 of 0 applicants")
         payload = admin_dashboard_views._build_group_impact_report_payload(year=2025, track_filter="e")
         self.assertEqual(payload["funnel"]["summary"], summary)
@@ -8992,6 +9057,9 @@ class ParticipantsPageSafetyTests(TestCase):
 
 class ParticipantsCapacitacionCheckTests(TestCase):
     def setUp(self):
+        status_patcher = patch("applications.admin_profiles_views.ensure_google_spreadsheet_status_columns")
+        self.mock_status_columns = status_patcher.start()
+        self.addCleanup(status_patcher.stop)
         move_patcher = patch("applications.admin_profiles_views.move_google_spreadsheet_columns_first")
         self.mock_move_columns = move_patcher.start()
         self.addCleanup(move_patcher.stop)
@@ -9035,17 +9103,9 @@ class ParticipantsCapacitacionCheckTests(TestCase):
 
     def test_track_sheet_renders_exact_status_validation_options(self):
         expected = [
-            "No Firmo A",
-            "No Capacitacion",
-            "No Continua P",
-            "No Continua PP",
-            "Siguiente grupo",
-            "Cambio de grupo",
-            "Cambio de pareja",
-            "DIficil/No contacto",
-            "Exelente",
-            "Graduada",
-            "Activa",
+            "No firmo acta", "No Capacitacion", "Activa", "Graduada",
+            "NC - Personal", "NC - Programa", "NC - Sin Respuesta",
+            "Siguiente Grupo", "Cambio de Grupo",
         ]
         response = self.client.get(
             reverse(
@@ -9521,6 +9581,65 @@ class ParticipantsCapacitacionCheckTests(TestCase):
         updates = {item["range"]: item["values"] for item in mock_update.call_args.args[1]}
         self.assertEqual(updates["'Mentoras'!A1"][-1], [expected])
         self.assertEqual(self.mock_move_columns.call_args.args[1], [])
+
+    @patch("applications.admin_profiles_views.update_google_spreadsheet_values")
+    @patch("applications.admin_profiles_views.fetch_google_spreadsheet_tabs")
+    def test_linked_estatus_is_authoritative_with_reordered_info_and_historial(
+        self, mock_fetch, mock_update,
+    ):
+        for swap_info_status, first_history, status in (
+            (False, False, "NC - Sin Respuesta"),
+            (False, True, "NC - Programa"),
+            (True, True, "NC Personal"),
+            (True, False, ""),
+        ):
+            with self.subTest(swap=swap_info_status, history_first=first_history, status=status):
+                payload = self._linked_google_workbook_payload()
+                source = payload["tabs"][0]
+                headers = list(source["values"][0])
+                row = source["values"][1] + [""]
+                row[0], row[1] = "NC - Personal", status
+                order = list(range(len(headers)))
+                if swap_info_status:
+                    order[0], order[1] = order[1], order[0]
+                if first_history:
+                    order = [order[-1]] + order[:-1]
+                source["values"] = [[headers[i] for i in order], [row[i] for i in order]]
+                mock_fetch.return_value = payload
+                admin_profiles_views._sync_group_from_linked_google_sheet(
+                    group=self.group, participant_list=self.participant_list,
+                    sheet_url="https://docs.google.com/spreadsheets/d/source-status/edit",
+                )
+                self.participant_list.refresh_from_db()
+                canonical = self.participant_list.mentoras_sheet_rows[0]
+                self.assertEqual(canonical[:2], ["NC - Personal", status])
+                visible, _ = admin_profiles_views._participant_track_rows_visible_on_page(
+                    self.group, self.participant_list,
+                    admin_profiles_views._participant_track_sheet_configs()["mentoras"],
+                )
+                self.assertEqual(visible[0][:2], ["NC - Personal", status])
+                # Even a stale canonical copy cannot override the linked source history.
+                self.participant_list.mentoras_sheet_rows[0][1] = "Graduada"
+                self.participant_list.save(update_fields=["mentoras_sheet_rows"])
+                occurrences = admin_profiles_views._participant_history_occurrences()
+                match = next(item for item in occurrences if item["email_norm"] == "m1@example.com")
+                self.assertEqual(match["status_code"], admin_profiles_views.normalize_participant_status(status))
+                tab = self.participant_list.google_sheet_tabs[0]
+                info_index = tab["headers"].index("Info")
+                status_index = tab["headers"].index("Estatus")
+                self.assertEqual(tab["rows"][0][info_index], "NC - Personal")
+                self.assertEqual(tab["rows"][0][status_index], status)
+                requested = self.mock_status_columns.call_args.args[1][0]
+                self.assertEqual(requested["column_index"], source["values"][0].index("Estatus"))
+                self.assertEqual(self.mock_status_columns.call_args.args[2], admin_profiles_views.MENTORAS_STATUS_OPTIONS)
+
+    def test_status_header_matching_never_uses_info_or_old_status_notes(self):
+        self.assertIsNone(admin_profiles_views._participant_source_field_index(
+            ["Info estatus anterior", "Email"], "status",
+        ))
+        self.assertEqual(admin_profiles_views._participant_source_field_index(
+            ["Info estatus anterior", "Estatus", "Info"], "info",
+        ), 2)
 
     def _linked_google_workbook_payload(self):
         mentora_row = [

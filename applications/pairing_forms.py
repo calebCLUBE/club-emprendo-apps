@@ -87,7 +87,17 @@ def pairing_participant_emails(group: FormGroup, track: str) -> set[str]:
 def active_pairing_participant_emails(group: FormGroup, track: str) -> set[str]:
     """Only explicit active status in this group's participant rows qualifies."""
     field = "mentoras_sheet_rows" if track == "M" else "emprendedoras_sheet_rows"
-    rows = GroupParticipantList.objects.filter(group=group).values_list(field, flat=True).first()
+    participant_list = GroupParticipantList.objects.filter(group=group).only(
+        field, "google_sheet_url", "google_sheet_tabs",
+    ).first()
+    rows = getattr(participant_list, field, []) if participant_list else []
+    if participant_list:
+        from .admin_profiles_views import _participant_linked_track_rows
+        linked_rows = _participant_linked_track_rows(
+            participant_list, "mentoras" if track == "M" else "emprendedoras",
+        )
+        if linked_rows is not None:
+            rows = linked_rows
     emails: set[str] = set()
     for row in rows or []:
         if isinstance(row, (list, tuple)) and len(row) > 5:

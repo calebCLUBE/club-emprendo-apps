@@ -525,11 +525,11 @@ def _status_counts_to_rows(status_counts: dict[str, int]) -> list[dict]:
 
 # Impact status rules (per leadership):
 # - Selected: any row on a group's Participants sheet, except the two statuses below.
-# - Started in finished cohorts: Graduada, No Continua P, No Continua PP.
-# - Lost from a group: No Continua P, No Continua PP.
+# - Started in finished cohorts: Activa, Graduada and all three NC dropout statuses.
+# - Lost from a group: NC - Personal, NC - Programa, NC - Sin Respuesta.
 # - Siguiente grupo / Cambio de grupo are not counted in the group at all.
 IMPACT_STATUS_EXCLUDED = {"SG", "CG"}
-IMPACT_STATUS_STARTED = {"G", "NCP", "NCPP"}
+IMPACT_STATUS_STARTED = set(PARTICIPANT_STATUS_STARTED)
 IMPACT_STATUS_ACTIVE = {"A"}
 
 IMPACT_STATUS_DESCRIPTIONS = {
@@ -537,13 +537,14 @@ IMPACT_STATUS_DESCRIPTIONS = {
     "NC": "Selected, but did not complete the online training. Did not start.",
     "NCP": "Started, then left because of problems with the program. Counted as dropped out.",
     "NCPP": "Started, then left for personal reasons. Counted as dropped out.",
+    "NCSR": "Started, then stopped responding. Counted as dropped out.",
     "SG": "Held for a later group. Not counted in this group.",
     "CG": "Moved to another group. Not counted in this group.",
     "CP": "Changed partner. Selected; not counted as started or dropped out.",
     "D/NC": "Difficult to reach. Selected; not counted as started or dropped out.",
     "E": "Excellent / testimonial. Selected; not counted as started or dropped out.",
     "G": "Completed the program. Counted as started and graduated.",
-    "A": "Counts toward Still active only in a currently running group; excluded from the finished-group started total.",
+    "A": "Started the program. Counts toward Still active only in a currently running group.",
 }
 
 
@@ -1207,7 +1208,7 @@ def _participant_summary(records: list[dict], group_numbers: set[int] | None = N
             "graduated_unique": len(graduated_people),
             "graduation_eligible": graduation_eligible,
             # Retained as an internal compatibility alias for older report
-            # consumers; it now means the G + NCP + NCPP graduation denominator.
+            # consumers; it now uses the started-participation denominator.
             "graduation_started": graduation_eligible,
             "graduation_graduated": graduation_graduated,
             "graduation_dropped_out": graduation_dropped_out,
@@ -1554,7 +1555,8 @@ def _impact_funnel_summary(
             entry["started"] = entry["started"] or bool(record.get("started"))
         matched = applicants & set(flags)
 
-        # Historical outcomes partition starters; current participation can overlap either.
+        # Only explicit NC statuses establish dropout. A stale Activa in a
+        # finished group is still a starter, without an inferred dropout.
         started_people = {record["person_key"] for record in track_records if record["started"]}
         graduated_people = {record["person_key"] for record in track_records if record["graduated"]}
         active_people = {
@@ -1562,7 +1564,10 @@ def _impact_funnel_summary(
             for record in track_records
             if record.get("active_elsewhere")
         } & started_people
-        dropped_people = started_people - graduated_people
+        dropped_people = {
+            record["person_key"] for record in track_records
+            if record.get("status") in PARTICIPANT_STATUS_DROPPED_OUT
+        } - graduated_people
 
         columns.append(
             {
@@ -1649,7 +1654,7 @@ def _impact_funnel_summary(
         stage(
             "started_all",
             "Started program",
-            "Status Graduada, No Continúa P or No Continúa PP, whether or not an application is on file.",
+            "Status Activa, Graduada, NC - Personal, NC - Programa or NC - Sin Respuesta, whether or not an application is on file.",
             pct_of=None,
             pct_label="",
             short="Started in finished groups",
@@ -1674,7 +1679,7 @@ def _impact_funnel_summary(
         stage(
             "dropped_out",
             "Dropped out",
-            "Status No Continúa P or No Continúa PP.",
+            "Status NC - Personal, NC - Programa or NC - Sin Respuesta.",
             pct_of="started_all",
             pct_label="of women who started",
             short="Started, then left",
@@ -1821,7 +1826,7 @@ def _impact_combined_group_summary(records: list[dict], history: list[dict]) -> 
         # One outcome per person; graduation takes precedence for duplicate rows.
         counts["graduated"] = sum(bool(r.get("graduated")) for r in started)
         counts["active"] = sum(r["person_key"] in active_people for r in started)
-        for key, status in (("drop_program", "NCP"), ("drop_personal", "NCPP")):
+        for key, status in (("drop_program", "NCP"), ("drop_personal", "NCPP"), ("drop_no_response", "NCSR")):
             counts[key] = sum(not r.get("graduated") and r.get("status") == status for r in started)
         for key in ("acta", "capacitacion", "initial_survey", "final_survey", "certificacion"):
             counts[key] = sum(bool(r.get(key)) for r in started)
@@ -1840,6 +1845,7 @@ def _impact_combined_group_summary(records: list[dict], history: list[dict]) -> 
         ("active", "Still active"),
         ("drop_program", "Dropped out — program reasons"),
         ("drop_personal", "Dropped out — personal reasons"),
+        ("drop_no_response", "Dropped out — no response"),
         ("acta", "Signed agreement"),
         ("capacitacion", "Completed training"),
         ("initial_survey", "Initial survey recorded"),
@@ -2555,10 +2561,12 @@ def _impact_qualitative_summary(records: list[dict]) -> dict:
     program_dropout = people_with_status("NCP")
     personal_dropout = people_with_status("NCPP")
     hard_contact = people_with_status("D/NC")
+    no_response = people_with_status("NCSR")
     return {
         "excellent_count": len(excellent),
         "program_dropout_count": len(program_dropout),
         "personal_dropout_count": len(personal_dropout),
+        "no_response_dropout_count": len(no_response),
         "hard_contact_count": len(hard_contact),
         "note": "Structured status signals only; narrative achievements still need a dedicated source.",
     }
@@ -3620,7 +3628,7 @@ def _render_group_impact_report_pdf(payload: dict) -> bytes:
             "note": (
                 f"{overall_participants.get('graduation_graduated', 0)} graduated of "
                 f"{overall_participants.get('graduation_eligible', 0)} who started "
-                "(Graduada + No Continua P/PP)"
+                "(Activa + Graduada + NC - Personal/Programa/Sin Respuesta)"
             ),
             "color": "#22C55E",
         },
@@ -3782,7 +3790,7 @@ def _render_group_impact_report_pdf(payload: dict) -> bytes:
         notes = [
             "Number of participants: participation rows shown in Grupos -> Participantes, including uploaded historical groups; unique people are shown separately.",
             "Application conversion: submitted applicant emails that match a participant record marked as having started.",
-            "Graduation rate: Graduada divided by Graduada plus No Continua P plus No Continua PP in completed groups. Every other status is excluded from this rate.",
+            "Graduation rate: Graduada divided by Activa, Graduada, NC - Personal, NC - Programa and NC - Sin Respuesta in completed groups. Every other status is excluded from this rate.",
             "Alumni returnee: a Mentora cohort must start after the same email's earlier Emprendedora cohort.",
             "Group source: inferred from matching participant emails back to intake/application emails.",
             payload["survey_source_note"],

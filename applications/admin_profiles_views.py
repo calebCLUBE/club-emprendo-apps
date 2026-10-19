@@ -3143,7 +3143,30 @@ def _participant_historial_first_tab(tab: dict) -> dict:
             order.index(index) for index in tab["checkbox_column_indexes"]
             if index in order
         ]
+    if "dropdown_columns" in tab:
+        result["dropdown_columns"] = [
+            {**item, "index": order.index(item["index"])}
+            for item in tab["dropdown_columns"] if item.get("index") in order
+        ]
     return result
+
+
+def _participant_google_status_options(tab: dict) -> list[str]:
+    """Use Google's choices and retain any existing source status labels."""
+    status_index = _participant_source_field_index(tab.get("headers") or [], "status")
+    if status_index is None:
+        return []
+    options = []
+    for column in tab.get("dropdown_columns") or []:
+        if column.get("index") == status_index:
+            options.extend(str(value) for value in column.get("options") or [])
+    options.extend(
+        str(row[status_index])
+        for row in tab.get("rows") or []
+        if status_index < len(row) and row[status_index] is not None
+        and str(row[status_index]).strip()
+    )
+    return list(dict.fromkeys(options))
 
 
 def _participant_google_tabs_for_display(participant_list) -> list[dict]:
@@ -3196,7 +3219,7 @@ def _participant_google_tabs_for_display(participant_list) -> list[dict]:
             "headers": headers,
             "rows": rows,
             "column_types": _participant_google_column_types(headers, type_columns),
-            "status_options": PARTICIPANT_STATUS_SHEET_OPTIONS,
+            "status_options": _participant_google_status_options(tab),
         }
         tabs.append(_participant_historial_first_tab(display) if cfg else display)
     return tabs
@@ -3472,6 +3495,7 @@ def _sync_group_from_linked_google_sheet(
                 "email_index": email_index,
                 "checkbox_columns": checkbox_columns,
                 "checkbox_column_indexes": list(source_tab.get("checkbox_column_indexes") or []),
+                "dropdown_columns": list(source_tab.get("dropdown_columns") or []),
             }
         )
 
@@ -3799,6 +3823,19 @@ def _participants_workbook_bytes(mentoras_rows: list[list], emprendedoras_rows: 
         ("Mentoras", MENTORAS_HEADERS, mentoras_rows, MENTORAS_COL_WIDTHS, 4),
         ("Emprendedoras", EMPRENDEDORAS_HEADERS, emprendedoras_rows, EMPRENDEDORAS_COL_WIDTHS, 3),
     ]
+    tabs = []
+    for name, headers, rows, widths, freeze_cols in sheets:
+        display = _participant_historial_first_tab({
+            "name": name, "headers": headers, "rows": rows, "column_types": widths,
+        })
+        display["column_widths"] = display.pop("column_types")
+        display["freeze_cols"] = freeze_cols
+        tabs.append(display)
+    return _participant_tabs_workbook_bytes(tabs)
+
+
+def _participant_tabs_workbook_bytes(tabs: list[dict]) -> bytes:
+    """Export the displayed workbook without imposing the legacy row schema."""
 
     content_types_overrides = [
         '<Override PartName="/xl/workbook.xml" '
@@ -3811,16 +3848,13 @@ def _participants_workbook_bytes(mentoras_rows: list[list], emprendedoras_rows: 
 
     bio = BytesIO()
     with zipfile.ZipFile(bio, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
-        for idx, (name, headers, rows, widths, freeze_cols) in enumerate(sheets, start=1):
+        for idx, tab in enumerate(tabs, start=1):
             worksheet_path = f"xl/worksheets/sheet{idx}.xml"
-            display = _participant_historial_first_tab({
-                "headers": headers, "rows": rows, "column_types": widths,
-            })
             worksheet_xml = _sheet_xml(
-                headers=display["headers"],
-                rows=display["rows"],
-                col_widths=display["column_types"],
-                freeze_cols=freeze_cols,
+                headers=tab["headers"],
+                rows=tab["rows"],
+                col_widths=tab.get("column_widths"),
+                freeze_cols=tab.get("freeze_cols", 0),
                 freeze_rows=1,
             )
             zf.writestr(worksheet_path, worksheet_xml)
@@ -3829,8 +3863,9 @@ def _participants_workbook_bytes(mentoras_rows: list[list], emprendedoras_rows: 
                 f'<Override PartName="/xl/worksheets/sheet{idx}.xml" '
                 'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
             )
+            escaped_name = escape(str(tab["name"]), {'"': "&quot;"})
             workbook_sheets.append(
-                f'<sheet name="{escape(name)}" sheetId="{idx}" r:id="rId{idx}"/>'
+                f'<sheet name="{escaped_name}" sheetId="{idx}" r:id="rId{idx}"/>'
             )
             workbook_rels.append(
                 f'<Relationship Id="rId{idx}" '
@@ -3839,7 +3874,7 @@ def _participants_workbook_bytes(mentoras_rows: list[list], emprendedoras_rows: 
             )
 
         workbook_rels.append(
-            f'<Relationship Id="rId{len(sheets) + 1}" '
+            f'<Relationship Id="rId{len(tabs) + 1}" '
             'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" '
             'Target="styles.xml"/>'
         )
@@ -6800,38 +6835,55 @@ def profiles_participants_download(request, group_num: int):
         messages.error(request, f"No participants list found for Group {group.number}.")
         return redirect(f"{reverse('admin_profiles_participants')}?group={group.number}")
 
-    mentoras_rows = _normalize_sheet_rows(
-        getattr(participant_list, "mentoras_sheet_rows", []),
-        MENTORAS_HEADERS,
-    )
-    emprendedoras_rows = _normalize_sheet_rows(
-        getattr(participant_list, "emprendedoras_sheet_rows", []),
-        EMPRENDEDORAS_HEADERS,
-    )
-    mentoras_rows = _coerce_bool_columns(mentoras_rows, MENTORAS_BOOLEAN_COLS)
-    emprendedoras_rows = _coerce_bool_columns(emprendedoras_rows, EMPRENDEDORAS_BOOLEAN_COLS)
-    if not mentoras_rows:
-        mentoras_emails = _norm_email_list(participant_list.mentoras_emails_text or "")
-        mentoras_rows = _build_mentoras_rows(group.number, mentoras_emails)
-    if not emprendedoras_rows:
-        emprendedoras_emails = _norm_email_list(participant_list.emprendedoras_emails_text or "")
-        emprendedoras_rows = _build_emprendedoras_rows(group.number, emprendedoras_emails)
+    if str(participant_list.google_sheet_url or "").strip():
+        try:
+            _sync_group_from_linked_google_sheet(
+                group=group, participant_list=participant_list, request=request,
+            )
+            participant_list.refresh_from_db()
+        except Exception as exc:
+            participant_list.google_sheet_sync_error = str(exc)
+            participant_list.save(update_fields=["google_sheet_sync_error", "updated_at"])
+            messages.warning(request, f"Could not refresh the linked Google Sheet for download: {exc}")
+            return redirect(reverse(
+                "admin_profiles_participants_track_sheet", args=[group.number, "all"],
+            ))
+        workbook_bytes = _participant_tabs_workbook_bytes(
+            _participant_google_tabs_for_display(participant_list),
+        )
+    else:
+        mentoras_rows = _normalize_sheet_rows(
+            getattr(participant_list, "mentoras_sheet_rows", []),
+            MENTORAS_HEADERS,
+        )
+        emprendedoras_rows = _normalize_sheet_rows(
+            getattr(participant_list, "emprendedoras_sheet_rows", []),
+            EMPRENDEDORAS_HEADERS,
+        )
+        mentoras_rows = _coerce_bool_columns(mentoras_rows, MENTORAS_BOOLEAN_COLS)
+        emprendedoras_rows = _coerce_bool_columns(emprendedoras_rows, EMPRENDEDORAS_BOOLEAN_COLS)
+        if not mentoras_rows:
+            mentoras_emails = _norm_email_list(participant_list.mentoras_emails_text or "")
+            mentoras_rows = _build_mentoras_rows(group.number, mentoras_emails)
+        if not emprendedoras_rows:
+            emprendedoras_emails = _norm_email_list(participant_list.emprendedoras_emails_text or "")
+            emprendedoras_rows = _build_emprendedoras_rows(group.number, emprendedoras_emails)
 
-    mentoras_rows = _apply_contract_signed_to_rows(
-        mentoras_rows,
-        email_col=MENTORAS_EMAIL_COL,
-        acta_col=MENTORAS_ACTA_COL,
-    )
-    emprendedoras_rows = _apply_contract_signed_to_rows(
-        emprendedoras_rows,
-        email_col=EMPRENDEDORAS_EMAIL_COL,
-        acta_col=EMPRENDEDORAS_ACTA_COL,
-    )
+        mentoras_rows = _apply_contract_signed_to_rows(
+            mentoras_rows,
+            email_col=MENTORAS_EMAIL_COL,
+            acta_col=MENTORAS_ACTA_COL,
+        )
+        emprendedoras_rows = _apply_contract_signed_to_rows(
+            emprendedoras_rows,
+            email_col=EMPRENDEDORAS_EMAIL_COL,
+            acta_col=EMPRENDEDORAS_ACTA_COL,
+        )
 
-    workbook_bytes = _participants_workbook_bytes(
-        mentoras_rows=_number_sheet_rows(mentoras_rows, number_col=2),
-        emprendedoras_rows=_number_sheet_rows(emprendedoras_rows, number_col=2),
-    )
+        workbook_bytes = _participants_workbook_bytes(
+            mentoras_rows=_number_sheet_rows(mentoras_rows, number_col=2),
+            emprendedoras_rows=_number_sheet_rows(emprendedoras_rows, number_col=2),
+        )
 
     response = HttpResponse(
         workbook_bytes,

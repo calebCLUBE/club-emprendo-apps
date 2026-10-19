@@ -1536,7 +1536,7 @@
     }
 
     function setCellTextAtVisibleCoords(ri, ci, value) {
-      if (!activeSheetData) {
+      if (sheetReadonly || !activeSheetData) {
         return false;
       }
       const text = String(value == null ? '' : value);
@@ -2663,7 +2663,7 @@
                 : null
             ) ||
             '#e5e7eb';
-          const label = currentValue || 'Seleccionar...';
+          const label = currentValue || (sheetReadonly ? '' : 'Seleccionar...');
           const horizontalInset = Math.max(2, Math.round(Math.min(6, rect.width * 0.05)));
           const verticalInset = Math.max(1, Math.round(Math.min(3, rect.height * 0.12)));
           const width = Math.max(
@@ -2701,12 +2701,13 @@
 
           const labelNode = document.createElement('span');
           labelNode.textContent = label;
-          const arrowNode = document.createElement('span');
-          arrowNode.className = 'ce-validation-cell-bubble-arrow';
-          arrowNode.textContent = '▼';
-
           bubble.appendChild(labelNode);
-          bubble.appendChild(arrowNode);
+          if (!sheetReadonly) {
+            const arrowNode = document.createElement('span');
+            arrowNode.className = 'ce-validation-cell-bubble-arrow';
+            arrowNode.textContent = '▼';
+            bubble.appendChild(arrowNode);
+          }
           layer.appendChild(bubble);
         }
       });
@@ -2769,7 +2770,7 @@
     }
 
     function mountValidationCellDropdown() {
-      if (validationCellDropdown) {
+      if (sheetReadonly || validationCellDropdown) {
         return;
       }
       const select = document.createElement('select');
@@ -2781,7 +2782,7 @@
         });
       });
       select.addEventListener('change', function () {
-        if (!activeSpreadsheet || !activeSheetData) {
+        if (sheetReadonly || !activeSpreadsheet || !activeSheetData) {
           return;
         }
         const coords = selectedCellCoords();
@@ -2804,7 +2805,7 @@
     }
 
     function mountValidationCellCheckboxEditor() {
-      if (validationCellCheckboxWrap && validationCellCheckboxInput) {
+      if (sheetReadonly || (validationCellCheckboxWrap && validationCellCheckboxInput)) {
         return;
       }
       const wrap = document.createElement('div');
@@ -2822,7 +2823,7 @@
         ev.stopPropagation();
       });
       input.addEventListener('change', function () {
-        if (!activeSpreadsheet || !activeSheetData) {
+        if (sheetReadonly || !activeSpreadsheet || !activeSheetData) {
           return;
         }
         const coords = selectedCellCoords();
@@ -2847,7 +2848,7 @@
     }
 
     function refreshValidationCellDropdown() {
-      if (!activeSheetData || !activeSpreadsheet) {
+      if (sheetReadonly || !activeSheetData || !activeSpreadsheet) {
         hideValidationCellDropdown();
         return;
       }
@@ -6124,7 +6125,7 @@
     }
 
     function applyFormulaBarValue() {
-      if (!formulaInput || !activeSpreadsheet || !activeSheetData) {
+      if (sheetReadonly || !formulaInput || !activeSpreadsheet || !activeSheetData) {
         return;
       }
       const coords = selectedCellCoords();
@@ -6166,7 +6167,8 @@
       const input = document.createElement('input');
       input.type = 'text';
       input.className = 'ce-formula-input';
-      input.placeholder = 'Select a cell to see/edit its value';
+      input.readOnly = sheetReadonly;
+      input.placeholder = sheetReadonly ? 'Select a cell to see its value' : 'Select a cell to see/edit its value';
       input.addEventListener('keydown', function (ev) {
         if (ev.key === 'Enter') {
           ev.preventDefault();

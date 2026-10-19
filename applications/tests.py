@@ -538,6 +538,65 @@ class GoogleSheetsCredentialScopeTests(TestCase):
             [{"gridRange": {"sheetId": 1}}],
         )
 
+    @patch("applications.drive_sync._service_for_sheets")
+    def test_tab_read_preserves_grid_and_typed_table_dropdown_choices(self, mock_service_factory):
+        spreadsheets = mock_service_factory.return_value.spreadsheets.return_value
+        classic_options = ["Activa", "NC Personal", " Estado nuevo "]
+        table_options = ["NC - Sin Respuesta", "Reubicación pendiente", "Graduada"]
+
+        def validation(options):
+            return {"condition": {"type": "ONE_OF_LIST", "values": [
+                {"userEnteredValue": option} for option in options
+            ]}}
+
+        spreadsheets.get.return_value.execute.return_value = {
+            "spreadsheetId": "sheet-123",
+            "properties": {"title": "Participants"},
+            "sheets": [{
+                "properties": {"sheetId": 7, "title": "G10 Mentoras", "index": 0},
+                "tables": [{
+                    "range": {"startColumnIndex": 3},
+                    "columnProperties": [
+                        {"columnIndex": 1, "columnType": "DROPDOWN",
+                         "dataValidationRule": validation(table_options)},
+                        {"columnIndex": 2, "columnType": "BOOLEAN"},
+                    ],
+                }],
+            }],
+        }
+        raw_values = [
+            ["Email", "Estatus", "Notas", "Owner", "Estado", "Acta"],
+            ["mentor@example.com", " Estado nuevo ", "", "", "Reubicación pendiente", True],
+        ]
+        spreadsheets.values.return_value.batchGetByDataFilter.return_value.execute.return_value = {
+            "valueRanges": [{
+                "dataFilters": [{"gridRange": {"sheetId": 7}}],
+                "valueRange": {"values": raw_values},
+            }],
+        }
+        spreadsheets.getByDataFilter.return_value.execute.return_value = {
+            "sheets": [{"properties": {"sheetId": 7}, "data": [{
+                "startColumn": 1,
+                "startRow": 1,
+                "rowData": [{"values": [
+                    {"dataValidation": validation(classic_options)}, {}, {},
+                    {"dataValidation": validation(["Old table status"])},
+                ]}],
+            }]}],
+        }
+
+        result = drive_sync.fetch_google_spreadsheet_tabs("sheet-123")
+
+        tab = result["tabs"][0]
+        self.assertEqual(tab["dropdown_columns"], [
+            {"index": 1, "options": classic_options},
+            {"index": 4, "options": table_options},
+        ])
+        self.assertEqual(tab["checkbox_column_indexes"], [5])
+        self.assertEqual(tab["values"], raw_values)
+        self.assertEqual(tab["values"][1][1], " Estado nuevo ")
+        self.assertEqual(tab["values"][1][4], "Reubicación pendiente")
+
     @patch("googleapiclient.discovery.build")
     @patch("google.oauth2.credentials.Credentials")
     def test_sheets_service_reuses_existing_drive_oauth_scope(
@@ -9654,6 +9713,84 @@ class ParticipantsCapacitacionCheckTests(TestCase):
                 self.assertEqual(sheet.find(".//s:c[@r='G1']/s:is/s:t", ns).text,
                                  "Email" if index == 1 else "Correo")
 
+    @patch("applications.admin_profiles_views.update_google_spreadsheet_values", return_value=0)
+    @patch("applications.admin_profiles_views.fetch_google_spreadsheet_tabs")
+    def test_linked_download_preserves_google_layout_statuses_and_website_checks(
+        self, mock_fetch, mock_update,
+    ):
+        import xml.etree.ElementTree as ET
+        headers = ["Historial", "Estatus", "Notas", "Email", "Nombre", "W/C"]
+        mock_fetch.return_value = {
+            "spreadsheet_id": "linked-sheet-123",
+            "tabs": [
+                {"title": "G993 Emparejamiento & notas", "sheet_id": 3,
+                 "values": [["Participante", "Observación"], ["Mentora 1", "Conservar texto"]]},
+                {"title": "G993 E", "sheet_id": 2, "checkbox_column_indexes": [5],
+                 "values": [headers, ["old history", "NC - Programa", "Nota E", "e1@example.com", "Nombre E", True]]},
+                {"title": "G993 M", "sheet_id": 1, "checkbox_column_indexes": [5],
+                 "values": [headers, ["old history", "NC - Personal", "Nota M", "m1@example.com", "Nombre M", False]]},
+            ],
+        }
+        self.participant_list.google_sheet_url = "https://docs.google.com/spreadsheets/d/linked-sheet-123/edit"
+        self.participant_list.mentoras_sheet_rows[0][0] = "Legacy info must disappear"
+        self.participant_list.mentoras_sheet_rows[0][11] = True
+        self.participant_list.mentoras_sheet_rows[0][14] = True
+        self.participant_list.save()
+
+        response = self.client.get(reverse("admin_profiles_participants_download", args=[993]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        mock_fetch.assert_called_once_with(self.participant_list.google_sheet_url)
+        ns = {"s": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
+        def worksheet_values(archive, index):
+            sheet = ET.fromstring(archive.read(f"xl/worksheets/sheet{index}.xml"))
+            result = []
+            for row in sheet.findall("s:sheetData/s:row", ns):
+                values = []
+                for cell in row.findall("s:c", ns):
+                    if cell.get("t") == "b":
+                        values.append(cell.find("s:v", ns).text == "1")
+                    else:
+                        text = cell.find("s:is/s:t", ns)
+                        values.append(text.text or "" if text is not None else "")
+                result.append(values)
+            return result
+        with zipfile.ZipFile(BytesIO(response.content)) as archive:
+            workbook = ET.fromstring(archive.read("xl/workbook.xml"))
+            self.assertEqual(
+                [sheet.get("name") for sheet in workbook.findall("s:sheets/s:sheet", ns)],
+                ["G993 Emparejamiento & notas", "G993 E", "G993 M"],
+            )
+            self.assertEqual(worksheet_values(archive, 1),
+                             [["Participante", "Observación"], ["Mentora 1", "Conservar texto"]])
+            expected_headers = headers + ["Acta", "Capacitacion", "Certificacion", "Encuesta inicial", "Encuesta final"]
+            for index, role, status, note, email, name, checks in (
+                (2, "Emprendedora", "NC - Programa", "Nota E", "e1@example.com", "Nombre E", [True, False, False, False, False, False]),
+                (3, "Mentora", "NC - Personal", "Nota M", "m1@example.com", "Nombre M", [False, False, True, False, False, True]),
+            ):
+                exported = worksheet_values(archive, index)
+                self.assertEqual(exported[0], expected_headers)
+                self.assertNotIn("Info", exported[0])
+                self.assertEqual(exported[1],
+                                 [f"G993 · {role} · {status}", status, note, email, name] + checks)
+        self.participant_list.refresh_from_db()
+        self.assertEqual(self.participant_list.google_sheet_sync_error, "")
+
+    @patch("applications.admin_profiles_views.fetch_google_spreadsheet_tabs", side_effect=RuntimeError("Google read unavailable"))
+    def test_linked_download_reports_sync_failure_instead_of_exporting_legacy_rows(self, mock_fetch):
+        self.participant_list.google_sheet_url = "https://docs.google.com/spreadsheets/d/linked-sheet-123/edit"
+        self.participant_list.save()
+
+        response = self.client.get(reverse("admin_profiles_participants_download", args=[993]))
+
+        self.assertRedirects(response, reverse("admin_profiles_participants_track_sheet", args=[993, "all"]),
+                             fetch_redirect_response=False)
+        self.participant_list.refresh_from_db()
+        self.assertEqual(self.participant_list.google_sheet_sync_error, "Google read unavailable")
+        self.assertIsNone(self.participant_list.google_sheet_last_synced_at)
+        self.assertNotIn("Content-Disposition", response)
+
     def test_pre_historial_rows_preserve_all_checkbox_positions(self):
         for headers, boolean_cols in (
             (admin_profiles_views.MENTORAS_HEADERS, admin_profiles_views.MENTORAS_BOOLEAN_COLS),
@@ -9867,6 +10004,42 @@ class ParticipantsCapacitacionCheckTests(TestCase):
         self.assertFalse(any("!P" in item["range"] for item in writes))  # W/C is untouched.
         self.assertContains(response, "Refresh from Google")
         self.assertEqual(response.context["sheet_save_headers"]["mentoras"], headers)
+
+    @patch("applications.admin_profiles_views.update_google_spreadsheet_values")
+    @patch("applications.admin_profiles_views.fetch_google_spreadsheet_tabs")
+    def test_linked_workbook_uses_google_status_choices_after_history_column_moves(
+        self, mock_fetch, mock_update,
+    ):
+        payload = self._linked_google_workbook_payload()
+        options = ["En acompañamiento", "NC - Otra razón", " Seguimiento "]
+        for source in payload["tabs"][:2]:
+            email = source["values"][1][5]
+            source["values"] = [
+                ["Email", "Notas", "Estatus", "Historial"],
+                [email, "Nota independiente", "Lista especial", ""],
+            ]
+            source["dropdown_columns"] = [{"index": 2, "options": options}]
+        mock_fetch.return_value = payload
+        self.participant_list.google_sheet_url = "https://docs.google.com/spreadsheets/d/linked-sheet-123/edit"
+        self.participant_list.save()
+        for track in ("all", "mentoras"):
+            with self.subTest(track=track):
+                response = self.client.get(reverse(
+                    "admin_profiles_participants_track_sheet", args=[self.group.number, track],
+                ))
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.context["sheet_headers"][:4],
+                                 ["Historial", "Email", "Notas", "Estatus"])
+                self.assertEqual(response.context["sheet_rows"][0][2:4],
+                                 ["Nota independiente", "Lista especial"])
+                self.assertNotIn("Info", response.context["sheet_headers"])
+                self.assertEqual(response.context["sheet_status_options"], options + ["Lista especial"])
+                self.assertNotIn("No Continua PP", response.context["sheet_status_options"])
+                self.participant_list.refresh_from_db()
+                self.assertEqual(self.participant_list.google_sheet_tabs[0]["dropdown_columns"],
+                                 [{"index": 3, "options": options}])
+                self.assertEqual(self.participant_list.mentoras_sheet_rows[0][:2],
+                                 ["Nota independiente", "Lista especial"])
 
     @patch("applications.admin_profiles_views.fetch_google_spreadsheet_tabs")
     def test_missing_google_cache_never_falls_back_to_legacy_info_workbook(self, mock_fetch):

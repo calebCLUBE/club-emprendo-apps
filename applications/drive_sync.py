@@ -721,12 +721,25 @@ def fetch_google_spreadsheet_tabs(file_ref: str) -> dict:
         raise RuntimeError(_friendly_sheets_error(exc)) from exc
 
     checkbox_columns_by_sheet_id: dict[int, set[int]] = {}
+    dropdown_columns_by_sheet_id: dict[int, dict[int, list[str]]] = {}
+
+    def dropdown_options(validation: dict) -> list[str] | None:
+        condition = validation.get("condition") or {}
+        if str(condition.get("type") or "").upper() != "ONE_OF_LIST":
+            return None
+        return [
+            str(value["userEnteredValue"])
+            for value in condition.get("values") or []
+            if isinstance(value, dict) and value.get("userEnteredValue") is not None
+        ]
+
     for sheet_payload in validation_response.get("sheets") or []:
         properties = sheet_payload.get("properties") or {}
         sheet_id = properties.get("sheetId")
         if not isinstance(sheet_id, int):
             continue
         checkbox_columns: set[int] = set()
+        dropdown_columns = dropdown_columns_by_sheet_id.setdefault(sheet_id, {})
         for grid_data in sheet_payload.get("data") or []:
             start_column = int(grid_data.get("startColumn") or 0)
             for row_data in grid_data.get("rowData") or []:
@@ -735,6 +748,9 @@ def fetch_google_spreadsheet_tabs(file_ref: str) -> dict:
                     condition = validation.get("condition") or {}
                     if str(condition.get("type") or "").upper() == "BOOLEAN":
                         checkbox_columns.add(start_column + offset)
+                    options = dropdown_options(validation)
+                    if options is not None:
+                        dropdown_columns.setdefault(start_column + offset, options)
         checkbox_columns_by_sheet_id[sheet_id] = checkbox_columns
 
     for sheet in sheets:
@@ -742,10 +758,16 @@ def fetch_google_spreadsheet_tabs(file_ref: str) -> dict:
         for table in sheet.get("tables") or []:
             start_column = int((table.get("range") or {}).get("startColumnIndex") or 0)
             for position, column in enumerate(table.get("columnProperties") or []):
+                column_index = start_column + int(column.get("columnIndex", position))
                 if column.get("columnType") == "BOOLEAN":
                     checkbox_columns_by_sheet_id.setdefault(sheet_id, set()).add(
-                        start_column + int(column.get("columnIndex", position))
+                        column_index
                     )
+                options = dropdown_options(column.get("dataValidationRule") or {})
+                if options is not None:
+                    # Typed table metadata is authoritative over any grid-cell
+                    # validation left on the same column outside the table.
+                    dropdown_columns_by_sheet_id.setdefault(sheet_id, {})[column_index] = options
 
     tabs = []
     for index, title in enumerate(titles):
@@ -762,6 +784,12 @@ def fetch_google_spreadsheet_tabs(file_ref: str) -> dict:
                 "checkbox_column_indexes": sorted(
                     checkbox_columns_by_sheet_id.get(sheet_id, set())
                 ),
+                "dropdown_columns": [
+                    {"index": column_index, "options": options}
+                    for column_index, options in sorted(
+                        dropdown_columns_by_sheet_id.get(sheet_id, {}).items()
+                    )
+                ],
             }
         )
     return {

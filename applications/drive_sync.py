@@ -885,6 +885,33 @@ def delete_google_spreadsheet_columns(file_ref: str, columns: list[dict]) -> int
     return len(clean_columns)
 
 
+def move_google_spreadsheet_columns_first(file_ref: str, columns: list[dict]) -> int:
+    """Move existing columns to A, preserving their cells and formatting."""
+    if not columns:
+        return 0
+    file_id = _normalize_file_id(file_ref)
+    if not file_id:
+        raise ValueError("Invalid Google Sheet link. Paste the full Sheets URL.")
+    requests = [
+        {"moveDimension": {
+            "source": {"sheetId": int(item["sheet_id"]), "dimension": "COLUMNS",
+                       "startIndex": int(item["column_index"]),
+                       "endIndex": int(item["column_index"]) + 1},
+            "destinationIndex": 0,
+        }}
+        for item in columns if int(item["column_index"]) > 0
+    ]
+    if not requests:
+        return 0
+    try:
+        _service_for_sheets().spreadsheets().batchUpdate(
+            spreadsheetId=file_id, body={"requests": requests},
+        ).execute()
+    except Exception as exc:
+        raise RuntimeError(_friendly_sheets_error(exc)) from exc
+    return len(requests)
+
+
 def update_google_spreadsheet_values(file_ref: str, updates: list[dict]) -> int:
     """Write RAW values to explicit A1 ranges in a linked Google Sheet."""
     file_id = _normalize_file_id(file_ref)

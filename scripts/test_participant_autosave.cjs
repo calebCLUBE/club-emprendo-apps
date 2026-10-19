@@ -35,7 +35,8 @@ function browser(response) {
     Blob, URL, Date, JSON,
   };
   vm.runInNewContext(source, context);
-  return {status, revision, storage, listeners, edit: () => {matrix = [['Status'], ['Graduada']];},
+  return {status, revision, storage, listeners, edit: next => {matrix = next || [['Status'], ['Graduada']];},
+    payload: () => elements['ce-sheet-data'].value,
     tick: async () => {tick(); await new Promise(resolve => setImmediate(resolve));}, requests: () => requests};
 }
 function reply({ok = true, redirected = false, status = 200, type = 'application/json', body = {ok: true, revision: 'new'}} = {}) {
@@ -62,5 +63,12 @@ function reply({ok = true, redirected = false, status = 200, type = 'application
   warned = false;
   saved.listeners.beforeunload({preventDefault: () => {warned = true;}});
   assert.equal(warned, false);
+  const history = browser(reply());
+  history.edit([['Historial', 'Info', 'Estatus', '#', 'Nombre', 'Id', 'Email', 'Acta'],
+    ['G1 · Mentora · Activa', '', 'Activa', 1, 'Ana', '123', 'ana@example.com', 'TRUE']]);
+  await history.tick();
+  assert.deepEqual(JSON.parse(history.payload()), [
+    ['', 'Activa', 1, 'Ana', '123', 'ana@example.com', true, 'G1 · Mentora · Activa']
+  ]);
   console.log('Autosave tests passed: confirmation, login redirects, conflicts, backups and unload warning.');
 })().catch(error => {console.error(error); process.exitCode = 1;});

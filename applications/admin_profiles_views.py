@@ -40,6 +40,7 @@ from .drive_sync import (
     ensure_google_spreadsheet_checkbox_columns,
     fetch_drive_csv_file_text,
     fetch_google_spreadsheet_tabs,
+    move_google_spreadsheet_columns_first,
     update_google_spreadsheet_values,
 )
 from .models import (
@@ -3086,6 +3087,34 @@ def _participant_google_column_types(headers: list[str], checkbox_columns: list[
     return types
 
 
+def _participant_historial_first_tab(tab: dict) -> dict:
+    """Reorder presentation/Google columns; stored canonical rows stay stable."""
+    headers = list(tab.get("headers") or [])
+    history_index = next(
+        (index for index, header in enumerate(headers)
+         if _normalized_source_header(header) == "historial"), None,
+    )
+    if history_index in (None, 0):
+        return tab
+    order = [history_index] + [index for index in range(len(headers)) if index != history_index]
+    result = dict(tab)
+    result["headers"] = [headers[index] for index in order]
+    result["rows"] = [
+        [row[index] if index < len(row) else "" for index in order]
+        for row in tab.get("rows", [])
+    ]
+    if "column_types" in tab:
+        result["column_types"] = [tab["column_types"][index] for index in order]
+    if isinstance(tab.get("email_index"), int):
+        result["email_index"] = order.index(tab["email_index"])
+    if "checkbox_columns" in tab:
+        result["checkbox_columns"] = [
+            {**item, "index": order.index(item["index"])}
+            for item in tab["checkbox_columns"]
+        ]
+    return result
+
+
 def _participant_google_tabs_for_display(participant_list) -> list[dict]:
     tabs: list[dict] = []
     for tab in list(getattr(participant_list, "google_sheet_tabs", []) or []):
@@ -3106,7 +3135,10 @@ def _participant_google_tabs_for_display(participant_list) -> list[dict]:
                 "status_options": PARTICIPANT_STATUS_SHEET_OPTIONS,
             }
         )
-    return tabs
+    return [
+        _participant_historial_first_tab(tab) if tab["key"] in {"mentoras", "emprendedoras"} else tab
+        for tab in tabs
+    ]
 
 
 def _participant_checkbox_state_by_email(rows: list[list], cfg: dict) -> dict[str, dict[int, bool]]:
@@ -3457,6 +3489,17 @@ def _sync_group_from_linked_google_sheet(
         missing_google_columns,
     )
     updated_cells = update_google_spreadsheet_values(source_url, checkbox_updates + history_updates)
+    history_moves = [
+        {"sheet_id": tab["sheet_id"], "column_index": index}
+        for tab in pushed_tabs if tab.get("track") in configs
+        for index, header in enumerate(tab["headers"])
+        if index > 0 and _normalized_source_header(header) == "historial"
+    ]
+    move_google_spreadsheet_columns_first(source_url, history_moves)
+    pushed_tabs = [
+        _participant_historial_first_tab(tab) if tab.get("track") in configs else tab
+        for tab in pushed_tabs
+    ]
     participant_list.google_sheet_url = source_url
     participant_list.google_sheet_id = str(spreadsheet.get("spreadsheet_id") or "")
     participant_list.google_sheet_tabs = pushed_tabs
@@ -3621,7 +3664,7 @@ def _participant_sheet_tabs(mentoras_rows: list[list], emprendedoras_rows: list[
     indexes = _participant_history_indexes(_participant_history_occurrences())
     mentoras_rows = _populate_participant_historial(mentoras_rows, MENTORAS_HEADERS, indexes=indexes)
     emprendedoras_rows = _populate_participant_historial(emprendedoras_rows, EMPRENDEDORAS_HEADERS, indexes=indexes)
-    return [
+    tabs = [
         {
             "key": "mentoras",
             "name": "Mentoras",
@@ -3639,6 +3682,7 @@ def _participant_sheet_tabs(mentoras_rows: list[list], emprendedoras_rows: list[
             "status_options": EMPRENDEDORAS_STATUS_OPTIONS,
         },
     ]
+    return [_participant_historial_first_tab(tab) for tab in tabs]
 
 
 def _excel_col_name(col_idx: int) -> str:
@@ -3744,10 +3788,13 @@ def _participants_workbook_bytes(mentoras_rows: list[list], emprendedoras_rows: 
     with zipfile.ZipFile(bio, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
         for idx, (name, headers, rows, widths, freeze_cols) in enumerate(sheets, start=1):
             worksheet_path = f"xl/worksheets/sheet{idx}.xml"
+            display = _participant_historial_first_tab({
+                "headers": headers, "rows": rows, "column_types": widths,
+            })
             worksheet_xml = _sheet_xml(
-                headers=headers,
-                rows=rows,
-                col_widths=widths,
+                headers=display["headers"],
+                rows=display["rows"],
+                col_widths=display["column_types"],
                 freeze_cols=freeze_cols,
                 freeze_rows=1,
             )
@@ -6238,6 +6285,12 @@ def _profiles_participants_track_sheet(request, group_num: int, track: str):
             display_status_options = linked_tab["status_options"]
             display_rows = linked_tab["rows"]
 
+    display = _participant_historial_first_tab({
+        "headers": display_headers, "rows": display_rows, "column_types": display_column_types,
+    })
+    display_headers, display_rows, display_column_types = (
+        display["headers"], display["rows"], display["column_types"]
+    )
     context = {
         "group": group,
         "track_slug": track_slug,

@@ -256,7 +256,14 @@
         if (!Array.isArray(row)) {
           return [];
         }
-        return row.map(normalizeCellForSave);
+        const values = row.map(normalizeCellForSave);
+        // Participant storage keeps its canonical field positions for checks.
+        if (String(matrix[0][0] || '').trim().toLowerCase() === 'historial') {
+          const width = matrix[0].length;
+          while (values.length < width) values.push('');
+          values.push(values.shift());
+        }
+        return values;
       });
     }
 

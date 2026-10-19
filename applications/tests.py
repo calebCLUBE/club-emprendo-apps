@@ -282,6 +282,18 @@ class GoogleSheetsCredentialScopeTests(TestCase):
         )
 
     @patch("applications.drive_sync._service_for_sheets")
+    def test_move_historial_to_first_column_preserves_existing_cells(self, mock_service_factory):
+        service = mock_service_factory.return_value
+        self.assertEqual(drive_sync.move_google_spreadsheet_columns_first(
+            "sheet-123", [{"sheet_id": 7, "column_index": 19}],
+        ), 1)
+        requests = service.spreadsheets.return_value.batchUpdate.call_args.kwargs["body"]["requests"]
+        self.assertEqual(requests, [{"moveDimension": {
+            "source": {"sheetId": 7, "dimension": "COLUMNS", "startIndex": 19, "endIndex": 20},
+            "destinationIndex": 0,
+        }}])
+
+    @patch("applications.drive_sync._service_for_sheets")
     def test_historial_column_expands_grid_and_has_no_checkbox_validation(self, mock_service_factory):
         service = mock_service_factory.return_value
         drive_sync.ensure_google_spreadsheet_checkbox_columns(
@@ -8980,6 +8992,9 @@ class ParticipantsPageSafetyTests(TestCase):
 
 class ParticipantsCapacitacionCheckTests(TestCase):
     def setUp(self):
+        move_patcher = patch("applications.admin_profiles_views.move_google_spreadsheet_columns_first")
+        self.mock_move_columns = move_patcher.start()
+        self.addCleanup(move_patcher.stop)
         user_model = get_user_model()
         self.staff_user = user_model.objects.create_superuser(
             email="cap-admin@example.com",
@@ -9426,8 +9441,22 @@ class ParticipantsCapacitacionCheckTests(TestCase):
                 "admin_profiles_participants_track_sheet", args=[993, track],
             ))
             self.assertEqual(response.status_code, 200)
-            self.assertEqual(response.context["sheet_rows"][0][-1], expected)
-            self.assertEqual(response.context["sheet_headers"][-1], "Historial")
+            self.assertEqual(response.context["sheet_rows"][0][0], expected)
+            self.assertEqual(response.context["sheet_headers"][0], "Historial")
+
+    def test_participant_export_has_historial_in_column_a(self):
+        import xml.etree.ElementTree as ET
+        workbook = admin_profiles_views._participants_workbook_bytes(
+            self.participant_list.mentoras_sheet_rows,
+            self.participant_list.emprendedoras_sheet_rows,
+        )
+        ns = {"s": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
+        with zipfile.ZipFile(BytesIO(workbook)) as archive:
+            for index in (1, 2):
+                sheet = ET.fromstring(archive.read(f"xl/worksheets/sheet{index}.xml"))
+                self.assertEqual(sheet.find(".//s:c[@r='A1']/s:is/s:t", ns).text, "Historial")
+                self.assertEqual(sheet.find(".//s:c[@r='G1']/s:is/s:t", ns).text,
+                                 "Email" if index == 1 else "Correo")
 
     def test_pre_historial_rows_preserve_all_checkbox_positions(self):
         for headers, boolean_cols in (
@@ -9473,16 +9502,25 @@ class ParticipantsCapacitacionCheckTests(TestCase):
         self.assertEqual(self.participant_list.mentoras_sheet_rows[0][-1], expected)
         self.assertEqual(self.participant_list.emprendedoras_sheet_rows[0][-1], expected)
         self.assertEqual(self.participant_list.google_sheet_tabs[2]["headers"], ["Custom heading", "Owner"])
+        self.mock_move_columns.assert_called_once_with(url, [
+            {"sheet_id": 1, "column_index": 19},
+            {"sheet_id": 2, "column_index": 18},
+        ])
+        for tab in self.participant_list.google_sheet_tabs[:2]:
+            self.assertEqual(tab["headers"][0], "Historial")
+            self.assertEqual(tab["email_index"], 6)
+            self.assertEqual(tab["headers"][tab["checkbox_columns"][0]["index"]], "Acta")
         # Repeat against the written workbook: use the existing column and refresh stale text.
         for source, stored in zip(payload["tabs"], self.participant_list.google_sheet_tabs):
             source["values"] = [stored["headers"]] + stored["rows"]
-        payload["tabs"][0]["values"][2][-1] = "outdated history"
+        payload["tabs"][0]["values"][2][0] = "outdated history"
         admin_profiles_views._sync_group_from_linked_google_sheet(
             group=self.group, participant_list=self.participant_list, sheet_url=url,
         )
         self.assertEqual(mock_ensure.call_args.args[1], [])
         updates = {item["range"]: item["values"] for item in mock_update.call_args.args[1]}
-        self.assertEqual(updates["'Mentoras'!T1"][-1], [expected])
+        self.assertEqual(updates["'Mentoras'!A1"][-1], [expected])
+        self.assertEqual(self.mock_move_columns.call_args.args[1], [])
 
     def _linked_google_workbook_payload(self):
         mentora_row = [
@@ -9800,7 +9838,7 @@ class ParticipantsCapacitacionCheckTests(TestCase):
         stored_mentoras_tab = self.participant_list.google_sheet_tabs[0]
         self.assertEqual(
             [item["index"] for item in stored_mentoras_tab["checkbox_columns"]],
-            checkbox_indexes,
+            [index + 1 if index < 19 else index for index in checkbox_indexes],
         )
         self.assertTrue(self.participant_list.mentoras_sheet_rows[0][9])
         self.assertTrue(self.participant_list.mentoras_sheet_rows[0][11])
@@ -9885,7 +9923,7 @@ class ParticipantsCapacitacionCheckTests(TestCase):
         self.assertEqual(mock_ensure_columns.call_args.args[1], [])
         self.participant_list.refresh_from_db()
         stored_headers = self.participant_list.google_sheet_tabs[0]["headers"]
-        self.assertEqual(stored_headers[13], "Enuesta inicial")
+        self.assertEqual(stored_headers[14], "Enuesta inicial")
         self.assertNotIn("Encuesta inicial", stored_headers)
 
     @patch("applications.admin_profiles_views._fetch_encuestas_emails_for_group")

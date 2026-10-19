@@ -10179,7 +10179,7 @@ class ParticipantsCapacitacionCheckTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Notes")
         self.assertContains(response, "Mirrored extra tab")
-        self.assertContains(response, "Google Sheet linked · website is read-only")
+        self.assertContains(response, "Google Sheet linked · edit participant data in Google")
         self.assertContains(response, "const sheetReadonly = true")
 
     def test_checkbox_push_never_clears_a_checked_google_value(self):

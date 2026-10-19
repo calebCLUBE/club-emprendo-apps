@@ -139,7 +139,7 @@
     {% endif %}
     {% if not linked_google_sheet %}<button type="button" id="ce-download-sheet-backup" class="ce-sheet-btn ce-sheet-btn--ghost">Download backup</button>{% endif %}
     <span id="ce-sheet-autosave-status" class="ce-autosave-status">
-      {% if linked_google_sheet %}Google Sheet linked · website is read-only{% else %}No linked Google Sheet · Autosave ready{% endif %}
+      {% if linked_google_sheet %}Google Sheet linked · edit participant data in Google{% else %}No linked Google Sheet · Autosave ready{% endif %}
     </span>
     <a class="ce-sheet-btn ce-sheet-btn--ghost" href="{% url 'admin_profiles_participants' %}?group={{ group.number }}">
       Back

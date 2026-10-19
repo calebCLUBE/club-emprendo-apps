@@ -760,7 +760,7 @@ def fetch_google_spreadsheet_tabs(file_ref: str) -> dict:
 
 
 def ensure_google_spreadsheet_checkbox_columns(file_ref: str, columns: list[dict]) -> int:
-    """Create missing header cells and BOOLEAN validation by immutable sheet ID."""
+    """Create headers and validation; checkbox=False creates a plain text column."""
     file_id = _normalize_file_id(file_ref)
     if not file_id:
         raise ValueError("Invalid Google Sheet link. Paste the full Sheets URL.")
@@ -825,11 +825,11 @@ def ensure_google_spreadsheet_checkbox_columns(file_ref: str, columns: list[dict
                             "startColumnIndex": column_index,
                             "endColumnIndex": column_index + 1,
                         },
-                        "rule": {
+                        **({"rule": {
                             "condition": {"type": "BOOLEAN"},
                             "strict": True,
                             "showCustomUi": True,
-                        },
+                        }} if item.get("checkbox", True) else {}),
                     }
                 },
             ]

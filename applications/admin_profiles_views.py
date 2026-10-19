@@ -171,6 +171,7 @@ MENTORAS_HEADERS = [
     "Lanzamiento",
     "W/M",
     "W/E",
+    "Historial",
 ]
 
 EMPRENDEDORAS_HEADERS = [
@@ -192,10 +193,11 @@ EMPRENDEDORAS_HEADERS = [
     "Plazo extra Cap",
     "Lanzamiento",
     "W/E",
+    "Historial",
 ]
 
-MENTORAS_COL_WIDTHS = [6.88, 14.38, 5.63, 31.5, 13.63, 28.13, 14.25, 12.5, 10.5, 7, 9, 12, 12, 11, 11, 12, 12, 8, 8]
-EMPRENDEDORAS_COL_WIDTHS = [7.25, 14.38, 5.75, 18.38, 17.75, 32.13, 15.25, 12.5, 10.5, 7, 9, 12, 12, 11, 11, 14, 12, 8]
+MENTORAS_COL_WIDTHS = [6.88, 14.38, 5.63, 31.5, 13.63, 28.13, 14.25, 12.5, 10.5, 7, 9, 12, 12, 11, 11, 12, 12, 8, 8, 65]
+EMPRENDEDORAS_COL_WIDTHS = [7.25, 14.38, 5.75, 18.38, 17.75, 32.13, 15.25, 12.5, 10.5, 7, 9, 12, 12, 11, 11, 14, 12, 8, 65]
 MENTORAS_EMAIL_COL = 5
 EMPRENDEDORAS_EMAIL_COL = 5
 MENTORAS_ID_COL = 4
@@ -238,6 +240,7 @@ MENTORAS_COLUMN_TYPES = [
     "checkbox",      # Lanzamiento
     "checkbox",      # W/M
     "checkbox",      # W/E
+    "text",          # Historial (computed)
 ]
 EMPRENDEDORAS_COLUMN_TYPES = [
     "text",          # Info
@@ -258,6 +261,7 @@ EMPRENDEDORAS_COLUMN_TYPES = [
     "checkbox",      # Plazo extra Cap
     "checkbox",      # Lanzamiento
     "checkbox",      # W/E
+    "text",          # Historial (computed)
 ]
 
 PARTICIPANT_SOURCE_FIELD_ALIASES = {
@@ -1140,7 +1144,7 @@ def _normalize_sheet_rows(raw_rows, headers: list[str]) -> list[list]:
         # keep their original meanings.
         if (
             width > 12
-            and len(source_row) == width - 1
+            and len(source_row) == width - (2 if headers[-1] == "Historial" else 1)
             and _normalized_source_header(headers[12]) == "certificacion"
         ):
             source_row.insert(12, False)
@@ -2218,7 +2222,7 @@ def _normalize_participant_name(value: str | None) -> str:
     return " ".join(re.sub(r"[^a-z0-9]+", " ", without_marks).split())
 
 
-def _participant_history_occurrences() -> list[dict]:
+def _participant_history_occurrences(participant_list_override=None) -> list[dict]:
     occurrences: dict[tuple, dict] = {}
     participant_lists = (
         GroupParticipantList.objects.select_related("group")
@@ -2231,6 +2235,11 @@ def _participant_history_occurrences() -> list[dict]:
         )
         .order_by("group__number")
     )
+    if participant_list_override is not None:
+        participant_lists = [
+            item for item in participant_lists
+            if item.group_id != participant_list_override.group_id
+        ] + [participant_list_override]
     track_specs = (
         (
             "M",
@@ -2342,6 +2351,81 @@ def _participant_lookup_parts(raw_line: str) -> dict[str, set[str]]:
     return {"emails": emails, "identities": identities, "names": names}
 
 
+def _participant_history_indexes(occurrences):
+    email_index: dict[str, list[dict]] = defaultdict(list)
+    identity_index: dict[str, list[dict]] = defaultdict(list)
+    name_index: dict[str, list[dict]] = defaultdict(list)
+    for occurrence in occurrences:
+        if occurrence["email_norm"]:
+            email_index[occurrence["email_norm"]].append(occurrence)
+        if occurrence["identity_norm"]:
+            identity_index[occurrence["identity_norm"]].append(occurrence)
+        if occurrence["name_norm"]:
+            name_index[occurrence["name_norm"]].append(occurrence)
+
+    return email_index, identity_index, name_index
+
+
+def _match_participant_history(lookup_parts, indexes):
+    email_index, identity_index, name_index = indexes
+    matched: list[dict] = []
+    match_basis = ""
+    for email in lookup_parts["emails"]:
+        matched.extend(email_index.get(email, []))
+    if matched:
+        match_basis = "email"
+    else:
+        for identity in lookup_parts["identities"]:
+            matched.extend(identity_index.get(identity, []))
+        if matched:
+            match_basis = "cédula"
+    if not matched:
+        for name in lookup_parts["names"]:
+            matched.extend(name_index.get(name, []))
+        if matched:
+            match_basis = "nombre"
+
+    unique_matches = {
+        (
+            row["group_num"],
+            row["role_code"],
+            row["person_token"],
+        ): row
+        for row in matched
+    }
+    matched = list(unique_matches.values())
+
+    return matched, match_basis
+
+
+def _populate_participant_historial(rows, headers, *, indexes=None, participant_list=None):
+    """Use the Profiles history matcher, without its interactive 500-line limit."""
+    rows = _normalize_sheet_rows(rows, headers)
+    if not rows or "Historial" not in headers:
+        return rows
+    if indexes is None:
+        indexes = _participant_history_indexes(
+            _participant_history_occurrences(participant_list)
+        )
+    history_col = headers.index("Historial")
+    for row in rows:
+        parts = {
+            "emails": {_normalize_email(row[5])} - {""},
+            "identities": {_normalize_identity(row[4])} - {""},
+            "names": {_normalize_participant_name(row[3])} - {""},
+        }
+        matched, basis = _match_participant_history(parts, indexes)
+        if basis == "nombre" and len({item["person_token"] for item in matched}) > 1:
+            row[history_col] = "Varias personas tienen este nombre; usa email o cédula."
+            continue
+        matched.sort(key=lambda item: (item["group_num"], item["role_code"] == "M"))
+        row[history_col] = " | ".join(
+            f"G{item['group_num']} · {item['role_label']} · {item['status_display']}"
+            for item in matched
+        ) or "No encontrada"
+    return rows
+
+
 def _participant_history_lookup(
     raw_lookup: str,
     *,
@@ -2364,46 +2448,14 @@ def _participant_history_lookup(
             break
 
     occurrences = _participant_history_occurrences()
-    email_index: dict[str, list[dict]] = defaultdict(list)
-    identity_index: dict[str, list[dict]] = defaultdict(list)
-    name_index: dict[str, list[dict]] = defaultdict(list)
-    for occurrence in occurrences:
-        if occurrence["email_norm"]:
-            email_index[occurrence["email_norm"]].append(occurrence)
-        if occurrence["identity_norm"]:
-            identity_index[occurrence["identity_norm"]].append(occurrence)
-        if occurrence["name_norm"]:
-            name_index[occurrence["name_norm"]].append(occurrence)
+    email_index, identity_index, name_index = _participant_history_indexes(occurrences)
 
     results: list[dict] = []
     for submitted in submitted_lines:
         lookup_parts = _participant_lookup_parts(submitted)
-        matched: list[dict] = []
-        match_basis = ""
-        for email in lookup_parts["emails"]:
-            matched.extend(email_index.get(email, []))
-        if matched:
-            match_basis = "email"
-        else:
-            for identity in lookup_parts["identities"]:
-                matched.extend(identity_index.get(identity, []))
-            if matched:
-                match_basis = "cédula"
-        if not matched:
-            for name in lookup_parts["names"]:
-                matched.extend(name_index.get(name, []))
-            if matched:
-                match_basis = "nombre"
-
-        unique_matches = {
-            (
-                row["group_num"],
-                row["role_code"],
-                row["person_token"],
-            ): row
-            for row in matched
-        }
-        matched = list(unique_matches.values())
+        matched, match_basis = _match_participant_history(
+            lookup_parts, (email_index, identity_index, name_index)
+        )
 
         person_tokens = {row["person_token"] for row in matched}
         ambiguous = match_basis == "nombre" and len(person_tokens) > 1
@@ -3152,7 +3204,7 @@ def _sync_group_from_linked_google_sheet(
     canonical_rows: dict[str, list[list]] = {}
     stored_tabs: list[dict] = []
     seen_tracks: set[str] = set()
-    missing_google_checkbox_columns: list[dict] = []
+    missing_google_columns: list[dict] = []
     duplicate_google_checkbox_columns: list[dict] = []
 
     source_tabs = list(spreadsheet.get("tabs") or [])
@@ -3257,7 +3309,7 @@ def _sync_group_from_linked_google_sheet(
                     headers.append(header_label)
                     for source_row in body_rows:
                         source_row.extend([""] * (len(headers) - len(source_row)))
-                    missing_google_checkbox_columns.append(
+                    missing_google_columns.append(
                         {
                             "sheet_id": int(source_tab.get("sheet_id") or 0),
                             "column_index": source_index,
@@ -3276,6 +3328,22 @@ def _sync_group_from_linked_google_sheet(
                         "canonical_index": canonical_index,
                     }
                 )
+            history_index = next(
+                (index for index, header in enumerate(headers)
+                 if _normalized_source_header(header) == "historial"),
+                None,
+            )
+            if history_index is None:
+                history_index = len(headers)
+                headers.append("Historial")
+                missing_google_columns.append({
+                    "sheet_id": int(source_tab.get("sheet_id") or 0),
+                    "column_index": history_index,
+                    "column_count": max(0, int(source_tab.get("column_count") or 0)
+                                        - len(set(duplicate_indexes))),
+                    "header": "Historial",
+                    "checkbox": False,
+                })
             field_indexes = {
                 field_name: _participant_source_field_index(headers, field_name)
                 for field_name in PARTICIPANT_SOURCE_FIELD_ALIASES
@@ -3346,17 +3414,49 @@ def _sync_group_from_linked_google_sheet(
             "\n".join(_emails_from_sheet_rows(canonical_rows[slug], cfg["email_col"])),
         )
 
+    history_indexes = _participant_history_indexes(
+        _participant_history_occurrences(participant_list)
+    )
+    for slug, cfg in configs.items():
+        canonical_rows[slug] = _populate_participant_historial(
+            canonical_rows[slug], cfg["headers"], indexes=history_indexes
+        )
+        setattr(participant_list, cfg["rows_field"], canonical_rows[slug])
+    history_updates = []
+    for tab in stored_tabs:
+        cfg = configs.get(tab["track"])
+        if cfg is None:
+            continue
+        history_index = next(
+            index for index, header in enumerate(tab["headers"])
+            if _normalized_source_header(header) == "historial"
+        )
+        history_by_email = {
+            _normalize_email(row[cfg["email_col"]]): row[-1]
+            for row in canonical_rows[tab["track"]]
+        }
+        # Keep source row positions, including gaps, for the Google A1 write.
+        for row in tab["rows"]:
+            row.extend([""] * max(0, len(tab["headers"]) - len(row)))
+            email = _normalize_email(row[tab["email_index"]])
+            row[history_index] = history_by_email.get(email, "")
+        title = tab["title"].replace("'", "''")
+        column = _sheet_column_label(history_index)
+        history_updates.append({
+            "range": f"'{title}'!{column}1",
+            "values": [["Historial"]] + [[row[history_index]] for row in tab["rows"]],
+        })
     participant_list.google_sheet_tabs = stored_tabs
     pushed_tabs, checkbox_updates = _linked_google_checkbox_updates(participant_list, stored_tabs)
     deleted_checkbox_columns = delete_google_spreadsheet_columns(
         source_url,
         duplicate_google_checkbox_columns,
     )
-    created_checkbox_columns = ensure_google_spreadsheet_checkbox_columns(
+    ensure_google_spreadsheet_checkbox_columns(
         source_url,
-        missing_google_checkbox_columns,
+        missing_google_columns,
     )
-    updated_cells = update_google_spreadsheet_values(source_url, checkbox_updates)
+    updated_cells = update_google_spreadsheet_values(source_url, checkbox_updates + history_updates)
     participant_list.google_sheet_url = source_url
     participant_list.google_sheet_id = str(spreadsheet.get("spreadsheet_id") or "")
     participant_list.google_sheet_tabs = pushed_tabs
@@ -3377,8 +3477,9 @@ def _sync_group_from_linked_google_sheet(
         "tabs": len(stored_tabs),
         "mentoras": len(canonical_rows["mentoras"]),
         "emprendedoras": len(canonical_rows["emprendedoras"]),
-        "checkbox_cells": updated_cells,
-        "checkbox_columns_created": created_checkbox_columns,
+        "updated_cells": updated_cells,
+        "checkbox_columns_created": sum(item.get("checkbox", True) for item in missing_google_columns),
+        "history_columns_created": sum(not item.get("checkbox", True) for item in missing_google_columns),
         "checkbox_columns_deleted": deleted_checkbox_columns,
     }
 
@@ -3517,6 +3618,9 @@ def _participant_track_rows_visible_on_page(group, participant_list, cfg: dict) 
 
 
 def _participant_sheet_tabs(mentoras_rows: list[list], emprendedoras_rows: list[list]) -> list[dict]:
+    indexes = _participant_history_indexes(_participant_history_occurrences())
+    mentoras_rows = _populate_participant_historial(mentoras_rows, MENTORAS_HEADERS, indexes=indexes)
+    emprendedoras_rows = _populate_participant_historial(emprendedoras_rows, EMPRENDEDORAS_HEADERS, indexes=indexes)
     return [
         {
             "key": "mentoras",
@@ -3620,6 +3724,8 @@ def _participants_workbook_bytes(mentoras_rows: list[list], emprendedoras_rows: 
     mentoras_rows = _coerce_bool_columns(mentoras_rows, MENTORAS_BOOLEAN_COLS)
     emprendedoras_rows = _coerce_bool_columns(emprendedoras_rows, EMPRENDEDORAS_BOOLEAN_COLS)
 
+    mentoras_rows = _populate_participant_historial(mentoras_rows, MENTORAS_HEADERS)
+    emprendedoras_rows = _populate_participant_historial(emprendedoras_rows, EMPRENDEDORAS_HEADERS)
     sheets = [
         ("Mentoras", MENTORAS_HEADERS, mentoras_rows, MENTORAS_COL_WIDTHS, 4),
         ("Emprendedoras", EMPRENDEDORAS_HEADERS, emprendedoras_rows, EMPRENDEDORAS_COL_WIDTHS, 3),
@@ -4955,8 +5061,9 @@ def profiles_participants(request):
                     f"Synced Group {target_group.number} from {result['title']}. "
                     f"Tabs: {result['tabs']} · Mentoras: {result['mentoras']} · "
                     f"Emprendedoras: {result['emprendedoras']} · "
-                    f"checkbox cells mirrored to Google: {result['checkbox_cells']} · "
+                    f"cells mirrored to Google: {result['updated_cells']} · "
                     f"checkbox columns added: {result['checkbox_columns_created']} · "
+                    f"Historial columns added: {result['history_columns_created']} · "
                     f"duplicate checkbox columns removed: {result['checkbox_columns_deleted']}."
                 ),
             )
@@ -5463,6 +5570,8 @@ def profiles_participants(request):
         acta_col=EMPRENDEDORAS_ACTA_COL,
     )
 
+    mentoras_rows = _populate_participant_historial(mentoras_rows, MENTORAS_HEADERS, participant_list=participant_list)
+    emprendedoras_rows = _populate_participant_historial(emprendedoras_rows, EMPRENDEDORAS_HEADERS, participant_list=participant_list)
     mentoras_emails = _emails_from_sheet_rows(mentoras_rows, MENTORAS_EMAIL_COL)
     emprendedoras_emails = _emails_from_sheet_rows(emprendedoras_rows, EMPRENDEDORAS_EMAIL_COL)
     has_list = bool(participant_list and (mentoras_rows or emprendedoras_rows))
@@ -6111,7 +6220,7 @@ def _profiles_participants_track_sheet(request, group_num: int, track: str):
     display_headers = headers
     display_column_types = column_types
     display_status_options = status_options
-    display_rows = rows
+    display_rows = _populate_participant_historial(rows, headers, participant_list=participant_list)
     if linked_google_sheet:
         stored_tabs = list(participant_list.google_sheet_tabs or [])
         display_tabs = _participant_google_tabs_for_display(participant_list)

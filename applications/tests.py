@@ -282,6 +282,20 @@ class GoogleSheetsCredentialScopeTests(TestCase):
         )
 
     @patch("applications.drive_sync._service_for_sheets")
+    def test_historial_column_expands_grid_and_has_no_checkbox_validation(self, mock_service_factory):
+        service = mock_service_factory.return_value
+        drive_sync.ensure_google_spreadsheet_checkbox_columns(
+            "sheet-123",
+            [{"sheet_id": 7, "column_index": 19, "column_count": 19,
+              "header": "Historial", "checkbox": False}],
+        )
+        requests = service.spreadsheets.return_value.batchUpdate.call_args.kwargs["body"]["requests"]
+        self.assertEqual(requests[0]["appendDimension"]["length"], 1)
+        self.assertEqual(requests[1]["updateCells"]["rows"][0]["values"][0],
+                         {"userEnteredValue": {"stringValue": "Historial"}})
+        self.assertNotIn("rule", requests[2]["setDataValidation"])
+
+    @patch("applications.drive_sync._service_for_sheets")
     def test_tab_read_preserves_exact_google_title_whitespace(self, mock_service_factory):
         service = Mock()
         spreadsheets = service.spreadsheets.return_value
@@ -9394,6 +9408,82 @@ class ParticipantsCapacitacionCheckTests(TestCase):
             self.participant_list.emprendedoras_sheet_rows[0][admin_profiles_views.EMPRENDEDORAS_ENCUESTAS_FINAL_COL]
         )
 
+    def test_historial_matches_profiles_history_in_both_sheet_views(self):
+        prior_group = FormGroup.objects.create(
+            number=992, start_day=1, start_month="marzo", end_month="marzo", year=2026,
+        )
+        GroupParticipantList.objects.create(
+            group=prior_group,
+            emprendedoras_sheet_rows=[
+                ["", "G", 1, "Mentora 1", "M1", "m1@example.com"],
+            ],
+        )
+        expected = "G992 · Emprendedora · Graduada | G993 · Mentora · Cambio de pareja"
+        report = admin_profiles_views._participant_history_lookup("m1@example.com")
+        self.assertEqual(len(report["results"][0]["history"]), 2)
+        for track in ("mentoras", "all"):
+            response = self.client.get(reverse(
+                "admin_profiles_participants_track_sheet", args=[993, track],
+            ))
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.context["sheet_rows"][0][-1], expected)
+            self.assertEqual(response.context["sheet_headers"][-1], "Historial")
+
+    def test_pre_historial_rows_preserve_all_checkbox_positions(self):
+        for headers, boolean_cols in (
+            (admin_profiles_views.MENTORAS_HEADERS, admin_profiles_views.MENTORAS_BOOLEAN_COLS),
+            (admin_profiles_views.EMPRENDEDORAS_HEADERS, admin_profiles_views.EMPRENDEDORAS_BOOLEAN_COLS),
+        ):
+            row = [""] * (len(headers) - 1)
+            row[5] = "person@example.com"
+            for index in boolean_cols:
+                row[index] = index % 2 == 0
+            normalized = admin_profiles_views._normalize_sheet_rows([row], headers)[0]
+            self.assertEqual(normalized[:-1], row)
+            self.assertEqual(normalized[-1], "")
+
+    @patch("applications.admin_profiles_views.ensure_google_spreadsheet_checkbox_columns")
+    @patch("applications.admin_profiles_views.update_google_spreadsheet_values")
+    @patch("applications.admin_profiles_views.fetch_google_spreadsheet_tabs")
+    def test_sync_creates_historial_and_writes_current_cross_role_history(
+        self, mock_fetch, mock_update, mock_ensure,
+    ):
+        payload = self._linked_google_workbook_payload()
+        for tab in payload["tabs"][:2]:
+            tab["values"][0] = list(tab["values"][0][:-1])
+            tab["column_count"] = len(tab["values"][0])
+        # An interior blank row must retain its exact A1 position.
+        payload["tabs"][0]["values"].insert(1, [])
+        payload["tabs"][0]["values"][2][1] = "A"
+        payload["tabs"][1]["values"][1][5] = "m1@example.com"
+        payload["tabs"][1]["values"][1][1] = "G"
+        mock_fetch.return_value = payload
+        url = "https://docs.google.com/spreadsheets/d/linked-sheet-123/edit"
+        admin_profiles_views._sync_group_from_linked_google_sheet(
+            group=self.group, participant_list=self.participant_list, sheet_url=url,
+        )
+        created = mock_ensure.call_args.args[1]
+        self.assertEqual([item["header"] for item in created], ["Historial", "Historial"])
+        self.assertTrue(all(item["checkbox"] is False for item in created))
+        expected = "G993 · Emprendedora · Graduada | G993 · Mentora · Activa"
+        updates = {item["range"]: item["values"] for item in mock_update.call_args.args[1]}
+        self.assertEqual(updates["'Mentoras'!T1"], [["Historial"], [""], [expected]])
+        self.assertEqual(updates["'Emprendedoras'!S1"], [["Historial"], [expected]])
+        self.participant_list.refresh_from_db()
+        self.assertEqual(self.participant_list.mentoras_sheet_rows[0][-1], expected)
+        self.assertEqual(self.participant_list.emprendedoras_sheet_rows[0][-1], expected)
+        self.assertEqual(self.participant_list.google_sheet_tabs[2]["headers"], ["Custom heading", "Owner"])
+        # Repeat against the written workbook: use the existing column and refresh stale text.
+        for source, stored in zip(payload["tabs"], self.participant_list.google_sheet_tabs):
+            source["values"] = [stored["headers"]] + stored["rows"]
+        payload["tabs"][0]["values"][2][-1] = "outdated history"
+        admin_profiles_views._sync_group_from_linked_google_sheet(
+            group=self.group, participant_list=self.participant_list, sheet_url=url,
+        )
+        self.assertEqual(mock_ensure.call_args.args[1], [])
+        updates = {item["range"]: item["values"] for item in mock_update.call_args.args[1]}
+        self.assertEqual(updates["'Mentoras'!T1"][-1], [expected])
+
     def _linked_google_workbook_payload(self):
         mentora_row = [
             "Google info",
@@ -9790,7 +9880,7 @@ class ParticipantsCapacitacionCheckTests(TestCase):
         self.assertEqual(response.status_code, 302)
         mock_delete_columns.assert_called_once_with(
             "https://docs.google.com/spreadsheets/d/linked-sheet-123/edit",
-            [{"sheet_id": 1, "column_index": 19}],
+            [{"sheet_id": 1, "column_index": len(admin_profiles_views.MENTORAS_HEADERS)}],
         )
         self.assertEqual(mock_ensure_columns.call_args.args[1], [])
         self.participant_list.refresh_from_db()

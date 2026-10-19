@@ -9189,6 +9189,10 @@ class ParticipantsPageSafetyTests(TestCase):
 
 class ParticipantsCapacitacionCheckTests(TestCase):
     def setUp(self):
+        self.real_verify_writeback = admin_profiles_views._verify_linked_participant_sheet_writeback
+        verify_patcher = patch("applications.admin_profiles_views._verify_linked_participant_sheet_writeback")
+        self.mock_verify_writeback = verify_patcher.start()
+        self.addCleanup(verify_patcher.stop)
         status_patcher = patch("applications.admin_profiles_views.ensure_google_spreadsheet_status_columns")
         self.mock_status_columns = status_patcher.start()
         self.addCleanup(status_patcher.stop)
@@ -9772,6 +9776,155 @@ class ParticipantsCapacitacionCheckTests(TestCase):
         self.assertEqual(admin_profiles_views._participant_source_field_index(
             ["Info estatus anterior", "Estatus", "Info"], "info",
         ), 2)
+
+    @patch("applications.admin_profiles_views.ensure_google_spreadsheet_checkbox_columns")
+    @patch("applications.admin_profiles_views.update_google_spreadsheet_values")
+    @patch("applications.admin_profiles_views.fetch_google_spreadsheet_tabs")
+    def test_refresh_exact_reordered_layout_and_write_history_to_google(
+        self, mock_fetch, mock_update, mock_ensure,
+    ):
+        from copy import deepcopy
+        self.group.number = 10
+        self.group.save(update_fields=["number"])
+        self.mock_verify_writeback.side_effect = self.real_verify_writeback
+        headers = ["Historial", "Estatus", "# SC", "Notas", "#", "Nombre", "WhatsApp", "Email",
+                   "Reside", "ID", "Nacionalidad", "Edad", "Acta", "Capacitación",
+                   "Encuesta inicial", "W/C", "Encuesta final", "Certificación"]
+        source = {"spreadsheet_id": "linked-sheet-123", "title": "Reordered participant workbook", "tabs": [
+            {"title": "G10 Mentoras", "sheet_id": 1, "column_count": 18, "checkbox_column_indexes": [12, 13, 14, 15, 16, 17],
+             "values": [headers[:],
+                        ["stale history", "NC - Sin Respuesta", "SC1", "Reubicación pendiente", 7, "Mentora Updated", "+57", "m1@example.com", "Colombia", "M1", "Colombiana", 35, True, False, True, False, False, True]]},
+            {"title": "G10 Emprendedoras", "sheet_id": 2, "column_count": 18, "checkbox_column_indexes": [12, 13, 14, 15, 16, 17],
+             "values": [headers[:],
+                        ["", "NC - Programa", "SC2", "G16", 8, "Emprendedora Updated", "+58", "e1@example.com", "Venezuela", "E1", "Venezolana", 40, False, True, False, True, True, False]]},
+        ]}
+        self.participant_list.google_sheet_url = "https://docs.google.com/spreadsheets/d/linked-sheet-123/edit"
+        self.participant_list.mentoras_sheet_rows[0][0] = "NC Personal"
+        self.participant_list.mentoras_sheet_rows[0][1] = "No Continua PP"
+        self.participant_list.save()
+        mock_fetch.side_effect = lambda *args: deepcopy(source)
+        def ensure_columns(url, columns):
+            for column in columns:
+                tab = next(tab for tab in source["tabs"] if tab["sheet_id"] == column["sheet_id"])
+                tab["values"][0].extend([""] * max(0, column["column_index"] + 1 - len(tab["values"][0])))
+                tab["values"][0][column["column_index"]] = column["header"]
+            return len(columns)
+        mock_ensure.side_effect = ensure_columns
+        def update_values(url, updates):
+            for update in updates:
+                match = re.match(r"'(.+)'!([A-Z]+)(\d+)", update["range"])
+                title, letters, first_row = match.groups()
+                column = 0
+                for char in letters:
+                    column = column * 26 + ord(char) - ord("A") + 1
+                tab = next(tab for tab in source["tabs"] if tab["title"] == title)
+                for offset, values in enumerate(update["values"]):
+                    row_index = int(first_row) - 1 + offset
+                    while len(tab["values"]) <= row_index:
+                        tab["values"].append([])
+                    row = tab["values"][row_index]
+                    row.extend([""] * max(0, column - 1 + len(values) - len(row)))
+                    row[column - 1:column - 1 + len(values)] = values
+            return sum(len(row) for update in updates for row in update["values"])
+        mock_update.side_effect = update_values
+        response = self.client.post(reverse("admin_profiles_participants"), {
+            "action": "sync_linked_google_sheet", "group": "10",
+        })
+        self.assertEqual(response.status_code, 302)
+        self.participant_list.refresh_from_db()
+        self.assertEqual(self.participant_list.mentoras_sheet_rows[0][1], "NC - Sin Respuesta")
+        self.assertEqual(self.participant_list.mentoras_sheet_rows[0][0], "Reubicación pendiente")
+        self.assertEqual(self.participant_list.mentoras_sheet_rows[0][5], "m1@example.com")
+        self.assertEqual(source["tabs"][0]["values"][1][0], "G10 · Mentora · NC - Sin Respuesta")
+        response = self.client.get(reverse("admin_profiles_participants_track_sheet", args=[10, "all"]))
+        self.assertEqual(response.status_code, 200)
+        tab = response.context["sheet_tabs"][0]
+        self.assertEqual(tab["headers"][:18], headers)
+        self.assertNotIn("Info", tab["headers"])
+        self.assertEqual(tab["rows"][0][1], "NC - Sin Respuesta")
+        self.assertEqual(tab["rows"][0][3], "Reubicación pendiente")
+        self.assertEqual(tab["rows"][0][7], "m1@example.com")
+        self.assertEqual(tab["rows"][0][0], source["tabs"][0]["values"][1][0])
+        self.assertEqual(mock_fetch.call_count, 4)  # Import + read-back for refresh and open.
+        self.assertEqual(self.participant_list.google_sheet_sync_error, "")
+
+    @patch("applications.admin_profiles_views.ensure_google_spreadsheet_checkbox_columns")
+    @patch("applications.admin_profiles_views.update_google_spreadsheet_values")
+    @patch("applications.admin_profiles_views.fetch_google_spreadsheet_tabs")
+    def test_writeback_failure_keeps_new_status_and_notes_instead_of_stale_rows(
+        self, mock_fetch, mock_update, mock_ensure,
+    ):
+        payload = self._linked_google_workbook_payload()
+        source = payload["tabs"][0]
+        source["values"][0] = ["Historial", "Estatus", "# SC", "Notas", "#", "Nombre", "WhatsApp", "Email",
+                               "Reside", "ID", "Nacionalidad", "Edad", "Acta", "Capacitación",
+                               "Encuesta inicial", "W/C", "Encuesta final", "Certificación"]
+        source["values"][1] = ["", "NC - Sin Respuesta", "1", "Revisar G16", 1, "Current name", "57", "m1@example.com",
+                               "Colombia", "M1", "Colombiana", 35, False, False, False, False, False, False]
+        mock_fetch.return_value = payload
+        mock_update.side_effect = RuntimeError("Google write-back unavailable")
+        self.participant_list.mentoras_sheet_rows[0][0] = "NC Personal"
+        self.participant_list.mentoras_sheet_rows[0][1] = "No Continua PP"
+        self.participant_list.save()
+        response = self.client.post(reverse("admin_profiles_participants"), {
+            "action": "sync_linked_google_sheet", "group": str(self.group.number),
+            "google_sheet_url": "https://docs.google.com/spreadsheets/d/linked-sheet-123/edit",
+        }, follow=True)
+        self.assertEqual(response.status_code, 200)
+        self.participant_list.refresh_from_db()
+        self.assertEqual(self.participant_list.mentoras_sheet_rows[0][:2], ["Revisar G16", "NC - Sin Respuesta"])
+        self.assertEqual(self.participant_list.google_sheet_tabs[0]["headers"][:4], ["Historial", "Estatus", "# SC", "Notas"])
+        self.assertIn("was imported", self.participant_list.google_sheet_sync_error)
+        self.assertIsNone(self.participant_list.google_sheet_last_synced_at)
+        self.assertContains(response, "write-back did not complete")
+        self.mock_verify_writeback.assert_not_called()
+        sheet_response = self.client.get(reverse("admin_profiles_participants_track_sheet", args=[self.group.number, "all"]))
+        self.assertContains(sheet_response, "Google sync incomplete.")
+        self.assertEqual(sheet_response.context["sheet_rows"][0][1], "NC - Sin Respuesta")
+
+    @patch("applications.admin_profiles_views.update_google_spreadsheet_values")
+    @patch("applications.admin_profiles_views.fetch_google_spreadsheet_tabs")
+    def test_refresh_cannot_report_success_if_google_history_readback_is_stale(self, mock_fetch, mock_update):
+        payload = self._linked_google_workbook_payload()
+        payload["tabs"][0]["values"][1][1] = "NC - Programa"
+        mock_fetch.return_value = payload
+        mock_update.return_value = 50  # A reported cell count is not proof of a written value.
+        self.mock_verify_writeback.side_effect = self.real_verify_writeback
+        response = self.client.post(reverse("admin_profiles_participants"), {
+            "action": "sync_linked_google_sheet", "group": str(self.group.number),
+            "google_sheet_url": "https://docs.google.com/spreadsheets/d/linked-sheet-123/edit",
+        }, follow=True)
+        self.participant_list.refresh_from_db()
+        self.assertEqual(self.participant_list.mentoras_sheet_rows[0][1], "NC - Programa")
+        self.assertIsNone(self.participant_list.google_sheet_last_synced_at)
+        self.assertIn("Historial write-back was not confirmed", self.participant_list.google_sheet_sync_error)
+        self.assertContains(response, "Historial write-back was not confirmed")
+        self.assertNotContains(response, "Synced Group 993 from")
+
+    @patch("applications.admin_profiles_views.update_google_spreadsheet_values")
+    @patch("applications.admin_profiles_views.fetch_google_spreadsheet_tabs")
+    def test_named_checkbox_columns_win_over_reordered_boolean_positions(self, mock_fetch, mock_update):
+        payload = self._linked_google_workbook_payload()
+        tab = payload["tabs"][0]
+        old_headers = list(tab["values"][0])
+        old_row = list(tab["values"][1]) + [""]
+        # The same ten checkbox fields, with Certificacion moved after both surveys.
+        order = list(range(len(old_headers)))
+        order.remove(12)
+        order.insert(14, 12)
+        tab["values"] = [[old_headers[i] for i in order], [old_row[i] for i in order]]
+        tab["checkbox_column_indexes"] = list(range(9, 19))
+        mock_fetch.return_value = payload
+        admin_profiles_views._sync_group_from_linked_google_sheet(
+            group=self.group, participant_list=self.participant_list,
+            sheet_url="https://docs.google.com/spreadsheets/d/linked-sheet-123/edit",
+        )
+        self.participant_list.refresh_from_db()
+        source_tab = self.participant_list.google_sheet_tabs[0]
+        cert = next(item for item in source_tab["checkbox_columns"] if item["field"] == "certificacion")
+        initial = next(item for item in source_tab["checkbox_columns"] if item["field"] == "encuesta_inicial")
+        self.assertEqual(source_tab["headers"][cert["index"]].strip(), "Certificacion")
+        self.assertEqual(source_tab["headers"][initial["index"]].strip(), "Encuesta inicial")
 
     def _linked_google_workbook_payload(self):
         mentora_row = [

@@ -267,7 +267,7 @@ EMPRENDEDORAS_COLUMN_TYPES = [
 ]
 
 PARTICIPANT_SOURCE_FIELD_ALIASES = {
-    "info": ("info", "informacion", "informacin"),
+    "info": ("info", "informacion", "informacin", "notas", "notes"),
     "status": ("estatus", "status", "estado"),
     "name": ("nombre", "name", "fullname", "full_name", "nombrecompleto"),
     "id": ("id", "cedula", "cdula", "documento", "identificacion", "identificacin"),
@@ -343,7 +343,8 @@ def _normalize_email(value: str | None) -> str:
 
 
 def _normalized_source_header(value: str | None) -> str:
-    return re.sub(r"[^a-z0-9]+", "", str(value or "").strip().lower())
+    text = unicodedata.normalize("NFKD", str(value or "").strip().casefold())
+    return re.sub(r"[^a-z0-9]+", "", text)
 
 
 def _setting_or_env(name: str, default: str = "") -> str:
@@ -3240,6 +3241,48 @@ def _linked_google_checkbox_updates(participant_list, tabs_payload: list[dict] |
     return tabs, updates
 
 
+def _verify_linked_participant_sheet_writeback(sheet_url: str, expected_tabs: list[dict]) -> None:
+    actual = fetch_google_spreadsheet_tabs(sheet_url)
+    actual_tabs = {int(tab.get("sheet_id") or 0): tab for tab in actual.get("tabs", [])}
+    for expected in expected_tabs:
+        if expected.get("track") not in _participant_track_sheet_configs():
+            continue
+        title = expected.get("title", "Participants")
+        source = actual_tabs.get(int(expected.get("sheet_id") or 0))
+        if source is None:
+            raise ValueError(f"Could not verify Google tab '{title}' after writing Historial.")
+        values = source.get("values") or []
+        headers = [str(value or "") for value in (values[0] if values else [])]
+        history_index = next((i for i, header in enumerate(headers)
+                              if _normalized_source_header(header) == "historial"), None)
+        email_index = _participant_source_field_index(headers, "email")
+        status_index = _participant_source_field_index(headers, "status")
+        if None in (history_index, email_index, status_index):
+            raise ValueError(f"Could not verify Historial, Email and Estatus in Google tab '{title}'.")
+        expected_history = next(i for i, header in enumerate(expected["headers"])
+                                if _normalized_source_header(header) == "historial")
+        expected_status = _participant_source_field_index(expected["headers"], "status")
+        expected_info = _participant_source_field_index(expected["headers"], "info")
+        actual_info = _participant_source_field_index(headers, "info")
+        expected_rows = [row for row in expected["rows"]
+                         if _normalize_email(_participant_source_value(row, expected["email_index"]))]
+        actual_rows = [row for row in values[1:]
+                       if _normalize_email(_participant_source_value(row, email_index))]
+        if [_normalize_email(_participant_source_value(row, email_index)) for row in actual_rows] != [
+            _normalize_email(_participant_source_value(row, expected["email_index"])) for row in expected_rows
+        ]:
+            raise ValueError(f"Participant rows changed in Google tab '{title}' during sync. Refresh again.")
+        for row_number, (wanted, found) in enumerate(zip(expected_rows, actual_rows), start=2):
+            if _participant_source_value(found, history_index) != _participant_source_value(wanted, expected_history):
+                raise ValueError(f"Historial write-back was not confirmed in Google tab '{title}', participant row {row_number}.")
+            if _participant_source_value(found, status_index) != _participant_source_value(wanted, expected_status):
+                raise ValueError(f"Estatus changed in Google tab '{title}' during sync. Refresh again.")
+            if expected_info is not None and (
+                actual_info is None or _participant_source_value(found, actual_info) != _participant_source_value(wanted, expected_info)
+            ):
+                raise ValueError(f"Info/Notas changed in Google tab '{title}' during sync. Refresh again.")
+
+
 def _sync_group_from_linked_google_sheet(
     *,
     group,
@@ -3353,17 +3396,25 @@ def _sync_group_from_linked_google_sheet(
                 if email_index > duplicate_index:
                     email_index -= 1
 
-            positional_checkbox_indexes = (
-                detected_checkbox_indexes
-                if len(detected_checkbox_indexes) == len(checkbox_specs)
-                else []
-            )
-            for checkbox_position, (field_name, canonical_index) in enumerate(checkbox_specs):
-                source_index = (
-                    positional_checkbox_indexes[checkbox_position]
-                    if positional_checkbox_indexes
-                    else _participant_source_field_index(headers, field_name)
-                )
+            # Named columns take precedence, regardless of their visual order.
+            # Positional BOOLEAN matching is only a fallback for the remaining
+            # custom labels when the complete set can be mapped unambiguously.
+            named_checkbox_indexes = {
+                field: _participant_source_field_index(headers, field)
+                for field, _canonical_index in checkbox_specs
+            }
+            reserved = {index for index in named_checkbox_indexes.values() if index is not None}
+            unassigned = [index for index in detected_checkbox_indexes if index not in reserved]
+            missing_names = [field for field, _index in checkbox_specs
+                             if named_checkbox_indexes[field] is None]
+            fallback_indexes = dict(zip(missing_names, unassigned)) if (
+                len(detected_checkbox_indexes) == len(checkbox_specs)
+                and len(unassigned) == len(missing_names)
+            ) else {}
+            for field_name, canonical_index in checkbox_specs:
+                source_index = named_checkbox_indexes[field_name]
+                if source_index is None:
+                    source_index = fallback_indexes.get(field_name)
                 if source_index is None:
                     source_index = len(headers)
                     header_label = cfg["headers"][canonical_index].strip()
@@ -3510,34 +3561,47 @@ def _sync_group_from_linked_google_sheet(
         })
     participant_list.google_sheet_tabs = stored_tabs
     pushed_tabs, checkbox_updates = _linked_google_checkbox_updates(participant_list, stored_tabs)
-    deleted_checkbox_columns = delete_google_spreadsheet_columns(
-        source_url,
-        duplicate_google_checkbox_columns,
-    )
-    ensure_google_spreadsheet_checkbox_columns(
-        source_url,
-        missing_google_columns,
-    )
-    ensure_google_spreadsheet_status_columns(source_url, [
-        {"sheet_id": tab["sheet_id"],
-         "column_index": _participant_source_field_index(tab["headers"], "status")}
-        for tab in stored_tabs if tab.get("track") in configs
-    ], PARTICIPANT_STATUS_SHEET_OPTIONS)
-    updated_cells = update_google_spreadsheet_values(source_url, checkbox_updates + history_updates)
-    history_moves = [
-        {"sheet_id": tab["sheet_id"], "column_index": index}
-        for tab in pushed_tabs if tab.get("track") in configs
-        for index, header in enumerate(tab["headers"])
-        if index > 0 and _normalized_source_header(header) == "historial"
-    ]
-    move_google_spreadsheet_columns_first(source_url, history_moves)
-    pushed_tabs = [
-        _participant_historial_first_tab(tab) if tab.get("track") in configs else tab
-        for tab in pushed_tabs
-    ]
     participant_list.google_sheet_url = source_url
     participant_list.google_sheet_id = str(spreadsheet.get("spreadsheet_id") or "")
     participant_list.google_sheet_tabs = pushed_tabs
+    participant_list.google_sheet_sync_error = "Latest Google data imported; Historial/check write-back is pending."
+    participant_list.save()
+    try:
+        deleted_checkbox_columns = delete_google_spreadsheet_columns(
+            source_url,
+            duplicate_google_checkbox_columns,
+        )
+        ensure_google_spreadsheet_checkbox_columns(
+            source_url,
+            missing_google_columns,
+        )
+        ensure_google_spreadsheet_status_columns(source_url, [
+            {"sheet_id": tab["sheet_id"],
+             "column_index": _participant_source_field_index(tab["headers"], "status")}
+            for tab in stored_tabs if tab.get("track") in configs
+        ], PARTICIPANT_STATUS_SHEET_OPTIONS)
+        updated_cells = update_google_spreadsheet_values(source_url, checkbox_updates + history_updates)
+        history_moves = [
+            {"sheet_id": tab["sheet_id"], "column_index": index}
+            for tab in pushed_tabs if tab.get("track") in configs
+            for index, header in enumerate(tab["headers"])
+            if index > 0 and _normalized_source_header(header) == "historial"
+        ]
+        move_google_spreadsheet_columns_first(source_url, history_moves)
+        pushed_tabs = [
+            _participant_historial_first_tab(tab) if tab.get("track") in configs else tab
+            for tab in pushed_tabs
+        ]
+        participant_list.google_sheet_url = source_url
+        participant_list.google_sheet_id = str(spreadsheet.get("spreadsheet_id") or "")
+        participant_list.google_sheet_tabs = pushed_tabs
+        _verify_linked_participant_sheet_writeback(source_url, pushed_tabs)
+    except Exception as exc:
+        participant_list.google_sheet_sync_error = (
+            f"Latest Google participant data was imported, but Historial/check write-back did not complete: {exc}"
+        )
+        participant_list.save(update_fields=["google_sheet_sync_error", "updated_at"])
+        raise RuntimeError(participant_list.google_sheet_sync_error) from exc
     participant_list.google_sheet_last_synced_at = timezone.now()
     participant_list.google_sheet_sync_error = ""
     participant_list.save()
@@ -6314,6 +6378,8 @@ def _profiles_participants_track_sheet(request, group_num: int, track: str):
         "rows_count": len(display_rows),
         "linked_google_sheet": linked_google_sheet,
         "linked_google_sheet_url": participant_list.google_sheet_url if linked_google_sheet else "",
+        "linked_google_sheet_sync_error": participant_list.google_sheet_sync_error if linked_google_sheet else "",
+        "linked_google_sheet_last_synced_at": participant_list.google_sheet_last_synced_at if linked_google_sheet else None,
         "sheet_readonly": linked_google_sheet,
     }
     return render(request, "admin_dash/profiles_participants_track_sheet.html", context)
@@ -6779,6 +6845,8 @@ def _profiles_participants_combined_sheet(request, group):
         "rows_count": len(rows_by_track["mentoras"]) + len(rows_by_track["emprendedoras"]),
         "linked_google_sheet": linked_google_sheet,
         "linked_google_sheet_url": participant_list.google_sheet_url if linked_google_sheet else "",
+        "linked_google_sheet_sync_error": participant_list.google_sheet_sync_error if linked_google_sheet else "",
+        "linked_google_sheet_last_synced_at": participant_list.google_sheet_last_synced_at if linked_google_sheet else None,
         "sheet_readonly": linked_google_sheet,
     }
     return render(request, "admin_dash/profiles_participants_track_sheet.html", context)

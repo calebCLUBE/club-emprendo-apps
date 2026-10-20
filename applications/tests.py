@@ -9804,6 +9804,103 @@ class ParticipantsCapacitacionCheckTests(TestCase):
             self.assertEqual(normalized[:-1], row)
             self.assertEqual(normalized[-1], "")
 
+    @patch("applications.admin_profiles_views.update_google_spreadsheet_values")
+    @patch("applications.admin_profiles_views.fetch_google_spreadsheet_tabs")
+    def test_group_10_source_repair_imports_status_from_correct_workbook(self, mock_fetch, mock_update):
+        from copy import deepcopy
+        repair = importlib.import_module("applications.migrations.0070_relink_group_10_participant_workbook")
+        self.group.number = 10
+        self.group.save(update_fields=["number"])
+        self.participant_list.google_sheet_url = f"https://docs.google.com/spreadsheets/d/{repair.PREVIOUS_SPREADSHEET_ID}/edit"
+        self.participant_list.google_sheet_id = repair.PREVIOUS_SPREADSHEET_ID
+        self.participant_list.google_sheet_tabs = [{"headers": ["Info", "Estatus"], "rows": [["NC Sin respuesta", "No Continua PP"]]}]
+        self.participant_list.mentoras_sheet_rows[0][0:2] = ["NC Sin respuesta", "No Continua PP"]
+        self.participant_list.mentoras_sheet_rows[0][11] = True
+        self.participant_list.save()
+        other_group = FormGroup.objects.create(number=11, start_day=1, start_month="abril", end_month="abril", year=2026)
+        other = GroupParticipantList.objects.create(group=other_group, google_sheet_id=repair.PREVIOUS_SPREADSHEET_ID,
+                                                    google_sheet_url=self.participant_list.google_sheet_url)
+        source = {"spreadsheet_id": repair.SPREADSHEET_ID, "title": "Current participant workbook", "tabs": [
+            {"title": "G10 M", "sheet_id": 1, "values": [
+                ["Historial", "Estatus", "Notas", "Email"],
+                ["", "NC - Sin respuesta", "Nota de la fuente actual", "m1@example.com"],
+            ]},
+            {"title": "G10 E", "sheet_id": 2, "values": [
+                ["Historial", "Estatus", "Notas", "Email"], ["", "Activa", "", "e1@example.com"],
+            ]},
+        ]}
+        def fetch(url):
+            self.assertEqual(url, repair.SPREADSHEET_URL)
+            return deepcopy(source)
+        def update(url, updates):
+            self.assertEqual(url, repair.SPREADSHEET_URL)
+            for item in updates:
+                match = re.fullmatch(r"'([^']+)'!A2:A2", item["range"])
+                self.assertIsNotNone(match)  # Never write current status/notes into another column.
+                tab = next(tab for tab in source["tabs"] if tab["title"] == match.group(1))
+                tab["values"][1][0] = item["values"][0][0]
+            return len(updates)
+        mock_fetch.side_effect = fetch
+        mock_update.side_effect = update
+        self.mock_verify_writeback.side_effect = self.real_verify_writeback
+        repair.relink_group_10(django_apps, SimpleNamespace(connection=SimpleNamespace(alias="default")))
+        self.participant_list.refresh_from_db()
+        self.assertEqual(self.participant_list.google_sheet_url, repair.SPREADSHEET_URL)
+        self.assertEqual(self.participant_list.google_sheet_id, repair.SPREADSHEET_ID)
+        self.assertEqual(self.participant_list.mentoras_sheet_rows[0][:2],
+                         ["Nota de la fuente actual", "NC - Sin respuesta"])
+        self.assertTrue(self.participant_list.mentoras_sheet_rows[0][11])
+        display = admin_profiles_views._participant_google_tabs_for_display(self.participant_list)[0]
+        self.assertEqual(display["headers"][:4], ["Historial", "Estatus", "Notas", "Email"])
+        self.assertNotIn("Info", display["headers"])
+        self.assertEqual(display["rows"][0][1], "NC - Sin respuesta")
+        self.assertEqual(display["rows"][0][0], "G10 · Mentora · NC - Sin Respuesta")
+        self.assertEqual(source["tabs"][0]["values"][1][1], "NC - Sin respuesta")
+        self.assertEqual(self.participant_list.google_sheet_sync_error, "")
+        self.assertIsNotNone(self.participant_list.google_sheet_last_synced_at)
+        other.refresh_from_db()
+        self.assertEqual(other.google_sheet_id, repair.PREVIOUS_SPREADSHEET_ID)
+        self.assertEqual(mock_fetch.call_count, 2)  # New source import and actual history read-back.
+        repair.relink_group_10(django_apps, SimpleNamespace(connection=SimpleNamespace(alias="default")))
+        self.assertEqual(mock_fetch.call_count, 2)
+
+    @patch("applications.admin_profiles_views.fetch_google_spreadsheet_tabs", side_effect=RuntimeError("Editor access required"))
+    def test_group_10_source_repair_keeps_new_link_and_checks_when_google_is_unavailable(self, mock_fetch):
+        repair = importlib.import_module("applications.migrations.0070_relink_group_10_participant_workbook")
+        self.group.number = 10
+        self.group.save(update_fields=["number"])
+        self.participant_list.google_sheet_id = repair.PREVIOUS_SPREADSHEET_ID
+        self.participant_list.google_sheet_tabs = [{"headers": ["Info", "Estatus"], "rows": []}]
+        self.participant_list.mentoras_sheet_rows[0][11] = True
+        self.participant_list.google_sheet_last_synced_at = timezone.now()
+        self.participant_list.save()
+        with self.assertLogs(repair.logger, level="WARNING"):
+            repair.relink_group_10(django_apps, SimpleNamespace(connection=SimpleNamespace(alias="default")))
+        self.participant_list.refresh_from_db()
+        self.assertEqual(self.participant_list.google_sheet_url, repair.SPREADSHEET_URL)
+        self.assertEqual(self.participant_list.google_sheet_id, repair.SPREADSHEET_ID)
+        self.assertEqual(self.participant_list.google_sheet_tabs, [])
+        self.assertTrue(self.participant_list.mentoras_sheet_rows[0][11])
+        self.assertIsNone(self.participant_list.google_sheet_last_synced_at)
+        self.assertIn("Editor access required", self.participant_list.google_sheet_sync_error)
+        mock_fetch.assert_called_once_with(repair.SPREADSHEET_URL)
+
+    @patch("applications.admin_profiles_views._sync_group_from_linked_google_sheet")
+    def test_group_10_source_repair_preserves_a_different_admin_selected_link(self, mock_sync):
+        repair = importlib.import_module("applications.migrations.0070_relink_group_10_participant_workbook")
+        self.group.number = 10
+        self.group.save(update_fields=["number"])
+        self.participant_list.google_sheet_url = "https://docs.google.com/spreadsheets/d/different-admin-selected-workbook/edit"
+        for sheet_id in ("different-admin-selected-workbook", repair.PREVIOUS_SPREADSHEET_ID):
+            with self.subTest(sheet_id=sheet_id):
+                self.participant_list.google_sheet_id = sheet_id
+                self.participant_list.save()
+                repair.relink_group_10(django_apps, SimpleNamespace(connection=SimpleNamespace(alias="default")))
+                self.participant_list.refresh_from_db()
+                self.assertEqual(self.participant_list.google_sheet_id, sheet_id)
+                self.assertIn("different-admin-selected-workbook", self.participant_list.google_sheet_url)
+        mock_sync.assert_not_called()
+
     @patch("applications.admin_profiles_views.ensure_google_spreadsheet_checkbox_columns")
     @patch("applications.admin_profiles_views.update_google_spreadsheet_values")
     @patch("applications.admin_profiles_views.fetch_google_spreadsheet_tabs")

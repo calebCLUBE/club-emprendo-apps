@@ -3178,6 +3178,10 @@ def _participant_google_tabs_for_display(participant_list) -> list[dict]:
             continue
         headers = [str(value or "") for value in (tab.get("headers") or [])]
         rows = [list(row) for row in (tab.get("rows") or []) if isinstance(row, list)]
+        # Google omits trailing empty header cells even when lower rows use
+        # those columns (for example, the Emparejamiento tab's title row).
+        source_width = max([len(headers)] + [len(row) for row in rows])
+        headers.extend([""] * (source_width - len(headers)))
         checkbox_columns = [
             dict(item) for item in (tab.get("checkbox_columns") or []) if isinstance(item, dict)
         ]

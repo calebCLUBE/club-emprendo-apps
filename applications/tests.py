@@ -9724,7 +9724,7 @@ class ParticipantsCapacitacionCheckTests(TestCase):
             "spreadsheet_id": "linked-sheet-123",
             "tabs": [
                 {"title": "G993 Emparejamiento & notas", "sheet_id": 3,
-                 "values": [["Participante", "Observación"], ["Mentora 1", "Conservar texto"]]},
+                 "values": [["Participante", "Observación"], ["Mentora 1", "Conservar texto", "Referencia", 123]]},
                 {"title": "G993 E", "sheet_id": 2, "checkbox_column_indexes": [5],
                  "values": [headers, ["old history", "NC - Programa", "Nota E", "e1@example.com", "Nombre E", True]]},
                 {"title": "G993 M", "sheet_id": 1, "checkbox_column_indexes": [5],
@@ -9751,6 +9751,8 @@ class ParticipantsCapacitacionCheckTests(TestCase):
                 for cell in row.findall("s:c", ns):
                     if cell.get("t") == "b":
                         values.append(cell.find("s:v", ns).text == "1")
+                    elif cell.find("s:v", ns) is not None:
+                        values.append(float(cell.find("s:v", ns).text))
                     else:
                         text = cell.find("s:is/s:t", ns)
                         values.append(text.text or "" if text is not None else "")
@@ -9763,7 +9765,7 @@ class ParticipantsCapacitacionCheckTests(TestCase):
                 ["G993 Emparejamiento & notas", "G993 E", "G993 M"],
             )
             self.assertEqual(worksheet_values(archive, 1),
-                             [["Participante", "Observación"], ["Mentora 1", "Conservar texto"]])
+                             [["Participante", "Observación", "", ""], ["Mentora 1", "Conservar texto", "Referencia", 123]])
             expected_headers = headers + ["Acta", "Capacitacion", "Certificacion", "Encuesta inicial", "Encuesta final"]
             for index, role, status, note, email, name, checks in (
                 (2, "Emprendedora", "NC - Programa", "Nota E", "e1@example.com", "Nombre E", [True, False, False, False, False, False]),
@@ -9776,6 +9778,7 @@ class ParticipantsCapacitacionCheckTests(TestCase):
                                  [f"G993 · {role} · {status}", status, note, email, name] + checks)
         self.participant_list.refresh_from_db()
         self.assertEqual(self.participant_list.google_sheet_sync_error, "")
+        self.assertEqual(self.participant_list.google_sheet_tabs[0]["headers"], ["Participante", "Observación"])
 
     @patch("applications.admin_profiles_views.fetch_google_spreadsheet_tabs", side_effect=RuntimeError("Google read unavailable"))
     def test_linked_download_reports_sync_failure_instead_of_exporting_legacy_rows(self, mock_fetch):

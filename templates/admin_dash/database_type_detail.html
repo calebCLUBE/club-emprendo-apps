@@ -1,102 +1,159 @@
 {% extends "admin/base_site.html" %}
+
+{% block title %}{{ app_type }} — old groups · Database · Club Emprendo Admin{% endblock %}
+
 {% block content %}
-  <h1>{{ app_type }} — old groups (separate)</h1>
+<div class="ce-workspace">
+@@CE_DBSUB_STYLE@@
 
-  <p style="margin:10px 0;">
-    <a href="{% url 'admin_database' %}">← Back to database</a>
-  </p>
+  <nav class="ce-work-crumbs" aria-label="Breadcrumb">
+    <a href="{% url 'admin_database' %}">Database</a>
+    <svg class="ce-icon ce-icon--sm" aria-hidden="true"><use href="#ce-i-chevron-right"></use></svg>
+    <span aria-current="page">{{ app_type }} — old groups</span>
+  </nav>
 
-  <form method="get" style="margin:10px 0; padding:10px; border:1px solid #ddd; border-radius:10px; display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap;">
-    <div>
-      <label for="group_filter"><strong>Filter by group</strong></label><br>
-      <select id="group_filter" name="group" class="vTextField">
-        <option value="">All groups</option>
-        {% for item in group_option_items %}
-          <option value="{{ item.number }}" {% if selected_group == item.number %}selected{% endif %}>
-            {{ item.label }}
-          </option>
-        {% endfor %}
-      </select>
+  <header class="ce-work-header">
+    <div class="ce-work-header__main">
+      <p class="ce-work-eyebrow">Old groups (separate)</p>
+      <h1 class="ce-work-title">{% if app_type == "E_A1" %}Emprendedoras — Application 1{% elif app_type == "E_A2" %}Emprendedoras — Application 2{% elif app_type == "M_A1" %}Mentoras — Application 1{% elif app_type == "M_A2" %}Mentoras — Application 2{% else %}{{ app_type }} — old groups (separate){% endif %}</h1>
+      <p class="ce-work-lede">Submissions from older groups that used a separate form for each application, newest first.</p>
+      <div class="ce-dbsub-meta">
+        <span class="ce-dbsub-code"><span class="ce-dbsub-code__text">{{ app_type }}</span></span>
+        <span class="ce-work-badge ce-work-badge--outline">
+          <svg class="ce-icon" aria-hidden="true"><use href="#ce-i-layers"></use></svg>{% if selected_group %}{{ selected_group_label }}{% else %}All groups{% endif %}
+        </span>
+      </div>
     </div>
-    {% if is_first_application_type %}
-      <div>
-        <label for="a1_pass_filter"><strong>Filter A1 result</strong></label><br>
-        <select id="a1_pass_filter" name="a1_pass" class="vTextField">
-          <option value="" {% if not a1_pass_filter %}selected{% endif %}>All</option>
-          <option value="passed" {% if a1_pass_filter == "passed" %}selected{% endif %}>Passed</option>
-          <option value="not_passed" {% if a1_pass_filter == "not_passed" %}selected{% endif %}>Did not pass</option>
+    <div class="ce-work-actions">
+      <a class="ce-work-btn ce-work-btn--secondary" href="{% url 'admin_database_type_master_csv' app_type %}{% if selected_group %}?group={{ selected_group }}{% endif %}">
+        <svg class="ce-icon" aria-hidden="true"><use href="#ce-i-download"></use></svg>Download CSV
+      </a>
+      <a class="ce-work-btn" href="{% url 'admin_database_type_sheet' app_type %}{% if selected_group %}?group={{ selected_group }}{% endif %}">
+        <svg class="ce-icon" aria-hidden="true"><use href="#ce-i-sheet"></use></svg>Open Sheet
+      </a>
+    </div>
+  </header>
+
+  <form method="get" class="ce-work-filterbar ce-dbsub-filters" aria-label="Filter submissions">
+    <div class="ce-work-toolbar">
+      <div class="ce-work-field">
+        <label for="group_filter">Group</label>
+        <select id="group_filter" name="group" class="ce-work-input">
+          <option value="">All groups</option>
+          {% for item in group_option_items %}
+            <option value="{{ item.number }}" {% if selected_group == item.number %}selected{% endif %}>
+              {{ item.label }}
+            </option>
+          {% endfor %}
         </select>
       </div>
-    {% endif %}
-    <div>
-      <label for="approval_filter"><strong>Approval page</strong></label><br>
-      <select id="approval_filter" name="approval" class="vTextField">
-        <option value="" {% if not approval_filter %}selected{% endif %}>All</option>
-        <option value="approved" {% if approval_filter == "approved" %}selected{% endif %}>Received approval page</option>
-        <option value="not_approved" {% if approval_filter == "not_approved" %}selected{% endif %}>Did not receive approval page</option>
-      </select>
+      {% if is_first_application_type %}
+        <div class="ce-work-field">
+          <label for="a1_pass_filter">A1 result</label>
+          <select id="a1_pass_filter" name="a1_pass" class="ce-work-input">
+            <option value="" {% if not a1_pass_filter %}selected{% endif %}>All</option>
+            <option value="passed" {% if a1_pass_filter == "passed" %}selected{% endif %}>Passed</option>
+            <option value="not_passed" {% if a1_pass_filter == "not_passed" %}selected{% endif %}>Did not pass</option>
+          </select>
+        </div>
+      {% endif %}
+      <div class="ce-work-field ce-dbsub-field--wide">
+        <label for="approval_filter">Approval page</label>
+        <select id="approval_filter" name="approval" class="ce-work-input">
+          <option value="" {% if not approval_filter %}selected{% endif %}>All</option>
+          <option value="approved" {% if approval_filter == "approved" %}selected{% endif %}>Received approval page</option>
+          <option value="not_approved" {% if approval_filter == "not_approved" %}selected{% endif %}>Did not receive approval page</option>
+        </select>
+      </div>
+      <div class="ce-dbsub-filters__actions">
+        <button type="submit" class="ce-work-btn ce-work-btn--secondary">Apply</button>
+        <a class="ce-work-btn ce-work-btn--quiet" href="{% url 'admin_database_type_detail' app_type %}">Clear</a>
+      </div>
     </div>
-    <div>
-      <button type="submit" class="button default">Apply</button>
-      <a class="button" href="{% url 'admin_database_type_detail' app_type %}" style="margin-left:6px;">Clear</a>
-    </div>
+    <p class="ce-work-hint ce-dbsub-filters__note">
+      <svg class="ce-icon" aria-hidden="true"><use href="#ce-i-info"></use></svg>
+      <span>Download CSV and Open Sheet include {% if selected_group %}{{ selected_group_label }} only{% else %}every group{% endif %}. The {% if is_first_application_type %}A1 result and approval page filters only change{% else %}approval page filter only changes{% endif %} the list below.</span>
+    </p>
   </form>
 
-  <p style="margin:10px 0;">
-    <a class="button" href="{% url 'admin_database_type_master_csv' app_type %}{% if selected_group %}?group={{ selected_group }}{% endif %}">
-      Download CSV
-    </a>
-    &nbsp;
-    <a class="button" href="{% url 'admin_database_type_sheet' app_type %}{% if selected_group %}?group={{ selected_group }}{% endif %}">
-      Open Sheet
-    </a>
-  </p>
+  <section class="ce-work-panel" aria-labelledby="ce-dbsub-list-title">
+    <div class="ce-work-panel__head">
+      <div>
+        <h2 class="ce-work-panel__title" id="ce-dbsub-list-title">
+          <svg class="ce-icon" aria-hidden="true"><use href="#ce-i-file-text"></use></svg>
+          Submissions <span class="ce-work-badge ce-dbsub-title-count">{{ submission_count }}</span>
+        </h2>
+        {% if a1_pass_filter or approval_filter %}
+          <p class="ce-work-panel__hint">Showing <strong>{{ submission_count }}</strong> of <strong>{{ submission_total_count }}</strong> submissions.</p>
+        {% else %}
+          <p class="ce-work-panel__hint">Newest first. Open a submission to see all of its answers.</p>
+        {% endif %}
+      </div>
+    </div>
 
-  <h2 style="margin-top:18px;">Submissions ({{ submission_count }})</h2>
-  {% if a1_pass_filter or approval_filter %}
-    <p style="margin:6px 0 12px; color:#555;">
-      Showing <strong>{{ submission_count }}</strong> of <strong>{{ submission_total_count }}</strong> submissions.
-    </p>
-  {% endif %}
   {% if apps %}
     <form method="post"
           action="{% url 'admin_bulk_delete_submissions' %}"
-          onsubmit="return confirm('¿Eliminar las submissions seleccionadas? Esto borrará las respuestas y no se puede deshacer.');">
+          onsubmit="return confirm('¿Eliminar las submissions seleccionadas? Esto borrará las respuestas y no se puede deshacer.');"
+          class="ce-dbsub-form">
       {% csrf_token %}
       <input type="hidden" name="next" value="{{ request.get_full_path }}">
       {% if selected_group %}
         <input type="hidden" name="scope_group" value="{{ selected_group }}">
       {% endif %}
 
-      <div style="margin:10px 0; padding:10px; border:1px solid #ddd; border-radius:10px; display:flex; gap:16px; align-items:center; flex-wrap:wrap;">
-        <label style="display:flex; align-items:center; gap:8px; margin:0;">
+      <div class="ce-dbsub-bulkbar">
+        <label class="ce-work-check">
           <input type="checkbox" data-select-all>
-          <strong>Select all</strong>
+          Select all
         </label>
         <button type="submit"
-                class="button"
+                class="ce-work-btn ce-work-btn--danger-soft ce-work-btn--sm ce-dbsub-delete"
                 data-delete-selected
-                disabled
-                style="background:#ba2121; color:white; border-color:#ba2121;">
+                disabled>
           Delete selected
         </button>
       </div>
 
-      <ul style="list-style:none; padding-left:0; margin:0;">
-        {% for a in apps %}
-          <li style="margin:6px 0; padding:8px 10px; border:1px solid #eee; border-radius:8px;">
-            <label style="display:flex; align-items:flex-start; gap:10px;">
-              <input type="checkbox" name="app_ids" value="{{ a.id }}" data-submission-checkbox style="margin-top:3px;">
-              <span>
-                <a href="{% url 'admin_database_submission_detail' a.id %}">
-                  #{{ a.id }} — {% if a.form.group and a.form.group.custom_name %}{{ a.form.group.custom_name }}{% else %}Group {{ a.form.group.number|default:"?" }}{% endif %} — {{ a.form.slug }} — {{ a.created_at }} — {{ a.name }} ({{ a.email }})
-                </a>
-                — {% if a.approved_for_grading %}<strong style="color:#16794b;">Approved page</strong>{% else %}<span style="color:#8a3b12;">Not approved</span>{% endif %}
-              </span>
-            </label>
-          </li>
-        {% endfor %}
-      </ul>
+      <div class="ce-work-table-wrap ce-work-table-wrap--flush">
+        <table class="ce-work-table ce-dbsub-table">
+          <thead>
+            <tr>
+              <th class="ce-dbsub-cell-check"><span class="ce-u-sr-only">Select</span></th>
+              <th class="ce-dbsub-cell-id">ID</th>
+              <th class="ce-dbsub-col-who">Applicant</th>
+              <th class="ce-dbsub-col-where">Group &amp; form</th>
+              <th>Submitted</th>
+              <th class="ce-dbsub-cell-status">Approval page</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for a in apps %}
+              <tr>
+                <td class="ce-dbsub-cell-check">
+                  <label class="ce-dbsub-check">
+                    <input type="checkbox" name="app_ids" value="{{ a.id }}" data-submission-checkbox>
+                    <span class="ce-u-sr-only">Select submission #{{ a.id }}</span>
+                  </label>
+                </td>
+                <td class="ce-dbsub-cell-id"><span class="ce-work-mono">#{{ a.id }}</span></td>
+                <td class="ce-dbsub-cell-who">
+                  <a class="ce-dbsub-name" href="{% url 'admin_database_submission_detail' a.id %}">{% if a.name %}{{ a.name }}{% else %}Unnamed applicant{% endif %}</a>
+                  <div class="ce-work-table__sub">{{ a.email }}</div>
+                </td>
+                <td class="ce-dbsub-cell-where">
+                  <div>{% if a.form.group and a.form.group.custom_name %}{{ a.form.group.custom_name }}{% else %}Group {{ a.form.group.number|default:"?" }}{% endif %}</div>
+                  <div class="ce-work-table__sub ce-work-mono">{{ a.form.slug }}</div>
+                </td>
+                <td class="ce-dbsub-cell-when">{{ a.created_at }}</td>
+                <td class="ce-dbsub-cell-status">
+                  {% if a.approved_for_grading %}<span class="ce-work-status">Approved page</span>{% else %}<span class="ce-work-status ce-work-status--warning">Not approved</span>{% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
     </form>
     <script>
       (function() {
@@ -129,6 +186,19 @@
       })();
     </script>
   {% else %}
-    <p><em>No submissions for this filter.</em></p>
+    <div class="ce-work-empty">
+      {% if selected_group or a1_pass_filter or approval_filter %}
+        <span class="ce-work-empty__icon"><svg class="ce-icon" aria-hidden="true"><use href="#ce-i-search"></use></svg></span>
+        <p class="ce-work-empty__title">No submissions for this filter.</p>
+        <p>Try another group or filter, or clear them to see every submission.</p>
+        <a class="ce-work-btn ce-work-btn--secondary ce-work-btn--sm ce-dbsub-empty-actions" href="{% url 'admin_database_type_detail' app_type %}">Clear filters</a>
+      {% else %}
+        <span class="ce-work-empty__icon"><svg class="ce-icon" aria-hidden="true"><use href="#ce-i-file-text"></use></svg></span>
+        <p class="ce-work-empty__title">No submissions yet.</p>
+        <p>{{ app_type }} submissions from old groups will appear here.</p>
+      {% endif %}
+    </div>
   {% endif %}
+  </section>
+</div>
 {% endblock %}

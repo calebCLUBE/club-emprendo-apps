@@ -1,289 +1,251 @@
 {% extends "admin/base_site.html" %}
+{% load ce_admin_nav %}
+
+{% block title %}Profiles · Club Emprendo Admin{% endblock %}
 
 {% block content %}
-<div class="ce-admin-wrap">
-  <div class="ce-admin-card ce-admin-card--wide">
-    <style>
-      .ce-admin-wrap {
-        width: 100%;
-        box-sizing: border-box;
-        padding: 14px;
-      }
-      .ce-admin-card.ce-admin-card--wide {
-        box-sizing: border-box;
-        width: 100%;
-        max-width: none;
-        margin-left: auto;
-        margin-right: auto;
-      }
-      .ce-actions {
-        display: flex;
-        gap: 8px;
-        flex-wrap: wrap;
-        margin: 12px 0 16px;
-      }
-      .ce-btn {
-        display: inline-block;
-        padding: 8px 12px;
-        border-radius: 8px;
-        border: 1px solid #223413;
-        background: #223413;
-        color: #fff !important;
-        text-decoration: none;
-        font-weight: 600;
-      }
-      .ce-btn--ghost {
-        background: #fff;
-        color: #223413 !important;
-      }
-      .ce-summary {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-        gap: 10px;
-        margin: 12px 0 14px;
-      }
-      .ce-summary-card {
-        border: 1px solid #ebebeb;
-        border-radius: 10px;
-        padding: 10px;
-        background: #fff;
-      }
-      .ce-summary-k {
-        font-size: 12px;
-        color: #666;
-      }
-      .ce-summary-v {
-        margin-top: 4px;
-        font-size: 24px;
-        font-weight: 700;
-        line-height: 1.1;
-      }
-      .ce-filter {
-        display: grid;
-        grid-template-columns: minmax(240px, 1.5fr) repeat(3, minmax(160px, 1fr)) auto;
-        gap: 10px;
-        align-items: end;
-        margin: 12px 0 16px;
-      }
-      .ce-filter label {
-        display: block;
-        font-weight: 600;
-        margin-bottom: 4px;
-      }
-      .ce-filter input,
-      .ce-filter select {
-        width: 100%;
-        box-sizing: border-box;
-        padding: 8px;
-        min-height: 42px;
-        line-height: 1.45;
-      }
-      .ce-table-wrap {
-        width: 100%;
-        overflow-x: auto;
-      }
-      .ce-table {
-        width: 100%;
-        min-width: 1000px;
-        border-collapse: collapse;
-      }
-      .ce-table th,
-      .ce-table td {
-        border-bottom: 1px solid #eee;
-        padding: 10px 8px;
-        text-align: left;
-        vertical-align: top;
-      }
-      .ce-muted {
-        color: #666;
-        font-size: 12px;
-        margin-top: 2px;
-      }
-      .ce-pill {
-        display: inline-block;
-        padding: 4px 8px;
-        border-radius: 999px;
-        font-size: 12px;
-        border: 1px solid #dae3d2;
-        background: #f7fbf3;
-        color: #203213;
-      }
-      @media (max-width: 1024px) {
-        .ce-filter {
-          grid-template-columns: 1fr;
-        }
-      }
-      @media (max-width: 680px) {
-        .ce-admin-wrap {
-          padding: 14px 12px;
-        }
-        .ce-admin-card.ce-admin-card--wide {
-          width: 100%;
-          max-width: none;
-        }
-      }
-    </style>
+<div class="ce-workspace">
+  <style>
+    nav.ce-actions[aria-label="Profiles options"] {
+      display: inline-flex;
+      flex-wrap: wrap;
+      gap: 2px;
+      margin: 0 0 22px;
+      padding: 3px;
+      border-radius: 11px;
+      background: var(--ce-gray-150);
+    }
+    nav.ce-actions[aria-label="Profiles options"] > a {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      min-height: 32px;
+      padding: 5px 13px;
+      border-radius: 8px;
+      color: var(--ce-gray-600);
+      font-size: 13px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    nav.ce-actions[aria-label="Profiles options"] > a:hover {
+      background: #fff;
+      color: var(--ce-gray-900);
+      box-shadow: var(--ce-shadow-sm);
+    }
+    nav.ce-actions[aria-label="Profiles options"] > a .ce-icon {
+      color: var(--ce-gray-400);
+    }
+    .ce-profiles-person {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+    }
+    .ce-profiles-person__text {
+      min-width: 0;
+    }
+    .ce-profiles-person__name {
+      color: var(--ce-text);
+      font-weight: 650;
+    }
+    .ce-profiles-person__email {
+      color: var(--ce-text-muted);
+      font-size: 12.5px;
+      overflow-wrap: anywhere;
+    }
+    .ce-profiles-table {
+      min-width: 1080px;
+    }
+    .ce-profiles-sheet {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px 18px;
+      margin: 0 0 16px;
+    }
+    .ce-profiles-sheet .ce-work-hint {
+      max-width: 760px;
+    }
+  </style>
 
-    <h1 style="margin: 0;">Profiles</h1>
-    <nav class="ce-actions" aria-label="Profiles options">
-      <a class="ce-btn ce-btn--ghost" href="{% url 'admin_grading_home' %}">Graded</a>
-      <a class="ce-btn ce-btn--ghost" href="{% url 'admin_emparejamiento_home' %}">Emparejamiento</a>
-      <a class="ce-btn ce-btn--ghost" href="{% url 'admin_profiles_participants' %}">Grupos</a>
-      <a class="ce-btn ce-btn--ghost" href="{% url 'admin_profiles_participant_history' %}">Participant history</a>
-    </nav>
-
-    <div class="ce-summary">
-      <div class="ce-summary-card">
-        <div class="ce-summary-k">Total profiles</div>
-        <div class="ce-summary-v">{{ total_profiles }}</div>
-      </div>
-      <div class="ce-summary-card">
-        <div class="ce-summary-k">Visible profiles</div>
-        <div class="ce-summary-v">{{ visible_profiles }}</div>
-      </div>
-      <div class="ce-summary-card">
-        <div class="ce-summary-k">Graded profiles</div>
-        <div class="ce-summary-v">{{ graded_profiles }}</div>
-      </div>
-      <div class="ce-summary-card">
-        <div class="ce-summary-k">Participated (yes)</div>
-        <div class="ce-summary-v">{{ participated_profiles }}</div>
-      </div>
-      <div class="ce-summary-card">
-        <div class="ce-summary-k">Contracts signed</div>
-        <div class="ce-summary-v">{{ contract_signed_profiles }}</div>
-      </div>
+  <header class="ce-work-header">
+    <div class="ce-work-header__main">
+      <p class="ce-work-eyebrow">Applicants &amp; participants</p>
+      <h1 class="ce-work-title">Profiles</h1>
+      <p class="ce-work-lede">Every applicant by cédula or email, with their latest application and calificación. Participation is managed only on the Participants page by group.</p>
     </div>
-
-    <section style="margin: 8px 0 16px;">
-      <a class="ce-btn ce-btn--ghost" href="{% url 'admin_profiles_participants' %}">
-        Manage participants by group
+    <div class="ce-work-actions">
+      <a class="ce-work-btn ce-work-btn--secondary" href="{% url 'admin_profiles_participants' %}">
+        <svg class="ce-icon" aria-hidden="true"><use href="#ce-i-users"></use></svg>Manage participants by group
       </a>
-      <div class="ce-muted" style="margin-top:8px;">
-        Participation is managed only on the Participants page by group.
-      </div>
-    </section>
+    </div>
+  </header>
 
-    <form method="get" class="ce-filter">
-      <div>
+  <nav class="ce-actions" aria-label="Profiles options">
+    <a href="{% url 'admin_grading_home' %}">Graded</a>
+    <a href="{% url 'admin_emparejamiento_home' %}">Emparejamiento</a>
+    <a href="{% url 'admin_profiles_participants' %}">Grupos</a>
+    <a href="{% url 'admin_profiles_participant_history' %}">Participant history</a>
+  </nav>
+
+  <div class="ce-work-summary">
+    <div class="ce-work-stat ce-work-stat--brand">
+      <div class="ce-work-stat__label">Total profiles</div>
+      <div class="ce-work-stat__value">{{ total_profiles }}</div>
+    </div>
+    <div class="ce-work-stat">
+      <div class="ce-work-stat__label">Visible profiles</div>
+      <div class="ce-work-stat__value">{{ visible_profiles }}</div>
+      <div class="ce-work-stat__detail">Matching the current filters</div>
+    </div>
+    <div class="ce-work-stat">
+      <div class="ce-work-stat__label">Graded profiles</div>
+      <div class="ce-work-stat__value">{{ graded_profiles }}</div>
+    </div>
+    <div class="ce-work-stat">
+      <div class="ce-work-stat__label">Participated (yes)</div>
+      <div class="ce-work-stat__value">{{ participated_profiles }}</div>
+    </div>
+    <div class="ce-work-stat">
+      <div class="ce-work-stat__label">Contracts signed</div>
+      <div class="ce-work-stat__value">{{ contract_signed_profiles }}</div>
+    </div>
+  </div>
+
+  <form method="get" class="ce-work-filterbar">
+    <div class="ce-work-toolbar">
+      <div class="ce-work-field ce-work-field--grow">
         <label for="q">Search (cédula, name, email)</label>
-        <input id="q" name="q" value="{{ query }}" placeholder="e.g. 123456789 or Ana">
+        <div class="ce-work-search" style="width: 100%;">
+          <svg class="ce-icon" aria-hidden="true"><use href="#ce-i-search"></use></svg>
+          <input class="ce-work-input" id="q" name="q" value="{{ query }}" placeholder="e.g. 123456789 or Ana">
+        </div>
       </div>
-      <div>
+      <div class="ce-work-field">
         <label for="group">Group</label>
-        <select id="group" name="group">
+        <select class="ce-work-input" id="group" name="group">
           <option value="">All groups</option>
           {% for g in group_options %}
             <option value="{{ g }}" {% if group_filter == g|stringformat:"s" %}selected{% endif %}>Group {{ g }}</option>
           {% endfor %}
         </select>
       </div>
-      <div>
+      <div class="ce-work-field">
         <label for="grading">Calificación</label>
-        <select id="grading" name="grading">
+        <select class="ce-work-input" id="grading" name="grading">
           <option value="all" {% if status_filter == "all" %}selected{% endif %}>All</option>
           <option value="graded" {% if status_filter == "graded" %}selected{% endif %}>Graded</option>
           <option value="not_graded" {% if status_filter == "not_graded" %}selected{% endif %}>Not graded</option>
         </select>
       </div>
-      <div>
+      <div class="ce-work-field">
         <label for="participation">Participated</label>
-        <select id="participation" name="participation">
+        <select class="ce-work-input" id="participation" name="participation">
           <option value="all" {% if participation_filter == "all" %}selected{% endif %}>All</option>
           <option value="yes" {% if participation_filter == "yes" %}selected{% endif %}>Yes</option>
           <option value="no" {% if participation_filter == "no" %}selected{% endif %}>No</option>
         </select>
       </div>
       <div>
-        <button class="ce-btn" type="submit">Apply</button>
+        <button class="ce-work-btn" type="submit">Apply</button>
       </div>
-    </form>
+    </div>
+  </form>
 
-    <section style="margin: 6px 0 16px;">
-      <a
-        class="ce-btn ce-btn--ghost"
-        href="{% url 'admin_profiles_sheet' %}?q={{ query|urlencode }}&group={{ group_filter|urlencode }}&grading={{ status_filter|urlencode }}&participation={{ participation_filter|urlencode }}"
-      >
-        Open Copyable Profiles Sheet
-      </a>
-      <div class="ce-muted" style="margin-top:8px;">
-        Opens all filtered rows in a spreadsheet. Select one cell or drag across several cells to copy values;
-        click a row number or column letter to copy the entire row or column, then use Ctrl+C (Windows) or Command+C (Mac).
-      </div>
-    </section>
+  <div class="ce-profiles-sheet">
+    <p class="ce-work-hint">
+      Opens all filtered rows in a spreadsheet. Select one cell or drag across several cells to copy values;
+      click a row number or column letter to copy the entire row or column, then use Ctrl+C (Windows) or Command+C (Mac).
+    </p>
+    <a
+      class="ce-work-btn ce-work-btn--secondary"
+      href="{% url 'admin_profiles_sheet' %}?q={{ query|urlencode }}&group={{ group_filter|urlencode }}&grading={{ status_filter|urlencode }}&participation={{ participation_filter|urlencode }}"
+    >
+      <svg class="ce-icon" aria-hidden="true"><use href="#ce-i-sheet"></use></svg>Open Copyable Profiles Sheet
+    </a>
+  </div>
 
-    <div class="ce-table-wrap">
-    <table class="ce-table">
+  <div class="ce-work-table-wrap">
+    <table class="ce-work-table ce-profiles-table">
       <thead>
         <tr>
-          <th>Cédula</th>
-          <th>Email</th>
           <th>Applicant</th>
+          <th>Cédula</th>
           <th>Latest application</th>
           <th>Calificación status</th>
-          <th>Score</th>
+          <th class="ce-work-table__num">Score</th>
           <th>Participated</th>
           <th>Contract signed</th>
-          <th>Actions</th>
+          <th class="ce-work-table__actions">Actions</th>
         </tr>
       </thead>
       <tbody>
         {% for p in profiles %}
           <tr>
             <td>
-              <strong>{{ p.identity_display }}</strong>
+              <div class="ce-profiles-person">
+                <span class="ce-work-avatar ce-work-avatar--sm" aria-hidden="true">{% if p.applicant_name and p.applicant_name != "—" %}{{ p.applicant_name|ce_initials }}{% else %}{{ p.email|ce_initials }}{% endif %}</span>
+                <div class="ce-profiles-person__text">
+                  <div class="ce-profiles-person__name">{{ p.applicant_name }}</div>
+                  <div class="ce-profiles-person__email">{{ p.email }}</div>
+                  {% if p.is_historical %}
+                    <div class="ce-work-table__sub">{{ p.application_count }} historical record{{ p.application_count|pluralize }}</div>
+                  {% else %}
+                    <div class="ce-work-table__sub">{{ p.application_count }} application{{ p.application_count|pluralize }}</div>
+                  {% endif %}
+                </div>
+              </div>
             </td>
-            <td>{{ p.email }}</td>
+            <td><span class="ce-work-table__primary">{{ p.identity_display }}</span></td>
             <td>
-              <strong>{{ p.applicant_name }}</strong>
-              {% if p.is_historical %}
-                <div class="ce-muted">{{ p.application_count }} historical record{{ p.application_count|pluralize }}</div>
+              {% if p.group_num %}<span class="ce-work-badge ce-work-badge--outline">Group {{ p.group_num }}</span>{% else %}<span class="ce-work-badge">Ungrouped</span>{% endif %}
+              <div class="ce-work-table__sub">{{ p.form_slug }}{% if p.track and p.track != "—" %} · {{ p.track }}{% endif %}</div>
+              <div class="ce-work-table__sub">{{ p.applied_at }}</div>
+            </td>
+            <td>
+              {% if p.is_graded %}
+                <span class="ce-work-status ce-work-status--purple">{{ p.calificacion_status }}</span>
               {% else %}
-                <div class="ce-muted">{{ p.application_count }} application{{ p.application_count|pluralize }}</div>
+                <span class="ce-work-status ce-work-status--muted">{{ p.calificacion_status }}</span>
               {% endif %}
-            </td>
-            <td>
-              {% if p.group_num %}<span class="ce-pill">Group {{ p.group_num }}</span>{% else %}<span class="ce-pill">Ungrouped</span>{% endif %}
-              <div class="ce-muted">{{ p.form_slug }}{% if p.track and p.track != "—" %} · {{ p.track }}{% endif %}</div>
-              <div class="ce-muted">{{ p.applied_at }}</div>
-            </td>
-            <td>
-              <strong>{{ p.calificacion_status }}</strong>
               {% if p.recommendation and p.recommendation != p.calificacion_status %}
-                <div class="ce-muted">Recommendation: {{ p.recommendation }}</div>
+                <div class="ce-work-table__sub">Recommendation: {{ p.recommendation }}</div>
               {% endif %}
             </td>
-            <td>{{ p.overall_score|default:"—" }}</td>
-            <td>{% if p.participated %}Yes{% else %}No{% endif %}</td>
+            <td class="ce-work-table__num"><span class="ce-work-table__primary">{{ p.overall_score|default:"—" }}</span></td>
+            <td>{% if p.participated %}<span class="ce-work-status">Yes</span>{% else %}<span class="ce-work-status ce-work-status--muted">No</span>{% endif %}</td>
             <td>
-              {% if p.contract_signed %}Yes{% else %}No{% endif %}
+              {% if p.contract_signed %}<span class="ce-work-status">Yes</span>{% else %}<span class="ce-work-status ce-work-status--muted">No</span>{% endif %}
               {% if p.contract_signed_at %}
-                <div class="ce-muted">{{ p.contract_signed_at }}</div>
+                <div class="ce-work-table__sub">{{ p.contract_signed_at }}</div>
               {% endif %}
             </td>
-            <td>
-              <a class="ce-btn ce-btn--ghost" href="{% url 'admin_profile_detail' p.profile_key %}">View profile</a>
+            <td class="ce-work-table__actions">
+              <a class="ce-work-btn ce-work-btn--secondary ce-work-btn--sm" href="{% url 'admin_profile_detail' p.profile_key %}">View profile</a>
             </td>
           </tr>
         {% empty %}
           <tr>
-            <td colspan="9">No profiles match this filter yet.</td>
+            <td colspan="8" class="ce-work-table__empty">No profiles match this filter yet.</td>
           </tr>
         {% endfor %}
       </tbody>
     </table>
-    </div>
-    {% if page_obj.paginator.num_pages > 1 %}
-      <nav class="ce-actions" aria-label="Profile pages" style="justify-content:center; align-items:center;">
-        {% if page_obj.has_previous %}
-          <a class="ce-btn ce-btn--ghost" href="?{% if page_query %}{{ page_query }}&{% endif %}page={{ page_obj.previous_page_number }}">Previous</a>
-        {% endif %}
-        <span class="ce-muted">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
-        {% if page_obj.has_next %}
-          <a class="ce-btn ce-btn--ghost" href="?{% if page_query %}{{ page_query }}&{% endif %}page={{ page_obj.next_page_number }}">Next</a>
-        {% endif %}
-      </nav>
-    {% endif %}
   </div>
+
+  {% if page_obj.paginator.num_pages > 1 %}
+    <nav class="ce-work-pagination" aria-label="Profile pages">
+      <span class="ce-work-pagination__info">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+      <div class="ce-work-actions">
+        {% if page_obj.has_previous %}
+          <a class="ce-work-btn ce-work-btn--secondary ce-work-btn--sm" href="?{% if page_query %}{{ page_query }}&{% endif %}page={{ page_obj.previous_page_number }}">Previous</a>
+        {% endif %}
+        {% if page_obj.has_next %}
+          <a class="ce-work-btn ce-work-btn--secondary ce-work-btn--sm" href="?{% if page_query %}{{ page_query }}&{% endif %}page={{ page_obj.next_page_number }}">Next</a>
+        {% endif %}
+      </div>
+    </nav>
+  {% endif %}
 </div>
 {% endblock %}

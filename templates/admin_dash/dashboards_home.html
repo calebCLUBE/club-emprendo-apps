@@ -1,88 +1,54 @@
 {% extends "admin/base_site.html" %}
 
+{% block title %}Dashboards · Club Emprendo Admin{% endblock %}
+
 {% block content %}
-<div class="ce-admin-wrap">
-  <div class="ce-admin-card">
-    <style>
-      .ce-dash-home-head {
-        display: flex;
-        justify-content: space-between;
-        align-items: flex-start;
-        gap: 12px;
-        flex-wrap: wrap;
-      }
-      .ce-dash-home-title {
-        margin: 0;
-        font-size: 30px;
-        color: #0f172a;
-      }
-      .ce-dash-home-sub {
-        margin-top: 6px;
-        color: #475569;
-      }
-      .ce-dash-home-grid {
-        margin-top: 18px;
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-        gap: 12px;
-      }
-      .ce-dash-home-tile {
-        display: block;
-        border: 1px solid #d9e4f6;
-        border-radius: 14px;
-        padding: 18px;
-        text-decoration: none;
-        background: linear-gradient(165deg, #ffffff 0%, #f8fbff 100%);
-        color: #0f172a;
-      }
-      .ce-dash-home-tile:hover {
-        border-color: #93c5fd;
-      }
-      .ce-dash-home-tile h2 {
-        margin: 0;
-        font-size: 20px;
-      }
-      .ce-dash-home-tile p {
-        margin: 8px 0 0;
-        color: #475569;
-      }
-    </style>
-
-    <div class="ce-dash-home-head">
-      <div>
-        <h1 class="ce-dash-home-title">Dashboards</h1>
-        <div class="ce-dash-home-sub">Choose which dashboard you want to open.</div>
-      </div>
-      <a class="button" href="/admin/">Admin home</a>
+<div class="ce-workspace">
+  <header class="ce-work-header">
+    <div class="ce-work-header__main">
+      <p class="ce-work-eyebrow">Insights</p>
+      <h1 class="ce-work-title">Dashboards</h1>
+      <p class="ce-work-lede">Choose which dashboard you want to open.</p>
     </div>
+  </header>
 
-    <div class="ce-dash-home-grid">
-      <a class="ce-dash-home-tile" href="{% url 'admin_impact_dashboard' %}">
-        <h2>Impact Dashboard</h2>
-        <p>Encuesta inicial and final insights, separated by emprendedoras and mentoras.</p>
-      </a>
-      <a class="ce-dash-home-tile" href="{% url 'admin_applications_dashboard' %}">
-        <h2>Application Dashboard</h2>
-        <p>Application volume, group trends, and operational metrics.</p>
-      </a>
-      <a class="ce-dash-home-tile" href="{% url 'admin_application_progress_dashboard' %}">
-        <h2>Incomplete Applications</h2>
-        <p>See where applicants stopped, including their last section, question, and completion percentage.</p>
-      </a>
-      <a class="ce-dash-home-tile" href="{% url 'admin_marketing_dashboard' %}">
-        <h2>Marketing Dashboard</h2>
-        <p>Facebook and Instagram marketing performance from Meta APIs.</p>
-      </a>
-      <a class="ce-dash-home-tile" href="{% url 'admin_website_traffic_dashboard' %}">
-        <h2>Website Traffic</h2>
-        <p>Active visitors, unique visitors, page views, daily trends, and most visited pages.</p>
-      </a>
-      <a class="ce-dash-home-tile" href="{% url 'admin_bulk_email_compose' %}">
-        <h2>Bulk Email</h2>
-        <p>Send one message to a pasted list of recipients without exposing their addresses.</p>
-      </a>
-    </div>
-
+  <div class="ce-work-tiles ce-work-tiles--3">
+    <a class="ce-work-tile" href="{% url 'admin_impact_dashboard' %}">
+      <span class="ce-work-tile__icon ce-work-tile__icon--pink"><svg class="ce-icon" aria-hidden="true"><use href="#ce-i-sparkles"></use></svg></span>
+      <h2 class="ce-work-tile__title">Impact Dashboard</h2>
+      <p class="ce-work-tile__desc">Encuesta inicial and final insights, separated by emprendedoras and mentoras.</p>
+      <svg class="ce-icon ce-work-tile__arrow" aria-hidden="true"><use href="#ce-i-arrow-right"></use></svg>
+    </a>
+    <a class="ce-work-tile" href="{% url 'admin_applications_dashboard' %}">
+      <span class="ce-work-tile__icon"><svg class="ce-icon" aria-hidden="true"><use href="#ce-i-bar-chart"></use></svg></span>
+      <h2 class="ce-work-tile__title">Application Dashboard</h2>
+      <p class="ce-work-tile__desc">Application volume, group trends, and operational metrics.</p>
+      <svg class="ce-icon ce-work-tile__arrow" aria-hidden="true"><use href="#ce-i-arrow-right"></use></svg>
+    </a>
+    <a class="ce-work-tile" href="{% url 'admin_application_progress_dashboard' %}">
+      <span class="ce-work-tile__icon ce-work-tile__icon--warning"><svg class="ce-icon" aria-hidden="true"><use href="#ce-i-clipboard-list"></use></svg></span>
+      <h2 class="ce-work-tile__title">Incomplete Applications</h2>
+      <p class="ce-work-tile__desc">See where applicants stopped, including their last section, question, and completion percentage.</p>
+      <svg class="ce-icon ce-work-tile__arrow" aria-hidden="true"><use href="#ce-i-arrow-right"></use></svg>
+    </a>
+    <a class="ce-work-tile" href="{% url 'admin_marketing_dashboard' %}">
+      <span class="ce-work-tile__icon ce-work-tile__icon--purple"><svg class="ce-icon" aria-hidden="true"><use href="#ce-i-users"></use></svg></span>
+      <h2 class="ce-work-tile__title">Marketing Dashboard</h2>
+      <p class="ce-work-tile__desc">Facebook and Instagram marketing performance from Meta APIs.</p>
+      <svg class="ce-icon ce-work-tile__arrow" aria-hidden="true"><use href="#ce-i-arrow-right"></use></svg>
+    </a>
+    <a class="ce-work-tile" href="{% url 'admin_website_traffic_dashboard' %}">
+      <span class="ce-work-tile__icon ce-work-tile__icon--info"><svg class="ce-icon" aria-hidden="true"><use href="#ce-i-external"></use></svg></span>
+      <h2 class="ce-work-tile__title">Website Traffic</h2>
+      <p class="ce-work-tile__desc">Active visitors, unique visitors, page views, daily trends, and most visited pages.</p>
+      <svg class="ce-icon ce-work-tile__arrow" aria-hidden="true"><use href="#ce-i-arrow-right"></use></svg>
+    </a>
+    <a class="ce-work-tile" href="{% url 'admin_bulk_email_compose' %}">
+      <span class="ce-work-tile__icon ce-work-tile__icon--gray"><svg class="ce-icon" aria-hidden="true"><use href="#ce-i-mail"></use></svg></span>
+      <h2 class="ce-work-tile__title">Bulk Email</h2>
+      <p class="ce-work-tile__desc">Send one message to a pasted list of recipients without exposing their addresses.</p>
+      <svg class="ce-icon ce-work-tile__arrow" aria-hidden="true"><use href="#ce-i-arrow-right"></use></svg>
+    </a>
   </div>
 </div>
 {% endblock %}

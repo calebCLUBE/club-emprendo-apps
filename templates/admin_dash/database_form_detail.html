@@ -1,52 +1,357 @@
 {% extends "admin/base_site.html" %}
+
+{% block title %}{{ form_def.slug }} · Database · Club Emprendo Admin{% endblock %}
+
 {% block content %}
-  <h1>{{ form_def.slug }} — {{ form_def.name }}</h1>
+<div class="ce-workspace">
+  <style>
+    /* Database submission lists (shared by the form, old-group and combined pages). */
+    .ce-dbsub-meta {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px 8px;
+      margin-top: 12px;
+    }
+    .ce-dbsub-code {
+      display: inline-flex;
+      align-items: center;
+      gap: 2px;
+    }
+    .ce-dbsub-code__text {
+      padding: 1px 8px;
+      border-radius: var(--ce-radius-xs);
+      background: var(--ce-surface);
+      box-shadow: inset 0 0 0 1px var(--ce-border-strong);
+      color: var(--ce-gray-700);
+      font-family: var(--ce-font-mono);
+      font-size: 12px;
+      font-weight: 600;
+      line-height: 1.65;
+    }
+    .ce-dbsub-summary {
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    }
+    .ce-dbsub-summary .ce-work-meter {
+      margin-top: 10px;
+    }
+    .ce-dbsub-filters .ce-work-toolbar > .ce-work-field {
+      flex: 0 1 240px;
+    }
+    .ce-dbsub-filters .ce-work-toolbar > .ce-dbsub-field--wide {
+      flex-basis: 330px;
+    }
+    .ce-dbsub-filters__actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .ce-dbsub-filters__actions .ce-work-btn {
+      min-height: 38px;
+    }
+    .ce-dbsub-filters__note {
+      display: flex;
+      align-items: flex-start;
+      gap: 7px;
+      margin: 12px 0 0;
+      padding-top: 12px;
+      border-top: 1px solid var(--ce-border-subtle);
+    }
+    .ce-dbsub-filters__note .ce-icon {
+      margin-top: 2px;
+      color: var(--ce-gray-400);
+    }
+    .ce-dbsub-title-count {
+      font-family: var(--ce-font-sans);
+      font-variant-numeric: tabular-nums;
+    }
+    .ce-dbsub-bulkbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px 16px;
+      padding: 10px 20px;
+      border-bottom: 1px solid var(--ce-border-subtle);
+      background: var(--ce-surface-muted);
+    }
+    .ce-dbsub-form:has([data-submission-checkbox]:checked) .ce-dbsub-bulkbar {
+      background: var(--ce-pink-50);
+    }
+    .ce-dbsub-delete::before {
+      flex: none;
+      width: 14px;
+      height: 14px;
+      background: currentColor;
+      content: "";
+      -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 6h18'/%3E%3Cpath d='M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6'/%3E%3Cpath d='M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2'/%3E%3C/svg%3E") center / contain no-repeat;
+      mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 6h18'/%3E%3Cpath d='M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6'/%3E%3Cpath d='M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2'/%3E%3C/svg%3E") center / contain no-repeat;
+    }
+    .ce-dbsub-table td {
+      vertical-align: middle;
+    }
+    .ce-dbsub-table :is(th, td):first-child {
+      padding-left: 20px;
+    }
+    .ce-dbsub-table :is(th, td):last-child {
+      padding-right: 20px;
+    }
+    .ce-dbsub-table thead th:first-child,
+    .ce-dbsub-table thead th:last-child {
+      border-radius: 0;
+    }
+    .ce-dbsub-table .ce-dbsub-cell-check {
+      width: 1%;
+      padding-right: 4px;
+    }
+    .ce-dbsub-table tbody tr:has([data-submission-checkbox]:checked),
+    .ce-dbsub-table tbody tr:has([data-submission-checkbox]:checked):hover {
+      background: var(--ce-green-50);
+    }
+    .ce-dbsub-check {
+      display: inline-grid;
+      place-items: center;
+      width: 28px;
+      height: 28px;
+      margin: -6px;
+      border-radius: var(--ce-radius-sm);
+      cursor: pointer;
+    }
+    .ce-dbsub-check:hover {
+      background: var(--ce-gray-100);
+    }
+    .ce-dbsub-check input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      margin: 0;
+      cursor: pointer;
+    }
+    .ce-dbsub-cell-id,
+    .ce-dbsub-cell-status {
+      width: 1%;
+      white-space: nowrap;
+    }
+    .ce-dbsub-table .ce-dbsub-col-who {
+      width: 40%;
+    }
+    .ce-dbsub-table .ce-dbsub-col-where {
+      width: 22%;
+    }
+    .ce-dbsub-cell-id .ce-work-mono {
+      font-size: 12.5px;
+    }
+    .ce-dbsub-cell-when {
+      color: var(--ce-text-secondary);
+    }
+    .ce-dbsub-cell-who {
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+    a.ce-dbsub-name:any-link {
+      color: var(--ce-text);
+      font-weight: 600;
+    }
+    #container a.ce-dbsub-name:any-link:hover {
+      color: var(--ce-green-700);
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+    .ce-dbsub-empty-actions {
+      margin-top: 8px;
+    }
+    @media (max-width: 720px) {
+      .ce-dbsub-table,
+      .ce-dbsub-table tbody {
+        display: block;
+        width: 100%;
+      }
+      .ce-dbsub-table thead {
+        display: none;
+      }
+      .ce-dbsub-table tbody tr {
+        display: grid;
+        grid-template-columns: 24px auto minmax(0, 1fr) auto;
+        grid-template-areas:
+          "check who who status"
+          "check where where where"
+          "check id when when";
+        align-items: center;
+        gap: 4px 10px;
+        padding: 14px 16px;
+        border-bottom: 1px solid var(--ce-border-subtle);
+      }
+      .ce-dbsub-table tbody tr:last-child {
+        border-bottom: 0;
+      }
+      .ce-dbsub-table tbody td,
+      .ce-dbsub-table tbody td:first-child,
+      .ce-dbsub-table tbody td:last-child {
+        display: block;
+        width: auto;
+        padding: 0;
+        border: 0;
+      }
+      .ce-dbsub-table .ce-dbsub-cell-check {
+        grid-area: check;
+        align-self: start;
+        width: auto;
+        padding: 0;
+      }
+      .ce-dbsub-cell-who {
+        grid-area: who;
+        align-self: start;
+      }
+      .ce-dbsub-cell-where {
+        grid-area: where;
+      }
+      .ce-dbsub-table tbody .ce-dbsub-cell-where {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: 2px 8px;
+        color: var(--ce-text-secondary);
+        font-size: 13px;
+      }
+      .ce-dbsub-cell-where .ce-work-table__sub {
+        margin-top: 0;
+      }
+      .ce-dbsub-cell-id {
+        grid-area: id;
+      }
+      .ce-dbsub-cell-when {
+        grid-area: when;
+        font-size: 12.5px;
+      }
+      .ce-dbsub-cell-status {
+        grid-area: status;
+        align-self: start;
+      }
+      .ce-dbsub-bulkbar {
+        padding-right: 16px;
+        padding-left: 16px;
+      }
+    }
+    @media (max-width: 640px) {
+      .ce-dbsub-filters .ce-work-toolbar > .ce-work-field,
+      .ce-dbsub-filters .ce-work-toolbar > .ce-dbsub-field--wide,
+      .ce-dbsub-filters__actions {
+        flex: 1 1 100%;
+      }
+      .ce-dbsub-filters__actions .ce-work-btn {
+        flex: 1 1 0;
+      }
+    }
+  </style>
 
-  <p style="margin:10px 0;">
-    <a class="button" href="{% url 'admin_export_form_csv' form_def.slug %}">Download CSV</a>
-    &nbsp;
-    <a class="button" href="{% url 'admin_database_form_sheet' form_def.slug %}">Open Sheet</a>
-  </p>
+  <nav class="ce-work-crumbs" aria-label="Breadcrumb">
+    <a href="{% url 'admin_database' %}">Database</a>
+    <svg class="ce-icon ce-icon--sm" aria-hidden="true"><use href="#ce-i-chevron-right"></use></svg>
+    <span aria-current="page">{{ form_def.slug }}</span>
+  </nav>
 
-  <h2 style="margin-top:18px;">Submissions ({{ submission_count }})</h2>
+  <header class="ce-work-header">
+    <div class="ce-work-header__main">
+      <p class="ce-work-eyebrow">Form submissions</p>
+      <h1 class="ce-work-title">{{ form_def.name }}</h1>
+      <div class="ce-dbsub-meta">
+        <span class="ce-dbsub-code">
+          <span class="ce-dbsub-code__text">{{ form_def.slug }}</span>
+          <button type="button" class="ce-work-copy" data-ce-copy="{{ form_def.slug }}" title="Copy form code" aria-label="Copy form code">
+            <svg class="ce-icon ce-work-copy__idle" aria-hidden="true"><use href="#ce-i-copy"></use></svg>
+            <svg class="ce-icon ce-work-copy__done" aria-hidden="true"><use href="#ce-i-check"></use></svg>
+          </button>
+        </span>
+        {% if form_def.group %}
+          <span class="ce-work-badge ce-work-badge--outline">
+            <svg class="ce-icon" aria-hidden="true"><use href="#ce-i-layers"></use></svg>{% if form_def.group.custom_name %}{{ form_def.group.custom_name }}{% else %}Group {{ form_def.group.number }}{% endif %}
+          </span>
+        {% endif %}
+      </div>
+    </div>
+    <div class="ce-work-actions">
+      <a class="ce-work-btn ce-work-btn--secondary" href="{% url 'admin_export_form_csv' form_def.slug %}">
+        <svg class="ce-icon" aria-hidden="true"><use href="#ce-i-download"></use></svg>Download CSV
+      </a>
+      <a class="ce-work-btn" href="{% url 'admin_database_form_sheet' form_def.slug %}">
+        <svg class="ce-icon" aria-hidden="true"><use href="#ce-i-sheet"></use></svg>Open Sheet
+      </a>
+    </div>
+  </header>
+
   {% if is_first_application %}
-    <p style="margin:6px 0 12px; color:#333;">
-      Sent second application: <strong>{{ second_stage_sent_count }}</strong>
-    </p>
+    {% widthratio second_stage_sent_count submission_total_count 100 as sent_pct %}
+    <div class="ce-work-summary ce-dbsub-summary">
+      <div class="ce-work-stat">
+        <div class="ce-work-stat__label">
+          <svg class="ce-icon" aria-hidden="true"><use href="#ce-i-file-text"></use></svg>Total submissions
+        </div>
+        <div class="ce-work-stat__value">{{ submission_total_count }}</div>
+        <div class="ce-work-stat__detail">Received through this form</div>
+      </div>
+      <div class="ce-work-stat">
+        <div class="ce-work-stat__label">
+          <svg class="ce-icon" aria-hidden="true"><use href="#ce-i-mail"></use></svg>Sent second application
+        </div>
+        <div class="ce-work-stat__value">{{ second_stage_sent_count }}</div>
+        <div class="ce-work-meter ce-work-meter--sm" aria-hidden="true">
+          <div class="ce-work-meter__fill" style="width: {{ sent_pct }}%"></div>
+        </div>
+        <div class="ce-work-stat__detail">{{ sent_pct }}% of all submissions</div>
+      </div>
+    </div>
   {% endif %}
-    <form method="get" style="margin:10px 0 12px; padding:10px; border:1px solid #ddd; border-radius:10px; display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap;">
+
+  <form method="get" class="ce-work-filterbar ce-dbsub-filters" aria-label="Filter submissions">
+    <div class="ce-work-toolbar">
       {% if is_first_application %}
-      <div>
-        <label for="a1_pass_filter"><strong>Filter A1 result</strong></label><br>
-        <select id="a1_pass_filter" name="a1_pass" class="vTextField">
+      <div class="ce-work-field">
+        <label for="a1_pass_filter">A1 result</label>
+        <select id="a1_pass_filter" name="a1_pass" class="ce-work-input">
           <option value="" {% if not a1_pass_filter %}selected{% endif %}>All</option>
           <option value="passed" {% if a1_pass_filter == "passed" %}selected{% endif %}>Passed</option>
           <option value="not_passed" {% if a1_pass_filter == "not_passed" %}selected{% endif %}>Did not pass</option>
         </select>
       </div>
       {% endif %}
-      <div>
-        <label for="approval_filter"><strong>Approval page</strong></label><br>
-        <select id="approval_filter" name="approval" class="vTextField">
+      <div class="ce-work-field ce-dbsub-field--wide">
+        <label for="approval_filter">Approval page</label>
+        <select id="approval_filter" name="approval" class="ce-work-input">
           <option value="" {% if not approval_filter %}selected{% endif %}>All</option>
           <option value="approved" {% if approval_filter == "approved" %}selected{% endif %}>Received approval page</option>
           <option value="not_approved" {% if approval_filter == "not_approved" %}selected{% endif %}>Did not receive approval page</option>
         </select>
       </div>
-      <div>
-        <button type="submit" class="button default">Apply</button>
-        <a class="button" href="{% url 'admin_database_form_detail' form_def.slug %}" style="margin-left:6px;">Clear</a>
+      <div class="ce-dbsub-filters__actions">
+        <button type="submit" class="ce-work-btn ce-work-btn--secondary">Apply</button>
+        <a class="ce-work-btn ce-work-btn--quiet" href="{% url 'admin_database_form_detail' form_def.slug %}">Clear</a>
       </div>
-    </form>
-    {% if a1_pass_filter or approval_filter %}
-      <p style="margin:6px 0 12px; color:#555;">
-        Showing <strong>{{ submission_count }}</strong> of <strong>{{ submission_total_count }}</strong> submissions.
-      </p>
-    {% endif %}
+    </div>
+    <p class="ce-work-hint ce-dbsub-filters__note">
+      <svg class="ce-icon" aria-hidden="true"><use href="#ce-i-info"></use></svg>
+      <span>Filters only change the list below. Download CSV and Open Sheet always include every submission to this form.</span>
+    </p>
+  </form>
+
+  <section class="ce-work-panel" aria-labelledby="ce-dbsub-list-title">
+    <div class="ce-work-panel__head">
+      <div>
+        <h2 class="ce-work-panel__title" id="ce-dbsub-list-title">
+          <svg class="ce-icon" aria-hidden="true"><use href="#ce-i-file-text"></use></svg>
+          Submissions <span class="ce-work-badge ce-dbsub-title-count">{{ submission_count }}</span>
+        </h2>
+        {% if a1_pass_filter or approval_filter %}
+          <p class="ce-work-panel__hint">Showing <strong>{{ submission_count }}</strong> of <strong>{{ submission_total_count }}</strong> submissions.</p>
+        {% else %}
+          <p class="ce-work-panel__hint">Newest first. Open a submission to see all of its answers.</p>
+        {% endif %}
+      </div>
+    </div>
+
   {% if apps %}
     <form method="post"
           action="{% url 'admin_bulk_delete_submissions' %}"
-          onsubmit="return confirm('¿Eliminar las submissions seleccionadas? Esto borrará las respuestas y no se puede deshacer.');">
+          onsubmit="return confirm('¿Eliminar las submissions seleccionadas? Esto borrará las respuestas y no se puede deshacer.');"
+          class="ce-dbsub-form">
       {% csrf_token %}
       <input type="hidden" name="next" value="{{ request.get_full_path }}">
       <input type="hidden" name="scope_form_slug" value="{{ form_def.slug }}">
@@ -54,35 +359,53 @@
         <input type="hidden" name="scope_group" value="{{ form_def.group.number }}">
       {% endif %}
 
-      <div style="margin:10px 0; padding:10px; border:1px solid #ddd; border-radius:10px; display:flex; gap:16px; align-items:center; flex-wrap:wrap;">
-        <label style="display:flex; align-items:center; gap:8px; margin:0;">
+      <div class="ce-dbsub-bulkbar">
+        <label class="ce-work-check">
           <input type="checkbox" data-select-all>
-          <strong>Select all</strong>
+          Select all
         </label>
         <button type="submit"
-                class="button"
+                class="ce-work-btn ce-work-btn--danger-soft ce-work-btn--sm ce-dbsub-delete"
                 data-delete-selected
-                disabled
-                style="background:#ba2121; color:white; border-color:#ba2121;">
+                disabled>
           Delete selected
         </button>
       </div>
 
-      <ul style="list-style:none; padding-left:0; margin:0;">
-        {% for a in apps %}
-          <li style="margin:6px 0; padding:8px 10px; border:1px solid #eee; border-radius:8px;">
-            <label style="display:flex; align-items:flex-start; gap:10px;">
-              <input type="checkbox" name="app_ids" value="{{ a.id }}" data-submission-checkbox style="margin-top:3px;">
-              <span>
-                <a href="{% url 'admin_database_submission_detail' a.id %}">
-                  #{{ a.id }} — {{ a.created_at }} — {{ a.name }} ({{ a.email }})
-                </a>
-                — {% if a.approved_for_grading %}<strong style="color:#16794b;">Approved page</strong>{% else %}<span style="color:#8a3b12;">Not approved</span>{% endif %}
-              </span>
-            </label>
-          </li>
-        {% endfor %}
-      </ul>
+      <div class="ce-work-table-wrap ce-work-table-wrap--flush">
+        <table class="ce-work-table ce-dbsub-table">
+          <thead>
+            <tr>
+              <th class="ce-dbsub-cell-check"><span class="ce-u-sr-only">Select</span></th>
+              <th class="ce-dbsub-cell-id">ID</th>
+              <th class="ce-dbsub-col-who">Applicant</th>
+              <th>Submitted</th>
+              <th class="ce-dbsub-cell-status">Approval page</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for a in apps %}
+              <tr>
+                <td class="ce-dbsub-cell-check">
+                  <label class="ce-dbsub-check">
+                    <input type="checkbox" name="app_ids" value="{{ a.id }}" data-submission-checkbox>
+                    <span class="ce-u-sr-only">Select submission #{{ a.id }}</span>
+                  </label>
+                </td>
+                <td class="ce-dbsub-cell-id"><span class="ce-work-mono">#{{ a.id }}</span></td>
+                <td class="ce-dbsub-cell-who">
+                  <a class="ce-dbsub-name" href="{% url 'admin_database_submission_detail' a.id %}">{% if a.name %}{{ a.name }}{% else %}Unnamed applicant{% endif %}</a>
+                  <div class="ce-work-table__sub">{{ a.email }}</div>
+                </td>
+                <td class="ce-dbsub-cell-when">{{ a.created_at }}</td>
+                <td class="ce-dbsub-cell-status">
+                  {% if a.approved_for_grading %}<span class="ce-work-status">Approved page</span>{% else %}<span class="ce-work-status ce-work-status--warning">Not approved</span>{% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
     </form>
     <script>
       (function() {
@@ -115,6 +438,19 @@
       })();
     </script>
   {% else %}
-    <p><em>No submissions yet.</em></p>
+    <div class="ce-work-empty">
+      {% if a1_pass_filter or approval_filter %}
+        <span class="ce-work-empty__icon"><svg class="ce-icon" aria-hidden="true"><use href="#ce-i-search"></use></svg></span>
+        <p class="ce-work-empty__title">No submissions match these filters.</p>
+        <p>Try a different filter, or clear them to see every submission.</p>
+        <a class="ce-work-btn ce-work-btn--secondary ce-work-btn--sm ce-dbsub-empty-actions" href="{% url 'admin_database_form_detail' form_def.slug %}">Clear filters</a>
+      {% else %}
+        <span class="ce-work-empty__icon"><svg class="ce-icon" aria-hidden="true"><use href="#ce-i-file-text"></use></svg></span>
+        <p class="ce-work-empty__title">No submissions yet.</p>
+        <p>Responses to this form will appear here as soon as they arrive.</p>
+      {% endif %}
+    </div>
   {% endif %}
+  </section>
+</div>
 {% endblock %}

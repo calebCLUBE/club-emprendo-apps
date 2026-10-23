@@ -1,507 +1,615 @@
 {% extends "admin/base_site.html" %}
+
+{% block title %}Database · Club Emprendo Admin{% endblock %}
+
 {% block content %}
+<div class="ce-workspace">
+  <style>
+    .ce-db-rows {
+      display: grid;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+    .ce-db-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px 16px;
+      margin: 0;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--ce-border-subtle);
+      list-style: none;
+    }
+    .ce-db-row:last-child {
+      border-bottom: 0;
+    }
+    .ce-db-row__main {
+      display: inline-flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+      color: var(--ce-text);
+      font-weight: 600;
+    }
+    a.ce-db-row__main:hover {
+      color: var(--ce-green-700);
+    }
+    .ce-db-row__meta {
+      color: var(--ce-text-muted);
+      font-size: 13px;
+      font-weight: 500;
+    }
+    .ce-db-row__links {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 4px;
+    }
+    .ce-db-row__links form {
+      display: inline;
+      margin: 0;
+    }
+    .ce-db-tools-form {
+      display: grid;
+      gap: 14px;
+      max-width: 960px;
+    }
+    .ce-db-surveys {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 0 28px;
+    }
+    .ce-db-subhead {
+      margin: 0 0 4px;
+      color: var(--ce-text-secondary);
+      font-size: 12.5px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .ce-db-group-sync {
+      display: flex;
+      justify-content: flex-end;
+      margin: 0 0 6px;
+    }
+    @media (max-width: 760px) {
+      .ce-db-surveys {
+        grid-template-columns: minmax(0, 1fr);
+      }
+    }
+  </style>
 
-<h1>Database</h1>
-
-<form method="post" action="{% url 'admin_database_sync_drive' %}" style="margin: 10px 0 16px 0;">
-  {% csrf_token %}
-  <input type="hidden" name="next" value="{{ database_next }}">
-  <button type="submit" class="button">Sync All Database CSVs To Drive</button>
-</form>
-
-<details style="margin: 10px 0 18px; padding: 10px; border: 1px solid #ddd; border-radius: 10px;">
-  <summary style="cursor:pointer; font-weight:600;">
-    Copy Application Between Groups
-  </summary>
-
-  <form method="post" action="{% url 'admin_database_copy_application' %}" style="margin-top:12px; display:grid; gap:10px; max-width:900px;">
-    {% csrf_token %}
-    <input type="hidden" name="next" value="{{ database_next }}">
-
-    <label>
-      Email
-      <input type="email" name="email" required style="width:100%; max-width:520px;" placeholder="person@example.com">
-    </label>
-
-    <label>
-      Source Application (Group + Form)
-      <select name="source_form_slug" required style="width:100%; max-width:720px;">
-        <option value="">Select source...</option>
-        {% for opt in transfer_form_options %}
-          <option value="{{ opt.slug }}">{{ opt.label }}</option>
-        {% endfor %}
-      </select>
-    </label>
-
-    <label>
-      Target Application (Group + Form)
-      <select name="target_form_slug" required style="width:100%; max-width:720px;">
-        <option value="">Select target...</option>
-        {% for opt in transfer_form_options %}
-          <option value="{{ opt.slug }}">{{ opt.label }}</option>
-        {% endfor %}
-      </select>
-    </label>
-
-    <label>
-      Source Submission ID (optional)
-      <input type="number" name="source_app_id" min="1" style="width:100%; max-width:220px;" placeholder="latest by default">
-    </label>
-
-    <button type="submit" class="button" style="width:max-content;">
-      Copy Application
-    </button>
-
-    <p style="margin:0; color:#666;">
-      This copies the selected person's submission into the target group/form and matches answers by question slug.
-    </p>
-  </form>
-</details>
-
-<details style="margin: 10px 0 18px; padding: 10px; border: 1px solid #ddd; border-radius: 10px;">
-  <summary style="cursor:pointer; font-weight:600;">
-    Create or update one group application type (Paste Emails)
-  </summary>
-
-  <form method="post" action="{% url 'admin_database_create_assigned_group' %}" style="margin-top:12px; display:grid; gap:10px; max-width:960px;">
-    {% csrf_token %}
-    <input type="hidden" name="next" value="{{ database_next }}">
-
-    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:10px;">
-      <label>
-        Source applications
-        <select name="source_pool" required style="width:100%;">
-          {% for src in pool_source_choices %}
-            <option value="{{ src.value }}" {% if src.value == pool_assignment_defaults.source_pool %}selected{% endif %}>
-              {{ src.label }}
-            </option>
-          {% endfor %}
-        </select>
-      </label>
-
-      <label>
-        Application type (one at a time)
-        <select name="track" required style="width:100%;">
-          <option value="E" {% if pool_assignment_defaults.track == "E" %}selected{% endif %}>Emprendedoras</option>
-          <option value="M" {% if pool_assignment_defaults.track == "M" %}selected{% endif %}>Mentoras</option>
-        </select>
-      </label>
-
-      <label>
-        Target group number
-        <input
-          type="number"
-          min="1"
-          required
-          name="target_group_num"
-          value="{{ pool_assignment_defaults.target_group_num }}"
-          style="width:100%;"
-        >
-        <div style="font-size:12px; color:#666; margin-top:4px;">
-          You can choose any target group number.
-        </div>
-      </label>
+  <header class="ce-work-header">
+    <div class="ce-work-header__main">
+      <p class="ce-work-eyebrow">Data</p>
+      <h1 class="ce-work-title">Database</h1>
+      <p class="ce-work-lede">Every application and survey submission, by group, with spreadsheet views and CSV exports.</p>
     </div>
-
-    <label>
-      Applicant emails
-      <textarea
-        name="emails_text"
-        rows="8"
-        required
-        style="width:100%; max-width:920px;"
-        placeholder="one email per line, or comma/semicolon separated"
-      ></textarea>
-    </label>
-
-    <button type="submit" class="button" style="width:max-content;">
-      Create/update selected application type
-    </button>
-
-    <p style="margin:0; color:#666;">
-      This creates or updates the target group and copies matching applications from the source pool group.
-      Date values are copied automatically from the selected source pool group. Run it once for
-      Emprendedoras and once for Mentoras when the group contains both application types.
-    </p>
-  </form>
-</details>
-
-<details style="margin: 10px 0 18px; padding: 10px; border: 1px solid #ddd; border-radius: 10px;">
-  <summary style="cursor:pointer; font-weight:600;">
-    Encuestas
-  </summary>
-
-  <ul style="margin: 10px 0 0 0;">
-    <li style="margin:6px 0;">
-      {% if encuestas_drive_file_ref %}
-        <a href="{% url 'admin_database_encuestas_sheet' %}">
-          {{ encuestas_label|default:"Encuesta inicial - Emprendedoras" }} — Google Drive file
-        </a>
-        &nbsp; — &nbsp;
-        <a href="{% url 'admin_database_encuestas_sheet' %}">Sheet</a>
-        &nbsp; — &nbsp;
-        <a href="{% url 'admin_database_encuestas_csv' %}">CSV</a>
-        &nbsp; — &nbsp;
-        <a href="{% url 'admin_database_encuestas_sheet' %}?refresh=1">Refresh</a>
-      {% else %}
-        <em>
-          {{ encuestas_label|default:"Encuesta inicial - Emprendedoras" }} file is not configured yet.
-          Set <code>DATABASE_ENCUESTAS_DRIVE_FILE</code> (Google Drive file ID or URL).
-        </em>
-      {% endif %}
-    </li>
-
-    <li style="margin:6px 0;">
-      {% if encuestas_final_drive_file_ref %}
-        <a href="{% url 'admin_database_encuestas_final_sheet' %}">
-          {{ encuestas_final_label|default:"Encuesta final - Emprendedoras" }} — Google Drive file
-        </a>
-        &nbsp; — &nbsp;
-        <a href="{% url 'admin_database_encuestas_final_sheet' %}">Sheet</a>
-        &nbsp; — &nbsp;
-        <a href="{% url 'admin_database_encuestas_final_csv' %}">CSV</a>
-        &nbsp; — &nbsp;
-        <a href="{% url 'admin_database_encuestas_final_sheet' %}?refresh=1">Refresh</a>
-      {% else %}
-        <em>
-          {{ encuestas_final_label|default:"Encuesta final - Emprendedoras" }} file is not configured yet.
-          Set <code>DATABASE_ENCUESTAS_FINAL_DRIVE_FILE</code> (Google Drive file ID or URL).
-        </em>
-      {% endif %}
-    </li>
-
-    <li style="margin:6px 0;">
-      {% if encuestas_mentoras_drive_file_ref %}
-        <a href="{% url 'admin_database_encuestas_mentoras_sheet' %}">
-          {{ encuestas_mentoras_label|default:"Encuesta inicial - Mentoras" }} — Google Drive file
-        </a>
-        &nbsp; — &nbsp;
-        <a href="{% url 'admin_database_encuestas_mentoras_sheet' %}">Sheet</a>
-        &nbsp; — &nbsp;
-        <a href="{% url 'admin_database_encuestas_mentoras_csv' %}">CSV</a>
-        &nbsp; — &nbsp;
-        <a href="{% url 'admin_database_encuestas_mentoras_sheet' %}?refresh=1">Refresh</a>
-      {% else %}
-        <em>
-          {{ encuestas_mentoras_label|default:"Encuesta inicial - Mentoras" }} file is not configured yet.
-          Set <code>DATABASE_ENCUESTAS_MENTORAS_DRIVE_FILE</code> (Google Drive file ID or URL).
-        </em>
-      {% endif %}
-    </li>
-
-    <li style="margin:6px 0;">
-      {% if encuestas_mentoras_final_drive_file_ref %}
-        <a href="{% url 'admin_database_encuestas_mentoras_final_sheet' %}">
-          {{ encuestas_mentoras_final_label|default:"Encuesta final - Mentoras" }} — Google Drive file
-        </a>
-        &nbsp; — &nbsp;
-        <a href="{% url 'admin_database_encuestas_mentoras_final_sheet' %}">Sheet</a>
-        &nbsp; — &nbsp;
-        <a href="{% url 'admin_database_encuestas_mentoras_final_csv' %}">CSV</a>
-        &nbsp; — &nbsp;
-        <a href="{% url 'admin_database_encuestas_mentoras_final_sheet' %}?refresh=1">Refresh</a>
-      {% else %}
-        <em>
-          {{ encuestas_mentoras_final_label|default:"Encuesta final - Mentoras" }} file is not configured yet.
-          Set <code>DATABASE_ENCUESTAS_MENTORAS_FINAL_DRIVE_FILE</code> (Google Drive file ID or URL).
-        </em>
-      {% endif %}
-    </li>
-  </ul>
-</details>
-
-<details style="margin: 10px 0 18px; padding: 10px; border: 1px solid #ddd; border-radius: 10px;">
-  <summary style="cursor:pointer; font-weight:600;">
-    Graded Files
-  </summary>
-
-  {% if graded_files_by_group or graded_files_other %}
-    {% for bucket in graded_files_by_group %}
-      <details style="margin:10px 0 0 0; padding:8px; border:1px solid #eee; border-radius:8px;">
-        <summary style="cursor:pointer; font-weight:600;">
-          {{ bucket.group_label }} ({{ bucket.files|length }})
-        </summary>
-        <ul style="margin:10px 0 0 0;">
-          {% for f in bucket.files %}
-            <li style="margin:6px 0; display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-              <span>{{ f.created_at|date:"Y-m-d H:i" }} — {{ f.form_slug }}</span>
-              <a href="{% url 'admin_grading_live_sheet_file' f.id %}">Sheet</a>
-              <a href="{% url 'admin_grading_download_csv' f.id %}">Download CSV</a>
-              <a href="{% url 'admin_grading_download_excel' f.id %}">Download Excel</a>
-              <form method="post" action="{% url 'admin_delete_graded_file' f.id %}" style="display:inline;">
-                {% csrf_token %}
-                <input type="hidden" name="next" value="{{ database_next }}">
-                <button
-                  type="submit"
-                  class="button"
-                  onclick="return confirm('Delete this graded file?');"
-                  style="padding:2px 8px;"
-                >
-                  Delete
-                </button>
-              </form>
-            </li>
-          {% endfor %}
-        </ul>
-      </details>
-    {% endfor %}
-
-    {% if graded_files_other %}
-      <details style="margin:10px 0 0 0; padding:8px; border:1px solid #eee; border-radius:8px;">
-        <summary style="cursor:pointer; font-weight:600;">
-          Other Graded Files ({{ graded_files_other|length }})
-        </summary>
-        <ul style="margin:10px 0 0 0;">
-          {% for f in graded_files_other %}
-            <li style="margin:6px 0; display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-              <span>{{ f.created_at|date:"Y-m-d H:i" }} — {{ f.form_slug }}</span>
-              <a href="{% url 'admin_grading_live_sheet_file' f.id %}">Sheet</a>
-              <a href="{% url 'admin_grading_download_csv' f.id %}">Download CSV</a>
-              <a href="{% url 'admin_grading_download_excel' f.id %}">Download Excel</a>
-              <form method="post" action="{% url 'admin_delete_graded_file' f.id %}" style="display:inline;">
-                {% csrf_token %}
-                <input type="hidden" name="next" value="{{ database_next }}">
-                <button
-                  type="submit"
-                  class="button"
-                  onclick="return confirm('Delete this graded file?');"
-                  style="padding:2px 8px;"
-                >
-                  Delete
-                </button>
-              </form>
-            </li>
-          {% endfor %}
-        </ul>
-      </details>
-    {% endif %}
-  {% else %}
-    <p style="margin-top:10px;"><em>No graded files yet.</em></p>
-  {% endif %}
-</details>
-
-<details style="margin: 10px 0 18px; padding: 10px; border: 1px solid #ddd; border-radius: 10px;">
-  <summary style="cursor:pointer; font-weight:600;">
-    Emparejamiento Files
-  </summary>
-
-  {% if pairing_files %}
-    <ul style="margin:10px 0 0 0;">
-      {% for f in pairing_files %}
-        <li style="margin:6px 0;">
-          {{ f.created_at|date:"Y-m-d H:i" }} — {{ f.form_slug }}
-          &nbsp; — &nbsp;
-          <a href="{% url 'admin_grading_live_sheet_file' f.id %}">Sheet</a>
-          &nbsp; — &nbsp;
-          <a href="{% url 'admin_grading_download_csv' f.id %}">Download CSV</a>
-          &nbsp; — &nbsp;
-          <a href="{% url 'admin_grading_download_excel' f.id %}">Download Excel</a>
-        </li>
-      {% endfor %}
-    </ul>
-  {% else %}
-    <p style="margin-top:10px;"><em>No emparejamiento files yet.</em></p>
-  {% endif %}
-</details>
-
-{% if combined_track_counts.E or combined_track_counts.M %}
-  <h2 style="margin-top:18px;">New Groups (Combined)</h2>
-  <ul style="margin: 8px 0 18px 0;">
-    <li style="margin:6px 0;">
-      <a href="{% url 'admin_database_track_detail' 'E' %}">
-        Emprendedoras — combined ({{ combined_track_counts.E|default:0 }})
-      </a>
-      &nbsp; — &nbsp;
-      <a href="{% url 'admin_database_track_sheet' 'E' %}">Sheet</a>
-      &nbsp; — &nbsp;
-      <a href="{% url 'admin_database_track_master_csv' 'E' %}">CSV</a>
-    </li>
-    <li style="margin:6px 0;">
-      <a href="{% url 'admin_database_track_detail' 'M' %}">
-        Mentoras — combined ({{ combined_track_counts.M|default:0 }})
-      </a>
-      &nbsp; — &nbsp;
-      <a href="{% url 'admin_database_track_sheet' 'M' %}">Sheet</a>
-      &nbsp; — &nbsp;
-      <a href="{% url 'admin_database_track_master_csv' 'M' %}">CSV</a>
-    </li>
-  </ul>
-{% endif %}
-
-{% if legacy_type_counts.E_A1 or legacy_type_counts.E_A2 or legacy_type_counts.M_A1 or legacy_type_counts.M_A2 %}
-  <h2 style="margin-top:18px;">Old Groups (Separate)</h2>
-  <ul style="margin: 8px 0 18px 0;">
-    <li style="margin:6px 0;">
-      <a href="{% url 'admin_database_type_detail' 'E_A1' %}">
-        E_A1 — old groups ({{ legacy_type_counts.E_A1|default:0 }})
-      </a>
-      &nbsp; — &nbsp;
-      <a href="{% url 'admin_database_type_sheet' 'E_A1' %}">Sheet</a>
-      &nbsp; — &nbsp;
-      <a href="{% url 'admin_database_type_master_csv' 'E_A1' %}">CSV</a>
-    </li>
-    <li style="margin:6px 0;">
-      <a href="{% url 'admin_database_type_detail' 'E_A2' %}">
-        E_A2 — old groups ({{ legacy_type_counts.E_A2|default:0 }})
-      </a>
-      &nbsp; — &nbsp;
-      <a href="{% url 'admin_database_type_sheet' 'E_A2' %}">Sheet</a>
-      &nbsp; — &nbsp;
-      <a href="{% url 'admin_database_type_master_csv' 'E_A2' %}">CSV</a>
-    </li>
-    <li style="margin:6px 0;">
-      <a href="{% url 'admin_database_type_detail' 'M_A1' %}">
-        M_A1 — old groups ({{ legacy_type_counts.M_A1|default:0 }})
-      </a>
-      &nbsp; — &nbsp;
-      <a href="{% url 'admin_database_type_sheet' 'M_A1' %}">Sheet</a>
-      &nbsp; — &nbsp;
-      <a href="{% url 'admin_database_type_master_csv' 'M_A1' %}">CSV</a>
-    </li>
-    <li style="margin:6px 0;">
-      <a href="{% url 'admin_database_type_detail' 'M_A2' %}">
-        M_A2 — old groups ({{ legacy_type_counts.M_A2|default:0 }})
-      </a>
-      &nbsp; — &nbsp;
-      <a href="{% url 'admin_database_type_sheet' 'M_A2' %}">Sheet</a>
-      &nbsp; — &nbsp;
-      <a href="{% url 'admin_database_type_master_csv' 'M_A2' %}">CSV</a>
-    </li>
-  </ul>
-{% endif %}
-
-<h2>Groups</h2>
-
-{% if group_blocks %}
-  {% for block in group_blocks %}
-    <details style="margin: 10px 0; padding: 10px; border: 1px solid #ddd; border-radius: 10px;">
-      <summary style="cursor:pointer;">
-        <strong>{{ block.group_label }}</strong>
-        — {{ block.group.start_month }} {{ block.group.year }} to
-        {{ block.group.end_month }} {{ block.group.effective_end_year }}
-      </summary>
-
-      <form method="post" action="{% url 'admin_database_sync_drive' %}" style="margin-top:10px;">
+    <div class="ce-work-actions">
+      <form method="post" action="{% url 'admin_database_sync_drive' %}">
         {% csrf_token %}
-        <input type="hidden" name="group_num" value="{{ block.group.number }}">
         <input type="hidden" name="next" value="{{ database_next }}">
-        <button type="submit" class="button">
-          Sync {{ block.group_label }} To Drive
+        <button type="submit" class="ce-work-btn ce-work-btn--secondary">
+          <svg class="ce-icon" aria-hidden="true"><use href="#ce-i-refresh"></use></svg>Sync All Database CSVs To Drive
         </button>
       </form>
+    </div>
+  </header>
 
-      {% if block.mode == "combined" %}
-        <ul style="margin-top:10px;">
-          <li style="margin:6px 0;">
-            <a href="{% url 'admin_database_track_detail' 'E' %}?group={{ block.group.number }}">
-              Emprendedoras — combined ({{ block.track_counts.E|default:0 }})
+  <h2 class="ce-work-section-title" style="margin-top: 0;">Groups</h2>
+
+  {% if group_blocks %}
+    <div class="ce-work-group-list">
+      {% for block in group_blocks %}
+        <details class="ce-work-group">
+          <summary>
+            <span>
+              <span class="ce-work-group__name">{{ block.group_label }}</span>
+              <span class="ce-work-group__meta" style="display: block;">
+                {{ block.group.start_month }} {{ block.group.year }} to
+                {{ block.group.end_month }} {{ block.group.effective_end_year }}
+              </span>
+            </span>
+            <span class="ce-work-group__count">{% if block.mode == "combined" %}Combined application{% else %}{{ block.forms|length }} form{{ block.forms|length|pluralize }}{% endif %}</span>
+            <svg class="ce-icon ce-work-group__chevron" aria-hidden="true"><use href="#ce-i-chevron-down"></use></svg>
+          </summary>
+          <div class="ce-work-group__body">
+            <form method="post" action="{% url 'admin_database_sync_drive' %}" class="ce-db-group-sync">
+              {% csrf_token %}
+              <input type="hidden" name="group_num" value="{{ block.group.number }}">
+              <input type="hidden" name="next" value="{{ database_next }}">
+              <button type="submit" class="ce-work-btn ce-work-btn--secondary ce-work-btn--sm">
+                <svg class="ce-icon" aria-hidden="true"><use href="#ce-i-refresh"></use></svg>Sync {{ block.group_label }} To Drive
+              </button>
+            </form>
+
+            {% if block.mode == "combined" %}
+              <ul class="ce-db-rows">
+                <li class="ce-db-row">
+                  <a class="ce-db-row__main" href="{% url 'admin_database_track_detail' 'E' %}?group={{ block.group.number }}">
+                    Emprendedoras — combined <span class="ce-work-badge ce-work-badge--pink">{{ block.track_counts.E|default:0 }}</span>
+                  </a>
+                  <span class="ce-db-row__links">
+                    <a class="ce-work-btn ce-work-btn--quiet ce-work-btn--sm" href="{% url 'admin_database_track_sheet' 'E' %}?group={{ block.group.number }}">Sheet</a>
+                    <a class="ce-work-btn ce-work-btn--quiet ce-work-btn--sm" href="{% url 'admin_database_track_master_csv' 'E' %}?group={{ block.group.number }}">CSV</a>
+                  </span>
+                </li>
+                <li class="ce-db-row">
+                  <a class="ce-db-row__main" href="{% url 'admin_database_track_detail' 'M' %}?group={{ block.group.number }}">
+                    Mentoras — combined <span class="ce-work-badge ce-work-badge--purple">{{ block.track_counts.M|default:0 }}</span>
+                  </a>
+                  <span class="ce-db-row__links">
+                    <a class="ce-work-btn ce-work-btn--quiet ce-work-btn--sm" href="{% url 'admin_database_track_sheet' 'M' %}?group={{ block.group.number }}">Sheet</a>
+                    <a class="ce-work-btn ce-work-btn--quiet ce-work-btn--sm" href="{% url 'admin_database_track_master_csv' 'M' %}?group={{ block.group.number }}">CSV</a>
+                  </span>
+                </li>
+              </ul>
+            {% else %}
+              {% if block.forms %}
+                <ul class="ce-db-rows">
+                  {% for fd in block.forms %}
+                    <li class="ce-db-row">
+                      <a class="ce-db-row__main" href="{% url 'admin_database_form_detail' fd.slug %}">
+                        <span class="ce-work-mono">{{ fd.slug }}</span> {{ fd.name }}
+                        <span class="ce-work-badge">{{ fd.submission_count|default:0 }}</span>
+                      </a>
+                      <span class="ce-db-row__links">
+                        <a class="ce-work-btn ce-work-btn--quiet ce-work-btn--sm" href="{% url 'admin_database_form_sheet' fd.slug %}">Sheet</a>
+                        <a class="ce-work-btn ce-work-btn--quiet ce-work-btn--sm" href="{% url 'admin_export_form_csv' fd.slug %}">CSV</a>
+                        {% if fd.admin_edit_url %}
+                          <a class="ce-work-btn ce-work-btn--secondary ce-work-btn--sm" href="{{ fd.admin_edit_url }}" target="_blank">Edit</a>
+                        {% endif %}
+                      </span>
+                    </li>
+                  {% endfor %}
+                </ul>
+              {% else %}
+                <p class="ce-work-muted"><em>No forms in this group yet.</em></p>
+              {% endif %}
+            {% endif %}
+          </div>
+        </details>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="ce-work-panel"><div class="ce-work-empty"><p>No groups yet.</p></div></div>
+  {% endif %}
+
+  {% if combined_track_counts.E or combined_track_counts.M or legacy_type_counts.E_A1 or legacy_type_counts.E_A2 or legacy_type_counts.M_A1 or legacy_type_counts.M_A2 %}
+    <div class="ce-work-grid-2" style="margin-top: 20px;">
+      {% if combined_track_counts.E or combined_track_counts.M %}
+        <section class="ce-work-panel" style="margin: 0;">
+          <div class="ce-work-panel__head">
+            <h2 class="ce-work-panel__title">New Groups (Combined)</h2>
+          </div>
+          <div class="ce-work-panel__body" style="padding-top: 6px; padding-bottom: 6px;">
+            <ul class="ce-db-rows">
+              <li class="ce-db-row">
+                <a class="ce-db-row__main" href="{% url 'admin_database_track_detail' 'E' %}">
+                  Emprendedoras — combined <span class="ce-work-badge ce-work-badge--pink">{{ combined_track_counts.E|default:0 }}</span>
+                </a>
+                <span class="ce-db-row__links">
+                  <a class="ce-work-btn ce-work-btn--quiet ce-work-btn--sm" href="{% url 'admin_database_track_sheet' 'E' %}">Sheet</a>
+                  <a class="ce-work-btn ce-work-btn--quiet ce-work-btn--sm" href="{% url 'admin_database_track_master_csv' 'E' %}">CSV</a>
+                </span>
+              </li>
+              <li class="ce-db-row">
+                <a class="ce-db-row__main" href="{% url 'admin_database_track_detail' 'M' %}">
+                  Mentoras — combined <span class="ce-work-badge ce-work-badge--purple">{{ combined_track_counts.M|default:0 }}</span>
+                </a>
+                <span class="ce-db-row__links">
+                  <a class="ce-work-btn ce-work-btn--quiet ce-work-btn--sm" href="{% url 'admin_database_track_sheet' 'M' %}">Sheet</a>
+                  <a class="ce-work-btn ce-work-btn--quiet ce-work-btn--sm" href="{% url 'admin_database_track_master_csv' 'M' %}">CSV</a>
+                </span>
+              </li>
+            </ul>
+          </div>
+        </section>
+      {% endif %}
+
+      {% if legacy_type_counts.E_A1 or legacy_type_counts.E_A2 or legacy_type_counts.M_A1 or legacy_type_counts.M_A2 %}
+        <section class="ce-work-panel" style="margin: 0;">
+          <div class="ce-work-panel__head">
+            <h2 class="ce-work-panel__title">Old Groups (Separate)</h2>
+          </div>
+          <div class="ce-work-panel__body" style="padding-top: 6px; padding-bottom: 6px;">
+            <ul class="ce-db-rows">
+              <li class="ce-db-row">
+                <a class="ce-db-row__main" href="{% url 'admin_database_type_detail' 'E_A1' %}">
+                  <span class="ce-work-mono">E_A1</span> old groups <span class="ce-work-badge">{{ legacy_type_counts.E_A1|default:0 }}</span>
+                </a>
+                <span class="ce-db-row__links">
+                  <a class="ce-work-btn ce-work-btn--quiet ce-work-btn--sm" href="{% url 'admin_database_type_sheet' 'E_A1' %}">Sheet</a>
+                  <a class="ce-work-btn ce-work-btn--quiet ce-work-btn--sm" href="{% url 'admin_database_type_master_csv' 'E_A1' %}">CSV</a>
+                </span>
+              </li>
+              <li class="ce-db-row">
+                <a class="ce-db-row__main" href="{% url 'admin_database_type_detail' 'E_A2' %}">
+                  <span class="ce-work-mono">E_A2</span> old groups <span class="ce-work-badge">{{ legacy_type_counts.E_A2|default:0 }}</span>
+                </a>
+                <span class="ce-db-row__links">
+                  <a class="ce-work-btn ce-work-btn--quiet ce-work-btn--sm" href="{% url 'admin_database_type_sheet' 'E_A2' %}">Sheet</a>
+                  <a class="ce-work-btn ce-work-btn--quiet ce-work-btn--sm" href="{% url 'admin_database_type_master_csv' 'E_A2' %}">CSV</a>
+                </span>
+              </li>
+              <li class="ce-db-row">
+                <a class="ce-db-row__main" href="{% url 'admin_database_type_detail' 'M_A1' %}">
+                  <span class="ce-work-mono">M_A1</span> old groups <span class="ce-work-badge">{{ legacy_type_counts.M_A1|default:0 }}</span>
+                </a>
+                <span class="ce-db-row__links">
+                  <a class="ce-work-btn ce-work-btn--quiet ce-work-btn--sm" href="{% url 'admin_database_type_sheet' 'M_A1' %}">Sheet</a>
+                  <a class="ce-work-btn ce-work-btn--quiet ce-work-btn--sm" href="{% url 'admin_database_type_master_csv' 'M_A1' %}">CSV</a>
+                </span>
+              </li>
+              <li class="ce-db-row">
+                <a class="ce-db-row__main" href="{% url 'admin_database_type_detail' 'M_A2' %}">
+                  <span class="ce-work-mono">M_A2</span> old groups <span class="ce-work-badge">{{ legacy_type_counts.M_A2|default:0 }}</span>
+                </a>
+                <span class="ce-db-row__links">
+                  <a class="ce-work-btn ce-work-btn--quiet ce-work-btn--sm" href="{% url 'admin_database_type_sheet' 'M_A2' %}">Sheet</a>
+                  <a class="ce-work-btn ce-work-btn--quiet ce-work-btn--sm" href="{% url 'admin_database_type_master_csv' 'M_A2' %}">CSV</a>
+                </span>
+              </li>
+            </ul>
+          </div>
+        </section>
+      {% endif %}
+    </div>
+  {% endif %}
+
+  <section class="ce-work-panel" style="margin-top: 20px;">
+    <div class="ce-work-panel__head">
+      <h2 class="ce-work-panel__title">Surveys</h2>
+    </div>
+    <div class="ce-work-panel__body" style="padding-top: 12px;">
+      <div class="ce-db-surveys">
+        <div>
+          <h3 class="ce-db-subhead">Emprendedoras</h3>
+          {% if surveys_e %}
+            <ul class="ce-db-rows">
+              {% for s in surveys_e %}
+                <li class="ce-db-row">
+                  <a class="ce-db-row__main" href="{% url 'admin_database_form_detail' s.slug %}">
+                    {{ s.name }} <span class="ce-db-row__meta">({{ s.slug }})</span>
+                    <span class="ce-work-badge">{{ s.submission_count|default:0 }}</span>
+                  </a>
+                  <span class="ce-db-row__links">
+                    <a class="ce-work-btn ce-work-btn--quiet ce-work-btn--sm" href="{% url 'admin_database_form_sheet' s.slug %}">Sheet</a>
+                    <a class="ce-work-btn ce-work-btn--quiet ce-work-btn--sm" href="{% url 'admin_export_form_csv' s.slug %}">CSV</a>
+                    {% if s.admin_edit_url %}
+                      <a class="ce-work-btn ce-work-btn--secondary ce-work-btn--sm" href="{{ s.admin_edit_url }}" target="_blank">Edit survey</a>
+                    {% endif %}
+                  </span>
+                </li>
+              {% endfor %}
+            </ul>
+          {% else %}
+            <p class="ce-work-muted"><em>No Emprendedora surveys found.</em></p>
+          {% endif %}
+        </div>
+        <div>
+          <h3 class="ce-db-subhead">Mentoras</h3>
+          {% if surveys_m %}
+            <ul class="ce-db-rows">
+              {% for s in surveys_m %}
+                <li class="ce-db-row">
+                  <a class="ce-db-row__main" href="{% url 'admin_database_form_detail' s.slug %}">
+                    {{ s.name }} <span class="ce-db-row__meta">({{ s.slug }})</span>
+                    <span class="ce-work-badge">{{ s.submission_count|default:0 }}</span>
+                  </a>
+                  <span class="ce-db-row__links">
+                    <a class="ce-work-btn ce-work-btn--quiet ce-work-btn--sm" href="{% url 'admin_database_form_sheet' s.slug %}">Sheet</a>
+                    <a class="ce-work-btn ce-work-btn--quiet ce-work-btn--sm" href="{% url 'admin_export_form_csv' s.slug %}">CSV</a>
+                    {% if s.admin_edit_url %}
+                      <a class="ce-work-btn ce-work-btn--secondary ce-work-btn--sm" href="{{ s.admin_edit_url }}" target="_blank">Edit survey</a>
+                    {% endif %}
+                  </span>
+                </li>
+              {% endfor %}
+            </ul>
+          {% else %}
+            <p class="ce-work-muted"><em>No Mentora surveys found.</em></p>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <h2 class="ce-work-section-title">Files</h2>
+
+  <details class="ce-work-details">
+    <summary>Encuestas</summary>
+    <div class="ce-work-details__body">
+      <ul class="ce-db-rows">
+        <li class="ce-db-row">
+          {% if encuestas_drive_file_ref %}
+            <a class="ce-db-row__main" href="{% url 'admin_database_encuestas_sheet' %}">
+              {{ encuestas_label|default:"Encuesta inicial - Emprendedoras" }} — Google Drive file
             </a>
-            &nbsp; — &nbsp;
-            <a href="{% url 'admin_database_track_sheet' 'E' %}?group={{ block.group.number }}">Sheet</a>
-            &nbsp; — &nbsp;
-            <a href="{% url 'admin_database_track_master_csv' 'E' %}?group={{ block.group.number }}">CSV</a>
-          </li>
-          <li style="margin:6px 0;">
-            <a href="{% url 'admin_database_track_detail' 'M' %}?group={{ block.group.number }}">
-              Mentoras — combined ({{ block.track_counts.M|default:0 }})
+            <span class="ce-db-row__links">
+              <a class="ce-work-btn ce-work-btn--quiet ce-work-btn--sm" href="{% url 'admin_database_encuestas_sheet' %}">Sheet</a>
+              <a class="ce-work-btn ce-work-btn--quiet ce-work-btn--sm" href="{% url 'admin_database_encuestas_csv' %}">CSV</a>
+              <a class="ce-work-btn ce-work-btn--quiet ce-work-btn--sm" href="{% url 'admin_database_encuestas_sheet' %}?refresh=1">Refresh</a>
+            </span>
+          {% else %}
+            <span class="ce-db-row__meta">
+              {{ encuestas_label|default:"Encuesta inicial - Emprendedoras" }} file is not configured yet.
+              Set <code>DATABASE_ENCUESTAS_DRIVE_FILE</code> (Google Drive file ID or URL).
+            </span>
+          {% endif %}
+        </li>
+        <li class="ce-db-row">
+          {% if encuestas_final_drive_file_ref %}
+            <a class="ce-db-row__main" href="{% url 'admin_database_encuestas_final_sheet' %}">
+              {{ encuestas_final_label|default:"Encuesta final - Emprendedoras" }} — Google Drive file
             </a>
-            &nbsp; — &nbsp;
-            <a href="{% url 'admin_database_track_sheet' 'M' %}?group={{ block.group.number }}">Sheet</a>
-            &nbsp; — &nbsp;
-            <a href="{% url 'admin_database_track_master_csv' 'M' %}?group={{ block.group.number }}">CSV</a>
-          </li>
+            <span class="ce-db-row__links">
+              <a class="ce-work-btn ce-work-btn--quiet ce-work-btn--sm" href="{% url 'admin_database_encuestas_final_sheet' %}">Sheet</a>
+              <a class="ce-work-btn ce-work-btn--quiet ce-work-btn--sm" href="{% url 'admin_database_encuestas_final_csv' %}">CSV</a>
+              <a class="ce-work-btn ce-work-btn--quiet ce-work-btn--sm" href="{% url 'admin_database_encuestas_final_sheet' %}?refresh=1">Refresh</a>
+            </span>
+          {% else %}
+            <span class="ce-db-row__meta">
+              {{ encuestas_final_label|default:"Encuesta final - Emprendedoras" }} file is not configured yet.
+              Set <code>DATABASE_ENCUESTAS_FINAL_DRIVE_FILE</code> (Google Drive file ID or URL).
+            </span>
+          {% endif %}
+        </li>
+        <li class="ce-db-row">
+          {% if encuestas_mentoras_drive_file_ref %}
+            <a class="ce-db-row__main" href="{% url 'admin_database_encuestas_mentoras_sheet' %}">
+              {{ encuestas_mentoras_label|default:"Encuesta inicial - Mentoras" }} — Google Drive file
+            </a>
+            <span class="ce-db-row__links">
+              <a class="ce-work-btn ce-work-btn--quiet ce-work-btn--sm" href="{% url 'admin_database_encuestas_mentoras_sheet' %}">Sheet</a>
+              <a class="ce-work-btn ce-work-btn--quiet ce-work-btn--sm" href="{% url 'admin_database_encuestas_mentoras_csv' %}">CSV</a>
+              <a class="ce-work-btn ce-work-btn--quiet ce-work-btn--sm" href="{% url 'admin_database_encuestas_mentoras_sheet' %}?refresh=1">Refresh</a>
+            </span>
+          {% else %}
+            <span class="ce-db-row__meta">
+              {{ encuestas_mentoras_label|default:"Encuesta inicial - Mentoras" }} file is not configured yet.
+              Set <code>DATABASE_ENCUESTAS_MENTORAS_DRIVE_FILE</code> (Google Drive file ID or URL).
+            </span>
+          {% endif %}
+        </li>
+        <li class="ce-db-row">
+          {% if encuestas_mentoras_final_drive_file_ref %}
+            <a class="ce-db-row__main" href="{% url 'admin_database_encuestas_mentoras_final_sheet' %}">
+              {{ encuestas_mentoras_final_label|default:"Encuesta final - Mentoras" }} — Google Drive file
+            </a>
+            <span class="ce-db-row__links">
+              <a class="ce-work-btn ce-work-btn--quiet ce-work-btn--sm" href="{% url 'admin_database_encuestas_mentoras_final_sheet' %}">Sheet</a>
+              <a class="ce-work-btn ce-work-btn--quiet ce-work-btn--sm" href="{% url 'admin_database_encuestas_mentoras_final_csv' %}">CSV</a>
+              <a class="ce-work-btn ce-work-btn--quiet ce-work-btn--sm" href="{% url 'admin_database_encuestas_mentoras_final_sheet' %}?refresh=1">Refresh</a>
+            </span>
+          {% else %}
+            <span class="ce-db-row__meta">
+              {{ encuestas_mentoras_final_label|default:"Encuesta final - Mentoras" }} file is not configured yet.
+              Set <code>DATABASE_ENCUESTAS_MENTORAS_FINAL_DRIVE_FILE</code> (Google Drive file ID or URL).
+            </span>
+          {% endif %}
+        </li>
+      </ul>
+    </div>
+  </details>
+
+  <details class="ce-work-details">
+    <summary>Graded Files</summary>
+    <div class="ce-work-details__body">
+      {% if graded_files_by_group or graded_files_other %}
+        {% for bucket in graded_files_by_group %}
+          <details class="ce-work-details">
+            <summary>{{ bucket.group_label }} ({{ bucket.files|length }})</summary>
+            <div class="ce-work-details__body" style="padding-top: 6px; padding-bottom: 6px;">
+              <ul class="ce-db-rows">
+                {% for f in bucket.files %}
+                  <li class="ce-db-row">
+                    <span class="ce-db-row__main">{{ f.created_at|date:"Y-m-d H:i" }} — <span class="ce-work-mono">{{ f.form_slug }}</span></span>
+                    <span class="ce-db-row__links">
+                      <a class="ce-work-btn ce-work-btn--quiet ce-work-btn--sm" href="{% url 'admin_grading_live_sheet_file' f.id %}">Sheet</a>
+                      <a class="ce-work-btn ce-work-btn--quiet ce-work-btn--sm" href="{% url 'admin_grading_download_csv' f.id %}">Download CSV</a>
+                      <a class="ce-work-btn ce-work-btn--quiet ce-work-btn--sm" href="{% url 'admin_grading_download_excel' f.id %}">Download Excel</a>
+                      <form method="post" action="{% url 'admin_delete_graded_file' f.id %}" style="display:inline;">
+                        {% csrf_token %}
+                        <input type="hidden" name="next" value="{{ database_next }}">
+                        <button
+                          type="submit"
+                          class="ce-work-btn ce-work-btn--danger-soft ce-work-btn--sm"
+                          onclick="return confirm('Delete this graded file?');"
+                        >
+                          Delete
+                        </button>
+                      </form>
+                    </span>
+                  </li>
+                {% endfor %}
+              </ul>
+            </div>
+          </details>
+        {% endfor %}
+
+        {% if graded_files_other %}
+          <details class="ce-work-details">
+            <summary>Other Graded Files ({{ graded_files_other|length }})</summary>
+            <div class="ce-work-details__body" style="padding-top: 6px; padding-bottom: 6px;">
+              <ul class="ce-db-rows">
+                {% for f in graded_files_other %}
+                  <li class="ce-db-row">
+                    <span class="ce-db-row__main">{{ f.created_at|date:"Y-m-d H:i" }} — <span class="ce-work-mono">{{ f.form_slug }}</span></span>
+                    <span class="ce-db-row__links">
+                      <a class="ce-work-btn ce-work-btn--quiet ce-work-btn--sm" href="{% url 'admin_grading_live_sheet_file' f.id %}">Sheet</a>
+                      <a class="ce-work-btn ce-work-btn--quiet ce-work-btn--sm" href="{% url 'admin_grading_download_csv' f.id %}">Download CSV</a>
+                      <a class="ce-work-btn ce-work-btn--quiet ce-work-btn--sm" href="{% url 'admin_grading_download_excel' f.id %}">Download Excel</a>
+                      <form method="post" action="{% url 'admin_delete_graded_file' f.id %}" style="display:inline;">
+                        {% csrf_token %}
+                        <input type="hidden" name="next" value="{{ database_next }}">
+                        <button
+                          type="submit"
+                          class="ce-work-btn ce-work-btn--danger-soft ce-work-btn--sm"
+                          onclick="return confirm('Delete this graded file?');"
+                        >
+                          Delete
+                        </button>
+                      </form>
+                    </span>
+                  </li>
+                {% endfor %}
+              </ul>
+            </div>
+          </details>
+        {% endif %}
+      {% else %}
+        <p class="ce-work-muted"><em>No graded files yet.</em></p>
+      {% endif %}
+    </div>
+  </details>
+
+  <details class="ce-work-details">
+    <summary>Emparejamiento Files</summary>
+    <div class="ce-work-details__body">
+      {% if pairing_files %}
+        <ul class="ce-db-rows">
+          {% for f in pairing_files %}
+            <li class="ce-db-row">
+              <span class="ce-db-row__main">{{ f.created_at|date:"Y-m-d H:i" }} — <span class="ce-work-mono">{{ f.form_slug }}</span></span>
+              <span class="ce-db-row__links">
+                <a class="ce-work-btn ce-work-btn--quiet ce-work-btn--sm" href="{% url 'admin_grading_live_sheet_file' f.id %}">Sheet</a>
+                <a class="ce-work-btn ce-work-btn--quiet ce-work-btn--sm" href="{% url 'admin_grading_download_csv' f.id %}">Download CSV</a>
+                <a class="ce-work-btn ce-work-btn--quiet ce-work-btn--sm" href="{% url 'admin_grading_download_excel' f.id %}">Download Excel</a>
+              </span>
+            </li>
+          {% endfor %}
         </ul>
       {% else %}
-        {% if block.forms %}
-          <ul style="margin-top:10px;">
-            {% for fd in block.forms %}
-              <li style="margin:6px 0;">
-                <a href="{% url 'admin_database_form_detail' fd.slug %}">
-                  {{ fd.slug }} — {{ fd.name }} ({{ fd.submission_count|default:0 }})
-                </a>
-                &nbsp; — &nbsp;
-                <a href="{% url 'admin_database_form_sheet' fd.slug %}">Sheet</a>
-                &nbsp; — &nbsp;
-                <a href="{% url 'admin_export_form_csv' fd.slug %}">CSV</a>
-                {% if fd.admin_edit_url %}
-                  &nbsp;|&nbsp;
-                  <a class="button" href="{{ fd.admin_edit_url }}" target="_blank">Edit</a>
-                {% endif %}
-              </li>
-            {% endfor %}
-          </ul>
-        {% else %}
-          <p><em>No forms in this group yet.</em></p>
-        {% endif %}
+        <p class="ce-work-muted"><em>No emparejamiento files yet.</em></p>
       {% endif %}
-    </details>
-  {% endfor %}
-{% else %}
-  <p>No groups yet.</p>
-{% endif %}
+    </div>
+  </details>
 
-<hr style="margin: 24px 0;">
+  <h2 class="ce-work-section-title">Tools</h2>
 
-<h2>Surveys</h2>
+  <details class="ce-work-details">
+    <summary>Copy Application Between Groups</summary>
+    <div class="ce-work-details__body">
+      <form method="post" action="{% url 'admin_database_copy_application' %}" class="ce-db-tools-form">
+        {% csrf_token %}
+        <input type="hidden" name="next" value="{{ database_next }}">
 
-<div style="display:flex; gap:40px; flex-wrap:wrap;">
-  <div style="min-width:260px;">
-    <h3>Emprendedoras</h3>
+        <div class="ce-work-form-grid">
+          <label class="ce-work-field">
+            <span class="ce-work-label">Email</span>
+            <input class="ce-work-input" type="email" name="email" required placeholder="person@example.com">
+          </label>
 
-    {% if surveys_e %}
-      <ul style="margin: 8px 0 18px 0;">
-        {% for s in surveys_e %}
-          <li style="margin:6px 0;">
-            <a href="{% url 'admin_database_form_detail' s.slug %}">
-              {{ s.name }} ({{ s.slug }}) — {{ s.submission_count|default:0 }}
-            </a>
+          <label class="ce-work-field">
+            <span class="ce-work-label">Source Submission ID (optional)</span>
+            <input class="ce-work-input" type="number" name="source_app_id" min="1" placeholder="latest by default">
+          </label>
+        </div>
 
-            &nbsp; — &nbsp;
-            <a href="{% url 'admin_database_form_sheet' s.slug %}">Sheet</a>
+        <div class="ce-work-form-grid">
+          <label class="ce-work-field">
+            <span class="ce-work-label">Source Application (Group + Form)</span>
+            <select class="ce-work-input" name="source_form_slug" required>
+              <option value="">Select source...</option>
+              {% for opt in transfer_form_options %}
+                <option value="{{ opt.slug }}">{{ opt.label }}</option>
+              {% endfor %}
+            </select>
+          </label>
 
-            &nbsp; — &nbsp;
-            <a href="{% url 'admin_export_form_csv' s.slug %}">CSV</a>
+          <label class="ce-work-field">
+            <span class="ce-work-label">Target Application (Group + Form)</span>
+            <select class="ce-work-input" name="target_form_slug" required>
+              <option value="">Select target...</option>
+              {% for opt in transfer_form_options %}
+                <option value="{{ opt.slug }}">{{ opt.label }}</option>
+              {% endfor %}
+            </select>
+          </label>
+        </div>
 
-            {% if s.admin_edit_url %}
-              &nbsp;|&nbsp;
-              <a class="button" href="{{ s.admin_edit_url }}" target="_blank">Edit survey</a>
-            {% endif %}
-          </li>
-        {% endfor %}
-      </ul>
-    {% else %}
-      <p><em>No Emprendedora surveys found.</em></p>
-    {% endif %}
-  </div>
+        <p class="ce-work-hint">
+          This copies the selected person's submission into the target group/form and matches answers by question slug.
+        </p>
 
-  <div style="min-width:260px;">
-    <h3>Mentoras</h3>
+        <div>
+          <button type="submit" class="ce-work-btn">
+            Copy Application
+          </button>
+        </div>
+      </form>
+    </div>
+  </details>
 
-    {% if surveys_m %}
-      <ul style="margin: 8px 0 18px 0;">
-        {% for s in surveys_m %}
-          <li style="margin:6px 0;">
-            <a href="{% url 'admin_database_form_detail' s.slug %}">
-              {{ s.name }} ({{ s.slug }}) — {{ s.submission_count|default:0 }}
-            </a>
+  <details class="ce-work-details">
+    <summary>Create or update one group application type (Paste Emails)</summary>
+    <div class="ce-work-details__body">
+      <form method="post" action="{% url 'admin_database_create_assigned_group' %}" class="ce-db-tools-form">
+        {% csrf_token %}
+        <input type="hidden" name="next" value="{{ database_next }}">
 
-            &nbsp; — &nbsp;
-            <a href="{% url 'admin_database_form_sheet' s.slug %}">Sheet</a>
+        <div class="ce-work-form-grid">
+          <label class="ce-work-field">
+            <span class="ce-work-label">Source applications</span>
+            <select class="ce-work-input" name="source_pool" required>
+              {% for src in pool_source_choices %}
+                <option value="{{ src.value }}" {% if src.value == pool_assignment_defaults.source_pool %}selected{% endif %}>
+                  {{ src.label }}
+                </option>
+              {% endfor %}
+            </select>
+          </label>
 
-            &nbsp; — &nbsp;
-            <a href="{% url 'admin_export_form_csv' s.slug %}">CSV</a>
+          <label class="ce-work-field">
+            <span class="ce-work-label">Application type (one at a time)</span>
+            <select class="ce-work-input" name="track" required>
+              <option value="E" {% if pool_assignment_defaults.track == "E" %}selected{% endif %}>Emprendedoras</option>
+              <option value="M" {% if pool_assignment_defaults.track == "M" %}selected{% endif %}>Mentoras</option>
+            </select>
+          </label>
 
-            {% if s.admin_edit_url %}
-              &nbsp;|&nbsp;
-              <a class="button" href="{{ s.admin_edit_url }}" target="_blank">Edit survey</a>
-            {% endif %}
-          </li>
-        {% endfor %}
-      </ul>
-    {% else %}
-      <p><em>No Mentora surveys found.</em></p>
-    {% endif %}
-  </div>
+          <label class="ce-work-field">
+            <span class="ce-work-label">Target group number</span>
+            <input
+              class="ce-work-input"
+              type="number"
+              min="1"
+              required
+              name="target_group_num"
+              value="{{ pool_assignment_defaults.target_group_num }}"
+            >
+            <span class="ce-work-hint">You can choose any target group number.</span>
+          </label>
+        </div>
+
+        <label class="ce-work-field">
+          <span class="ce-work-label">Applicant emails</span>
+          <textarea
+            class="ce-work-input"
+            name="emails_text"
+            rows="8"
+            required
+            placeholder="one email per line, or comma/semicolon separated"
+          ></textarea>
+        </label>
+
+        <p class="ce-work-hint">
+          This creates or updates the target group and copies matching applications from the source pool group.
+          Date values are copied automatically from the selected source pool group. Run it once for
+          Emprendedoras and once for Mentoras when the group contains both application types.
+        </p>
+
+        <div>
+          <button type="submit" class="ce-work-btn">
+            Create/update selected application type
+          </button>
+        </div>
+      </form>
+    </div>
+  </details>
 </div>
-
 {% endblock %}

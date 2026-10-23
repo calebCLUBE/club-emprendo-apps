@@ -1,110 +1,176 @@
 {% extends "admin/base_site.html" %}
+
+{% block title %}{{ track_label }} — combined · Database · Club Emprendo Admin{% endblock %}
+
 {% block content %}
-  <h1>{{ track_label }} — combined</h1>
+<div class="ce-workspace">
+@@CE_DBSUB_STYLE@@
 
-  <p style="margin:10px 0;">
-    <a href="{% url 'admin_database' %}">← Back to database</a>
-  </p>
+  <nav class="ce-work-crumbs" aria-label="Breadcrumb">
+    <a href="{% url 'admin_database' %}">Database</a>
+    <svg class="ce-icon ce-icon--sm" aria-hidden="true"><use href="#ce-i-chevron-right"></use></svg>
+    <span aria-current="page">{{ track_label }} — combined</span>
+  </nav>
 
-  <p style="margin:8px 0 12px 0; padding:8px 10px; border:1px solid #ddd; border-radius:8px; background:#fafafa;">
-    <strong>Completaron la segunda parte (A2):</strong>
-    {{ second_part_completed_count|default:0 }}
-    {% if selected_group %}
-      en {{ selected_group_label }}
-    {% endif %}
-  </p>
+  <header class="ce-work-header">
+    <div class="ce-work-header__main">
+      <p class="ce-work-eyebrow">New groups (combined)</p>
+      <h1 class="ce-work-title">{{ track_label }} — combined</h1>
+      <p class="ce-work-lede">Application 1 and Application 2 submissions from groups that use the combined application, newest first.</p>
+      <div class="ce-dbsub-meta">
+        <span class="ce-work-badge ce-work-badge--outline">
+          <svg class="ce-icon" aria-hidden="true"><use href="#ce-i-layers"></use></svg>{% if selected_group %}{{ selected_group_label }}{% else %}All groups{% endif %}
+        </span>
+      </div>
+    </div>
+    <div class="ce-work-actions">
+      <a class="ce-work-btn ce-work-btn--secondary" href="{% url 'admin_database_track_master_csv' track %}{% if selected_group %}?group={{ selected_group }}{% endif %}">
+        <svg class="ce-icon" aria-hidden="true"><use href="#ce-i-download"></use></svg>Download CSV
+      </a>
+      <a class="ce-work-btn" href="{% url 'admin_database_track_sheet' track %}{% if selected_group %}?group={{ selected_group }}{% if completion_filter %}&completion={{ completion_filter }}{% endif %}{% elif completion_filter %}?completion={{ completion_filter }}{% endif %}">
+        <svg class="ce-icon" aria-hidden="true"><use href="#ce-i-sheet"></use></svg>Open Sheet
+      </a>
+    </div>
+  </header>
 
-  <form method="get" style="margin:10px 0; padding:10px; border:1px solid #ddd; border-radius:10px; display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap;">
-    <div>
-      <label for="group_filter"><strong>Filter by group</strong></label><br>
-      <select id="group_filter" name="group" class="vTextField">
-        <option value="">All groups</option>
-        {% for item in group_option_items %}
-          <option value="{{ item.number }}" {% if selected_group == item.number %}selected{% endif %}>
-            {{ item.label }}
+  <div class="ce-work-summary ce-dbsub-summary">
+    <div class="ce-work-stat">
+      <div class="ce-work-stat__label">
+        <svg class="ce-icon" aria-hidden="true"><use href="#ce-i-file-text"></use></svg>Submissions
+      </div>
+      <div class="ce-work-stat__value">{{ apps|length }}</div>
+      <div class="ce-work-stat__detail">Matching the current filters</div>
+    </div>
+    <div class="ce-work-stat">
+      <div class="ce-work-stat__label">
+        <svg class="ce-icon" aria-hidden="true"><use href="#ce-i-clipboard-check"></use></svg>Completaron la segunda parte (A2)
+      </div>
+      <div class="ce-work-stat__value">{{ second_part_completed_count|default:0 }}</div>
+      <div class="ce-work-stat__detail">{% if selected_group %}en {{ selected_group_label }}{% else %}En todos los grupos combinados{% endif %}</div>
+    </div>
+  </div>
+
+  <form method="get" class="ce-work-filterbar ce-dbsub-filters" aria-label="Filter submissions">
+    <div class="ce-work-toolbar">
+      <div class="ce-work-field">
+        <label for="group_filter">Group</label>
+        <select id="group_filter" name="group" class="ce-work-input">
+          <option value="">All groups</option>
+          {% for item in group_option_items %}
+            <option value="{{ item.number }}" {% if selected_group == item.number %}selected{% endif %}>
+              {{ item.label }}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="ce-work-field ce-dbsub-field--wide">
+        <label for="completion_filter">Completion</label>
+        <select id="completion_filter" name="completion" class="ce-work-input">
+          <option value="" {% if not completion_filter %}selected{% endif %}>All</option>
+          <option value="a1_only" {% if completion_filter == "a1_only" %}selected{% endif %}>
+            Show only A1 (hide anyone with A2)
           </option>
-        {% endfor %}
-      </select>
+          <option value="a1_a2" {% if completion_filter == "a1_a2" %}selected{% endif %}>
+            Show only A2 (completed both A1 and A2)
+          </option>
+          <option value="a1_not_passed" {% if completion_filter == "a1_not_passed" %}selected{% endif %}>
+            Show only A1 not passed
+          </option>
+        </select>
+      </div>
+      <div class="ce-work-field ce-dbsub-field--wide">
+        <label for="approval_filter">Approval page</label>
+        <select id="approval_filter" name="approval" class="ce-work-input">
+          <option value="" {% if not approval_filter %}selected{% endif %}>All</option>
+          <option value="approved" {% if approval_filter == "approved" %}selected{% endif %}>Received approval page</option>
+          <option value="not_approved" {% if approval_filter == "not_approved" %}selected{% endif %}>Did not receive approval page</option>
+        </select>
+      </div>
+      <div class="ce-dbsub-filters__actions">
+        <button type="submit" class="ce-work-btn ce-work-btn--secondary">Apply</button>
+        <a class="ce-work-btn ce-work-btn--quiet" href="{% url 'admin_database_track_detail' track %}">Clear</a>
+      </div>
     </div>
-    <div>
-      <label for="completion_filter"><strong>Filter by completion</strong></label><br>
-      <select id="completion_filter" name="completion" class="vTextField">
-        <option value="" {% if not completion_filter %}selected{% endif %}>All</option>
-        <option value="a1_only" {% if completion_filter == "a1_only" %}selected{% endif %}>
-          Show only A1 (hide anyone with A2)
-        </option>
-        <option value="a1_a2" {% if completion_filter == "a1_a2" %}selected{% endif %}>
-          Show only A2 (completed both A1 and A2)
-        </option>
-        <option value="a1_not_passed" {% if completion_filter == "a1_not_passed" %}selected{% endif %}>
-          Show only A1 not passed
-        </option>
-      </select>
-    </div>
-    <div>
-      <label for="approval_filter"><strong>Approval page</strong></label><br>
-      <select id="approval_filter" name="approval" class="vTextField">
-        <option value="" {% if not approval_filter %}selected{% endif %}>All</option>
-        <option value="approved" {% if approval_filter == "approved" %}selected{% endif %}>Received approval page</option>
-        <option value="not_approved" {% if approval_filter == "not_approved" %}selected{% endif %}>Did not receive approval page</option>
-      </select>
-    </div>
-    <div>
-      <button type="submit" class="button default">Apply</button>
-      <a class="button" href="{% url 'admin_database_track_detail' track %}" style="margin-left:6px;">Clear</a>
-    </div>
+    <p class="ce-work-hint ce-dbsub-filters__note">
+      <svg class="ce-icon" aria-hidden="true"><use href="#ce-i-info"></use></svg>
+      <span>Download CSV and Open Sheet include {% if selected_group %}{{ selected_group_label }} only{% else %}every group{% endif %}, and Open Sheet also applies the completion filter. The approval page filter only changes the list below.</span>
+    </p>
   </form>
 
-  <p style="margin:10px 0;">
-    <a class="button" href="{% url 'admin_database_track_master_csv' track %}{% if selected_group %}?group={{ selected_group }}{% endif %}">
-      Download CSV
-    </a>
-    &nbsp;
-    <a class="button" href="{% url 'admin_database_track_sheet' track %}{% if selected_group %}?group={{ selected_group }}{% if completion_filter %}&completion={{ completion_filter }}{% endif %}{% elif completion_filter %}?completion={{ completion_filter }}{% endif %}">
-      Open Sheet
-    </a>
-  </p>
+  <section class="ce-work-panel" aria-labelledby="ce-dbsub-list-title">
+    <div class="ce-work-panel__head">
+      <div>
+        <h2 class="ce-work-panel__title" id="ce-dbsub-list-title">
+          <svg class="ce-icon" aria-hidden="true"><use href="#ce-i-file-text"></use></svg>
+          Submissions <span class="ce-work-badge ce-dbsub-title-count">{{ apps|length }}</span>
+        </h2>
+        <p class="ce-work-panel__hint">Newest first. Open a submission to see all of its answers.</p>
+      </div>
+    </div>
 
-  <h2 style="margin-top:18px;">Submissions ({{ apps|length }})</h2>
   {% if apps %}
     <form method="post"
           action="{% url 'admin_bulk_delete_submissions' %}"
-          onsubmit="return confirm('¿Eliminar las submissions seleccionadas? Esto borrará las respuestas y no se puede deshacer.');">
+          onsubmit="return confirm('¿Eliminar las submissions seleccionadas? Esto borrará las respuestas y no se puede deshacer.');"
+          class="ce-dbsub-form">
       {% csrf_token %}
       <input type="hidden" name="next" value="{{ request.get_full_path }}">
       {% if selected_group %}
         <input type="hidden" name="scope_group" value="{{ selected_group }}">
       {% endif %}
 
-      <div style="margin:10px 0; padding:10px; border:1px solid #ddd; border-radius:10px; display:flex; gap:16px; align-items:center; flex-wrap:wrap;">
-        <label style="display:flex; align-items:center; gap:8px; margin:0;">
+      <div class="ce-dbsub-bulkbar">
+        <label class="ce-work-check">
           <input type="checkbox" data-select-all>
-          <strong>Select all</strong>
+          Select all
         </label>
         <button type="submit"
-                class="button"
+                class="ce-work-btn ce-work-btn--danger-soft ce-work-btn--sm ce-dbsub-delete"
                 data-delete-selected
-                disabled
-                style="background:#ba2121; color:white; border-color:#ba2121;">
+                disabled>
           Delete selected
         </button>
       </div>
 
-      <ul style="list-style:none; padding-left:0; margin:0;">
-        {% for a in apps %}
-          <li style="margin:6px 0; padding:8px 10px; border:1px solid #eee; border-radius:8px;">
-            <label style="display:flex; align-items:flex-start; gap:10px;">
-              <input type="checkbox" name="app_ids" value="{{ a.id }}" data-submission-checkbox style="margin-top:3px;">
-              <span>
-                <a href="{% url 'admin_database_submission_detail' a.id %}">
-                  #{{ a.id }} — {% if a.form.group and a.form.group.custom_name %}{{ a.form.group.custom_name }}{% else %}Group {{ a.form.group.number|default:"?" }}{% endif %} — {{ a.created_at }} — {{ a.name }} ({{ a.email }})
-                </a>
-                — {% if a.approved_for_grading %}<strong style="color:#16794b;">Approved page</strong>{% else %}<span style="color:#8a3b12;">Not approved</span>{% endif %}
-              </span>
-            </label>
-          </li>
-        {% endfor %}
-      </ul>
+      <div class="ce-work-table-wrap ce-work-table-wrap--flush">
+        <table class="ce-work-table ce-dbsub-table">
+          <thead>
+            <tr>
+              <th class="ce-dbsub-cell-check"><span class="ce-u-sr-only">Select</span></th>
+              <th class="ce-dbsub-cell-id">ID</th>
+              <th class="ce-dbsub-col-who">Applicant</th>
+              <th class="ce-dbsub-col-where">Group &amp; form</th>
+              <th>Submitted</th>
+              <th class="ce-dbsub-cell-status">Approval page</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for a in apps %}
+              <tr>
+                <td class="ce-dbsub-cell-check">
+                  <label class="ce-dbsub-check">
+                    <input type="checkbox" name="app_ids" value="{{ a.id }}" data-submission-checkbox>
+                    <span class="ce-u-sr-only">Select submission #{{ a.id }}</span>
+                  </label>
+                </td>
+                <td class="ce-dbsub-cell-id"><span class="ce-work-mono">#{{ a.id }}</span></td>
+                <td class="ce-dbsub-cell-who">
+                  <a class="ce-dbsub-name" href="{% url 'admin_database_submission_detail' a.id %}">{% if a.name %}{{ a.name }}{% else %}Unnamed applicant{% endif %}</a>
+                  <div class="ce-work-table__sub">{{ a.email }}</div>
+                </td>
+                <td class="ce-dbsub-cell-where">
+                  <div>{% if a.form.group and a.form.group.custom_name %}{{ a.form.group.custom_name }}{% else %}Group {{ a.form.group.number|default:"?" }}{% endif %}</div>
+                  <div class="ce-work-table__sub ce-work-mono">{{ a.form.slug }}</div>
+                </td>
+                <td class="ce-dbsub-cell-when">{{ a.created_at }}</td>
+                <td class="ce-dbsub-cell-status">
+                  {% if a.approved_for_grading %}<span class="ce-work-status">Approved page</span>{% else %}<span class="ce-work-status ce-work-status--warning">Not approved</span>{% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
     </form>
     <script>
       (function() {
@@ -137,6 +203,19 @@
       })();
     </script>
   {% else %}
-    <p><em>No submissions for this filter.</em></p>
+    <div class="ce-work-empty">
+      {% if selected_group or completion_filter or approval_filter %}
+        <span class="ce-work-empty__icon"><svg class="ce-icon" aria-hidden="true"><use href="#ce-i-search"></use></svg></span>
+        <p class="ce-work-empty__title">No submissions for this filter.</p>
+        <p>Try another group or filter, or clear them to see every submission.</p>
+        <a class="ce-work-btn ce-work-btn--secondary ce-work-btn--sm ce-dbsub-empty-actions" href="{% url 'admin_database_track_detail' track %}">Clear filters</a>
+      {% else %}
+        <span class="ce-work-empty__icon"><svg class="ce-icon" aria-hidden="true"><use href="#ce-i-file-text"></use></svg></span>
+        <p class="ce-work-empty__title">No submissions yet.</p>
+        <p>{{ track_label }} submissions from combined-application groups will appear here.</p>
+      {% endif %}
+    </div>
   {% endif %}
+  </section>
+</div>
 {% endblock %}

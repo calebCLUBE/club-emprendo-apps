@@ -4,7 +4,9 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#223413" />
   <title>{% block title %}Club Emprendo{% endblock %}</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='15' fill='%23223413'/%3E%3Cpath d='M32 15 7 25.5 32 36l25-10.5z' fill='%23fee3e3'/%3E%3Cpath d='M18 31.5V40c0 4 6.3 7.5 14 7.5S46 44 46 40v-8.5L32 37.4z' fill='%23fee3e3'/%3E%3Cpath d='M53 27v12' stroke='%23fee3e3' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E" />
 
   {% if google_ads_conversion_id %}
     <!-- Google tag (gtag.js) -->
@@ -28,10 +30,10 @@
       <div class="ce-header-inner">
         <div class="ce-brand">
           <div class="ce-logo">
-            <img src="{% static 'applications/img/logo.png' %}" alt="Club Emprendo" />
+            <img src="{% static 'brand/club-emprendo-logo.png' %}" alt="Club Emprendo" width="940" height="788" />
           </div>
           <div class="ce-brand-text">
-            <div class="ce-brand-name">CLUB EMPRENDO</div>
+            <div class="ce-brand-name">Club Emprendo</div>
             <div class="ce-brand-tagline">{% block tagline %}{% endblock %}</div>
           </div>
         </div>
@@ -47,7 +49,9 @@
     </main>
 
     <footer class="ce-footer">
-      © {% now "Y" %} Club Emprendo
+      <span>© {% now "Y" %} Club Emprendo</span>
+      <span class="ce-footer__dot" aria-hidden="true">·</span>
+      <span>Mentoría para mujeres emprendedoras en América Latina</span>
     </footer>
   </div>
 

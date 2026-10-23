@@ -12,18 +12,16 @@
     </p>
   </div>
 
-  <div class="ce-admin-card">
-    <div class="ce-admin-grid">
-      {% for s in surveys %}
-        <a class="ce-admin-tile" href="{% url 'survey_by_slug' s.slug %}">
-          <div class="ce-admin-tile-title">{{ s.name }}</div>
-          <div class="ce-admin-tile-sub">{{ s.slug }}</div>
-        </a>
-      {% empty %}
-        <div style="padding:12px;">
-          No hay encuestas creadas todavía. Ejecuta <code>python manage.py seed_surveys</code>.
-        </div>
-      {% endfor %}
-    </div>
+  <div class="ce-tile-grid">
+    {% for s in surveys %}
+      <a class="ce-tile" href="{% url 'survey_by_slug' s.slug %}">
+        <div class="ce-tile__title">{{ s.name }}</div>
+        <div class="ce-tile__sub">{{ s.slug }}</div>
+      </a>
+    {% empty %}
+      <div class="ce-alert">
+        No hay encuestas creadas todavía. Ejecuta <code>python manage.py seed_surveys</code>.
+      </div>
+    {% endfor %}
   </div>
 {% endblock %}

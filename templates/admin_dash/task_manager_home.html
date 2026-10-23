@@ -1,80 +1,56 @@
 {% extends "admin/base_site.html" %}
+{% load ce_admin_nav %}
+
+{% block title %}Team · Tasks · Club Emprendo Admin{% endblock %}
 
 {% block content %}
-<div class="ce-admin-wrap">
-  <div class="ce-admin-card ce-admin-card--wide">
-    <style>
-      .ce-actions {
-        display: flex;
-        gap: 8px;
-        flex-wrap: wrap;
-        margin: 12px 0 16px;
-      }
-      .ce-btn {
-        display: inline-block;
-        padding: 8px 12px;
-        border-radius: 8px;
-        border: 1px solid #223413;
-        background: #223413;
-        color: #fff !important;
-        text-decoration: none;
-        font-weight: 600;
-      }
-      .ce-btn:hover {
-        opacity: 0.9;
-      }
-      .ce-btn--ghost {
-        background: #fff;
-        color: #223413 !important;
-      }
-      .ce-table {
-        width: 100%;
-        border-collapse: collapse;
-      }
-      .ce-table th,
-      .ce-table td {
-        border-bottom: 1px solid #eee;
-        padding: 10px 8px;
-        text-align: left;
-        vertical-align: top;
-      }
-    </style>
-
-    <h1 style="margin: 0;">Task Manager</h1>
-    <div class="ce-actions">
-      <a class="ce-btn ce-btn--ghost" href="{% url 'admin_task_manager_my_tasks' %}">My tasks</a>
-      <a class="ce-btn ce-btn--ghost" href="{% url 'admin_task_manager_overview' %}">Task overview</a>
-      <a class="ce-btn" href="{% url 'admin_task_manager_assign' %}">Assign new task</a>
-      <a class="ce-btn ce-btn--ghost" href="{% url 'admin_task_manager_website_revisions' %}">Website revisions</a>
-      <a class="ce-btn ce-btn--ghost" href="{{ task_type_admin_url }}">Edit task types</a>
+<div class="ce-workspace">
+  <header class="ce-work-header">
+    <div class="ce-work-header__main">
+      <p class="ce-work-eyebrow">Tasks</p>
+      <h1 class="ce-work-title">Task Manager</h1>
+      <p class="ce-work-lede">Everyone on the team and how many tasks they have open.</p>
     </div>
+    <div class="ce-work-actions">
+      <a class="ce-work-btn ce-work-btn--secondary" href="{{ task_type_admin_url }}">Edit task types</a>
+      <a class="ce-work-btn" href="{% url 'admin_task_manager_assign' %}">
+        <svg class="ce-icon" aria-hidden="true"><use href="#ce-i-plus"></use></svg>Assign new task
+      </a>
+    </div>
+  </header>
 
-    <table class="ce-table">
+  <div class="ce-work-table-wrap">
+    <table class="ce-work-table">
       <thead>
         <tr>
           <th>Name</th>
           <th>Email</th>
-          <th>Open tasks</th>
-          <th>Total tasks</th>
-          <th>Actions</th>
+          <th class="ce-work-table__num">Open tasks</th>
+          <th class="ce-work-table__num">Total tasks</th>
+          <th class="ce-work-table__actions">Actions</th>
         </tr>
       </thead>
       <tbody>
         {% for u in users %}
           <tr>
-            <td>{{ u }}</td>
-            <td>{{ u.email }}</td>
-            <td>{{ u.open_tasks }}</td>
-            <td>{{ u.total_tasks }}</td>
             <td>
-              <a class="ce-btn ce-btn--ghost" href="{% url 'admin_task_manager_user_tasks' u.id %}">
+              <span style="display:inline-flex; align-items:center; gap:10px;">
+                <span class="ce-work-avatar ce-work-avatar--sm" aria-hidden="true">{{ u|ce_initials }}</span>
+                <span class="ce-work-table__primary">{{ u }}</span>
+              </span>
+            </td>
+            <td>{{ u.email }}</td>
+            <td class="ce-work-table__num">{% if u.open_tasks %}<span class="ce-work-status ce-work-status--warning">{{ u.open_tasks }}</span>{% else %}{{ u.open_tasks }}{% endif %}</td>
+            <td class="ce-work-table__num">{{ u.total_tasks }}</td>
+            <td class="ce-work-table__actions">
+              <a class="ce-work-btn ce-work-btn--secondary ce-work-btn--sm" href="{% url 'admin_task_manager_user_tasks' u.id %}">
                 View tasks
               </a>
             </td>
           </tr>
         {% empty %}
           <tr>
-            <td colspan="5">No users found.</td>
+            <td colspan="5" class="ce-work-table__empty">No users found.</td>
           </tr>
         {% endfor %}
       </tbody>

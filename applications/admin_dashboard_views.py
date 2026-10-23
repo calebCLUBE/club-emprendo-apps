@@ -32,7 +32,6 @@ from .admin_views import (
     _load_database_encuestas_grid,
     _month_name_to_number,
 )
-from .drive_sync import drive_read_timeout
 from .models import (
     Application,
     ApplicationDraft,
@@ -889,8 +888,7 @@ def _build_wellbeing_email_scores(
     return scores
 
 
-# A first download (no saved copy to fall back on) may take longer than usual.
-IMPACT_FIRST_LOAD_TIMEOUT_SECONDS = 25
+IMPACT_REFRESH_LOCK_SECONDS = 120
 
 
 def _impact_saved_grid(kind: str):
@@ -914,18 +912,46 @@ def _impact_saved_grid(kind: str):
 def _save_impact_grid(kind: str, grid) -> None:
     label, headers, rows, file_name, file_id = grid
     try:
+        # Rows are already lists of strings from the CSV parser; store them as-is
+        # (no copy) to keep memory flat on the small web instance.
         ImpactSurveySnapshot.objects.update_or_create(
             kind=kind,
             defaults={
                 "label": str(label or "")[:255],
-                "headers": [str(h) for h in (headers or [])],
-                "rows": [[str(cell) for cell in row] for row in (rows or [])],
+                "headers": list(headers or []),
+                "rows": rows or [],
                 "file_name": str(file_name or "")[:255],
                 "file_id": str(file_id or "")[:255],
             },
         )
     except DatabaseError:
         logger.warning("Could not save the %s impact survey snapshot.", kind, exc_info=True)
+
+
+def _refresh_impact_grid_now(kind: str):
+    grid = _load_database_encuestas_grid(kind)
+    cache.set(f"admin:impact:grid:{kind}:v1", grid, timeout=IMPACT_CACHE_SECONDS)
+    cache.set(f"admin:impact:grid:{kind}:stale:v1", grid, timeout=IMPACT_STALE_CACHE_SECONDS)
+    _save_impact_grid(kind, grid)
+    return grid
+
+
+def _start_impact_background_refresh(kind: str) -> None:
+    """Refresh one survey from Drive without making the page wait (one at a time)."""
+    lock_key = f"admin:impact:grid:{kind}:refreshing"
+    if not cache.add(lock_key, 1, timeout=IMPACT_REFRESH_LOCK_SECONDS):
+        return
+
+    def _run():
+        try:
+            _refresh_impact_grid_now(kind)
+        except Exception:
+            logger.warning("Background refresh of the %s impact survey failed.", kind, exc_info=True)
+        finally:
+            cache.delete(lock_key)
+            db_connection.close()
+
+    threading.Thread(target=_run, name=f"impact-refresh-{kind}", daemon=True).start()
 
 
 def _build_impact_dataset(
@@ -951,21 +977,20 @@ def _build_impact_dataset(
             cache.set(stale_cache_key, grid, timeout=IMPACT_STALE_CACHE_SECONDS)
         else:
             fallback = stale_grid if stale_grid is not None else saved_grid
-            try:
-                if fallback is None:
-                    with drive_read_timeout(IMPACT_FIRST_LOAD_TIMEOUT_SECONDS):
-                        grid = _load_database_encuestas_grid(kind)
-                else:
-                    grid = _load_database_encuestas_grid(kind)
-            except Exception:
+            if fallback is not None and not refresh:
+                # Never make the page wait on Drive when a saved copy exists: show it
+                # now and update it in the background for the next visit.
                 grid = fallback
-                if grid is None:
-                    raise
                 stale = True
+                _start_impact_background_refresh(kind)
             else:
-                cache.set(cache_key, grid, timeout=IMPACT_CACHE_SECONDS)
-                cache.set(stale_cache_key, grid, timeout=IMPACT_STALE_CACHE_SECONDS)
-                _save_impact_grid(kind, grid)
+                try:
+                    grid = _refresh_impact_grid_now(kind)
+                except Exception:
+                    grid = fallback
+                    if grid is None:
+                        raise
+                    stale = True
 
     label, headers, raw_rows, file_name, file_id = grid
     rows = _non_empty_rows(raw_rows)
@@ -3019,7 +3044,7 @@ def _load_impact_survey_datasets(
         elif dataset.get("stale") and request is not None:
             messages.warning(
                 request,
-                f"Google Drive is slow or unavailable; showing the last saved {section['title']} data.",
+                f"Showing the last saved {section['title']} data while it updates from Google Drive.",
             )
         datasets[kind] = dataset
         email_sets[kind] = email_set

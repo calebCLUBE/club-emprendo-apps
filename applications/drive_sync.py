@@ -8,8 +8,6 @@ import base64
 import csv
 import io
 import threading
-import contextvars
-from contextlib import contextmanager
 from urllib.parse import parse_qs, urlparse
 from dataclasses import dataclass
 
@@ -587,29 +585,12 @@ def _service_and_root() -> tuple[object, str]:
     )
 
 
-_READ_TIMEOUT_OVERRIDE = contextvars.ContextVar("drive_read_timeout_override", default=None)
-
-
-@contextmanager
-def drive_read_timeout(seconds: float):
-    """Allow slower Drive reads (e.g. a large Sheet export) inside this block."""
-    token = _READ_TIMEOUT_OVERRIDE.set(float(seconds))
-    try:
-        yield
-    finally:
-        _READ_TIMEOUT_OVERRIDE.reset(token)
-
-
 def _drive_read_timeout_seconds() -> float:
     try:
         read_timeout = float(os.getenv("GOOGLE_DRIVE_READ_TIMEOUT_SECONDS", "8"))
     except (TypeError, ValueError):
         read_timeout = 8.0
-    read_timeout = max(3.0, min(read_timeout, 20.0))
-    override = _READ_TIMEOUT_OVERRIDE.get()
-    if override:
-        read_timeout = max(read_timeout, min(float(override), 45.0))
-    return read_timeout
+    return max(3.0, min(read_timeout, 20.0))
 
 
 def _service_for_drive_reads() -> object:

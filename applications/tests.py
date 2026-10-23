@@ -7410,17 +7410,28 @@ class ImpactDashboardMetricTests(TestCase):
         self.assertFalse(dataset["stale"])
         self.assertEqual(dataset["responses_count"], 2)
 
-        # An older saved copy is still shown (marked stale) when Drive times out.
+        # An older saved copy is shown right away (marked stale) while a background
+        # refresh is started, so the page never waits on Drive.
         cache.clear()
         ImpactSurveySnapshot.objects.filter(kind="emprendedoras").update(
             fetched_at=timezone.now() - timedelta(days=2)
         )
-        dataset, _emails = admin_dashboard_views._build_impact_dataset(
-            "emprendedoras", "Initial survey", "admin_database_encuestas_sheet",
-        )
-        self.assertEqual(mock_load_grid.call_count, 2)
+        with patch.object(admin_dashboard_views, "_start_impact_background_refresh") as start_refresh:
+            dataset, _emails = admin_dashboard_views._build_impact_dataset(
+                "emprendedoras", "Initial survey", "admin_database_encuestas_sheet",
+            )
+        start_refresh.assert_called_once_with("emprendedoras")
+        self.assertEqual(mock_load_grid.call_count, 1)
         self.assertTrue(dataset["stale"])
         self.assertEqual(dataset["responses_count"], 2)
+
+    @patch("applications.admin_dashboard_views._load_database_encuestas_grid")
+    def test_impact_background_refresh_runs_once_at_a_time(self, mock_load_grid):
+        cache.set("admin:impact:grid:emprendedoras:refreshing", 1, timeout=60)
+        with patch("applications.admin_dashboard_views.threading.Thread") as thread_cls:
+            admin_dashboard_views._start_impact_background_refresh("emprendedoras")
+        thread_cls.assert_not_called()
+        cache.delete("admin:impact:grid:emprendedoras:refreshing")
 
     def test_participant_aggregates_exclude_stored_group_workbooks_without_google_link(self):
         unlinked_group = FormGroup.objects.create(

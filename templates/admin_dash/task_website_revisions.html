@@ -1,5 +1,7 @@
 {% extends "admin/base_site.html" %}
 
+{% block title %}Website revisions · Tasks · Club Emprendo Admin{% endblock %}
+
 {% block content %}
 <div class="ce-admin-wrap">
   <div class="ce-admin-card ce-admin-card--wide">
@@ -38,11 +40,8 @@
       }
     </style>
 
-    <h1 style="margin: 0;">Website Revisions</h1>
+    <h1 class="ce-work-title" style="margin: 0;">Website Revisions</h1>
     <div class="ce-actions">
-      <a class="ce-btn ce-btn--ghost" href="{% url 'admin_task_manager_home' %}">Back to task manager</a>
-      <a class="ce-btn ce-btn--ghost" href="{% url 'admin_task_manager_my_tasks' %}">My tasks</a>
-      <a class="ce-btn ce-btn--ghost" href="{% url 'admin_task_manager_overview' %}">Task overview</a>
       <a class="ce-btn" href="{% url 'admin_task_manager_assign' %}">Assign new task</a>
       <a class="ce-btn ce-btn--ghost" href="{{ task_type_admin_url }}">Edit task types</a>
     </div>

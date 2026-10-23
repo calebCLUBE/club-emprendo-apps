@@ -1,5 +1,7 @@
 {% extends "admin/base_site.html" %}
 
+{% block title %}Edit task · Tasks · Club Emprendo Admin{% endblock %}
+
 {% block content %}
 <div class="ce-admin-wrap">
   <div class="ce-admin-card ce-admin-card--wide">
@@ -58,15 +60,18 @@
         color: #666;
         font-size: 13px;
       }
+      .ce-form { max-width: 720px; }
+      .ce-form p > label { display: block; margin-bottom: 6px; color: var(--ce-gray-700); font-size: 13px; font-weight: 600; }
+      .ce-form p > input:not([type="checkbox"]):not([type="radio"]),
+      .ce-form p > select,
+      .ce-form p > textarea { width: 100%; max-width: none; box-sizing: border-box; }
+      .ce-form .helptext { display: block; margin-top: 4px; color: var(--ce-text-muted); font-size: 12.5px; }
     </style>
 
-    <h1 style="margin: 0;">Edit Task</h1>
+    <h1 class="ce-work-title" style="margin: 0;">Edit Task</h1>
     <p class="ce-muted" style="margin: 8px 0 0;">{{ task.title }}</p>
     <div class="ce-actions">
       <a class="ce-btn ce-btn--ghost" href="{% url 'admin_task_manager_user_tasks' task.assigned_to_id %}">Back to user tasks</a>
-      <a class="ce-btn ce-btn--ghost" href="{% url 'admin_task_manager_my_tasks' %}">My tasks</a>
-      <a class="ce-btn ce-btn--ghost" href="{% url 'admin_task_manager_overview' %}">Task overview</a>
-      <a class="ce-btn ce-btn--ghost" href="{% url 'admin_task_manager_home' %}">Task manager</a>
       <a class="ce-btn ce-btn--ghost" href="{{ task_type_admin_url }}">Edit task types</a>
     </div>
 

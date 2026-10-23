@@ -2154,24 +2154,23 @@ a.ce-tile:hover {
 
 /* Application: a clear overview beside the active questions. */
 .ce-application-page .ce-container {
-  max-width: 1300px;
+  max-width: 1680px;
   margin-top: clamp(1.25rem, 3vw, 2.5rem);
+  padding-inline: clamp(1.25rem, 2.5vw, 2.5rem);
 }
 
 .ce-application-page .ce-header-inner {
-  max-width: 1250px;
+  max-width: 1600px;
 }
 
 .ce-application-layout {
   display: grid;
-  grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
+  grid-template-columns: minmax(260px, 300px) minmax(0, 1fr);
   align-items: start;
-  gap: clamp(1.25rem, 3vw, 2.5rem);
+  gap: clamp(1.25rem, 2vw, 2rem);
 }
 
 .ce-application-overview {
-  position: sticky;
-  top: 1.25rem;
   min-width: 0;
 }
 
@@ -2182,7 +2181,7 @@ a.ce-tile:hover {
 .ce-application-page .ce-form-header {
   min-height: 275px;
   margin-bottom: 0.9rem;
-  padding: 2rem;
+  padding: 1.6rem;
   justify-content: flex-start;
   background:
     radial-gradient(circle at 108% 10%, rgba(226, 246, 233, 0.24) 0 18%, transparent 18.2%),
@@ -2192,7 +2191,7 @@ a.ce-tile:hover {
 
 .ce-application-page .ce-form-title {
   max-width: none;
-  font-size: clamp(1.9rem, 2.4vw, 2.25rem);
+  font-size: clamp(1.75rem, 2.1vw, 2.1rem);
   line-height: 1.08;
   overflow-wrap: normal;
   word-break: normal;
@@ -2221,7 +2220,7 @@ a.ce-tile:hover {
 }
 
 .ce-form-steps__heading {
-  margin: 0 0 0.7rem;
+  display: block;
   color: var(--ce-text-secondary);
   font-size: 0.76rem;
   font-weight: 750;
@@ -2229,12 +2228,64 @@ a.ce-tile:hover {
   text-transform: uppercase;
 }
 
+.ce-form-steps__summary {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  list-style: none;
+  cursor: pointer;
+}
+
+.ce-form-steps__summary::-webkit-details-marker {
+  display: none;
+}
+
+.ce-form-steps__summary:focus-visible {
+  outline: 2px solid var(--ce-leaf);
+  outline-offset: 6px;
+  border-radius: 6px;
+}
+
+.ce-form-steps__overview {
+  flex: 1;
+  min-width: 0;
+}
+
+.ce-form-steps__current {
+  display: block;
+  margin-top: 0.35rem;
+  color: var(--ce-forest);
+  font-size: 0.92rem;
+  font-weight: 650;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.ce-form-steps__count {
+  flex: none;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  background: var(--ce-mint);
+  color: var(--ce-forest);
+  font-size: 0.75rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.ce-form-steps__toggle {
+  flex: none;
+  color: var(--ce-leaf);
+}
+
+.ce-form-steps[open] .ce-form-steps__toggle {
+  transform: rotate(180deg);
+}
+
 #ce-stepper:not([hidden]) {
   display: grid;
   gap: 0.25rem;
-  max-height: min(34vh, 270px);
-  overflow-y: auto;
-  padding-right: 0.2rem;
+  margin-top: 0.8rem;
 }
 
 #ce-stepper [data-stepper-item] {
@@ -2306,18 +2357,7 @@ a.ce-tile:hover {
   }
 
   #ce-stepper:not([hidden]) {
-    display: flex;
-    max-height: none;
-    overflow-x: auto;
-    overflow-y: hidden;
-    padding: 0 0 0.25rem;
-    scroll-snap-type: x proximity;
-  }
-
-  #ce-stepper [data-stepper-item] {
-    flex: 0 0 auto;
-    max-width: 220px;
-    scroll-snap-align: start;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .ce-application-privacy {
@@ -2328,6 +2368,7 @@ a.ce-tile:hover {
 @media (max-width: 600px) {
   .ce-application-page .ce-container {
     margin-top: 1rem;
+    padding-inline: 0.75rem;
   }
 
   .ce-application-page .ce-form-header {
@@ -2350,4 +2391,7 @@ a.ce-tile:hover {
     border-radius: 18px;
   }
 
+  #ce-stepper:not([hidden]) {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }

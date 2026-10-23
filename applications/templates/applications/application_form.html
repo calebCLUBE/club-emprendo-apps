@@ -36,8 +36,17 @@
       </div>
 
       {% if sections %}
-        <section class="ce-form-steps" aria-label="Secciones de la aplicación">
-          <p class="ce-form-steps__heading">Tu recorrido</p>
+        <details class="ce-form-steps" aria-label="Secciones de la aplicación" open>
+          <summary class="ce-form-steps__summary">
+            <span class="ce-form-steps__overview">
+              <span class="ce-form-steps__heading">Tu recorrido</span>
+              <span class="ce-form-steps__current" data-step-current>{{ sections.0.title }}</span>
+            </span>
+            <span class="ce-form-steps__count" data-step-count>1 de {{ sections|length }}</span>
+            <svg class="ce-form-steps__toggle" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path d="m4 6 4 4 4-4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+          </summary>
           <div id="ce-stepper" hidden>
             {% for section in sections %}
               <div data-stepper-item
@@ -52,7 +61,7 @@
               </div>
             {% endfor %}
           </div>
-        </section>
+        </details>
       {% endif %}
 
       <p class="ce-application-privacy"><em>Guardamos temporalmente tu progreso para entender dónde se interrumpen las aplicaciones incompletas.</em></p>
@@ -226,6 +235,15 @@
 
       const stepperItems = Array.from(document.querySelectorAll("[data-stepper-item]"));
       const stepper = document.getElementById("ce-stepper");
+      const stepsDisclosure = stepper?.closest("details");
+      const stepTitle = stepsDisclosure?.querySelector("[data-step-current]");
+      const stepCount = stepsDisclosure?.querySelector("[data-step-count]");
+      const narrowLayout = window.matchMedia("(max-width: 900px)");
+      function updateStepsLayout() {
+        if (stepsDisclosure) stepsDisclosure.open = !narrowLayout.matches;
+      }
+      narrowLayout.addEventListener("change", updateStepsLayout);
+      updateStepsLayout();
       const savedSection = Number("{{ draft_current_section|default:1 }}") || 1;
       let current = Math.max(0, Math.min(savedSection - 1, panels.length - 1));
 
@@ -516,6 +534,9 @@
           if (show) el.querySelector(".ce-form-step__number").textContent = String(visibleIndex + 1);
         });
         if (stepper) stepper.hidden = false;
+        const activeStep = stepperItems[panels.indexOf(vis[current])];
+        if (stepTitle) stepTitle.textContent = activeStep?.querySelector(".ce-form-step__title")?.textContent || "";
+        if (stepCount) stepCount.textContent = `${current + 1} de ${vis.length}`;
 
         // Toggle next/submit buttons based on *visible* order
         const lastVisible = vis[vis.length - 1];

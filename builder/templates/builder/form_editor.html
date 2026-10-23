@@ -18,6 +18,29 @@
     /* Make sure the grid itself stretches edge-to-edge inside the container */
     #form-builder-grid {
       width: 100%;
+      grid-template-columns: minmax(380px, 420px) minmax(0, 1fr) !important;
+    }
+
+    /* Staff editor: compact controls (the public form's 48px inputs don't fit here). */
+    #form-builder-grid input:not([type="checkbox"]):not([type="radio"]),
+    #form-builder-grid select,
+    #form-builder-grid textarea {
+      min-height: 32px;
+      padding: 5px 8px;
+      border-width: 1px;
+      border-radius: 8px;
+      font-size: 13px;
+    }
+
+    #form-builder-grid select {
+      padding-right: 28px;
+      background-size: 14px;
+      background-position: right 8px center;
+    }
+
+    #form-builder-grid .ce-card {
+      padding: 1rem 1.1rem;
+      border-radius: 14px;
     }
   </style>
 {% endblock %}

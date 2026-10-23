@@ -8,6 +8,9 @@ from django.urls import reverse
 from .models import FormDefinition, Question
 
 
+# Choice questions with more options than this render as a dropdown.
+MAX_TAPPABLE_CHOICES = 5
+
 _PHONE_KEYWORDS = ("whatsapp", "telefono", "teléfono", "celular", "phone", "movil", "móvil")
 _PHONE_ALLOWED_RE = re.compile(r"^\+?[0-9\s().\-]+$")
 _PHONE_ERROR = (
@@ -357,7 +360,7 @@ def build_application_form(form_slug: str, additional_form_slugs: list[str] | tu
                             initial=None,
                             **common,
                         )
-                    else:
+                    elif len(choices) <= MAX_TAPPABLE_CHOICES:
                         # Large tap targets instead of a dropdown, which many
                         # applicants find hard to use on a phone.
                         field = forms.ChoiceField(
@@ -366,6 +369,14 @@ def build_application_form(form_slug: str, additional_form_slugs: list[str] | tu
                                 attrs={"class": "ce-choice-options"}
                             ),
                             initial=None,
+                            **common,
+                        )
+                    else:
+                        # Long lists (e.g. countries) stay compact as a dropdown.
+                        field = forms.ChoiceField(
+                            choices=[("", "Selecciona una opción")] + choices,
+                            widget=forms.Select(attrs={"class": "ce-choice-select"}),
+                            initial="",
                             **common,
                         )
 

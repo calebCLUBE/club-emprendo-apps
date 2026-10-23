@@ -5358,6 +5358,32 @@ class YesNoChoiceRenderingTests(TestCase):
         self.assertNotIn("q_stage", bound.errors)
         self.assertEqual(bound.cleaned_data["q_stage"], "growing")
 
+    def test_long_choice_lists_use_a_dropdown(self):
+        question = Question.objects.create(
+            form=self.form_def,
+            text="País",
+            slug="country",
+            field_type=Question.CHOICE,
+            required=True,
+            position=6,
+        )
+        for position, (value, label) in enumerate(
+            [("ar", "Argentina"), ("bo", "Bolivia"), ("cl", "Chile"), ("co", "Colombia"), ("mx", "México"), ("pe", "Perú")],
+            start=1,
+        ):
+            Choice.objects.create(question=question, value=value, label=label, position=position)
+
+        form_class = build_application_form(self.form_def.slug)
+        html = str(form_class()["q_country"])
+        self.assertIn("<select", html)
+        self.assertIn("Selecciona una opción", html)
+        self.assertNotIn('type="radio"', html)
+
+        bound = form_class(data={"q_country": "pe"})
+        bound.is_valid()
+        self.assertNotIn("q_country", bound.errors)
+        self.assertEqual(bound.cleaned_data["q_country"], "pe")
+
     def test_phone_and_email_questions_are_validated_and_use_mobile_keyboards(self):
         Question.objects.create(
             form=self.form_def, text="Número de WhatsApp", slug="whatsapp",

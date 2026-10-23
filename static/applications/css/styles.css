@@ -2338,6 +2338,17 @@ a.ce-tile:hover {
   line-height: 1.5;
 }
 
+@media (min-width: 901px) {
+  .ce-application-content .form-row :is(input[type="text"], input[type="email"], input[type="number"], input[type="tel"], input[type="url"], input[type="date"]),
+  .ce-application-content .ce-phone {
+    max-width: 560px;
+  }
+
+  .ce-application-content .form-row textarea {
+    max-width: 720px;
+  }
+}
+
 @media (max-width: 900px) {
   .ce-application-layout {
     display: block;

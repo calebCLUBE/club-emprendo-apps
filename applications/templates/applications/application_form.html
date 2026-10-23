@@ -3,47 +3,74 @@
 {% load app_extras %}
 
 {% block title %}{{ form_def.name }} · Club Emprendo{% endblock %}
+{% block body_class %}ce-application-page{% endblock %}
 
 {% block content %}
+  <div class="ce-application-layout">
+    <aside class="ce-application-overview" aria-label="Resumen de la aplicación">
+      <div class="ce-form-header">
+        {% if combined_flow %}
+          <span class="ce-form-pill">Formulario</span>
+        {% else %}
+          <span class="ce-form-pill">
+            {% if second_stage %}Paso 2{% else %}Paso 1{% endif %}
+          </span>
+        {% endif %}
 
-  {% if not sections and not intro_has_inline_image and form_def.intro_image_data and form_def.intro_image_position != "below" %}
-    <img class="ce-page-image ce-page-image--intro ce-page-image--{{ form_def.intro_image_width }} ce-page-image--align-{{ form_def.intro_image_alignment }}"
-         src="{{ form_def.intro_image_data }}"
-         alt=""
-         loading="eager">
-  {% endif %}
+        <h1 class="ce-form-title ce-heading">{{ display_form_name|default:form_def.name }}</h1>
+        {% if form_def.description and not combined_flow and not rendered_description and not sections %}
+          <div class="ce-form-subtitle">{{ form_def.description|format_rich_text }}</div>
+        {% endif %}
+        <p class="ce-form-header__hint">{% if sections %}Completa cada sección a tu ritmo.{% else %}Completa el formulario a tu ritmo.{% endif %}</p>
+      </div>
 
-  {% if rendered_description %}
-    <div class="form-intro">
-      {{ rendered_description|format_rich_text }}
-    </div>
-  {% endif %}
+      <div class="ce-form-progress" data-application-progress role="progressbar"
+           aria-label="Progreso de la aplicación" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+        <div class="ce-form-progress__meta">
+          <span>Tu progreso</span>
+          <span data-progress-label>0%</span>
+        </div>
+        <div class="ce-form-progress__track">
+          <div class="ce-form-progress__fill" data-progress-fill></div>
+        </div>
+      </div>
 
-  <div class="ce-form-header">
-    {% if combined_flow %}
-      <span class="ce-form-pill">Formulario</span>
-    {% else %}
-      <span class="ce-form-pill">
-        {% if second_stage %}Paso 2{% else %}Paso 1{% endif %}
-      </span>
-    {% endif %}
+      {% if sections %}
+        <section class="ce-form-steps" aria-label="Secciones de la aplicación">
+          <p class="ce-form-steps__heading">Tu recorrido</p>
+          <div id="ce-stepper" hidden>
+            {% for section in sections %}
+              <div data-stepper-item
+                   data-show-if="{{ section.conditions_json|escapejs }}"
+                   data-show-if-question="{{ section.show_if_field_name|default:'' }}"
+                   data-show-if-value="{{ section.show_if_value|default:'' }}"
+                   data-show-if-question-2="{{ section.show_if_field_name_2|default:'' }}"
+                   data-show-if-value-2="{{ section.show_if_value_2|default:'' }}"
+                   data-show-if-logic="{{ section.show_if_logic|default:'AND' }}">
+                <span class="ce-form-step__number" aria-hidden="true">{{ forloop.counter }}</span>
+                <span class="ce-form-step__title">{{ section.title }}</span>
+              </div>
+            {% endfor %}
+          </div>
+        </section>
+      {% endif %}
 
-    <h1 class="ce-form-title ce-heading">{{ display_form_name|default:form_def.name }}</h1>
-    {% if form_def.description and not combined_flow and not rendered_description and not sections %}
-      <div class="ce-form-subtitle">{{ form_def.description|format_rich_text }}</div>
-    {% endif %}
-  </div>
+      <p class="ce-application-privacy"><em>Guardamos temporalmente tu progreso para entender dónde se interrumpen las aplicaciones incompletas.</em></p>
+    </aside>
 
-  <div class="ce-form-progress" data-application-progress role="progressbar"
-       aria-label="Progreso de la aplicación" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
-    <div class="ce-form-progress__meta">
-      <span>Progreso</span>
-      <span data-progress-label>0%</span>
-    </div>
-    <div class="ce-form-progress__track">
-      <div class="ce-form-progress__fill" data-progress-fill></div>
-    </div>
-  </div>
+    <div class="ce-application-content">
+      {% if not sections and not intro_has_inline_image and form_def.intro_image_data and form_def.intro_image_position != "below" %}
+        <img class="ce-page-image ce-page-image--intro ce-page-image--{{ form_def.intro_image_width }} ce-page-image--align-{{ form_def.intro_image_alignment }}"
+             src="{{ form_def.intro_image_data }}"
+             alt=""
+             loading="eager">
+      {% endif %}
+
+      {% if rendered_description %}
+        <div class="form-intro">
+          {{ rendered_description|format_rich_text }}
+        </div>
+      {% endif %}
 
   {% if second_stage and not combined_flow %}
     <div class="ce-alert">
@@ -53,27 +80,8 @@
 
   <form method="post" class="ce-application-form" novalidate>
     {% csrf_token %}
-    <p class="ce-muted" style="font-size:12px; margin:0 0 12px;">
-      <em>Guardamos temporalmente tu progreso para entender dónde se interrumpen las aplicaciones incompletas.</em>
-    </p>
 
     {% if sections %}
-      <div id="ce-stepper" hidden>
-        {% for section in sections %}
-          <div data-stepper-item
-               title="{{ section.title }}"
-               data-show-if="{{ section.conditions_json|escapejs }}"
-               data-show-if-question="{{ section.show_if_field_name|default:'' }}"
-               data-show-if-value="{{ section.show_if_value|default:'' }}"
-               data-show-if-question-2="{{ section.show_if_field_name_2|default:'' }}"
-               data-show-if-value-2="{{ section.show_if_value_2|default:'' }}"
-               data-show-if-logic="{{ section.show_if_logic|default:'AND' }}"
-               style="padding:6px 10px; border-radius:999px; background:#f2f4ff; color:#2c3191; font-size:13px; display:flex; align-items:center; gap:6px;">
-            <span style="display:inline-block; width:22px; height:22px; border-radius:999px; background:#2c3191; color:#fff; text-align:center; line-height:22px; font-size:12px;">{{ forloop.counter }}</span>
-          </div>
-        {% endfor %}
-      </div>
-
       <div id="ce-section-container">
         {% for section in sections %}
           <div class="ce-section-panel{% if section.is_intro %} ce-intro-panel{% endif %}"
@@ -156,6 +164,8 @@
       </div>
     {% endif %}
   </form>
+    </div>
+  </div>
 
   <script>
     (function () {
@@ -215,6 +225,7 @@
       if (!panels.length) return;
 
       const stepperItems = Array.from(document.querySelectorAll("[data-stepper-item]"));
+      const stepper = document.getElementById("ce-stepper");
       const savedSection = Number("{{ draft_current_section|default:1 }}") || 1;
       let current = Math.max(0, Math.min(savedSection - 1, panels.length - 1));
 
@@ -496,10 +507,15 @@
         stepperItems.forEach((el, i) => {
           const matchPanel = panels[i];
           const show = vis.includes(matchPanel);
+          const visibleIndex = vis.indexOf(matchPanel);
           el.style.display = show ? "flex" : "none";
-          el.style.background = show && matchPanel === vis[current] ? "#2c3191" : "#f2f4ff";
-          el.style.color = show && matchPanel === vis[current] ? "#fff" : "#2c3191";
+          el.classList.toggle("is-active", show && visibleIndex === current);
+          el.classList.toggle("is-complete", show && visibleIndex < current);
+          if (show && visibleIndex === current) el.setAttribute("aria-current", "step");
+          else el.removeAttribute("aria-current");
+          if (show) el.querySelector(".ce-form-step__number").textContent = String(visibleIndex + 1);
         });
+        if (stepper) stepper.hidden = false;
 
         // Toggle next/submit buttons based on *visible* order
         const lastVisible = vis[vis.length - 1];
@@ -522,9 +538,10 @@
         });
 
         if (opts.scroll) {
-          const header = document.querySelector(".ce-form-header");
-          const top = header ? header.offsetTop : 0;
-          window.scrollTo({ top: Math.max(top - 10, 0), behavior: "smooth" });
+          const formContent = document.getElementById("ce-section-container");
+          const top = formContent ? formContent.getBoundingClientRect().top + window.scrollY : 0;
+          const offset = window.matchMedia("(max-width: 600px)").matches ? 82 : 24;
+          window.scrollTo({ top: Math.max(top - offset, 0), behavior: "smooth" });
         }
       }
 

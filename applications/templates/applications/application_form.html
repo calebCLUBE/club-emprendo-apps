@@ -259,7 +259,7 @@
           key.includes("phone") ||
           key.includes("movil")
         ) {
-          return text.toLowerCase().replace(/\s+/g, "").replace(/[^0-9+]/g, "");
+          return text.replace(/[^0-9]/g, "");
         }
         return text;
       }
@@ -393,6 +393,12 @@
             clearConfirmError(source);
           }
         });
+
+        const formatRow = window.ceFormatCheck ? window.ceFormatCheck(panel) : null;
+        if (formatRow) {
+          ok = false;
+          if (!firstInvalidRow) firstInvalidRow = formatRow;
+        }
 
         if (!ok && firstInvalidRow) {
           firstInvalidRow.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -1038,6 +1044,153 @@
       document.addEventListener("visibilitychange", () => {
         if (document.visibilityState === "hidden" && interacted) save();
       });
+    })();
+  </script>
+
+  <script>
+    // Email / WhatsApp format checks with plain-language messages. The step
+    // validation calls window.ceFormatCheck(panel); the server checks again.
+    (function () {
+      const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+      const PHONE_RE = /^\+?[0-9\s().\-]+$/;
+      const DOMAIN_FIXES = {
+        "gmial.com": "gmail.com", "gmal.com": "gmail.com", "gmai.com": "gmail.com", "gamil.com": "gmail.com",
+        "gnail.com": "gmail.com", "gmail.co": "gmail.com", "gmail.con": "gmail.com", "gmail.cm": "gmail.com",
+        "gmail.om": "gmail.com", "gmaill.com": "gmail.com",
+        "hotmial.com": "hotmail.com", "hotmal.com": "hotmail.com", "hotmai.com": "hotmail.com",
+        "hotmail.co": "hotmail.com", "hotmail.con": "hotmail.com", "hotamil.com": "hotmail.com",
+        "yahooo.com": "yahoo.com", "yaho.com": "yahoo.com", "yahoo.co": "yahoo.com", "yahoo.con": "yahoo.com",
+        "outlok.com": "outlook.com", "outloo.com": "outlook.com", "outlook.co": "outlook.com", "outlook.con": "outlook.com",
+        "icloud.co": "icloud.com", "icloud.con": "icloud.com",
+      };
+      const EMAIL_MESSAGE = "Ingresa una dirección de correo electrónico válida. Ejemplo: nombre@gmail.com";
+      const PHONE_MESSAGE = "Escribe un número de WhatsApp válido, solo con números e incluyendo el indicativo de tu país. Ejemplo: +57 300 123 4567";
+
+      function kindOf(input) {
+        if (input.matches("[data-ce-email], input[type='email']")) return "email";
+        if (input.matches("[data-ce-phone]")) return "phone";
+        if (input.dataset.confirmOf) {
+          const key = input.dataset.confirmOf.toLowerCase();
+          if (key.includes("email") || key.includes("correo")) return "email";
+          if (["whatsapp", "telefono", "celular", "phone", "movil"].some((t) => key.includes(t))) return "phone";
+        }
+        return "";
+      }
+
+      function problemFor(input) {
+        const value = String(input.value || "").trim();
+        if (!value) return "";
+        const kind = kindOf(input);
+        if (kind === "email" && !EMAIL_RE.test(value)) return EMAIL_MESSAGE;
+        if (kind === "phone") {
+          const digits = value.replace(/\D/g, "");
+          if (!PHONE_RE.test(value) || digits.length < 8 || digits.length > 15) return PHONE_MESSAGE;
+        }
+        return "";
+      }
+
+      function host(input) {
+        return input.closest(".form-row") || input.parentElement;
+      }
+
+      function clearFormat(input) {
+        const row = host(input);
+        row.querySelectorAll(".format-error").forEach((el) => el.remove());
+        if (input.dataset.ceFormatInvalid) {
+          input.style.borderColor = "";
+          delete input.dataset.ceFormatInvalid;
+        }
+      }
+
+      function showFormat(input, message) {
+        clearFormat(input);
+        const err = document.createElement("span");
+        err.className = "form-help format-error";
+        err.style.color = "#d14b4b";
+        err.setAttribute("role", "alert");
+        err.textContent = message;
+        input.insertAdjacentElement("afterend", err);
+        input.style.borderColor = "#d14b4b";
+        input.dataset.ceFormatInvalid = "1";
+      }
+
+      function suggestEmail(input) {
+        const row = host(input);
+        row.querySelectorAll(".ce-email-suggestion").forEach((el) => el.remove());
+        const value = String(input.value || "").trim().toLowerCase();
+        const at = value.lastIndexOf("@");
+        if (at < 1) return;
+        const fixed = DOMAIN_FIXES[value.slice(at + 1)];
+        if (!fixed) return;
+        const suggestion = value.slice(0, at + 1) + fixed;
+        const box = document.createElement("div");
+        box.className = "ce-email-suggestion";
+        box.append("¿Quisiste decir ");
+        const strong = document.createElement("strong");
+        strong.textContent = suggestion;
+        box.append(strong, "? ");
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = "Sí, corregir";
+        button.addEventListener("click", function () {
+          input.value = suggestion;
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+          input.dispatchEvent(new Event("change", { bubbles: true }));
+          box.remove();
+          clearFormat(input);
+        });
+        box.append(button);
+        input.insertAdjacentElement("afterend", box);
+      }
+
+      function isShown(el) {
+        if (el.closest(".form-question")?.style.display === "none") return false;
+        return !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
+      }
+
+      window.ceFormatCheck = function (scope) {
+        let firstRow = null;
+        (scope || document).querySelectorAll("input").forEach((input) => {
+          if (!kindOf(input) || !isShown(input)) return;
+          const problem = problemFor(input);
+          if (problem) {
+            showFormat(input, problem);
+            if (!firstRow) firstRow = host(input);
+          } else {
+            clearFormat(input);
+          }
+        });
+        return firstRow;
+      };
+
+      document.addEventListener("focusout", function (event) {
+        const input = event.target;
+        if (!(input instanceof HTMLInputElement) || !kindOf(input)) return;
+        const problem = problemFor(input);
+        if (problem) showFormat(input, problem);
+        else clearFormat(input);
+        if (kindOf(input) === "email" && !input.dataset.confirmOf) suggestEmail(input);
+      });
+
+      document.addEventListener("input", function (event) {
+        const input = event.target;
+        if (input instanceof HTMLInputElement && input.dataset.ceFormatInvalid && !problemFor(input)) {
+          clearFormat(input);
+        }
+      });
+
+      // Check visible fields on submit too (the last step's "Enviar" and forms without steps).
+      const form = document.querySelector("form.ce-application-form");
+      if (form) {
+        form.addEventListener("submit", function (event) {
+          const row = window.ceFormatCheck(form);
+          if (row) {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            row.scrollIntoView({ behavior: "smooth", block: "center" });
+          }
+        }, true);
+      }
     })();
   </script>
 

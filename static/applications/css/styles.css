@@ -1289,3 +1289,238 @@ a.ce-tile:hover {
     animation-duration: 0.01ms !important;
   }
 }
+
+/* ===============================
+   Mobile-first application polish
+   =============================== */
+
+/* The page can never be wider than the screen (a long unbroken title made
+   the whole form drag sideways on phones). */
+html,
+body {
+  overflow-x: clip;
+}
+
+.ce-form-title,
+.ce-heading,
+.form-row > label {
+  overflow-wrap: anywhere;
+}
+
+.form-intro,
+.ce-section-intro,
+.ce-help-text,
+.ce-alert,
+.ce-terms-page__content {
+  overflow-wrap: break-word;
+}
+
+.form-intro :is(img, video, iframe, table),
+.ce-section-intro :is(img, video, iframe, table),
+.ce-help-text :is(img, video, iframe, table) {
+  max-width: 100%;
+}
+
+/* Choice questions (formerly dropdowns): large options, two columns when there is room. */
+.form-row div.ce-choice-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 0.55rem;
+  margin-top: 0.2rem;
+}
+
+.form-row div.ce-choice-options > div {
+  margin: 0;
+}
+
+.form-row div.ce-choice-options label:not(.ce-grid-choice) {
+  height: 100%;
+  margin: 0;
+}
+
+/* Messages added while typing (browser checks) match the server's style. */
+.form-help.required-error,
+.form-help.confirm-error,
+.form-help.format-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.45rem;
+  margin: 0.55rem 0 0;
+  font-weight: 600;
+}
+
+.form-help.required-error::before,
+.form-help.confirm-error::before,
+.form-help.format-error::before {
+  flex: none;
+  width: 1.05rem;
+  height: 1.05rem;
+  margin-top: 0.12rem;
+  border-radius: 50%;
+  background: #d14b4b;
+  color: #fff;
+  content: "!";
+  font-size: 0.72rem;
+  font-weight: 800;
+  line-height: 1.05rem;
+  text-align: center;
+}
+
+.ce-email-suggestion {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.6rem;
+  margin: 0.6rem 0 0;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid rgba(107, 60, 196, 0.22);
+  border-radius: var(--ce-radius-md);
+  background: var(--ce-purple-50);
+  color: #3f305f;
+  font-size: 0.95rem;
+}
+
+.ce-email-suggestion button {
+  min-height: 40px;
+  padding: 0.45rem 1rem;
+  border: 0;
+  border-radius: 999px;
+  background: var(--ce-purple);
+  color: #fff;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+@media (max-width: 600px) {
+  body {
+    font-size: 17px;
+  }
+
+  .ce-container {
+    margin-top: 1rem;
+    padding: 0 0.75rem;
+  }
+
+  .ce-form-header {
+    gap: 0.45rem;
+    margin-bottom: 1rem;
+  }
+
+  .ce-form-title {
+    font-size: 1.6rem;
+  }
+
+  /* Progress stays visible while scrolling. */
+  .ce-form-progress {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    margin: 0 -0.75rem 1rem;
+    padding: 0.65rem 1rem 0.75rem;
+    border-width: 0 0 1px;
+    border-radius: 0;
+    background: rgba(255, 255, 255, 0.94);
+    -webkit-backdrop-filter: saturate(180%) blur(10px);
+    backdrop-filter: saturate(180%) blur(10px);
+  }
+
+  .ce-section-panel,
+  .ce-application-form:not(:has(.ce-section-panel)) {
+    padding: 1.35rem 1.1rem 1.5rem;
+    border-radius: 18px;
+  }
+
+  .form-row {
+    margin-bottom: 1.5rem;
+  }
+
+  .form-row > label {
+    font-size: 1.06rem;
+    line-height: 1.4;
+  }
+
+  .form-help {
+    font-size: 0.95rem;
+  }
+
+  input[type="text"],
+  input[type="email"],
+  input[type="number"],
+  input[type="tel"],
+  input[type="url"],
+  input[type="date"],
+  select {
+    min-height: 54px;
+    font-size: 17px;
+  }
+
+  textarea {
+    font-size: 17px;
+  }
+
+  .form-row label:not(.ce-grid-choice):has(> input[type="radio"]),
+  .form-row label:not(.ce-grid-choice):has(> input[type="checkbox"]) {
+    min-height: 56px;
+    padding: 0.8rem 1rem;
+    font-size: 1.02rem;
+  }
+
+  .form-row label:not(.ce-grid-choice):has(> input[type="radio"]) > input[type="radio"],
+  .form-row label:not(.ce-grid-choice):has(> input[type="checkbox"]) > input[type="checkbox"] {
+    width: 22px;
+    height: 22px;
+  }
+
+  .form-row div.ce-choice-options {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* One clear action bar at the bottom of the screen instead of floating pills. */
+  .ce-application-form {
+    padding-bottom: 6.5rem;
+  }
+
+  .ce-application-form::after {
+    position: fixed;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 999;
+    height: calc(5rem + env(safe-area-inset-bottom));
+    border-top: 1px solid var(--ce-border);
+    background: rgba(255, 255, 255, 0.96);
+    box-shadow: 0 -8px 24px -12px rgba(26, 25, 23, 0.25);
+    content: "";
+    pointer-events: none;
+    -webkit-backdrop-filter: saturate(180%) blur(10px);
+    backdrop-filter: saturate(180%) blur(10px);
+  }
+
+  .ce-floating-forward,
+  .ce-floating-back {
+    bottom: calc(0.85rem + env(safe-area-inset-bottom));
+    width: calc(50% - 1.35rem);
+    min-width: 0;
+    min-height: 52px;
+    box-shadow: none;
+  }
+
+  .ce-floating-forward {
+    right: 1rem;
+    left: auto;
+    box-shadow: 0 8px 18px -8px rgba(34, 52, 19, 0.6);
+  }
+
+  .ce-floating-back {
+    right: auto;
+    left: 1rem;
+  }
+
+  /* On the first step there is no "Anterior": the main button takes the full bar. */
+  .ce-section-panel:not(:has(.ce-floating-back)) .ce-floating-forward,
+  .ce-application-form:not(:has(.ce-section-panel)) .ce-floating-forward {
+    left: 1rem;
+    width: auto;
+  }
+}

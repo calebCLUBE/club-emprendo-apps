@@ -3,8 +3,71 @@ import json
 import re
 import unicodedata
 from django import forms
+from django.core.exceptions import ValidationError
 from django.urls import reverse
 from .models import FormDefinition, Question
+
+
+_PHONE_KEYWORDS = ("whatsapp", "telefono", "teléfono", "celular", "phone", "movil", "móvil")
+_PHONE_ALLOWED_RE = re.compile(r"^\+?[0-9\s().\-]+$")
+_PHONE_ERROR = (
+    "Escribe un número de WhatsApp válido, solo con números e incluyendo el "
+    "indicativo de tu país. Ejemplo: +57 300 123 4567"
+)
+
+
+def _is_phone_question(question) -> bool:
+    key = f"{question.slug} {question.text}".lower()
+    return any(token in key for token in _PHONE_KEYWORDS)
+
+
+def _is_email_question(question) -> bool:
+    key = f"{question.slug} {question.text}".lower()
+    return "email" in key or "correo" in key
+
+
+def _validate_phone_text(value):
+    text = str(value or "").strip()
+    if not text:
+        return
+    digits = re.sub(r"\D", "", text)
+    if not _PHONE_ALLOWED_RE.match(text) or not 8 <= len(digits) <= 15:
+        raise ValidationError(_PHONE_ERROR)
+
+
+class PhoneIntegerField(forms.IntegerField):
+    """Integer phone questions: accept "+57 300-123 4567" and keep storing digits."""
+
+    def to_python(self, value):
+        if isinstance(value, str):
+            value = re.sub(r"[\s().\-]", "", value)
+        try:
+            return super().to_python(value)
+        except ValidationError:
+            raise ValidationError(_PHONE_ERROR, code="invalid")
+
+    def validate(self, value):
+        super().validate(value)
+        if value not in self.empty_values and not 8 <= len(str(abs(int(value)))) <= 15:
+            raise ValidationError(_PHONE_ERROR, code="invalid")
+
+
+def _phone_widget():
+    widget = forms.TextInput(attrs={"inputmode": "tel", "autocomplete": "tel", "data-ce-phone": "1"})
+    widget.input_type = "tel"
+    return widget
+
+
+def _email_widget():
+    return forms.EmailInput(
+        attrs={
+            "inputmode": "email",
+            "autocomplete": "email",
+            "autocapitalize": "none",
+            "spellcheck": "false",
+            "data-ce-email": "1",
+        }
+    )
 
 
 _PRE_RE = re.compile(
@@ -40,7 +103,7 @@ def _normalize_confirm_value(value, *, source_field_name: str) -> str:
         token in field_key
         for token in ("whatsapp", "telefono", "celular", "phone", "movil")
     ):
-        return re.sub(r"[^0-9+]", "", canonical.lower().replace(" ", ""))
+        return re.sub(r"[^0-9]", "", canonical)
 
     return canonical
 
@@ -212,15 +275,26 @@ def build_application_form(form_slug: str, additional_form_slugs: list[str] | tu
                     conds = [{"question_id": show_if_q.id, "value": show_if_value}]
 
                 if field_type == Question.SHORT_TEXT:
-                    question_key = f"{q.slug} {q.text}".lower()
-                    if "email" in question_key or "correo" in question_key:
+                    if _is_email_question(q):
                         field = forms.EmailField(
                             initial="",
-                            error_messages={"invalid": "Ingresa una dirección de correo electrónico válida."},
+                            widget=_email_widget(),
+                            error_messages={
+                                "invalid": "Ingresa una dirección de correo electrónico válida. Ejemplo: nombre@gmail.com",
+                            },
+                            **common,
+                        )
+                    elif _is_phone_question(q):
+                        field = forms.CharField(
+                            initial="",
+                            widget=_phone_widget(),
+                            validators=[_validate_phone_text],
                             **common,
                         )
                     else:
                         field = forms.CharField(initial="", **common)
+                        if q.slug in ("full_name", "nombre_completo", "name", "nombre"):
+                            field.widget.attrs["autocomplete"] = "name"
 
                 elif field_type == Question.LONG_TEXT:
                     field = forms.CharField(
@@ -231,11 +305,19 @@ def build_application_form(form_slug: str, additional_form_slugs: list[str] | tu
 
                 elif field_type == Question.INTEGER:
                     # Keep blank by default (no 0)
-                    field = forms.IntegerField(
-                        initial=None,
-                        widget=forms.NumberInput(),
-                        **common,
-                    )
+                    if _is_phone_question(q):
+                        # A phone keypad with "+", spaces and dashes allowed; still stored as digits.
+                        field = PhoneIntegerField(
+                            initial=None,
+                            widget=_phone_widget(),
+                            **common,
+                        )
+                    else:
+                        field = forms.IntegerField(
+                            initial=None,
+                            widget=forms.NumberInput(attrs={"inputmode": "numeric"}),
+                            **common,
+                        )
 
                 elif field_type in (Question.BOOLEAN, Question.TERMS_ACCEPTANCE):
                     choices = [
@@ -276,10 +358,14 @@ def build_application_form(form_slug: str, additional_form_slugs: list[str] | tu
                             **common,
                         )
                     else:
+                        # Large tap targets instead of a dropdown, which many
+                        # applicants find hard to use on a phone.
                         field = forms.ChoiceField(
-                            choices=[("", "— Selecciona —")] + choices,
-                            widget=forms.Select,
-                            initial="",
+                            choices=choices,
+                            widget=forms.RadioSelect(
+                                attrs={"class": "ce-choice-options"}
+                            ),
+                            initial=None,
                             **common,
                         )
 
@@ -344,6 +430,14 @@ def build_application_form(form_slug: str, additional_form_slugs: list[str] | tu
                     confirm_field.widget.attrs["source_form_id"] = str(q.form_id)
                     confirm_field.widget.attrs["data-base-required"] = "1" if q.required else ""
                     confirm_field.widget.attrs["data-confirm-of"] = field_name
+                    if _is_email_question(q):
+                        confirm_field.widget.input_type = "email"
+                        confirm_field.widget.attrs.update(
+                            {"inputmode": "email", "autocomplete": "off", "autocapitalize": "none", "spellcheck": "false"}
+                        )
+                    elif _is_phone_question(q):
+                        confirm_field.widget.input_type = "tel"
+                        confirm_field.widget.attrs.update({"inputmode": "tel", "autocomplete": "off"})
                     confirm_field._ce_base_required = q.required
                     if show_if_q and show_if_value:
                         confirm_field.widget.attrs["show_if_question"] = f"q_{show_if_q.slug}"

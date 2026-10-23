@@ -5308,7 +5308,7 @@ class YesNoChoiceRenderingTests(TestCase):
 
         self.assertRegex(html, r'value="yes"[^>]*checked')
 
-    def test_non_yes_no_choice_keeps_select_placeholder(self):
+    def test_non_yes_no_choice_renders_large_radio_options_instead_of_dropdown(self):
         question = Question.objects.create(
             form=self.form_def,
             text="Selecciona una etapa",
@@ -5333,8 +5333,53 @@ class YesNoChoiceRenderingTests(TestCase):
         form = build_application_form(self.form_def.slug)()
         html = str(form["q_stage"])
 
-        self.assertIn("<select", html)
-        self.assertIn("— Selecciona —", html)
+        self.assertNotIn("<select", html)
+        self.assertNotIn("— Selecciona —", html)
+        self.assertIn('class="ce-choice-options"', html)
+        self.assertEqual(html.count('type="radio"'), 2)
+        self.assertIn('value="starting"', html)
+        self.assertIn("Creciendo", html)
+
+        bound = build_application_form(self.form_def.slug)(data={"q_stage": "growing"})
+        bound.is_valid()
+        self.assertNotIn("q_stage", bound.errors)
+        self.assertEqual(bound.cleaned_data["q_stage"], "growing")
+
+    def test_phone_and_email_questions_are_validated_and_use_mobile_keyboards(self):
+        Question.objects.create(
+            form=self.form_def, text="Número de WhatsApp", slug="whatsapp",
+            field_type=Question.SHORT_TEXT, required=True, position=3,
+        )
+        Question.objects.create(
+            form=self.form_def, text="WhatsApp (con indicativo)", slug="numero_de_whatsapp",
+            field_type=Question.INTEGER, required=True, position=4,
+        )
+        Question.objects.create(
+            form=self.form_def, text="Correo electrónico", slug="correo",
+            field_type=Question.SHORT_TEXT, required=True, position=5,
+        )
+        form_class = build_application_form(self.form_def.slug)
+
+        html = str(form_class()["q_numero_de_whatsapp"])
+        self.assertIn('type="tel"', html)
+        self.assertIn('inputmode="tel"', html)
+        self.assertIn('type="email"', str(form_class()["q_correo"]))
+
+        bad = form_class(data={"q_whatsapp": "12345", "q_numero_de_whatsapp": "hola", "q_correo": "ana@gmail"})
+        bad.is_valid()
+        self.assertIn("q_whatsapp", bad.errors)
+        self.assertIn("q_numero_de_whatsapp", bad.errors)
+        self.assertIn("q_correo", bad.errors)
+
+        good = form_class(data={
+            "q_whatsapp": "+57 300 123 4567",
+            "q_numero_de_whatsapp": "+57 (300) 123-4567",
+            "q_correo": "ana@gmail.com",
+        })
+        good.is_valid()
+        for name in ("q_whatsapp", "q_numero_de_whatsapp", "q_correo"):
+            self.assertNotIn(name, good.errors)
+        self.assertEqual(good.cleaned_data["q_numero_de_whatsapp"], 573001234567)
 
     def test_boolean_editor_type_uses_the_same_unselected_radio_layout(self):
         Question.objects.create(

@@ -1,4 +1,5 @@
 import io
+import logging
 import os
 import re
 import threading
@@ -15,6 +16,7 @@ from django.contrib.admin.views.decorators import staff_member_required
 from django.conf import settings
 from django.core.cache import cache
 from django.core.mail import EmailMultiAlternatives, get_connection
+from django.db import DatabaseError, connection as db_connection
 from django.db.models import Avg, Count, Min, Q, Sum
 from django.db.models.functions import TruncDay, TruncMonth, TruncWeek
 from django.http import HttpResponse
@@ -30,6 +32,7 @@ from .admin_views import (
     _load_database_encuestas_grid,
     _month_name_to_number,
 )
+from .drive_sync import drive_read_timeout
 from .models import (
     Application,
     ApplicationDraft,
@@ -39,6 +42,7 @@ from .models import (
     GradingJob,
     GroupParticipantList,
     HistoricalGroupImport,
+    ImpactSurveySnapshot,
     PairingJob,
     ParticipantSheetVersion,
     Question,
@@ -360,6 +364,8 @@ IMPACT_SURVEY_SECTIONS = [
         "color": "#F59E0B",
     },
 ]
+logger = logging.getLogger(__name__)
+
 IMPACT_CACHE_SECONDS = max(60, int(os.getenv("IMPACT_DASHBOARD_CACHE_SECONDS", "300")))
 IMPACT_STALE_CACHE_SECONDS = max(
     IMPACT_CACHE_SECONDS,
@@ -883,6 +889,45 @@ def _build_wellbeing_email_scores(
     return scores
 
 
+# A first download (no saved copy to fall back on) may take longer than usual.
+IMPACT_FIRST_LOAD_TIMEOUT_SECONDS = 25
+
+
+def _impact_saved_grid(kind: str):
+    """(grid, fetched_at) from the last successful Drive download, or (None, None)."""
+    try:
+        snapshot = ImpactSurveySnapshot.objects.filter(kind=kind).first()
+    except DatabaseError:
+        return None, None
+    if snapshot is None:
+        return None, None
+    grid = (
+        snapshot.label,
+        list(snapshot.headers or []),
+        [list(row) for row in (snapshot.rows or [])],
+        snapshot.file_name,
+        snapshot.file_id,
+    )
+    return grid, snapshot.fetched_at
+
+
+def _save_impact_grid(kind: str, grid) -> None:
+    label, headers, rows, file_name, file_id = grid
+    try:
+        ImpactSurveySnapshot.objects.update_or_create(
+            kind=kind,
+            defaults={
+                "label": str(label or "")[:255],
+                "headers": [str(h) for h in (headers or [])],
+                "rows": [[str(cell) for cell in row] for row in (rows or [])],
+                "file_name": str(file_name or "")[:255],
+                "file_id": str(file_id or "")[:255],
+            },
+        )
+    except DatabaseError:
+        logger.warning("Could not save the %s impact survey snapshot.", kind, exc_info=True)
+
+
 def _build_impact_dataset(
     kind: str,
     title: str,
@@ -896,16 +941,31 @@ def _build_impact_dataset(
     grid = None if refresh else cache.get(cache_key)
     stale = False
     if grid is None:
-        try:
-            grid = _load_database_encuestas_grid(kind)
-        except Exception:
-            grid = cache.get(stale_cache_key)
-            if grid is None:
-                raise
-            stale = True
-        else:
-            cache.set(cache_key, grid, timeout=IMPACT_CACHE_SECONDS)
+        stale_grid = cache.get(stale_cache_key)
+        saved_grid, saved_at = (None, None) if stale_grid is not None else _impact_saved_grid(kind)
+        saved_age = (timezone.now() - saved_at).total_seconds() if saved_at else None
+        if not refresh and saved_grid is not None and saved_age is not None and saved_age < IMPACT_CACHE_SECONDS:
+            # The file cache was wiped (e.g. by a deploy): reuse the recent saved copy.
+            grid = saved_grid
+            cache.set(cache_key, grid, timeout=max(60, int(IMPACT_CACHE_SECONDS - saved_age)))
             cache.set(stale_cache_key, grid, timeout=IMPACT_STALE_CACHE_SECONDS)
+        else:
+            fallback = stale_grid if stale_grid is not None else saved_grid
+            try:
+                if fallback is None:
+                    with drive_read_timeout(IMPACT_FIRST_LOAD_TIMEOUT_SECONDS):
+                        grid = _load_database_encuestas_grid(kind)
+                else:
+                    grid = _load_database_encuestas_grid(kind)
+            except Exception:
+                grid = fallback
+                if grid is None:
+                    raise
+                stale = True
+            else:
+                cache.set(cache_key, grid, timeout=IMPACT_CACHE_SECONDS)
+                cache.set(stale_cache_key, grid, timeout=IMPACT_STALE_CACHE_SECONDS)
+                _save_impact_grid(kind, grid)
 
     label, headers, raw_rows, file_name, file_id = grid
     rows = _non_empty_rows(raw_rows)
@@ -2939,7 +2999,14 @@ def _load_impact_survey_datasets(
     # response from multiplying the request duration by four.
     results: dict[str, tuple[dict, set[str], Exception | None]] = {}
     with ThreadPoolExecutor(max_workers=min(4, len(IMPACT_SURVEY_SECTIONS))) as executor:
-        futures = {executor.submit(_load, section): section for section in IMPACT_SURVEY_SECTIONS}
+        def _load_and_release(section: dict):
+            try:
+                return _load(section)
+            finally:
+                # Worker threads open their own database connection (saved survey copies).
+                db_connection.close()
+
+        futures = {executor.submit(_load_and_release, section): section for section in IMPACT_SURVEY_SECTIONS}
         for future in as_completed(futures):
             kind, dataset, email_set, error = future.result()
             results[kind] = (dataset, email_set, error)

@@ -8,6 +8,8 @@ import base64
 import csv
 import io
 import threading
+import contextvars
+from contextlib import contextmanager
 from urllib.parse import parse_qs, urlparse
 from dataclasses import dataclass
 
@@ -585,6 +587,31 @@ def _service_and_root() -> tuple[object, str]:
     )
 
 
+_READ_TIMEOUT_OVERRIDE = contextvars.ContextVar("drive_read_timeout_override", default=None)
+
+
+@contextmanager
+def drive_read_timeout(seconds: float):
+    """Allow slower Drive reads (e.g. a large Sheet export) inside this block."""
+    token = _READ_TIMEOUT_OVERRIDE.set(float(seconds))
+    try:
+        yield
+    finally:
+        _READ_TIMEOUT_OVERRIDE.reset(token)
+
+
+def _drive_read_timeout_seconds() -> float:
+    try:
+        read_timeout = float(os.getenv("GOOGLE_DRIVE_READ_TIMEOUT_SECONDS", "8"))
+    except (TypeError, ValueError):
+        read_timeout = 8.0
+    read_timeout = max(3.0, min(read_timeout, 20.0))
+    override = _READ_TIMEOUT_OVERRIDE.get()
+    if override:
+        read_timeout = max(read_timeout, min(float(override), 45.0))
+    return read_timeout
+
+
 def _service_for_drive_reads() -> object:
     key_path, key_json, _root_folder_id = _load_config()
     oauth_client_id, oauth_client_secret, oauth_refresh_token = _oauth_env_config()
@@ -598,11 +625,7 @@ def _service_for_drive_reads() -> object:
         )
     if key_path and not key_json and not has_oauth and not os.path.exists(key_path):
         raise RuntimeError(f"Drive key file not found at {key_path}.")
-    try:
-        read_timeout = float(os.getenv("GOOGLE_DRIVE_READ_TIMEOUT_SECONDS", "8"))
-    except (TypeError, ValueError):
-        read_timeout = 8.0
-    read_timeout = max(3.0, min(read_timeout, 20.0))
+    read_timeout = _drive_read_timeout_seconds()
     return _build_service(
         key_path,
         key_json,
@@ -1151,7 +1174,7 @@ def fetch_drive_csv_file_text(file_ref: str) -> tuple[str, str, str]:
                     export_url,
                     params={"format": "csv", "gid": gid},
                     headers=headers,
-                    timeout=8,
+                    timeout=_drive_read_timeout_seconds(),
                     follow_redirects=True,
                 )
                 if resp.status_code < 400 and resp.content:

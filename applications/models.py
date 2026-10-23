@@ -1401,3 +1401,22 @@ class UserTask(models.Model):
         if self.task_type_ref_id:
             return self.task_type_ref.name
         return self.LEGACY_TASK_TYPE_LABELS.get(self.task_type, self.task_type or "—")
+
+
+class ImpactSurveySnapshot(models.Model):
+    """Last successful download of an Impact survey sheet from Google Drive.
+
+    Kept in the database so the Impact dashboard can show recent data right
+    after a deploy (the file cache is wiped) or while Drive is slow.
+    """
+
+    kind = models.CharField(max_length=40, unique=True)
+    label = models.CharField(max_length=255, blank=True, default="")
+    headers = models.JSONField(default=list, blank=True)
+    rows = models.JSONField(default=list, blank=True)
+    file_name = models.CharField(max_length=255, blank=True, default="")
+    file_id = models.CharField(max_length=255, blank=True, default="")
+    fetched_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self) -> str:
+        return f"{self.kind} ({self.fetched_at:%Y-%m-%d %H:%M})"

@@ -3,6 +3,9 @@
 
 {% block title %}Términos y condiciones · Club Emprendo{% endblock %}
 
+{# Shown inside the application's pop-up viewer when ?embed=1. #}
+{% block body_class %}{% if request.GET.embed %}ce-embed{% endif %}{% endblock %}
+
 {% block content %}
   <article class="ce-terms-page">
     <p class="ce-terms-page__eyebrow">{{ form_def.name }}</p>

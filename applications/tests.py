@@ -914,6 +914,19 @@ class TermsAndConditionsQuestionTests(TestCase):
             "Utilizaremos la información para gestionar la aplicación.",
         )
 
+    def test_terms_page_can_be_shown_in_the_application_viewer(self):
+        url = reverse(
+            "application_terms",
+            kwargs={"form_slug": self.form_def.slug, "question_id": self.question.id},
+        )
+        embedded = self.client.get(url, {"embed": "1"})
+
+        self.assertEqual(embedded.status_code, 200)
+        self.assertEqual(embedded["X-Frame-Options"], "SAMEORIGIN")
+        self.assertContains(embedded, 'class="ce-embed"')
+        self.assertContains(embedded, "Uso de información")
+        self.assertNotContains(self.client.get(url), 'class="ce-embed"')
+
     def test_terms_page_rejects_question_from_another_application(self):
         other_form = FormDefinition.objects.create(slug="other_terms", name="Other")
 

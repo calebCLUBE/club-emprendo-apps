@@ -1367,4 +1367,129 @@
     })();
   </script>
 
+  <script>
+    // PDFs (Google Drive or .pdf links) and the terms open in a pop-up viewer
+    // inside the application, so applicants never leave their answers.
+    (function () {
+      function viewerSource(link) {
+        const href = link.getAttribute("href") || "";
+        let url;
+        try { url = new URL(href, window.location.href); } catch (_) { return null; }
+        if (link.closest(".ce-terms-prompt") && url.pathname.includes("/terms/")) {
+          url.searchParams.set("embed", "1");
+          return { src: url.toString(), title: "Términos y condiciones", external: href };
+        }
+        const host = url.hostname.replace(/^www\./, "");
+        let match = url.pathname.match(/\/file\/d\/([^/]+)/);
+        if (host === "drive.google.com" && (match || url.searchParams.get("id"))) {
+          const id = match ? match[1] : url.searchParams.get("id");
+          return { src: `https://drive.google.com/file/d/${encodeURIComponent(id)}/preview`, title: "Documento", external: href };
+        }
+        match = url.pathname.match(/\/(document|presentation)\/d\/([^/]+)/);
+        if (host === "docs.google.com" && match) {
+          return { src: `https://docs.google.com/${match[1]}/d/${encodeURIComponent(match[2])}/preview`, title: "Documento", external: href };
+        }
+        if (/\.pdf$/i.test(url.pathname)) {
+          return { src: `https://docs.google.com/viewer?embedded=true&url=${encodeURIComponent(url.toString())}`, title: "Documento", external: href };
+        }
+        return null;
+      }
+
+      // Long raw URLs become a clear button; the link itself is unchanged.
+      document.querySelectorAll(".ce-application-form a[href], .form-intro a[href], .ce-section-intro a[href]").forEach((link) => {
+        if (link.closest(".ce-terms-prompt")) return;
+        const source = viewerSource(link);
+        if (!source) return;
+        const text = (link.textContent || "").trim();
+        if (/^https?:\/\//i.test(text) || text === link.getAttribute("href")) {
+          link.textContent = "📄 Ver el PDF";
+          link.classList.add("ce-doc-link");
+        }
+      });
+
+      let viewer = null;
+      let lastFocus = null;
+
+      function build() {
+        viewer = document.createElement("div");
+        viewer.className = "ce-viewer";
+        viewer.hidden = true;
+        viewer.setAttribute("role", "dialog");
+        viewer.setAttribute("aria-modal", "true");
+        viewer.setAttribute("aria-labelledby", "ce-viewer-title");
+        viewer.innerHTML =
+          '<div class="ce-viewer__backdrop" data-ce-viewer-close></div>' +
+          '<div class="ce-viewer__panel">' +
+          '  <div class="ce-viewer__bar">' +
+          '    <h2 class="ce-viewer__title" id="ce-viewer-title"></h2>' +
+          '    <button type="button" class="ce-viewer__close" data-ce-viewer-close>Cerrar <span aria-hidden="true">✕</span></button>' +
+          '  </div>' +
+          '  <div class="ce-viewer__body">' +
+          '    <div class="ce-viewer__loading">Cargando…</div>' +
+          '  </div>' +
+          '  <div class="ce-viewer__foot"><a class="ce-viewer__external" target="_blank" rel="noopener">¿No se ve bien? Ábrelo en una pestaña nueva</a></div>' +
+          '</div>';
+        document.body.appendChild(viewer);
+        viewer.querySelectorAll("[data-ce-viewer-close]").forEach((el) => el.addEventListener("click", requestClose));
+      }
+
+      // A fresh frame per document: reusing one would add entries to the
+      // browser history, and "Back" would then change the frame instead of closing.
+      function mountFrame(source) {
+        const body = viewer.querySelector(".ce-viewer__body");
+        body.querySelectorAll(".ce-viewer__frame").forEach((frame) => frame.remove());
+        const frame = document.createElement("iframe");
+        frame.className = "ce-viewer__frame";
+        frame.title = source.title;
+        frame.setAttribute("allow", "fullscreen");
+        frame.addEventListener("load", function () {
+          viewer.querySelector(".ce-viewer__loading").hidden = true;
+        });
+        frame.src = source.src;
+        body.appendChild(frame);
+      }
+
+      function open(source) {
+        if (!viewer) build();
+        lastFocus = document.activeElement;
+        viewer.querySelector(".ce-viewer__title").textContent = source.title;
+        viewer.querySelector(".ce-viewer__loading").hidden = false;
+        mountFrame(source);
+        viewer.querySelector(".ce-viewer__external").href = source.external;
+        viewer.hidden = false;
+        document.documentElement.classList.add("ce-viewer-open");
+        try { history.pushState({ ceViewer: true }, ""); } catch (_) {}
+        viewer.querySelector(".ce-viewer__close").focus();
+      }
+
+      function close() {
+        if (!viewer || viewer.hidden) return;
+        viewer.hidden = true;
+        viewer.querySelectorAll(".ce-viewer__frame").forEach((frame) => frame.remove());
+        document.documentElement.classList.remove("ce-viewer-open");
+        if (lastFocus && lastFocus.focus) lastFocus.focus();
+      }
+
+      // Closing goes through history so the phone's Back button behaves the same way.
+      function requestClose() {
+        if (history.state && history.state.ceViewer) history.back();
+        else close();
+      }
+
+      window.addEventListener("popstate", close);
+      document.addEventListener("keydown", function (event) {
+        if (event.key === "Escape" && viewer && !viewer.hidden) requestClose();
+      });
+      document.addEventListener("click", function (event) {
+        if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey) return;
+        const link = event.target.closest && event.target.closest("a[href]");
+        if (!link || (viewer && viewer.contains(link))) return;
+        const source = viewerSource(link);
+        if (!source) return;
+        event.preventDefault();
+        open(source);
+      });
+    })();
+  </script>
+
 {% endblock %}

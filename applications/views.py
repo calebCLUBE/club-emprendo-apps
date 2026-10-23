@@ -10,6 +10,7 @@ from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse
 from django.utils import timezone
+from django.views.decorators.clickjacking import xframe_options_sameorigin
 import json
 
 from .forms import build_application_form
@@ -63,6 +64,8 @@ def website_traffic_heartbeat(request):
     return response
 
 
+# The application shows the terms in an in-page viewer (same site only).
+@xframe_options_sameorigin
 def application_terms(request, form_slug: str, question_id: int):
     form_def = get_object_or_404(FormDefinition, slug=form_slug)
     question = get_object_or_404(

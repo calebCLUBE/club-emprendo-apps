@@ -1838,10 +1838,7 @@ body {
 
 body {
   background-color: var(--ce-bg);
-  background-image:
-    radial-gradient(900px 560px at -5% -5%, rgba(255, 190, 210, 0.55), transparent 62%),
-    radial-gradient(820px 560px at 105% 4%, rgba(170, 233, 192, 0.6), transparent 60%),
-    radial-gradient(1000px 700px at 50% 108%, rgba(212, 196, 255, 0.5), transparent 66%);
+  background-image: radial-gradient(1200px 620px at 50% -10%, rgba(196, 236, 208, 0.65), transparent 70%);
   color: var(--ce-text);
 }
 
@@ -1891,7 +1888,7 @@ h4,
   right: -90px;
   width: 380px;
   height: 380px;
-  background: radial-gradient(circle, rgba(255, 128, 168, 0.6), transparent 66%);
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.22), transparent 66%);
 }
 
 .ce-form-header::after {
@@ -1899,7 +1896,7 @@ h4,
   left: -110px;
   width: 400px;
   height: 400px;
-  background: radial-gradient(circle, rgba(170, 140, 255, 0.5), transparent 66%);
+  background: radial-gradient(circle, rgba(127, 220, 154, 0.35), transparent 66%);
 }
 
 .ce-form-title {
@@ -1972,7 +1969,7 @@ h4,
 
 .ce-intro-panel::before {
   height: 6px;
-  background: linear-gradient(90deg, var(--ce-leaf-bright), var(--ce-rose) 55%, var(--ce-purple));
+  background: var(--ce-leaf-bright);
 }
 
 .ce-section-panel > div:first-child > h2.ce-heading {
@@ -1987,7 +1984,7 @@ h4,
   height: 5px;
   margin-top: 0.65rem;
   border-radius: 999px;
-  background: linear-gradient(90deg, var(--ce-rose), var(--ce-purple));
+  background: var(--ce-leaf-bright);
   content: "";
 }
 

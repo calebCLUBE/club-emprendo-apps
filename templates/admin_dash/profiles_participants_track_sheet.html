@@ -37,64 +37,132 @@
     flex-direction: column;
     background: #fff;
   }
-  .ce-sheet-actions {
+  .ce-sheet-bar {
+    position: relative;
+    /* Above the sheet's menu (2100) and formula (2050) bars so our menus overlap
+       them; below the sheet's own pop-ups (4000+), which open further down. */
+    z-index: 2200;
     display: flex;
-    gap: 8px;
-    align-items: center;
-    justify-content: flex-end;
     flex-wrap: wrap;
-    padding: 8px 12px;
-    border-bottom: 1px solid #e5e7eb;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px 16px;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--ce-border);
     background: #fff;
-    z-index: 10;
   }
-  .ce-sheet-actions form {
-    margin: 0 !important;
-    width: auto !important;
-    height: auto !important;
-  }
-  .ce-version-form {
+  .ce-sheet-bar__context,
+  .ce-sheet-bar__actions {
     display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 12px;
+    min-width: 0;
+  }
+  .ce-sheet-bar__actions form {
+    margin: 0 !important;
+  }
+  a.ce-sheet-bar__back {
+    display: inline-flex;
     align-items: center;
     gap: 6px;
-    flex: 0 1 auto;
-    margin-right: auto !important;
-  }
-  .ce-version-select {
-    max-width: 260px;
-    height: 34px;
-    border: 1px solid #cbd5e1;
+    padding: 6px 8px;
     border-radius: 8px;
-    background: #fff;
-    color: #1f2937;
+    color: var(--ce-gray-600);
     font-size: 13px;
-    padding: 0 8px;
+    font-weight: 600;
+  }
+  a.ce-sheet-bar__back:hover {
+    background: var(--ce-gray-100);
+    color: var(--ce-gray-900);
+  }
+  .ce-sheet-bar__divider {
+    width: 1px;
+    height: 22px;
+    background: var(--ce-border);
+  }
+  .ce-sheet-bar__title {
+    margin: 0;
+    color: var(--ce-text);
+    font-family: var(--ce-font-display);
+    font-size: 17px;
+    font-weight: 750;
+    letter-spacing: -0.01em;
+    white-space: nowrap;
+  }
+  .ce-sheet-bar__title span {
+    color: var(--ce-text-muted);
+    font-family: var(--ce-font-sans);
+    font-size: 13px;
+    font-weight: 500;
   }
   .ce-autosave-status {
     display: inline-flex;
     align-items: center;
-    justify-content: flex-end;
-    color: #475569;
-    font-size: 12px;
-    min-width: 132px;
-    text-align: right;
-  }
-  .ce-sheet-btn {
-    display: inline-block;
-    padding: 8px 12px;
-    border-radius: 10px;
-    border: 1px solid #223413;
-    background: #223413;
-    color: #fff !important;
-    text-decoration: none;
+    gap: 7px;
+    max-width: 420px;
+    padding: 4px 11px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: var(--ce-gray-100);
+    color: var(--ce-gray-600);
+    font-size: 12.5px;
     font-weight: 600;
-    font-size: 14px;
-    line-height: 1.2;
-    cursor: pointer;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
-  .ce-sheet-btn--ghost {
-    background: #fff;
-    color: #223413 !important;
+  .ce-autosave-status::before {
+    flex: none;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--ce-green-500);
+    content: "";
+  }
+  .ce-sheet-menu > summary .ce-icon--chevron {
+    margin-right: -2px;
+    opacity: 0.8;
+  }
+  .ce-sheet-menu__panel {
+    z-index: 5000;
+    width: 320px;
+  }
+  .ce-sheet-check .ce-icon {
+    align-self: flex-start;
+    margin-top: 2px;
+  }
+  .ce-sheet-check__text {
+    display: grid;
+    gap: 1px;
+  }
+  .ce-sheet-check__name {
+    color: var(--ce-text);
+    font-weight: 650;
+  }
+  .ce-sheet-check__desc {
+    color: var(--ce-text-muted);
+    font-size: 12.5px;
+    font-weight: 500;
+  }
+  .ce-version-form {
+    display: grid;
+    gap: 8px;
+    padding: 6px 6px 10px;
+  }
+  .ce-version-select {
+    width: 100%;
+  }
+  .ce-sheet-menu__panel .ce-menu__divider + button,
+  .ce-sheet-menu__panel > button {
+    width: 100%;
+  }
+  @media (max-width: 760px) {
+    .ce-sheet-bar__divider {
+      display: none;
+    }
+    .ce-sheet-menu__panel {
+      width: min(320px, calc(100vw - 32px));
+    }
   }
   .ce-sheet-shell {
     flex: 1 1 auto;
@@ -102,16 +170,6 @@
     overflow: hidden;
     display: flex;
     flex-direction: column;
-  }
-  .ce-sheet-debug {
-    flex: 0 0 auto;
-    margin-right: 0;
-    font-size: 12px;
-    color: #374151;
-    background: #f3f4f6;
-    border: 1px solid #d1d5db;
-    border-radius: 999px;
-    padding: 3px 8px;
   }
 </style>
 
@@ -122,59 +180,114 @@
       {% if linked_google_sheet_last_synced_at %}<div>Last verified sync: {{ linked_google_sheet_last_synced_at|date:"Y-m-d H:i" }}.</div>{% endif %}
     </div>
   {% endif %}
-  <div class="ce-sheet-actions">
-    <span class="ce-sheet-debug">G{{ group.number }} · {{ track_label }}</span>
-    {% if not linked_google_sheet %}
-    <form class="ce-version-form" method="post">
-      {% csrf_token %}
-      <input type="hidden" name="action" value="restore_version">
-      <select class="ce-version-select" name="version_id" aria-label="Saved versions">
-        <option value="">Saved versions</option>
-        {% for version in sheet_versions %}
-          <option value="{% if combined_sheet %}{{ version.track }}:{% endif %}{{ version.id }}">
-            {% if combined_sheet %}{{ version.track|title }} · {% endif %}{{ version.created_at|date:"Y-m-d H:i" }} · {{ version.action }} · {{ version.row_count }} rows
-          </option>
-        {% endfor %}
-      </select>
-      <button class="ce-sheet-btn ce-sheet-btn--ghost" type="submit">Restore</button>
-    </form>
-    {% endif %}
-    {% if not linked_google_sheet %}<button type="button" id="ce-download-sheet-backup" class="ce-sheet-btn ce-sheet-btn--ghost">Download backup</button>{% endif %}
-    <span id="ce-sheet-autosave-status" class="ce-autosave-status">
-      {% if linked_google_sheet %}Google Sheet linked · edit participant data in Google{% else %}No linked Google Sheet · Autosave ready{% endif %}
-    </span>
-    <a class="ce-sheet-btn ce-sheet-btn--ghost" href="{% url 'admin_profiles_participants' %}?group={{ group.number }}">
-      Back
-    </a>
-    <form method="post" data-ce-check-form>
-      {% csrf_token %}
-      <input type="hidden" name="action" value="check_dropbox">
-      <button class="ce-sheet-btn" type="submit">Check Acta</button>
-    </form>
-    {% if linked_google_sheet_url %}
-      <a class="ce-sheet-btn ce-sheet-btn--ghost" href="{{ request.path }}">Refresh from Google</a>
-      <a class="ce-sheet-btn ce-sheet-btn--ghost" href="{{ linked_google_sheet_url }}" target="_blank" rel="noopener">Open Google Sheet</a>
-    {% endif %}
-    <form method="post" data-ce-check-form>
-      {% csrf_token %}
-      <input type="hidden" name="action" value="check_capacitacion">
-      <button class="ce-sheet-btn" type="submit">Check Capacitacion</button>
-    </form>
-    <form method="post" data-ce-check-form>
-      {% csrf_token %}
-      <input type="hidden" name="action" value="check_certificacion">
-      <button class="ce-sheet-btn" type="submit">Check Certificacion</button>
-    </form>
-    <form method="post" data-ce-check-form>
-      {% csrf_token %}
-      <input type="hidden" name="action" value="check_encuestas">
-      <button class="ce-sheet-btn" type="submit">Check Encuesta inicial</button>
-    </form>
-    <form method="post" data-ce-check-form>
-      {% csrf_token %}
-      <input type="hidden" name="action" value="check_encuestas_final">
-      <button class="ce-sheet-btn" type="submit">Check Encuesta final</button>
-    </form>
+  <div class="ce-sheet-bar">
+    <div class="ce-sheet-bar__context">
+      <a class="ce-sheet-bar__back" href="{% url 'admin_profiles_participants' %}?group={{ group.number }}">
+        <svg class="ce-icon" aria-hidden="true"><use href="#ce-i-arrow-left"></use></svg>Back
+      </a>
+      <span class="ce-sheet-bar__divider" aria-hidden="true"></span>
+      <h1 class="ce-sheet-bar__title">G{{ group.number }} · {{ track_label }} <span>Participant workbook</span></h1>
+      <span id="ce-sheet-autosave-status" class="ce-autosave-status">
+        {% if linked_google_sheet %}Google Sheet linked · edit participant data in Google{% else %}No linked Google Sheet · Autosave ready{% endif %}
+      </span>
+    </div>
+
+    <div class="ce-sheet-bar__actions">
+      {% if linked_google_sheet_url %}
+        <a class="ce-work-btn ce-work-btn--secondary ce-work-btn--sm" href="{{ request.path }}" title="Reload the latest data from the linked Google Sheet">
+          <svg class="ce-icon" aria-hidden="true"><use href="#ce-i-refresh"></use></svg>Refresh from Google
+        </a>
+        <a class="ce-work-btn ce-work-btn--secondary ce-work-btn--sm" href="{{ linked_google_sheet_url }}" target="_blank" rel="noopener">
+          <svg class="ce-icon" aria-hidden="true"><use href="#ce-i-external"></use></svg>Open Google Sheet
+        </a>
+      {% endif %}
+
+      <details class="ce-menu ce-sheet-menu" data-ce-dismissable>
+        <summary class="ce-work-btn ce-work-btn--sm">
+          <svg class="ce-icon" aria-hidden="true"><use href="#ce-i-clipboard-check"></use></svg>Run checks
+          <svg class="ce-icon ce-icon--sm ce-icon--chevron" aria-hidden="true"><use href="#ce-i-chevron-down"></use></svg>
+        </summary>
+        <div class="ce-menu__panel ce-menu__panel--end ce-sheet-menu__panel">
+          <div class="ce-menu__head">
+            <div class="ce-menu__title">Update workbook columns</div>
+            <div class="ce-menu__meta">Marks each participant from the source below.</div>
+          </div>
+          <form method="post" data-ce-check-form class="ce-menu__form">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="check_dropbox">
+            <button class="ce-menu__item ce-sheet-check" type="submit" aria-label="Check Acta">
+              <svg class="ce-icon" aria-hidden="true"><use href="#ce-i-pen"></use></svg>
+              <span class="ce-sheet-check__text"><span class="ce-sheet-check__name">Acta</span><span class="ce-sheet-check__desc">Signed in Dropbox Sign</span></span>
+            </button>
+          </form>
+          <form method="post" data-ce-check-form class="ce-menu__form">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="check_capacitacion">
+            <button class="ce-menu__item ce-sheet-check" type="submit" aria-label="Check Capacitacion">
+              <svg class="ce-icon" aria-hidden="true"><use href="#ce-i-list-checks"></use></svg>
+              <span class="ce-sheet-check__text"><span class="ce-sheet-check__name">Capacitación</span><span class="ce-sheet-check__desc">Training completed (Wix)</span></span>
+            </button>
+          </form>
+          <form method="post" data-ce-check-form class="ce-menu__form">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="check_certificacion">
+            <button class="ce-menu__item ce-sheet-check" type="submit" aria-label="Check Certificacion">
+              <svg class="ce-icon" aria-hidden="true"><use href="#ce-i-award"></use></svg>
+              <span class="ce-sheet-check__text"><span class="ce-sheet-check__name">Certificación</span><span class="ce-sheet-check__desc">Certification earned (Wix)</span></span>
+            </button>
+          </form>
+          <div class="ce-menu__divider" role="presentation"></div>
+          <form method="post" data-ce-check-form class="ce-menu__form">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="check_encuestas">
+            <button class="ce-menu__item ce-sheet-check" type="submit" aria-label="Check Encuesta inicial">
+              <svg class="ce-icon" aria-hidden="true"><use href="#ce-i-clipboard-list"></use></svg>
+              <span class="ce-sheet-check__text"><span class="ce-sheet-check__name">Encuesta inicial</span><span class="ce-sheet-check__desc">Initial survey answered</span></span>
+            </button>
+          </form>
+          <form method="post" data-ce-check-form class="ce-menu__form">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="check_encuestas_final">
+            <button class="ce-menu__item ce-sheet-check" type="submit" aria-label="Check Encuesta final">
+              <svg class="ce-icon" aria-hidden="true"><use href="#ce-i-clipboard-check"></use></svg>
+              <span class="ce-sheet-check__text"><span class="ce-sheet-check__name">Encuesta final</span><span class="ce-sheet-check__desc">Final survey answered</span></span>
+            </button>
+          </form>
+        </div>
+      </details>
+
+      {% if not linked_google_sheet %}
+        <details class="ce-menu ce-sheet-menu" data-ce-dismissable>
+          <summary class="ce-work-btn ce-work-btn--secondary ce-work-btn--sm">
+            <svg class="ce-icon" aria-hidden="true"><use href="#ce-i-history"></use></svg>Versions
+            <svg class="ce-icon ce-icon--sm ce-icon--chevron" aria-hidden="true"><use href="#ce-i-chevron-down"></use></svg>
+          </summary>
+          <div class="ce-menu__panel ce-menu__panel--end ce-sheet-menu__panel">
+            <div class="ce-menu__head">
+              <div class="ce-menu__title">Saved versions</div>
+              <div class="ce-menu__meta">Restore an earlier copy of this workbook.</div>
+            </div>
+            <form class="ce-version-form" method="post">
+              {% csrf_token %}
+              <input type="hidden" name="action" value="restore_version">
+              <select class="ce-version-select ce-work-input" name="version_id" aria-label="Saved versions">
+                <option value="">Saved versions</option>
+                {% for version in sheet_versions %}
+                  <option value="{% if combined_sheet %}{{ version.track }}:{% endif %}{{ version.id }}">
+                    {% if combined_sheet %}{{ version.track|title }} · {% endif %}{{ version.created_at|date:"Y-m-d H:i" }} · {{ version.action }} · {{ version.row_count }} rows
+                  </option>
+                {% endfor %}
+              </select>
+              <button class="ce-work-btn ce-work-btn--secondary ce-work-btn--sm" type="submit">Restore</button>
+            </form>
+            <div class="ce-menu__divider" role="presentation"></div>
+            <button type="button" id="ce-download-sheet-backup" class="ce-menu__item">
+              <svg class="ce-icon" aria-hidden="true"><use href="#ce-i-download"></use></svg>Download backup
+            </button>
+          </div>
+        </details>
+      {% endif %}
+    </div>
   </div>
 
   <form method="post" id="ce-sheet-save-form" style="display:none;">

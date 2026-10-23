@@ -1,7 +1,9 @@
 {% extends "admin/base_site.html" %}
 
+{% block title %}Import historical group · Club Emprendo Admin{% endblock %}
+
 {% block content %}
-<main class="ce-workspace">
+<div class="ce-workspace">
   <header class="ce-work-header">
     <div>
       <p class="ce-work-eyebrow">Groups & applications</p>
@@ -14,7 +16,6 @@
     <nav class="ce-work-actions" aria-label="Historical import links">
       <a class="ce-work-btn ce-work-btn--secondary" href="{% url 'admin_apps_list' %}">Groups & applications</a>
       <a class="ce-work-btn ce-work-btn--secondary" href="{% url 'admin_profiles_participants' %}">Participants</a>
-      <a class="ce-work-btn ce-work-btn--quiet" href="/admin/">Admin home</a>
     </nav>
   </header>
 
@@ -204,5 +205,5 @@
       </div>
     </section>
   {% endif %}
-</main>
+</div>
 {% endblock %}

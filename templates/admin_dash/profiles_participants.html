@@ -1,7 +1,9 @@
 {% extends "admin/base_site.html" %}
 
+{% block title %}Participants · Profiles · Club Emprendo Admin{% endblock %}
+
 {% block content %}
-<main class="ce-workspace">
+<div class="ce-workspace">
   <header class="ce-work-header">
     <div>
       <p class="ce-work-eyebrow">Profiles</p>
@@ -28,7 +30,6 @@
       <a class="ce-work-btn ce-work-btn--secondary" href="{% url 'admin_profiles_list' %}">All profiles</a>
       <a class="ce-work-btn ce-work-btn--secondary" href="{% url 'admin_emparejamiento_home' %}">Emparejamiento</a>
       <a class="ce-work-btn ce-work-btn--secondary" href="{% url 'admin_historical_group_import' %}">Import historical group</a>
-      <a class="ce-work-btn ce-work-btn--quiet" href="/admin/">Admin home</a>
     </nav>
   </header>
 
@@ -286,5 +287,5 @@
       </div>
     </section>
   {% endif %}
-</main>
+</div>
 {% endblock %}

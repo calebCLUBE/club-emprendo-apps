@@ -1,20 +1,19 @@
 {% extends "admin/base_site.html" %}
 
+{% block title %}Participant history · Profiles · Club Emprendo Admin{% endblock %}
+
 {% block content %}
-<div class="ce-history-page">
+<div class="ce-workspace ce-history-page">
   <style>
-    .ce-history-page {
-      box-sizing: border-box;
-      width: 100%;
-      padding: 14px;
-    }
     .ce-history-card {
       box-sizing: border-box;
       width: 100%;
-      padding: 18px;
-      border: 1px solid #dfe7d9;
-      border-radius: 12px;
-      background: #f9fcf7;
+      margin-bottom: 18px;
+      padding: 20px;
+      border: 1px solid var(--ce-border);
+      border-radius: var(--ce-radius-lg);
+      background: #fff;
+      box-shadow: var(--ce-shadow-xs);
     }
     .ce-actions {
       display: flex;
@@ -129,7 +128,17 @@
     }
   </style>
 
-  <h1 style="margin:0;">Participant history</h1>
+  <nav class="ce-work-crumbs" aria-label="Breadcrumb">
+    <a href="{% url 'admin_profiles_list' %}">Profiles</a>
+    <svg class="ce-icon ce-icon--sm" aria-hidden="true"><use href="#ce-i-chevron-right"></use></svg>
+    <span aria-current="page">Participant history</span>
+  </nav>
+  <header class="ce-work-header" style="margin-bottom: 8px;">
+    <div class="ce-work-header__main">
+      <h1 class="ce-work-title">Participant history</h1>
+      <p class="ce-work-lede">Look up anyone's past participation across every group, as an emprendedora or a mentora.</p>
+    </div>
+  </header>
   <nav class="ce-actions" aria-label="Profiles options">
     <a class="ce-btn ce-btn--ghost" href="{% url 'admin_profiles_list' %}">Profiles</a>
     <a class="ce-btn ce-btn--ghost" href="{% url 'admin_grading_home' %}">Graded</a>

@@ -1,7 +1,9 @@
 {% extends "admin/base_site.html" %}
 
+{% block title %}Groups &amp; applications · Club Emprendo Admin{% endblock %}
+
 {% block content %}
-<main class="ce-workspace">
+<div class="ce-workspace">
   <header class="ce-work-header">
     <div>
       <p class="ce-work-eyebrow">Application management</p>
@@ -14,7 +16,6 @@
     <nav class="ce-work-actions" aria-label="Group page links">
       <a class="ce-work-btn ce-work-btn--secondary" href="{% url 'admin_profiles_participants' %}">Participants</a>
       <a class="ce-work-btn ce-work-btn--secondary" href="{% url 'admin_historical_group_import' %}">Import historical group</a>
-      <a class="ce-work-btn ce-work-btn--quiet" href="/admin/">Admin home</a>
     </nav>
   </header>
 
@@ -338,7 +339,7 @@
       <div class="ce-work-empty" id="group-search-empty" hidden>No groups match your search.</div>
     </div>
   </section>
-</main>
+</div>
 
 <script>
   (() => {

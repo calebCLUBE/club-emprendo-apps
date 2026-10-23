@@ -1,21 +1,29 @@
 {% extends "admin/base_site.html" %}
+
+{% block title %}Incomplete applications · Dashboards · Club Emprendo Admin{% endblock %}
 {% block content %}
+<div class="ce-workspace">
 <style>
   .ce-progress-cards{display:grid;grid-template-columns:repeat(6,minmax(130px,1fr));gap:12px;margin:18px 0}
-  .ce-progress-card{padding:16px;border:1px solid #dbe4f0;border-radius:12px;background:#fff}
-  .ce-progress-card strong{display:block;font-size:28px;color:#172554}.ce-progress-card span{color:#64748b}
+  .ce-progress-card{padding:16px 18px;border:1px solid var(--ce-border);border-radius:14px;background:#fff;box-shadow:var(--ce-shadow-xs)}
+  .ce-progress-card strong{display:block;font-family:var(--ce-font-display);font-size:28px;font-weight:750;color:var(--ce-text)}.ce-progress-card span{color:var(--ce-text-secondary);font-size:12.5px;font-weight:550}
   .ce-progress-filters{display:flex;gap:10px;align-items:end;flex-wrap:wrap;margin:16px 0}.ce-progress-filters label{display:grid;gap:4px}
   .ce-progress-analytics{display:grid;grid-template-columns:minmax(300px,1.3fr) minmax(260px,1fr);gap:16px;margin:18px 0}
-  .ce-progress-panel{padding:16px;border:1px solid #dbe4f0;border-radius:12px;background:#fff}.ce-progress-panel h2{margin:0 0 12px}
-  .ce-funnel-row{display:grid;grid-template-columns:90px 1fr 52px;gap:10px;align-items:center;margin:8px 0}.ce-funnel-track{height:12px;background:#eef2f7;border-radius:999px;overflow:hidden}.ce-funnel-fill{height:100%;background:#2c3191;border-radius:999px}
-  .ce-reminder-box{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px;border:1px solid #bbd6a7;border-radius:12px;background:#f5fbf1;margin:18px 0}.ce-reminder-box p{margin:4px 0}.ce-reminder-primary-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}.ce-reminder-primary-actions form{margin:0}
-  .ce-reminder-editor{padding:16px;border:1px solid #dbe4f0;border-radius:12px;background:#fff;margin:18px 0}.ce-reminder-editor h2{margin:0 0 6px}.ce-reminder-editor label{display:grid;gap:5px;font-weight:600;margin:12px 0}.ce-reminder-editor input,.ce-reminder-editor textarea{box-sizing:border-box;width:100%;padding:9px;border:1px solid #cbd5e1;border-radius:7px;font:inherit}.ce-reminder-editor textarea{min-height:260px;resize:vertical}.ce-reminder-actions{display:flex;gap:8px;flex-wrap:wrap}.ce-reminder-preview{margin-top:16px;padding:14px;border:1px solid #e5e7eb;border-radius:9px;background:#f8fafc}.ce-reminder-preview h3{margin:0 0 8px}.ce-placeholder-list{font-family:monospace;font-size:12px;color:#475569}
+  .ce-progress-panel{padding:18px;border:1px solid var(--ce-border);border-radius:14px;background:#fff;box-shadow:var(--ce-shadow-xs)}.ce-progress-panel h2{margin:0 0 12px}
+  .ce-funnel-row{display:grid;grid-template-columns:90px 1fr 52px;gap:10px;align-items:center;margin:8px 0}.ce-funnel-track{height:10px;background:var(--ce-gray-150);border-radius:999px;overflow:hidden}.ce-funnel-fill{height:100%;background:linear-gradient(90deg,var(--ce-green-700),var(--ce-green-400));border-radius:999px}
+  .ce-reminder-box{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 18px;border:1px solid var(--ce-green-200);border-radius:14px;background:var(--ce-green-50);margin:18px 0}.ce-reminder-box p{margin:4px 0}.ce-reminder-primary-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}.ce-reminder-primary-actions form{margin:0}
+  .ce-reminder-editor{padding:18px;border:1px solid var(--ce-border);border-radius:14px;background:#fff;margin:18px 0;box-shadow:var(--ce-shadow-xs)}.ce-reminder-editor h2{margin:0 0 6px}.ce-reminder-editor label{display:grid;gap:5px;font-weight:600;margin:12px 0}.ce-reminder-editor input,.ce-reminder-editor textarea{box-sizing:border-box;width:100%;padding:9px;border:1px solid #cbd5e1;border-radius:7px;font:inherit}.ce-reminder-editor textarea{min-height:260px;resize:vertical}.ce-reminder-actions{display:flex;gap:8px;flex-wrap:wrap}.ce-reminder-preview{margin-top:16px;padding:14px;border:1px solid #e5e7eb;border-radius:9px;background:#f8fafc}.ce-reminder-preview h3{margin:0 0 8px}.ce-placeholder-list{font-family:monospace;font-size:12px;color:#475569}
   .ce-section-list{margin:0;padding-left:20px}.ce-section-list li{margin:7px 0}
   .ce-progress-table{width:100%;border-collapse:collapse}.ce-progress-table th,.ce-progress-table td{padding:10px;border-bottom:1px solid #e5e7eb;text-align:left;vertical-align:top}
   @media(max-width:800px){.ce-progress-cards{grid-template-columns:repeat(2,1fr)}.ce-progress-analytics{grid-template-columns:1fr}.ce-reminder-box{align-items:flex-start;flex-direction:column}.ce-progress-scroll{overflow:auto}}
 </style>
-<h1>Application Progress</h1>
-<p>Counts represent engaged applicants after browser/email deduplication. Empty drafts are shown separately and excluded. Status filters affect the table only.</p>
+<header class="ce-work-header" style="margin-bottom: 8px;">
+  <div class="ce-work-header__main">
+    <p class="ce-work-eyebrow">Dashboards</p>
+    <h1 class="ce-work-title">Application Progress</h1>
+    <p class="ce-work-lede">Counts represent engaged applicants after browser/email deduplication. Empty drafts are shown separately and excluded. Status filters affect the table only.</p>
+  </div>
+</header>
 <div class="ce-progress-cards">
   <div class="ce-progress-card"><strong>{{ summary.started }}</strong><span>Genuine starts</span></div>
   <div class="ce-progress-card"><strong>{{ summary.empty_drafts }}</strong><span>Empty drafts excluded</span></div>
@@ -116,4 +124,5 @@
 <div class="ce-progress-scroll"><table class="ce-progress-table"><thead><tr><th>Applicant</th><th>Application</th><th>Status</th><th>Progress</th><th>Last location</th><th>Last activity</th></tr></thead><tbody>
 {% for row in rows %}<tr><td><strong>{{ row.draft.name|default:"Anonymous" }}</strong>{% if row.draft.email %}<br><a href="mailto:{{ row.draft.email }}">{{ row.draft.email }}</a>{% endif %}</td><td>{{ row.draft.form.name }}</td><td>{{ row.status }}</td><td>{{ row.draft.progress_percent }}%<br>{{ row.draft.answered_questions }} of {{ row.draft.total_questions }} questions</td><td>Section {{ row.draft.current_section }} of {{ row.draft.total_sections }}{% if row.last_question %}<br>{{ row.last_question }}{% endif %}</td><td>{{ row.draft.updated_at|date:"Y-m-d H:i" }}</td></tr>{% empty %}<tr><td colspan="6">No drafts match these filters.</td></tr>{% endfor %}
 </tbody></table></div>
+</div>
 {% endblock %}

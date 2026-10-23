@@ -1,16 +1,19 @@
 {% extends "admin/base_site.html" %}
+
+{% block title %}Website traffic · Dashboards · Club Emprendo Admin{% endblock %}
 {% block content %}
+<div class="ce-workspace">
 <style>
-  .ce-traffic-wrap{max-width:1500px;margin:0 auto}.ce-traffic-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap}.ce-traffic-head h1{margin:0}.ce-traffic-note{margin:10px 0 18px;padding:12px 14px;border:1px solid #bfdbfe;border-radius:10px;background:#eff6ff;color:#1e3a5f}.ce-traffic-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin:16px 0}.ce-traffic-card{padding:16px;border:1px solid #dbe4f0;border-radius:12px;background:#fff}.ce-traffic-card h2{margin:0 0 8px;font-size:15px;color:#475569}.ce-traffic-big{font-size:34px;font-weight:750;color:#172554;line-height:1}.ce-traffic-sub{margin-top:8px;color:#64748b}.ce-traffic-grid{display:grid;grid-template-columns:minmax(420px,1.4fr) minmax(300px,1fr);gap:16px;margin-top:18px}.ce-traffic-panel{padding:16px;border:1px solid #dbe4f0;border-radius:12px;background:#fff}.ce-traffic-panel h2{margin:0 0 12px}.ce-traffic-table{width:100%;border-collapse:collapse}.ce-traffic-table th,.ce-traffic-table td{padding:9px 8px;border-bottom:1px solid #e5e7eb;text-align:left}.ce-traffic-table th{text-transform:uppercase;font-size:11px;color:#64748b}.ce-traffic-bar{min-width:80px;height:10px;background:#eef2f7;border-radius:999px;overflow:hidden}.ce-traffic-bar span{display:block;height:100%;background:#2c3191;border-radius:999px}.ce-traffic-path{max-width:520px;overflow-wrap:anywhere}.ce-traffic-empty{color:#64748b}.ce-traffic-active-dot{display:inline-block;width:10px;height:10px;border-radius:50%;background:#22c55e;margin-right:6px}.ce-traffic-foot{margin-top:16px;color:#64748b;font-size:12px}@media(max-width:900px){.ce-traffic-grid{grid-template-columns:1fr}.ce-traffic-scroll{overflow:auto}}
+  .ce-traffic-wrap{margin:0 auto}.ce-traffic-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap}.ce-traffic-head h1{margin:0}.ce-traffic-note{margin:10px 0 18px;padding:12px 14px;border:1px solid var(--ce-info-200);border-radius:12px;background:var(--ce-info-50);color:#23407f;font-size:13.5px}.ce-traffic-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin:16px 0}.ce-traffic-card{padding:16px 18px;border:1px solid var(--ce-border);border-radius:14px;background:#fff;box-shadow:var(--ce-shadow-xs)}.ce-traffic-card h2{margin:0 0 8px;font-size:13px;font-weight:600;color:var(--ce-text-secondary);font-family:var(--ce-font-sans)}.ce-traffic-big{font-family:var(--ce-font-display);font-size:30px;font-weight:750;color:var(--ce-text);line-height:1}.ce-traffic-sub{margin-top:8px;color:var(--ce-text-muted);font-size:12.5px}.ce-traffic-grid{display:grid;grid-template-columns:minmax(420px,1.4fr) minmax(300px,1fr);gap:16px;margin-top:18px}.ce-traffic-panel{padding:18px;border:1px solid var(--ce-border);border-radius:14px;background:#fff;box-shadow:var(--ce-shadow-xs)}.ce-traffic-panel h2{margin:0 0 12px}.ce-traffic-table{width:100%;border-collapse:collapse}.ce-traffic-table th,.ce-traffic-table td{padding:9px 8px;border-bottom:1px solid #e5e7eb;text-align:left}.ce-traffic-table th{font-size:12px;color:var(--ce-gray-600);background:var(--ce-gray-50)}.ce-traffic-bar{min-width:80px;height:8px;background:var(--ce-gray-150);border-radius:999px;overflow:hidden}.ce-traffic-bar span{display:block;height:100%;background:linear-gradient(90deg,var(--ce-green-600),var(--ce-green-400));border-radius:999px}.ce-traffic-path{max-width:520px;overflow-wrap:anywhere}.ce-traffic-empty{color:var(--ce-text-muted)}.ce-traffic-active-dot{display:inline-block;width:10px;height:10px;border-radius:50%;background:#22c55e;margin-right:6px}.ce-traffic-foot{margin-top:16px;color:var(--ce-text-muted);font-size:12px}@media(max-width:900px){.ce-traffic-grid{grid-template-columns:1fr}.ce-traffic-scroll{overflow:auto}}
 </style>
 <div class="ce-traffic-wrap">
-  <div class="ce-traffic-head">
-    <div>
-      <h1>Website Traffic</h1>
-      <p>Anonymous first-party traffic for the Club Emprendo application website.</p>
+  <header class="ce-work-header" style="margin-bottom: 12px;">
+    <div class="ce-work-header__main">
+      <p class="ce-work-eyebrow">Dashboards</p>
+      <h1 class="ce-work-title">Website Traffic</h1>
+      <p class="ce-work-lede">Anonymous first-party traffic for the Club Emprendo application website.</p>
     </div>
-    <a class="button" href="{% url 'admin_dashboards_home' %}">Back to dashboards</a>
-  </div>
+  </header>
 
   <div class="ce-traffic-note">
     Tracking begins with this feature and cannot reconstruct earlier traffic. A visitor is one browser cookie—not necessarily one person.
@@ -85,5 +88,6 @@
     {% if tracking_started_at %}Tracking started {{ tracking_started_at|date:"Y-m-d H:i" }}.{% else %}No public visits have been recorded yet.{% endif %}
     Dates use Bogotá time.
   </div>
+</div>
 </div>
 {% endblock %}

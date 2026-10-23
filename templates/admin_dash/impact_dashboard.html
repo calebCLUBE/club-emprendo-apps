@@ -187,12 +187,6 @@
           </div>
           {% if impact_report_group_label %}<div class="ce-scope-pill">Showing: {{ impact_report_group_label }}</div>{% endif %}
         </div>
-        {% if not is_pdf_export %}
-          <div class="ce-actions">
-            <a class="ce-btn ce-btn--ghost" href="{% url 'admin_dashboards_home' %}">Dashboards</a>
-            <a class="ce-btn ce-btn--ghost" href="{% url 'admin_database' %}">Database</a>
-          </div>
-        {% endif %}
       </div>
 
       {% if not is_pdf_export %}

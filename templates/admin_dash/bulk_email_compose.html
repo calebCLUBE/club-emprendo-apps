@@ -1,15 +1,22 @@
 {% extends "admin/base_site.html" %}
+
+{% block title %}Bulk email · Club Emprendo Admin{% endblock %}
 {% block content %}
 <style>
-  .ce-mail-wrap{max-width:900px}.ce-mail-card{background:#fff;border:1px solid #dbe4f0;border-radius:14px;padding:20px}
-  .ce-mail-form{display:grid;gap:16px}.ce-mail-field{display:grid;gap:6px}.ce-mail-field label{font-weight:700;color:#1e293b}
-  .ce-mail-field input,.ce-mail-field textarea{box-sizing:border-box;width:100%;padding:10px;border:1px solid #cbd5e1;border-radius:8px}
-  .ce-mail-help{color:#64748b;font-size:13px}.ce-mail-errors{background:#fef2f2;border:1px solid #fecaca;color:#991b1b;border-radius:10px;padding:12px}
+  .ce-mail-wrap{max-width:900px}.ce-mail-card{background:#fff;border:1px solid var(--ce-border);border-radius:14px;padding:22px;box-shadow:var(--ce-shadow-xs)}
+  .ce-mail-form{display:grid;gap:16px}.ce-mail-field{display:grid;gap:6px}.ce-mail-field label{font-weight:600;color:var(--ce-gray-700);font-size:13px}
+  .ce-mail-field input,.ce-mail-field textarea{box-sizing:border-box;width:100%;padding:9px 11px;border:1px solid var(--ce-border-strong);border-radius:9px}
+  .ce-mail-help{color:var(--ce-text-muted);font-size:12.5px}.ce-mail-errors{background:#fef2f2;border:1px solid #fecaca;color:#991b1b;border-radius:10px;padding:12px}
   .ce-mail-confirm{display:flex;align-items:flex-start;gap:8px}.ce-mail-confirm input{margin-top:3px}
 </style>
-<div class="ce-mail-wrap">
-  <h1>Send Bulk Email</h1>
-  <p>Each address is sent as a hidden BCC recipient. Recipients cannot see the other addresses.</p>
+<div class="ce-workspace ce-mail-wrap">
+  <header class="ce-work-header" style="margin-bottom: 16px;">
+    <div class="ce-work-header__main">
+      <p class="ce-work-eyebrow">Dashboards</p>
+      <h1 class="ce-work-title">Send Bulk Email</h1>
+      <p class="ce-work-lede">Each address is sent as a hidden BCC recipient. Recipients cannot see the other addresses.</p>
+    </div>
+  </header>
   {% if errors %}<div class="ce-mail-errors"><ul>{% for error in errors %}<li>{{ error }}</li>{% endfor %}</ul></div>{% endif %}
   <div class="ce-mail-card">
     <form method="post" class="ce-mail-form">
@@ -23,7 +30,7 @@
       <div class="ce-mail-field"><label for="id_subject">Subject</label><input id="id_subject" name="subject" value="{{ subject }}" maxlength="255" required></div>
       <div class="ce-mail-field"><label for="id_message_body">Message</label><textarea id="id_message_body" name="message_body" rows="14" required>{{ message_body }}</textarea><div class="ce-mail-help">The message is sent as plain text, preserving paragraphs and links.</div></div>
       <label class="ce-mail-confirm"><input type="checkbox" name="confirm_send" value="yes" required><span>I reviewed the recipients, subject, and message and am ready to send.</span></label>
-      <div><button type="submit" class="button default">Send email</button></div>
+      <div><button type="submit" class="ce-work-btn"><svg class="ce-icon" aria-hidden="true"><use href="#ce-i-mail"></use></svg>Send email</button></div>
     </form>
   </div>
 </div>

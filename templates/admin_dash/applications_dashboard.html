@@ -1,5 +1,7 @@
 {% extends "admin/base_site.html" %}
 
+{% block title %}Applications · Dashboards · Club Emprendo Admin{% endblock %}
+
 {% block content %}
 <div class="ce-admin-wrap">
   <div class="ce-admin-card ce-admin-card--wide">
@@ -317,12 +319,6 @@
         <div>
           <h1 class="ce-db-title">Applications Intelligence Dashboard</h1>
           <div class="ce-db-subtitle">Power-BI style view with configurable sections, filters, and visuals.</div>
-        </div>
-        <div class="ce-actions">
-          <a class="ce-btn ce-btn--ghost" href="{% url 'admin_dashboards_home' %}">Dashboards</a>
-          <a class="ce-btn ce-btn--ghost" href="{% url 'admin_apps_list' %}">Applications</a>
-          <a class="ce-btn ce-btn--ghost" href="{% url 'admin_database' %}">Database</a>
-          <a class="ce-btn ce-btn--ghost" href="/admin/">Admin home</a>
         </div>
       </div>
 

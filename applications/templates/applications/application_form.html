@@ -1064,11 +1064,13 @@
         "icloud.co": "icloud.com", "icloud.con": "icloud.com",
       };
       const EMAIL_MESSAGE = "Ingresa una dirección de correo electrónico válida. Ejemplo: nombre@gmail.com";
-      const PHONE_MESSAGE = "Escribe un número de WhatsApp válido, solo con números e incluyendo el indicativo de tu país. Ejemplo: +57 300 123 4567";
+      const PHONE_MESSAGE = document.querySelector(".ce-phone")
+        ? "Revisa tu número de WhatsApp: elige tu país y escribe solo números. Ejemplo: 300 123 4567"
+        : "Escribe un número de WhatsApp válido, solo con números e incluyendo el indicativo de tu país. Ejemplo: +57 300 123 4567";
 
       function kindOf(input) {
         if (input.matches("[data-ce-email], input[type='email']")) return "email";
-        if (input.matches("[data-ce-phone]")) return "phone";
+        if (input.matches("[data-ce-phone], [data-ce-phone-display]")) return "phone";
         if (input.dataset.confirmOf) {
           const key = input.dataset.confirmOf.toLowerCase();
           if (key.includes("email") || key.includes("correo")) return "email";
@@ -1078,7 +1080,8 @@
       }
 
       function problemFor(input) {
-        const value = String(input.value || "").trim();
+        // Phone pickers keep the full number (+code and number) in the original field.
+        const value = String((input._ceFullNumber ? input._ceFullNumber() : input.value) || "").trim();
         if (!value) return "";
         const kind = kindOf(input);
         if (kind === "email" && !EMAIL_RE.test(value)) return EMAIL_MESSAGE;
@@ -1191,6 +1194,176 @@
           }
         }, true);
       }
+    })();
+  </script>
+
+  <script>
+    // Country-code picker for WhatsApp/phone questions. The original field stays
+    // in the form (hidden) and always holds the full number: "+57 300 123 4567".
+    (function () {
+      const COUNTRIES = [
+        ["AR", "Argentina", "54"], ["BZ", "Belice", "501"], ["BO", "Bolivia", "591"], ["BR", "Brasil", "55"],
+        ["CA", "Canadá", "1"], ["CL", "Chile", "56"], ["CO", "Colombia", "57"], ["CR", "Costa Rica", "506"],
+        ["CU", "Cuba", "53"], ["EC", "Ecuador", "593"], ["SV", "El Salvador", "503"], ["ES", "España", "34"],
+        ["US", "Estados Unidos", "1"], ["GT", "Guatemala", "502"], ["HT", "Haití", "509"], ["HN", "Honduras", "504"],
+        ["MX", "México", "52"], ["NI", "Nicaragua", "505"], ["PA", "Panamá", "507"], ["PY", "Paraguay", "595"],
+        ["PE", "Perú", "51"], ["PR", "Puerto Rico", "1"], ["DO", "República Dominicana", "1"], ["UY", "Uruguay", "598"],
+        ["VE", "Venezuela", "58"],
+      ];
+      const OTHER = "OTHER";
+      const BY_ISO = Object.fromEntries(COUNTRIES.map((c) => [c[0], c]));
+      const TZ_COUNTRY = {
+        Bogota: "CO", Lima: "PE", Santiago: "CL", Punta_Arenas: "CL", Caracas: "VE", Guayaquil: "EC", Galapagos: "EC",
+        La_Paz: "BO", Asuncion: "PY", Montevideo: "UY", Costa_Rica: "CR", Panama: "PA", Guatemala: "GT",
+        El_Salvador: "SV", Tegucigalpa: "HN", Managua: "NI", Santo_Domingo: "DO", Puerto_Rico: "PR", Havana: "CU",
+        "Port-au-Prince": "HT", Belize: "BZ", Madrid: "ES", Canary: "ES", Buenos_Aires: "AR", Cordoba: "AR",
+        Mendoza: "AR", Salta: "AR", Jujuy: "AR", Tucuman: "AR", Ushuaia: "AR",
+        Mexico_City: "MX", Monterrey: "MX", Merida: "MX", Cancun: "MX", Chihuahua: "MX", Hermosillo: "MX",
+        Mazatlan: "MX", Tijuana: "MX", Matamoros: "MX", Bahia_Banderas: "MX",
+        Sao_Paulo: "BR", Fortaleza: "BR", Recife: "BR", Bahia: "BR", Belem: "BR", Manaus: "BR", Cuiaba: "BR",
+        Campo_Grande: "BR", Maceio: "BR", Porto_Velho: "BR", Boa_Vista: "BR", Rio_Branco: "BR",
+        New_York: "US", Chicago: "US", Denver: "US", Los_Angeles: "US", Phoenix: "US", Anchorage: "US", Honolulu: "US",
+        Toronto: "CA", Vancouver: "CA", Edmonton: "CA", Winnipeg: "CA", Halifax: "CA", Regina: "CA", St_Johns: "CA",
+      };
+      const SHOW_FLAGS = !/Windows/i.test(navigator.userAgent || "");
+
+      function flag(iso) {
+        if (!SHOW_FLAGS || iso.length !== 2) return "";
+        return String.fromCodePoint(...iso.split("").map((ch) => 0x1f1e6 + ch.charCodeAt(0) - 65)) + " ";
+      }
+
+      function guessCountry() {
+        try {
+          const zone = (Intl.DateTimeFormat().resolvedOptions().timeZone || "").split("/").pop();
+          if (TZ_COUNTRY[zone]) return TZ_COUNTRY[zone];
+        } catch (_) {}
+        return "CO";
+      }
+
+      // Split a stored value into [iso, national] (only when it clearly includes a country code).
+      function splitValue(raw, fallbackIso) {
+        const text = String(raw || "").trim();
+        const digits = text.replace(/\D/g, "");
+        if (!digits) return [fallbackIso, ""];
+        if (!text.startsWith("+") && digits.length < 11) return [fallbackIso, text];
+        let best = null;
+        COUNTRIES.forEach((c) => {
+          if (digits.startsWith(c[2]) && (!best || c[2].length > best[2].length)) best = c;
+        });
+        if (!best) return [OTHER, text.startsWith("+") ? text : "+" + digits];
+        let iso = best[0];
+        if (best[2] === "1") {
+          const area = digits.slice(1, 4);
+          if (["787", "939"].includes(area)) iso = "PR";
+          else if (["809", "829", "849"].includes(area)) iso = "DO";
+          else iso = BY_ISO[fallbackIso] && BY_ISO[fallbackIso][2] === "1" ? fallbackIso : "US";
+        }
+        return [iso, digits.slice(best[2].length)];
+      }
+
+      function codeLabel(iso) {
+        if (iso === OTHER) return "🌐 Otro";
+        const c = BY_ISO[iso];
+        return c ? `${flag(iso)}${iso} +${c[2]}` : "+";
+      }
+
+      function fullNumber(iso, national) {
+        const text = String(national || "").trim();
+        if (!text) return "";
+        if (text.startsWith("+") || iso === OTHER) return text.startsWith("+") ? text : "+" + text;
+        const c = BY_ISO[iso];
+        return c ? `+${c[2]} ${text}` : text;
+      }
+
+      function buildGroup(original, { withSelect, iso, national }) {
+        const group = document.createElement("div");
+        group.className = "ce-phone";
+        const code = document.createElement("div");
+        code.className = "ce-phone__code" + (withSelect ? "" : " ce-phone__code--static");
+        const display = document.createElement("span");
+        display.className = "ce-phone__code-label";
+        display.setAttribute("aria-hidden", "true");
+        code.appendChild(display);
+        let select = null;
+        if (withSelect) {
+          select = document.createElement("select");
+          select.className = "ce-phone__select";
+          select.setAttribute("aria-label", "Código de país");
+          COUNTRIES.forEach((c) => select.add(new Option(`${flag(c[0])}${c[1]} (+${c[2]})`, c[0])));
+          select.add(new Option("Otro país (escribe el número con +)", OTHER));
+          select.value = iso;
+          code.appendChild(select);
+        }
+        const number = document.createElement("input");
+        number.type = "tel";
+        number.className = "ce-phone__number";
+        number.id = original.id ? original.id + "_numero" : "";
+        number.setAttribute("inputmode", "tel");
+        number.setAttribute("autocomplete", withSelect ? "tel-national" : "off");
+        number.placeholder = "Número de WhatsApp";
+        number.value = national;
+        number.dataset.cePhoneDisplay = "1";
+        if (original.dataset.confirmOf) number.dataset.cePhoneConfirm = "1";
+        group.append(code, number);
+        return { group, display, select, number };
+      }
+
+      const mains = Array.from(document.querySelectorAll("input[data-ce-phone]"));
+      mains.forEach((original) => {
+        if (original.dataset.cePhoneReady) return;
+        original.dataset.cePhoneReady = "1";
+        const [iso, national] = splitValue(original.value, guessCountry());
+        const main = buildGroup(original, { withSelect: true, iso, national });
+        const confirmOriginal = document.querySelector(`input[data-confirm-of="${original.name}"]`);
+        let confirm = null;
+        if (confirmOriginal) {
+          const parts = splitValue(confirmOriginal.value, iso);
+          confirm = buildGroup(confirmOriginal, { withSelect: false, iso, national: parts[1] });
+          confirmOriginal.dataset.cePhoneReady = "1";
+        }
+
+        function currentIso() {
+          return main.select.value;
+        }
+
+        function sync(event) {
+          const iso = currentIso();
+          main.display.textContent = codeLabel(iso);
+          const mainValue = fullNumber(iso, main.number.value);
+          if (original.value !== mainValue) {
+            original.value = mainValue;
+            if (event) original.dispatchEvent(new Event("input", { bubbles: true }));
+          }
+          if (confirm) {
+            confirm.display.textContent = codeLabel(iso);
+            const confirmValue = fullNumber(iso, confirm.number.value);
+            if (confirmOriginal.value !== confirmValue) {
+              confirmOriginal.value = confirmValue;
+              if (event) confirmOriginal.dispatchEvent(new Event("input", { bubbles: true }));
+            }
+          }
+        }
+
+        main.number._ceFullNumber = () => fullNumber(currentIso(), main.number.value);
+        if (confirm) confirm.number._ceFullNumber = () => fullNumber(currentIso(), confirm.number.value);
+
+        original.insertAdjacentElement("afterend", main.group);
+        original.type = "hidden";
+        if (confirm) {
+          confirmOriginal.insertAdjacentElement("afterend", confirm.group);
+          confirmOriginal.type = "hidden";
+        }
+        [[original, main], [confirmOriginal, confirm]].forEach(([orig, ui]) => {
+          if (!orig || !ui) return;
+          const label = document.querySelector(`label[for="${orig.id}"]`);
+          if (label && ui.number.id) label.htmlFor = ui.number.id;
+        });
+
+        main.select.addEventListener("change", sync);
+        main.number.addEventListener("input", sync);
+        if (confirm) confirm.number.addEventListener("input", sync);
+        sync(null);
+      });
     })();
   </script>
 

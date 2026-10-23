@@ -7345,6 +7345,44 @@ class ImpactDashboardMetricTests(TestCase):
         self.assertTrue(dataset["stale"])
         self.assertEqual(dataset["responses_count"], 1)
 
+    @patch("applications.admin_dashboard_views._load_database_encuestas_grid")
+    def test_impact_dataset_survives_wiped_cache_with_saved_copy(self, mock_load_grid):
+        from applications.models import ImpactSurveySnapshot
+
+        mock_load_grid.return_value = (
+            "Initial survey",
+            ["Email"],
+            [["person@example.com"], ["other@example.com"]],
+            "survey.csv",
+            "drive-id",
+        )
+        admin_dashboard_views._build_impact_dataset(
+            "emprendedoras", "Initial survey", "admin_database_encuestas_sheet",
+        )
+        self.assertTrue(ImpactSurveySnapshot.objects.filter(kind="emprendedoras").exists())
+
+        # A deploy wipes the file cache; the recent saved copy is used without Drive.
+        cache.clear()
+        mock_load_grid.side_effect = RuntimeError("The read operation timed out")
+        dataset, _emails = admin_dashboard_views._build_impact_dataset(
+            "emprendedoras", "Initial survey", "admin_database_encuestas_sheet",
+        )
+        self.assertEqual(mock_load_grid.call_count, 1)
+        self.assertFalse(dataset["stale"])
+        self.assertEqual(dataset["responses_count"], 2)
+
+        # An older saved copy is still shown (marked stale) when Drive times out.
+        cache.clear()
+        ImpactSurveySnapshot.objects.filter(kind="emprendedoras").update(
+            fetched_at=timezone.now() - timedelta(days=2)
+        )
+        dataset, _emails = admin_dashboard_views._build_impact_dataset(
+            "emprendedoras", "Initial survey", "admin_database_encuestas_sheet",
+        )
+        self.assertEqual(mock_load_grid.call_count, 2)
+        self.assertTrue(dataset["stale"])
+        self.assertEqual(dataset["responses_count"], 2)
+
     def test_participant_aggregates_exclude_stored_group_workbooks_without_google_link(self):
         unlinked_group = FormGroup.objects.create(
             number=985,

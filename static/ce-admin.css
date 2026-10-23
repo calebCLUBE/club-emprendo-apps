@@ -2537,6 +2537,25 @@ fieldset.module {
   text-transform: none;
 }
 
+/* Room for Django's "+" / arrow icons on object-tools links. */
+.object-tools a.addlink,
+.object-tools a.viewsitelink {
+  padding-right: 32px;
+  background-position: right 12px center;
+}
+
+/* Django draws this title as header-link text on --secondary; keep it legible. */
+.selector-chosen-title {
+  background: var(--ce-green-50);
+  color: var(--ce-green-800);
+  border-bottom: 1px solid var(--ce-green-100);
+}
+
+.selector-chosen-title label {
+  color: var(--ce-green-800);
+  font-weight: 600;
+}
+
 #changelist .changelist-form-container,
 #changelist-form .results {
   border-radius: 12px;

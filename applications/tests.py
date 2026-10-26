@@ -9821,7 +9821,8 @@ class ParticipantsCapacitacionCheckTests(TestCase):
                 ["", "G", 1, "Mentora 1", "M1", "m1@example.com"],
             ],
         )
-        expected = "G992 · Emprendedora · Graduada | G993 · Mentora · Cambio de pareja"
+        # The workbook leaves out the participant's own role in its group (G993 Mentora).
+        expected = "G992 · Emprendedora · Graduada"
         report = admin_profiles_views._participant_history_lookup("m1@example.com")
         self.assertEqual(len(report["results"][0]["history"]), 2)
         for track in ("mentoras", "all"):
@@ -9908,7 +9909,7 @@ class ParticipantsCapacitacionCheckTests(TestCase):
                 self.assertEqual(exported[0], expected_headers)
                 self.assertNotIn("Info", exported[0])
                 self.assertEqual(exported[1],
-                                 [f"G993 · {role} · {status}", status, note, email, name] + checks)
+                                 ["Sin otras participaciones", status, note, email, name] + checks)
         self.participant_list.refresh_from_db()
         self.assertEqual(self.participant_list.google_sheet_sync_error, "")
         self.assertEqual(self.participant_list.google_sheet_tabs[0]["headers"], ["Participante", "Observación"])
@@ -9990,7 +9991,7 @@ class ParticipantsCapacitacionCheckTests(TestCase):
         self.assertEqual(display["headers"][:4], ["Historial", "Estatus", "Notas", "Email"])
         self.assertNotIn("Info", display["headers"])
         self.assertEqual(display["rows"][0][1], "NC - Sin respuesta")
-        self.assertEqual(display["rows"][0][0], "G10 · Mentora · NC - Sin Respuesta")
+        self.assertEqual(display["rows"][0][0], "Sin otras participaciones")
         self.assertEqual(source["tabs"][0]["values"][1][1], "NC - Sin respuesta")
         self.assertEqual(self.participant_list.google_sheet_sync_error, "")
         self.assertIsNotNone(self.participant_list.google_sheet_last_synced_at)
@@ -10060,13 +10061,15 @@ class ParticipantsCapacitacionCheckTests(TestCase):
         created = mock_ensure.call_args.args[1]
         self.assertEqual([item["header"] for item in created], ["Historial", "Historial"])
         self.assertTrue(all(item["checkbox"] is False for item in created))
-        expected = "G993 · Emprendedora · Graduada | G993 · Mentora · Activa"
+        # Each row keeps the other role in this group but omits its own.
+        mentora_history = "G993 · Emprendedora · Graduada"
+        emprendedora_history = "G993 · Mentora · Activa"
         updates = {item["range"]: item["values"] for call in mock_update.call_args_list for item in call.args[1]}
-        self.assertEqual(updates["'Mentoras'!T2:T3"], [[""], [expected]])
-        self.assertEqual(updates["'Emprendedoras'!S2:S2"], [[expected]])
+        self.assertEqual(updates["'Mentoras'!T2:T3"], [[""], [mentora_history]])
+        self.assertEqual(updates["'Emprendedoras'!S2:S2"], [[emprendedora_history]])
         self.participant_list.refresh_from_db()
-        self.assertEqual(self.participant_list.mentoras_sheet_rows[0][-1], expected)
-        self.assertEqual(self.participant_list.emprendedoras_sheet_rows[0][-1], expected)
+        self.assertEqual(self.participant_list.mentoras_sheet_rows[0][-1], mentora_history)
+        self.assertEqual(self.participant_list.emprendedoras_sheet_rows[0][-1], emprendedora_history)
         self.assertEqual(self.participant_list.google_sheet_tabs[2]["headers"], ["Custom heading", "Owner"])
         self.mock_move_columns.assert_called_once_with(url, [
             {"sheet_id": 1, "column_index": 19},
@@ -10085,7 +10088,7 @@ class ParticipantsCapacitacionCheckTests(TestCase):
         )
         self.assertEqual(mock_ensure.call_count, 1)  # Existing Historial needs no schema writes.
         updates = {item["range"]: item["values"] for call in mock_update.call_args_list for item in call.args[1]}
-        self.assertEqual(updates["'Mentoras'!A2:A3"][-1], [expected])
+        self.assertEqual(updates["'Mentoras'!A2:A3"][-1], [mentora_history])
         self.assertEqual(self.mock_move_columns.call_args.args[1], [])
 
     @patch("applications.admin_profiles_views.update_google_spreadsheet_values")
@@ -10209,7 +10212,7 @@ class ParticipantsCapacitacionCheckTests(TestCase):
         self.assertEqual(self.participant_list.mentoras_sheet_rows[0][1], "NC - Sin Respuesta")
         self.assertEqual(self.participant_list.mentoras_sheet_rows[0][0], "Reubicación pendiente")
         self.assertEqual(self.participant_list.mentoras_sheet_rows[0][5], "m1@example.com")
-        self.assertEqual(source["tabs"][0]["values"][1][0], "G10 · Mentora · NC - Sin Respuesta")
+        self.assertEqual(source["tabs"][0]["values"][1][0], "Sin otras participaciones")
         response = self.client.get(reverse("admin_profiles_participants_track_sheet", args=[10, "all"]))
         self.assertEqual(response.status_code, 200)
         tab = response.context["sheet_tabs"][0]

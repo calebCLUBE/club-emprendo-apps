@@ -2425,8 +2425,20 @@ def _match_participant_history(lookup_parts, indexes):
     return matched, match_basis
 
 
-def _populate_participant_historial(rows, headers, *, indexes=None, participant_list=None):
-    """Use the Profiles history matcher, without its interactive 500-line limit."""
+def _populate_participant_historial(
+    rows,
+    headers,
+    *,
+    indexes=None,
+    participant_list=None,
+    current_group=None,
+    current_role=None,
+):
+    """Use the Profiles history matcher, without its interactive 500-line limit.
+
+    The participant's own role in the workbook's group (current_group/current_role)
+    is left out: the workbook already shows it.
+    """
     rows = _normalize_sheet_rows(rows, headers)
     if not rows or "Historial" not in headers:
         return rows
@@ -2445,11 +2457,17 @@ def _populate_participant_historial(rows, headers, *, indexes=None, participant_
         if basis == "nombre" and len({item["person_token"] for item in matched}) > 1:
             row[history_col] = "Varias personas tienen este nombre; usa email o cédula."
             continue
+        found_any = bool(matched)
+        if current_group is not None and current_role:
+            matched = [
+                item for item in matched
+                if not (str(item["group_num"]) == str(current_group) and item["role_code"] == current_role)
+            ]
         matched.sort(key=lambda item: (item["group_num"], item["role_code"] == "M"))
         row[history_col] = " | ".join(
             f"G{item['group_num']} · {item['role_label']} · {item['status_display']}"
             for item in matched
-        ) or "No encontrada"
+        ) or ("Sin otras participaciones" if found_any else "No encontrada")
     return rows
 
 
@@ -3525,7 +3543,8 @@ def _sync_group_from_linked_google_sheet(
     )
     for slug, cfg in configs.items():
         canonical_rows[slug] = _populate_participant_historial(
-            canonical_rows[slug], cfg["headers"], indexes=history_indexes
+            canonical_rows[slug], cfg["headers"], indexes=history_indexes,
+            current_group=group.number, current_role="M" if slug == "mentoras" else "E",
         )
         setattr(participant_list, cfg["rows_field"], canonical_rows[slug])
     history_updates = []
@@ -3713,10 +3732,16 @@ def _participant_track_rows_visible_on_page(group, participant_list, cfg: dict) 
     return _participant_track_rows_for_group(group, participant_list, cfg)
 
 
-def _participant_sheet_tabs(mentoras_rows: list[list], emprendedoras_rows: list[list]) -> list[dict]:
+def _participant_sheet_tabs(
+    mentoras_rows: list[list], emprendedoras_rows: list[list], group_num: int | None = None,
+) -> list[dict]:
     indexes = _participant_history_indexes(_participant_history_occurrences())
-    mentoras_rows = _populate_participant_historial(mentoras_rows, MENTORAS_HEADERS, indexes=indexes)
-    emprendedoras_rows = _populate_participant_historial(emprendedoras_rows, EMPRENDEDORAS_HEADERS, indexes=indexes)
+    mentoras_rows = _populate_participant_historial(
+        mentoras_rows, MENTORAS_HEADERS, indexes=indexes, current_group=group_num, current_role="M",
+    )
+    emprendedoras_rows = _populate_participant_historial(
+        emprendedoras_rows, EMPRENDEDORAS_HEADERS, indexes=indexes, current_group=group_num, current_role="E",
+    )
     tabs = [
         {
             "key": "mentoras",
@@ -3815,14 +3840,20 @@ def _sheet_xml(
     return xml.encode("utf-8")
 
 
-def _participants_workbook_bytes(mentoras_rows: list[list], emprendedoras_rows: list[list]) -> bytes:
+def _participants_workbook_bytes(
+    mentoras_rows: list[list], emprendedoras_rows: list[list], group_num: int | None = None,
+) -> bytes:
     mentoras_rows = _normalize_sheet_rows(mentoras_rows, MENTORAS_HEADERS)
     emprendedoras_rows = _normalize_sheet_rows(emprendedoras_rows, EMPRENDEDORAS_HEADERS)
     mentoras_rows = _coerce_bool_columns(mentoras_rows, MENTORAS_BOOLEAN_COLS)
     emprendedoras_rows = _coerce_bool_columns(emprendedoras_rows, EMPRENDEDORAS_BOOLEAN_COLS)
 
-    mentoras_rows = _populate_participant_historial(mentoras_rows, MENTORAS_HEADERS)
-    emprendedoras_rows = _populate_participant_historial(emprendedoras_rows, EMPRENDEDORAS_HEADERS)
+    mentoras_rows = _populate_participant_historial(
+        mentoras_rows, MENTORAS_HEADERS, current_group=group_num, current_role="M",
+    )
+    emprendedoras_rows = _populate_participant_historial(
+        emprendedoras_rows, EMPRENDEDORAS_HEADERS, current_group=group_num, current_role="E",
+    )
     sheets = [
         ("Mentoras", MENTORAS_HEADERS, mentoras_rows, MENTORAS_COL_WIDTHS, 4),
         ("Emprendedoras", EMPRENDEDORAS_HEADERS, emprendedoras_rows, EMPRENDEDORAS_COL_WIDTHS, 3),
@@ -5681,8 +5712,15 @@ def profiles_participants(request):
         acta_col=EMPRENDEDORAS_ACTA_COL,
     )
 
-    mentoras_rows = _populate_participant_historial(mentoras_rows, MENTORAS_HEADERS, participant_list=participant_list)
-    emprendedoras_rows = _populate_participant_historial(emprendedoras_rows, EMPRENDEDORAS_HEADERS, participant_list=participant_list)
+    current_group_num = selected_group.number if selected_group else None
+    mentoras_rows = _populate_participant_historial(
+        mentoras_rows, MENTORAS_HEADERS, participant_list=participant_list,
+        current_group=current_group_num, current_role="M",
+    )
+    emprendedoras_rows = _populate_participant_historial(
+        emprendedoras_rows, EMPRENDEDORAS_HEADERS, participant_list=participant_list,
+        current_group=current_group_num, current_role="E",
+    )
     mentoras_emails = _emails_from_sheet_rows(mentoras_rows, MENTORAS_EMAIL_COL)
     emprendedoras_emails = _emails_from_sheet_rows(emprendedoras_rows, EMPRENDEDORAS_EMAIL_COL)
     has_list = bool(participant_list and (mentoras_rows or emprendedoras_rows))
@@ -6311,7 +6349,10 @@ def _profiles_participants_track_sheet(request, group_num: int, track: str):
     display_headers = headers
     display_column_types = column_types
     display_status_options = status_options
-    display_rows = _populate_participant_historial(rows, headers, participant_list=participant_list)
+    display_rows = _populate_participant_historial(
+        rows, headers, participant_list=participant_list,
+        current_group=group.number, current_role="M" if track_slug == "mentoras" else "E",
+    )
     if linked_google_sheet:
         display_headers, display_column_types, display_rows = [], [], []
         stored_tabs = list(participant_list.google_sheet_tabs or [])
@@ -6799,6 +6840,7 @@ def _profiles_participants_combined_sheet(request, group):
         else _participant_sheet_tabs(
             rows_by_track["mentoras"],
             rows_by_track["emprendedoras"],
+            group_num=group.number,
         )
     )
     first_display_tab = display_tabs[0] if display_tabs else None
@@ -6887,6 +6929,7 @@ def profiles_participants_download(request, group_num: int):
         workbook_bytes = _participants_workbook_bytes(
             mentoras_rows=_number_sheet_rows(mentoras_rows, number_col=2),
             emprendedoras_rows=_number_sheet_rows(emprendedoras_rows, number_col=2),
+            group_num=group_num,
         )
 
     response = HttpResponse(

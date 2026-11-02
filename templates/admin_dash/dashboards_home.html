@@ -25,6 +25,12 @@
       <p class="ce-work-tile__desc">Application volume, group trends, and operational metrics.</p>
       <svg class="ce-icon ce-work-tile__arrow" aria-hidden="true"><use href="#ce-i-arrow-right"></use></svg>
     </a>
+    <a class="ce-work-tile" href="{% url 'admin_application_counts' %}">
+      <span class="ce-work-tile__icon ce-work-tile__icon--purple"><svg class="ce-icon" aria-hidden="true"><use href="#ce-i-list-checks"></use></svg></span>
+      <h2 class="ce-work-tile__title">Application Counts</h2>
+      <p class="ce-work-tile__desc">How many real applications each group received, after removing repeats and applicants who didn't qualify.</p>
+      <svg class="ce-icon ce-work-tile__arrow" aria-hidden="true"><use href="#ce-i-arrow-right"></use></svg>
+    </a>
     <a class="ce-work-tile" href="{% url 'admin_application_progress_dashboard' %}">
       <span class="ce-work-tile__icon ce-work-tile__icon--warning"><svg class="ce-icon" aria-hidden="true"><use href="#ce-i-clipboard-list"></use></svg></span>
       <h2 class="ce-work-tile__title">Incomplete Applications</h2>

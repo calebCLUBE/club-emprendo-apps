@@ -1,0 +1,215 @@
+{% extends "admin/base_site.html" %}
+
+{% block title %}Application counts · Dashboards · Club Emprendo Admin{% endblock %}
+
+{% block content %}
+<div class="ce-workspace">
+  <style>
+    .ce-count-picker {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin: 0;
+    }
+    .ce-count-picker label {
+      color: var(--ce-text-secondary);
+      font-size: 13px;
+      font-weight: 650;
+    }
+    .ce-count-picker select {
+      min-width: 230px;
+      font-weight: 600;
+    }
+
+    .ce-count-tracks {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+    }
+    .ce-count-tracks .ce-work-panel {
+      margin: 0;
+    }
+    .ce-count-track__title::before {
+      flex: 0 0 auto;
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      background: var(--ce-pink-300);
+      content: "";
+    }
+    .ce-count-track__title--m::before {
+      background: var(--ce-purple-600);
+    }
+
+    .ce-count-steps {
+      margin: 0;
+      padding: 0;
+    }
+    .ce-count-steps > div {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--ce-border);
+    }
+    .ce-count-steps > div:first-child {
+      padding-top: 0;
+    }
+    .ce-count-steps dt {
+      margin: 0;
+      padding: 0;
+      color: var(--ce-text-secondary);
+      font-size: 14px;
+      font-weight: 600;
+    }
+    .ce-count-steps dt small {
+      display: block;
+      margin-top: 2px;
+      color: var(--ce-text-muted);
+      font-size: 12.5px;
+      font-weight: 400;
+    }
+    .ce-count-steps dd {
+      margin: 0;
+      color: var(--ce-text);
+      font-size: 15px;
+      font-weight: 650;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+    .ce-count-steps .ce-count-steps__total {
+      padding-top: 14px;
+      border-bottom: 0;
+    }
+    .ce-count-steps__total dt {
+      color: var(--ce-text);
+      font-size: 15px;
+      font-weight: 700;
+    }
+    .ce-count-steps__total dd {
+      color: var(--ce-green-800);
+      font-size: 26px;
+      font-weight: 750;
+    }
+
+    .ce-count-note {
+      margin: 18px 0 0;
+      max-width: 72ch;
+    }
+
+    @media (max-width: 900px) {
+      .ce-count-tracks {
+        grid-template-columns: minmax(0, 1fr);
+      }
+    }
+    @media (max-width: 560px) {
+      .ce-count-picker {
+        flex-wrap: wrap;
+        width: 100%;
+      }
+      .ce-count-picker select {
+        flex: 1 1 auto;
+        min-width: 0;
+      }
+    }
+  </style>
+
+  <nav class="ce-work-crumbs" aria-label="Breadcrumb">
+    <a href="{% url 'admin_dashboards_home' %}">Dashboards</a>
+    <svg class="ce-icon ce-icon--sm" aria-hidden="true"><use href="#ce-i-chevron-right"></use></svg>
+    <span aria-current="page">Application counts</span>
+  </nav>
+
+  <header class="ce-work-header">
+    <div class="ce-work-header__main">
+      <h1 class="ce-work-title">Application counts</h1>
+      <p class="ce-work-lede">How many real applications {{ group_label|default:"this group" }} received: people who qualified, counted once each.</p>
+    </div>
+    {% if group_options %}
+      <div class="ce-work-actions">
+        <form method="get" action="{% url 'admin_application_counts' %}" class="ce-count-picker">
+          <label for="ce-count-group">Group</label>
+          <select id="ce-count-group" name="group" class="ce-work-input" data-ce-autosubmit>
+            {% for option in group_options %}
+              <option value="{{ option.value }}"{% if option.value == group %} selected{% endif %}>{{ option.label }}</option>
+            {% endfor %}
+          </select>
+          <noscript><button class="ce-work-btn ce-work-btn--secondary ce-work-btn--sm" type="submit">Show</button></noscript>
+        </form>
+      </div>
+    {% endif %}
+  </header>
+
+  {% if group_options %}
+    <div class="ce-work-summary">
+      <div class="ce-work-stat ce-work-stat--brand">
+        <div class="ce-work-stat__label">Real applications</div>
+        <div class="ce-work-stat__value">{{ total_real }}</div>
+        <div class="ce-work-stat__detail">Emprendedoras + Mentoras</div>
+      </div>
+      {% for track in tracks %}
+        <div class="ce-work-stat">
+          <div class="ce-work-stat__label">{{ track.label }}</div>
+          <div class="ce-work-stat__value">{{ track.real }}</div>
+          <div class="ce-work-stat__detail">From {{ track.submitted }} form{{ track.submitted|pluralize }} submitted</div>
+        </div>
+      {% endfor %}
+      <div class="ce-work-stat">
+        <div class="ce-work-stat__label">Different people</div>
+        <div class="ce-work-stat__value">{{ unique_people }}</div>
+        <div class="ce-work-stat__detail">{% if both_tracks %}{{ both_tracks }} applied to both tracks{% else %}No one applied to both tracks{% endif %}</div>
+      </div>
+    </div>
+
+    <div class="ce-count-tracks">
+      {% for track in tracks %}
+        <section class="ce-work-panel" aria-labelledby="ce-count-{{ track.key }}">
+          <div class="ce-work-panel__head">
+            <h2 class="ce-work-panel__title ce-count-track__title{% if track.key == "M" %} ce-count-track__title--m{% endif %}" id="ce-count-{{ track.key }}">{{ track.label }}</h2>
+          </div>
+          <div class="ce-work-panel__body">
+            <dl class="ce-count-steps">
+              <div>
+                <dt>Forms submitted<small>First- and second-stage application forms</small></dt>
+                <dd>{{ track.submitted }}</dd>
+              </div>
+              <div>
+                <dt>Didn't qualify<small>Answers didn't meet the requirements</small></dt>
+                <dd>{% if track.not_approved %}−{% endif %}{{ track.not_approved }}</dd>
+              </div>
+              <div>
+                <dt>Repeats<small>Same person submitted more than once</small></dt>
+                <dd>{% if track.duplicates %}−{% endif %}{{ track.duplicates }}</dd>
+              </div>
+              <div class="ce-count-steps__total">
+                <dt>Real applications</dt>
+                <dd>{{ track.real }}</dd>
+              </div>
+            </dl>
+          </div>
+        </section>
+      {% endfor %}
+    </div>
+
+    <p class="ce-work-muted ce-count-note">
+      Counted the same way <a href="{% url 'admin_grading_home' %}?group={{ group }}">grading</a> does: only applications that passed the requirement questions, one per person, matched by email (or ID number when there's no email). People who applied to both tracks count once in each track.
+    </p>
+  {% else %}
+    <div class="ce-work-empty">
+      <p>No application forms found yet.</p>
+    </div>
+  {% endif %}
+</div>
+
+<script>
+  (function () {
+    var picker = document.querySelector("[data-ce-autosubmit]");
+    if (picker) {
+      picker.addEventListener("change", function () {
+        picker.form.submit();
+      });
+    }
+  })();
+</script>
+{% endblock %}

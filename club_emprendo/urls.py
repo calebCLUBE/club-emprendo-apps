@@ -36,6 +36,11 @@ urlpatterns = [
         name="admin_dashboards_home",
     ),
     path(
+        "admin/dashboards/application-counts/",
+        admin_dashboard_views.application_counts,
+        name="admin_application_counts",
+    ),
+    path(
         "admin/dashboards/marketing/",
         admin_dashboard_views.marketing_dashboard,
         name="admin_marketing_dashboard",

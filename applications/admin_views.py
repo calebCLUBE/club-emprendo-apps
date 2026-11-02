@@ -8014,10 +8014,9 @@ def _redirect_back_to_grading(request):
 GRADING_JOB_STALL_AFTER = timedelta(minutes=30)
 
 
-@staff_member_required
-def grading_home(request):
-    group = (request.GET.get("group") or "").strip()
-
+def _grading_forms_for_group(group: str):
+    """Current E_A1/M_A1 forms for one group (number, "none" for base forms),
+    plus the dropdown options. A blank group picks the default."""
     all_fds = (
         FormDefinition.objects.filter(slug__regex=CURRENT_GRADING_FORM_RE.pattern)
         .select_related("group")
@@ -8052,6 +8051,62 @@ def grading_home(request):
         fds = fds.filter(group__number=int(group))
     elif group:
         fds = fds.none()
+    return fds, group, group_options
+
+
+APPLICANT_EMAIL_ANSWER_SLUGS = ("email", "correo", "correo_electronico")
+APPLICANT_DOCUMENT_ANSWER_SLUGS = ("cedula", "id_number")
+
+
+def _real_application_count(first_stage_forms) -> dict:
+    """Count applications the way grading does: approved submissions on the
+    first-stage forms and their second-stage (A2) forms, one per person
+    (email, else ID number)."""
+    forms = list(first_stage_forms)
+    second_stage = FormDefinition.objects.filter(slug__in=[fd.slug[:-1] + "2" for fd in forms])
+    apps = Application.objects.filter(Q(form__in=forms) | Q(form__in=second_stage))
+    submitted = apps.count()
+    approved = apps.filter(approved_for_grading=True)
+
+    answers: dict[int, dict[str, str]] = {}
+    for app_id, slug, value in Answer.objects.filter(
+        application__in=approved,
+        question__slug__in=APPLICANT_EMAIL_ANSWER_SLUGS + APPLICANT_DOCUMENT_ANSWER_SLUGS,
+    ).values_list("application_id", "question__slug", "value"):
+        answers.setdefault(app_id, {})[slug] = value or ""
+
+    people: set[tuple[str, str]] = set()
+    approved_count = 0
+    for app_id, app_email in approved.values_list("id", "email"):
+        approved_count += 1
+        answer_map = answers.get(app_id, {})
+        email = next((answer_map[s] for s in APPLICANT_EMAIL_ANSWER_SLUGS if answer_map.get(s)), "") or app_email or ""
+        email = email.strip().lower()
+        document = "".join(
+            ch for ch in (answer_map.get("cedula") or answer_map.get("id_number") or "").strip().lower()
+            if ch.isalnum()
+        )
+        if email:
+            people.add(("email", email))
+        elif document:
+            people.add(("document", document))
+        else:
+            people.add(("application", str(app_id)))
+
+    return {
+        "submitted": submitted,
+        "not_approved": submitted - approved_count,
+        "duplicates": approved_count - len(people),
+        "real": len(people),
+        "people": people,
+    }
+
+
+@staff_member_required
+def grading_home(request):
+    fds, group, group_options = _grading_forms_for_group(
+        (request.GET.get("group") or "").strip()
+    )
 
     form_slugs = [fd.slug for fd in fds]
     latest_graded_by_slug: dict[str, GradedFile] = {}

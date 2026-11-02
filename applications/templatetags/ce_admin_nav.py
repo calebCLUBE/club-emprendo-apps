@@ -38,6 +38,7 @@ SUBNAV = {
         ("Overview", "admin_dashboards_home", ("/admin/dashboards/",)),
         ("Impact", "admin_impact_dashboard", ("/admin/dashboards/impact/",)),
         ("Applications", "admin_applications_dashboard", ("/admin/apps/dashboard/",)),
+        ("Application counts", "admin_application_counts", ("/admin/dashboards/application-counts/",)),
         ("Incomplete applications", "admin_application_progress_dashboard", ("/admin/dashboards/application-progress/",)),
         ("Marketing", "admin_marketing_dashboard", ("/admin/dashboards/marketing/",)),
         ("Website traffic", "admin_website_traffic_dashboard", ("/admin/dashboards/website-traffic/",)),

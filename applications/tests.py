@@ -2861,6 +2861,49 @@ class GradingAndPairingConfigEditorTests(TestCase):
         self.assertEqual(invalid.status_code, 200)
         self.assertEqual(invalid.context["forms"], [])
 
+    def test_application_counts_match_grading_rules(self):
+        group = FormGroup.objects.create(number=9, start_month="Enero", end_month="Abril", year=2027)
+        e_a1 = FormDefinition.objects.create(slug="G9_E_A1", name="G9 E", group=group)
+        e_a2 = FormDefinition.objects.create(slug="G9_E_A2", name="G9 E second stage", group=group)
+        m_a1 = FormDefinition.objects.create(slug="G9_M_A1", name="G9 M", group=group)
+        cedula = Question.objects.create(form=e_a1, text="Cédula", slug="cedula", field_type=Question.SHORT_TEXT)
+
+        def apply(form, email, approved=True, document=""):
+            app = Application.objects.create(form=form, email=email, approved_for_grading=approved)
+            if document:
+                Answer.objects.create(application=app, question=cedula, value=document)
+            return app
+
+        apply(e_a1, "ana@example.com")
+        apply(e_a1, "ANA@example.com ")  # repeat, different casing
+        apply(e_a2, "ana@example.com")  # second stage, same person
+        apply(e_a1, "bea@example.com")
+        apply(e_a1, "nope@example.com", approved=False)
+        apply(e_a1, "", document="1.234.567")
+        apply(e_a1, "", document="1234567")  # same ID number, no email
+        apply(m_a1, "bea@example.com")
+        apply(m_a1, "cami@example.com")
+
+        response = self.client.get(reverse("admin_application_counts"), {"group": "9"})
+
+        self.assertEqual(response.status_code, 200)
+        emprendedoras, mentoras = response.context["tracks"]
+        self.assertEqual(
+            {k: emprendedoras[k] for k in ("submitted", "not_approved", "duplicates", "real")},
+            {"submitted": 7, "not_approved": 1, "duplicates": 3, "real": 3},
+        )
+        self.assertEqual((mentoras["submitted"], mentoras["real"]), (2, 2))
+        self.assertEqual(response.context["total_real"], 5)
+        self.assertEqual(response.context["both_tracks"], 1)
+        self.assertEqual(response.context["unique_people"], 4)
+        self.assertContains(response, "1 applied to both tracks")
+        self.assertContains(response, '<option value="9" selected>Group 9 · Enero 2027</option>', html=True)
+
+        self.assertContains(
+            self.client.get(reverse("admin_grading_home"), {"group": "9"}),
+            f'{reverse("admin_application_counts")}?group=9',
+        )
+
     def test_grading_job_status_links_to_results_when_done(self):
         GradedFile.objects.create(form_slug="G7_E_A1", csv_text="Status,email\nSeleccionada,a@example.com\n")
         done = GradingJob.objects.create(

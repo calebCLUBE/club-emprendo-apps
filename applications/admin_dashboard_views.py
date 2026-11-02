@@ -28,9 +28,11 @@ from django.utils.html import escape, linebreaks
 from django.views.decorators.http import require_POST
 
 from .admin_views import (
+    _grading_forms_for_group,
     _group_label_for_number,
     _load_database_encuestas_grid,
     _month_name_to_number,
+    _real_application_count,
 )
 from .models import (
     Application,
@@ -5258,3 +5260,23 @@ def applications_dashboard(request):
         "recent_apps": recent_apps,
     }
     return render(request, "admin_dash/applications_dashboard.html", context)
+
+
+@staff_member_required
+def application_counts(request):
+    fds, group, group_options = _grading_forms_for_group((request.GET.get("group") or "").strip())
+    tracks = []
+    for key, label in (("E", "Emprendedoras"), ("M", "Mentoras")):
+        counts = _real_application_count([fd for fd in fds if fd.slug.endswith(f"{key}_A1")])
+        tracks.append({"key": key, "label": label, **counts})
+    emprendedoras, mentoras = tracks
+    context = {
+        "group": group,
+        "group_options": group_options,
+        "group_label": next((o["label"] for o in group_options if o["value"] == group), ""),
+        "tracks": tracks,
+        "total_real": emprendedoras["real"] + mentoras["real"],
+        "both_tracks": len(emprendedoras["people"] & mentoras["people"]),
+        "unique_people": len(emprendedoras["people"] | mentoras["people"]),
+    }
+    return render(request, "admin_dash/application_counts.html", context)

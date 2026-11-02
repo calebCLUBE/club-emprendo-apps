@@ -17,6 +17,13 @@ class AdminPasswordResetTests(TestCase):
         self.client.force_login(self.admin)
         self.url = reverse("admin:auth_user_password_change", args=[self.user.pk])
 
+    def test_user_list_links_names_and_emails_and_shows_filter_choices(self):
+        response = self.client.get(reverse("admin:accounts_user_changelist"))
+        change_url = reverse("admin:accounts_user_change", args=[self.user.pk])
+        self.assertContains(response, f'<a href="{change_url}">{self.user.email}</a>', count=2, html=True)
+        self.assertContains(response, "By staff status")
+        self.assertContains(response, "?is_active__exact=0")
+
     def test_account_page_links_to_email_reset_and_get_does_not_send(self):
         response = self.client.get(reverse("admin:accounts_user_change", args=[self.user.pk]))
         self.assertContains(response, "Send password reset email")

@@ -78,6 +78,7 @@ class UserAdmin(DjangoUserAdmin):
         }
         return TemplateResponse(request, "admin/accounts/user/send_password_reset.html", context)
     list_display = ("id", "display_name", "email", "is_staff", "is_superuser", "is_active")
+    list_display_links = ("id", "display_name", "email")
     list_filter = ("is_staff", "is_superuser", "is_active")
     ordering = ("email",)
 

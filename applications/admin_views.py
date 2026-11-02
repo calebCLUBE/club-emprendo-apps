@@ -8023,11 +8023,27 @@ def grading_home(request):
         .select_related("group")
         .order_by("slug")
     )
-    group_numbers = sorted(
-        {fd.group.number for fd in all_fds if fd.group_id},
-        reverse=True,
-    )
-    has_ungrouped_forms = any(not fd.group_id for fd in all_fds)
+    groups_by_number = {fd.group.number: fd.group for fd in all_fds if fd.group_id}
+    group_options = [
+        {
+            "value": str(number),
+            "label": f"Group {number} · {groups_by_number[number].start_month} {groups_by_number[number].year}",
+        }
+        for number in sorted(groups_by_number, reverse=True)
+    ]
+    if any(not fd.group_id for fd in all_fds):
+        group_options.append({"value": "none", "label": "Base forms (no group)"})
+
+    # One group at a time. Default to the group that most recently received an
+    # application (test groups can have higher numbers), else the highest number.
+    if not group and group_options:
+        latest_group_number = (
+            Application.objects.filter(form__in=all_fds, form__group__isnull=False)
+            .order_by("-created_at", "-id")
+            .values_list("form__group__number", flat=True)
+            .first()
+        )
+        group = str(latest_group_number) if latest_group_number else group_options[0]["value"]
 
     fds = all_fds
     if group == "none":
@@ -8143,8 +8159,7 @@ def grading_home(request):
             "group": group,
             "forms": rows,
             "sections": sections,
-            "group_numbers": group_numbers,
-            "has_ungrouped_forms": has_ungrouped_forms,
+            "group_options": group_options,
             "summary": summary,
         },
     )

@@ -2827,11 +2827,25 @@ class GradingAndPairingConfigEditorTests(TestCase):
         response = self.client.get(reverse("admin_grading_home"))
 
         self.assertEqual(response.status_code, 200)
+        # Only the newest group is shown until another one is picked.
         sections = response.context["sections"]
-        self.assertEqual([section["number"] for section in sections], [7, 6, None])
+        self.assertEqual([section["number"] for section in sections], [7])
         self.assertEqual([row["slug"] for row in sections[0]["forms"]], ["G7_E_A1", "G7_M_A1"])
-        self.assertEqual(response.context["group_numbers"], [7, 6])
+        self.assertEqual(
+            [option["value"] for option in response.context["group_options"]],
+            ["7", "6", "none"],
+        )
+        self.assertContains(response, '<option value="7" selected>Group 7 · Junio 2026</option>', html=True)
+        self.assertNotContains(response, "G6_E_A1")
         self.assertContains(response, reverse("admin_grading_live_sheet", args=["G7_E_A1"]))
+
+        # A group that is receiving applications wins over a higher test-group number.
+        group_800 = FormGroup.objects.create(number=800, start_month="Abril", end_month="Junio", year=2026)
+        FormDefinition.objects.create(slug="G800_E_A1", name="Test group", group=group_800)
+        Application.objects.create(form=FormDefinition.objects.get(slug="G6_E_A1"), email="new@example.com")
+        latest = self.client.get(reverse("admin_grading_home"))
+        self.assertEqual([row["slug"] for row in latest.context["forms"]], ["G6_E_A1"])
+        self.assertEqual(latest.context["group"], "6")
         self.assertContains(response, "Last run failed")
         self.assertContains(response, 'data-ce-regrade="G7_E_A1"')
 

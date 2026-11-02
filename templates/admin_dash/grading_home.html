@@ -50,21 +50,20 @@
       line-height: 1.45;
     }
 
-    .ce-grade-filter {
+    .ce-grade-picker {
       display: flex;
-      flex-wrap: wrap;
       align-items: center;
-      gap: 10px 14px;
-      margin: 0 0 18px;
+      gap: 10px;
+      margin: 0;
     }
-    .ce-grade-filter__label {
+    .ce-grade-picker label {
       color: var(--ce-text-secondary);
       font-size: 13px;
       font-weight: 650;
     }
-    .ce-grade-filter .ce-work-tabs {
-      flex-wrap: wrap;
-      max-width: 100%;
+    .ce-grade-picker select {
+      min-width: 230px;
+      font-weight: 600;
     }
 
     .ce-grade-group + .ce-grade-group {
@@ -304,6 +303,19 @@
       <h1 class="ce-work-title">Grading - Current Application</h1>
       <p class="ce-work-lede">Score each group's E_A1 (Emprendedoras) and M_A1 (Mentoras) applications, then review the results sheet.</p>
     </div>
+    {% if group_options %}
+      <div class="ce-work-actions">
+        <form method="get" action="{% url 'admin_grading_home' %}" class="ce-grade-picker">
+          <label for="ce-grade-group">Group</label>
+          <select id="ce-grade-group" name="group" class="ce-work-input" data-ce-autosubmit>
+            {% for option in group_options %}
+              <option value="{{ option.value }}"{% if option.value == group %} selected{% endif %}>{{ option.label }}</option>
+            {% endfor %}
+          </select>
+          <noscript><button class="ce-work-btn ce-work-btn--secondary ce-work-btn--sm" type="submit">Show</button></noscript>
+        </form>
+      </div>
+    {% endif %}
   </header>
 
   <ol class="ce-grade-steps" aria-label="How grading works">
@@ -316,7 +328,7 @@
     <div class="ce-work-stat ce-work-stat--brand">
       <div class="ce-work-stat__label">Applications to grade</div>
       <div class="ce-work-stat__value">{{ summary.total }}</div>
-      <div class="ce-work-stat__detail">Approved for grading{% if group %} in this view{% endif %}</div>
+      <div class="ce-work-stat__detail">Approved for grading in this group</div>
     </div>
     <div class="ce-work-stat">
       <div class="ce-work-stat__label">Pending</div>
@@ -334,23 +346,6 @@
       <div class="ce-work-stat__detail">{% if summary.running %}{{ summary.running }} grading run{{ summary.running|pluralize }} in progress{% elif summary.last_graded_at %}{{ summary.last_graded_at|date:"Y-m-d H:i" }}{% else %}No results yet{% endif %}</div>
     </div>
   </div>
-
-  {% if group_numbers or has_ungrouped_forms %}
-    <div class="ce-grade-filter">
-      <span class="ce-grade-filter__label" id="ce-grade-filter-label">Show</span>
-      <nav class="ce-work-tabs" aria-labelledby="ce-grade-filter-label">
-        <a class="ce-work-tab{% if not group %} is-active{% endif %}" href="{% url 'admin_grading_home' %}"{% if not group %} aria-current="page"{% endif %}>All groups</a>
-        {% for number in group_numbers %}
-          {% with number_text=number|stringformat:"s" %}
-            <a class="ce-work-tab{% if group == number_text %} is-active{% endif %}" href="{% url 'admin_grading_home' %}?group={{ number }}"{% if group == number_text %} aria-current="page"{% endif %}>Group {{ number }}</a>
-          {% endwith %}
-        {% endfor %}
-        {% if has_ungrouped_forms %}
-          <a class="ce-work-tab{% if group == 'none' %} is-active{% endif %}" href="{% url 'admin_grading_home' %}?group=none"{% if group == 'none' %} aria-current="page"{% endif %}>No group</a>
-        {% endif %}
-      </nav>
-    </div>
-  {% endif %}
 
   {% for section in sections %}
     <section class="ce-grade-group" aria-labelledby="ce-grade-group-{{ section.key }}">
@@ -462,7 +457,7 @@
         <div class="ce-work-empty__icon"><svg class="ce-icon" aria-hidden="true"><use href="#ce-i-clipboard-check"></use></svg></div>
         {% if group %}
           <p class="ce-work-empty__title">No E_A1 or M_A1 forms found for this group.</p>
-          <p><a href="{% url 'admin_grading_home' %}">Show all groups</a></p>
+          <p><a href="{% url 'admin_grading_home' %}">Go to the newest group</a></p>
         {% else %}
           <p class="ce-work-empty__title">No E_A1 or M_A1 forms found.</p>
         {% endif %}
@@ -502,6 +497,13 @@
 
 <script>
   (function () {
+    var picker = document.querySelector("[data-ce-autosubmit]");
+    if (picker) {
+      picker.addEventListener("change", function () {
+        picker.form.submit();
+      });
+    }
+
     document.querySelectorAll(".ce-grade-priority").forEach(function (box) {
       var input = box.querySelector("textarea");
       var count = box.querySelector(".ce-grade-priority__count");

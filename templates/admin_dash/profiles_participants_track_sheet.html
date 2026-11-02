@@ -290,6 +290,11 @@
     </div>
   </div>
 
+  <details style="flex-shrink:0; max-height:45vh; overflow:auto; padding:8px 16px; border-bottom:1px solid #ddd;">
+    <summary>Group summary · {{ group_summary.state }}</summary>
+    {% include "admin_dash/includes/participant_group_summary.html" %}
+  </details>
+
   <form method="post" id="ce-sheet-save-form" style="display:none;">
     {% csrf_token %}
     <input type="hidden" name="action" value="save_sheet">

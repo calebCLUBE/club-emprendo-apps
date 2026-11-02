@@ -55,6 +55,7 @@ from .models import (
     ParticipantEmailStatus,
 )
 from .historical_import import FIELD_LABELS, parse_uploaded_table, suggested_mapping
+from .group_summary import participant_group_summary
 from .participant_statuses import (
     PARTICIPANT_STATUS_GRADUATED,
     PARTICIPANT_STATUS_SHEET_LABELS,
@@ -5120,7 +5121,7 @@ def profiles_sheet(request):
 def profiles_participants(request):
     group_raw = (request.GET.get("group") or request.POST.get("group") or "").strip()
 
-    groups_qs = _formgroup_active_queryset()
+    groups_qs = _formgroup_safe_queryset().order_by("number")
     groups = list(groups_qs)
     selected_group = None
     participant_list = None
@@ -5155,7 +5156,7 @@ def profiles_participants(request):
 
         if action in {"save_google_sheet_link", "sync_linked_google_sheet", "unlink_google_sheet"}:
             posted_group = (request.POST.get("group") or "").strip()
-            target_group = groups_qs.filter(number=int(posted_group)).first() if posted_group.isdigit() else None
+            target_group = _formgroup_active_queryset().filter(number=int(posted_group)).first() if posted_group.isdigit() else None
             if not target_group:
                 messages.error(request, "Please select a valid group.")
                 return redirect(reverse("admin_profiles_participants"))
@@ -5361,7 +5362,7 @@ def profiles_participants(request):
                         request,
                         (
                             f"Group {group_number} was archived from the Participants page. "
-                            "It is hidden there now."
+                            "Its archived summary remains available in the group selector."
                         ),
                     )
                 messages.info(
@@ -5726,6 +5727,8 @@ def profiles_participants(request):
     has_list = bool(participant_list and (mentoras_rows or emprendedoras_rows))
 
     context = {
+        "group_summary": participant_group_summary(selected_group) if selected_group else None,
+        "selected_group_archived": bool(selected_group and _formgroup_is_active_column_exists() and not selected_group.is_active),
         "groups": groups,
         "selected_group": selected_group,
         "participant_list": participant_list,
@@ -6379,6 +6382,7 @@ def _profiles_participants_track_sheet(request, group_num: int, track: str):
     )
     context = {
         "group": group,
+        "group_summary": participant_group_summary(group),
         "track_slug": track_slug,
         "sheet_revision": _participant_sheet_revision(participant_list, track_slug),
         "sheet_save_headers": display_headers if linked_google_sheet else headers,
@@ -6845,6 +6849,7 @@ def _profiles_participants_combined_sheet(request, group):
     )
     first_display_tab = display_tabs[0] if display_tabs else None
     context = {
+        "group_summary": participant_group_summary(group),
         "group": group,
         "track_slug": "all",
         "sheet_revision": _participant_sheet_revision(participant_list, "all"),

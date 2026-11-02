@@ -1,0 +1,36 @@
+{% if group_summary %}
+<section class="ce-work-panel" aria-labelledby="group-summary-title" id="group-summary">
+  <div class="ce-work-panel__head">
+    <div>
+      <h2 class="ce-work-panel__title" id="group-summary-title">Group summary</h2>
+      <p class="ce-work-panel__hint">{{ group_summary.state }} · Automatically calculated from saved participant records.</p>
+    </div>
+  </div>
+  <div class="ce-work-panel__body">
+    <p class="ce-work-muted">Percentages use the participants who <strong>started in each role</strong>: Activa, Graduada, NC - Personal, NC - Programa and NC - Sin Respuesta. The initial cohort is inferred from these saved statuses; it is not a frozen enrollment snapshot. Siguiente Grupo and Cambio de Grupo are excluded.</p>
+    <div style="overflow-x:auto; margin:16px 0;">
+      <table class="ce-table" style="width:100%; min-width:420px;">
+        <caption style="text-align:left; padding-bottom:8px;">Counts and percentage of the starting cohort, by role</caption>
+        <thead><tr><th scope="col">Metric</th>{% for column in group_summary.columns %}<th scope="col">{{ column }}</th>{% endfor %}</tr></thead>
+        <tbody>
+          {% for row in group_summary.rows %}
+            <tr><th scope="row">{{ row.label }}</th>{% for cell in row.cells %}<td>{{ cell.count }}{% if cell.pct != None %} <span class="ce-work-muted">({{ cell.pct|floatformat:1 }}%)</span>{% endif %}</td>{% endfor %}</tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if not group_summary.has_participants %}<p class="ce-work-muted">No eligible participant records yet. Percentages are unavailable until a starting cohort is recorded.</p>{% endif %}
+    <p class="ce-work-muted">Activa is this group's recorded status, even after its scheduled end. Later mentoring is an overlapping measure: a participant must have started as a mentor in another group with a later start date, on or before today. Each person counts once per original role, even if they mentored in several later groups. Zero starters means no percentage.</p>
+    {% if group_summary.unknown_dates %}<p class="ce-work-muted">Later mentoring cannot be checked for {{ group_summary.unknown_dates }} participation(s) without a valid group start date.</p>{% endif %}
+    <details style="margin-top:16px;">
+      <summary>Entrepreneurs who later became mentors ({{ group_summary.later_entrepreneurs|length }})</summary>
+      <ul>{% for person in group_summary.later_entrepreneurs %}<li>{{ person.name }}{% if person.email and person.email != person.name %} · {{ person.email }}{% endif %} — Group{{ person.groups|pluralize }} {{ person.groups|join:", " }}</li>{% empty %}<li>None recorded yet.</li>{% endfor %}</ul>
+    </details>
+    <details style="margin-top:12px;">
+      <summary>Mentors who served again ({{ group_summary.repeat_mentors|length }})</summary>
+      <ul>{% for person in group_summary.repeat_mentors %}<li>{{ person.name }}{% if person.email and person.email != person.name %} · {{ person.email }}{% endif %} — Group{{ person.groups|pluralize }} {{ person.groups|join:", " }}</li>{% empty %}<li>None recorded yet.</li>{% endfor %}</ul>
+    </details>
+    <p class="ce-work-muted" style="margin-top:12px;">History is matched by email, or by document ID when email is absent. Missing or changed identifiers can leave later participation unlinked. Linked Google Sheets use the last saved sync; refresh from Google for recent changes.</p>
+  </div>
+</section>
+{% endif %}

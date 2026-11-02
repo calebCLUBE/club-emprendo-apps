@@ -42,7 +42,7 @@
             <option value="">Choose a group…</option>
             {% for g in groups %}
               <option value="{{ g.number }}" {% if selected_group and selected_group.number == g.number %}selected{% endif %}>
-                Group {{ g.number }}{% if g.custom_name %} · {{ g.custom_name }}{% endif %}
+                Group {{ g.number }}{% if g.custom_name %} · {{ g.custom_name }}{% endif %}{% if g.is_active == False %} · Archived{% endif %}
               </option>
             {% endfor %}
           </select>
@@ -50,12 +50,19 @@
         <button class="ce-work-btn" type="submit">Open group</button>
       </form>
       {% if not groups %}
-        <p class="ce-work-muted">No active groups are available yet.</p>
+        <p class="ce-work-muted">No groups are available yet.</p>
       {% endif %}
     </div>
   </section>
 
   {% if selected_group %}
+    {% if selected_group_archived %}
+      <section class="ce-work-panel"><div class="ce-work-panel__body">
+        <h2>Group {{ selected_group.number }}{% if selected_group.custom_name %} · {{ selected_group.custom_name }}{% endif %}</h2>
+        <p class="ce-work-muted">Archived group · Summary of saved participant records.</p>
+      </div></section>
+      {% include "admin_dash/includes/participant_group_summary.html" %}
+    {% else %}
     <section class="ce-work-panel">
       <div class="ce-work-panel__head">
         <div>
@@ -169,6 +176,8 @@
       </div>
     </section>
 
+    {% include "admin_dash/includes/participant_group_summary.html" %}
+
     <details class="ce-work-details" {% if not linked_google_sheet_url %}open{% endif %}>
       <summary>Google Sheet connection</summary>
       <div class="ce-work-details__body">
@@ -267,7 +276,7 @@
       <summary>Danger zone</summary>
       <div class="ce-work-details__body">
         <p class="ce-work-muted" style="margin-top:0;">
-          Removing this group clears its participant-sheet data and hides it from Participants.
+          Removing this group clears its participant-sheet data and archives it. Its summary remains available in the group selector.
           Submissions, answers, forms, and database records are preserved.
         </p>
         <form method="post" onsubmit="return confirm('Remove Group {{ selected_group.number }} from Participants? Participant-sheet data will be cleared, while submissions and forms remain.');">
@@ -279,6 +288,7 @@
         </form>
       </div>
     </details>
+    {% endif %}
   {% else %}
     <section class="ce-work-panel">
       <div class="ce-work-empty">

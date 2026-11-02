@@ -1098,7 +1098,7 @@ def _track_impact_summary(track_label: str, initial_dataset: dict, final_dataset
     }
 
 
-def _participant_records() -> list[dict]:
+def _participant_records(*, include_unlinked: bool = False) -> list[dict]:
     # Reuse the exact normalization, checkbox coercion, saved-email fallback,
     # and Acta overlay used by Grupos -> Participantes. This keeps every
     # participant-based dashboard value tied to the rows an administrator sees
@@ -1113,9 +1113,10 @@ def _participant_records() -> list[dict]:
     source_group_numbers = _impact_linked_group_numbers() | historical_group_numbers
     participant_lists = (
         GroupParticipantList.objects.select_related("group")
-        .filter(group__number__in=source_group_numbers)
         .order_by("group__number", "id")
     )
+    if not include_unlinked:
+        participant_lists = participant_lists.filter(group__number__in=source_group_numbers)
     group_map = {group.number: group for group in FormGroup.objects.all()}
     page_configs = _participant_track_sheet_configs()
 
@@ -1170,6 +1171,7 @@ def _participant_records() -> list[dict]:
                         "track": track_key,
                         "track_label": cfg["label"],
                         "email": email,
+                        "name": _metric_cell(row, 3),
                         "document_id": document_id,
                         "person_key": person_key,
                         "participation_key": (group_number, track_key, person_key),

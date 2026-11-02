@@ -2897,6 +2897,12 @@ class GradingAndPairingConfigEditorTests(TestCase):
         self.assertEqual(response.context["both_tracks"], 1)
         self.assertEqual(response.context["unique_people"], 4)
         self.assertContains(response, "1 applied to both tracks")
+        self.assertEqual(
+            [(person["label"], len(person["submissions"])) for person in emprendedoras["repeats"]],
+            [("ana@example.com", 3), ("ID 1234567", 2)],
+        )
+        self.assertContains(response, "See the 3 repeats (2 people)")
+        self.assertContains(response, "Second-stage form")
         self.assertContains(response, '<option value="9" selected>Group 9 · Enero 2027</option>', html=True)
 
         self.assertContains(

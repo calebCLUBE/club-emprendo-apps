@@ -8075,9 +8075,11 @@ def _real_application_count(first_stage_forms) -> dict:
     ).values_list("application_id", "question__slug", "value"):
         answers.setdefault(app_id, {})[slug] = value or ""
 
-    people: set[tuple[str, str]] = set()
+    submissions_by_person: dict[tuple[str, str], list[dict]] = {}
     approved_count = 0
-    for app_id, app_email in approved.values_list("id", "email"):
+    for app_id, app_email, app_name, created_at, form_slug in approved.order_by("created_at", "id").values_list(
+        "id", "email", "name", "created_at", "form__slug"
+    ):
         approved_count += 1
         answer_map = answers.get(app_id, {})
         email = next((answer_map[s] for s in APPLICANT_EMAIL_ANSWER_SLUGS if answer_map.get(s)), "") or app_email or ""
@@ -8087,18 +8089,34 @@ def _real_application_count(first_stage_forms) -> dict:
             if ch.isalnum()
         )
         if email:
-            people.add(("email", email))
+            person = ("email", email)
         elif document:
-            people.add(("document", document))
+            person = ("document", document)
         else:
-            people.add(("application", str(app_id)))
+            person = ("application", str(app_id))
+        submissions_by_person.setdefault(person, []).append(
+            {"id": app_id, "name": app_name, "created_at": created_at, "form_slug": form_slug}
+        )
 
+    repeats = [
+        {
+            "label": value if kind == "email" else f"ID {value}",
+            "name": next((sub["name"] for sub in subs if sub["name"]), ""),
+            "submissions": subs,
+        }
+        for (kind, value), subs in submissions_by_person.items()
+        if len(subs) > 1
+    ]
+    repeats.sort(key=lambda person: (-len(person["submissions"]), person["label"]))
+
+    people = set(submissions_by_person)
     return {
         "submitted": submitted,
         "not_approved": submitted - approved_count,
         "duplicates": approved_count - len(people),
         "real": len(people),
         "people": people,
+        "repeats": repeats,
     }
 
 

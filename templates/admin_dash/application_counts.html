@@ -93,6 +93,47 @@
       font-weight: 750;
     }
 
+    .ce-count-repeats {
+      margin-top: 16px;
+    }
+    .ce-count-repeats .ce-work-muted {
+      margin: 0 0 10px;
+    }
+    .ce-count-repeats__list {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+    .ce-count-repeats__list > li {
+      padding: 10px 0;
+      border-top: 1px solid var(--ce-border);
+    }
+    .ce-count-repeats__who {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      gap: 4px 10px;
+      font-size: 14px;
+    }
+    .ce-count-repeats__who > span:not(.ce-work-badge) {
+      color: var(--ce-text-muted);
+      font-size: 13px;
+      overflow-wrap: anywhere;
+    }
+    .ce-count-repeats__subs {
+      margin: 6px 0 0;
+      padding: 0;
+      color: var(--ce-text-secondary);
+      font-size: 13px;
+      list-style: none;
+    }
+    .ce-count-repeats li {
+      list-style: none;
+    }
+    .ce-count-repeats__subs li {
+      padding: 2px 0;
+    }
+
     .ce-count-note {
       margin: 18px 0 0;
       max-width: 72ch;
@@ -187,6 +228,34 @@
                 <dd>{{ track.real }}</dd>
               </div>
             </dl>
+            {% if track.repeats %}
+              <details class="ce-work-details ce-count-repeats">
+                <summary>See the {{ track.duplicates }} repeat{{ track.duplicates|pluralize }} ({{ track.repeats|length }} {{ track.repeats|length|pluralize:"person,people" }})</summary>
+                <div class="ce-work-details__body">
+                  <p class="ce-work-muted">Each person below counts once. Their other submissions are the repeats.</p>
+                  <ul class="ce-count-repeats__list">
+                    {% for person in track.repeats %}
+                      <li>
+                        <div class="ce-count-repeats__who">
+                          <strong>{{ person.name|default:person.label }}</strong>
+                          {% if person.name %}<span>{{ person.label }}</span>{% endif %}
+                          <span class="ce-work-badge">{{ person.submissions|length }} submissions</span>
+                        </div>
+                        <ul class="ce-count-repeats__subs">
+                          {% for sub in person.submissions %}
+                            <li>
+                              <a href="{% url 'admin_database_submission_detail' sub.id %}">#{{ sub.id }}</a>
+                              · {{ sub.created_at|date:"M j, Y H:i" }}
+                              · {% if sub.form_slug|slice:"-2:" == "A2" %}Second-stage form{% else %}Application form{% endif %}
+                            </li>
+                          {% endfor %}
+                        </ul>
+                      </li>
+                    {% endfor %}
+                  </ul>
+                </div>
+              </details>
+            {% endif %}
           </div>
         </section>
       {% endfor %}

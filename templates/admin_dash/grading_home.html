@@ -108,26 +108,36 @@
     }
     .ce-grade-track__head {
       display: flex;
-      align-items: flex-start;
+      flex-wrap: wrap;
+      align-items: center;
       justify-content: space-between;
       gap: 10px;
     }
     .ce-grade-track__head > div {
       min-width: 0;
     }
-    .ce-grade-track__slug {
-      margin: 8px 0 2px;
+    .ce-grade-track__title {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+      margin: 0;
       color: var(--ce-text);
       font-family: var(--ce-font-display);
-      font-size: 17px;
+      font-size: 18px;
       font-weight: 750;
-      overflow-wrap: anywhere;
+      letter-spacing: -0.01em;
     }
-    .ce-grade-track__name {
-      margin: 0;
-      color: var(--ce-text-secondary);
-      font-size: 13px;
-      line-height: 1.4;
+    .ce-grade-track__title::before {
+      content: "";
+      flex: 0 0 auto;
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      background: var(--ce-pink-300);
+    }
+    .ce-grade-track__title--m::before {
+      background: var(--ce-purple-600);
     }
     .ce-grade-track__head .ce-work-status {
       flex: 0 0 auto;
@@ -286,8 +296,8 @@
       .ce-grade-track {
         padding: 16px;
       }
-      .ce-grade-track__head {
-        flex-direction: column-reverse;
+      .ce-grade-track__title {
+        font-size: 17px;
       }
     }
   </style>
@@ -362,15 +372,9 @@
         {% for f in section.forms %}
           <article class="ce-grade-track" aria-labelledby="ce-grade-form-{{ f.slug }}">
             <div class="ce-grade-track__head">
-              <div>
-                {% if f.track == "M" %}
-                  <span class="ce-work-badge ce-work-badge--purple">Mentoras</span>
-                {% else %}
-                  <span class="ce-work-badge ce-work-badge--pink">Emprendedoras</span>
-                {% endif %}
-                <h3 class="ce-grade-track__slug" id="ce-grade-form-{{ f.slug }}">{{ f.slug }}</h3>
-                <p class="ce-grade-track__name">{{ f.name }}</p>
-              </div>
+              <h3 class="ce-grade-track__title ce-grade-track__title--{% if f.track == "M" %}m{% else %}e{% endif %}" id="ce-grade-form-{{ f.slug }}">
+                {% if section.number %}Group {{ section.number }}{% else %}Base form{% endif %} · {% if f.track == "M" %}Mentoras{% else %}Emprendedoras{% endif %}
+              </h3>
               {% if f.job_state == "running" %}
                 <a class="ce-work-status ce-work-status--info" href="{% url 'admin_grading_job_status' f.latest_job.id %}">Grading now…</a>
               {% elif f.job_state == "stalled" %}
@@ -438,7 +442,7 @@
                 <button
                   class="ce-work-btn ce-work-btn--sm"
                   type="submit"
-                  {% if f.latest_graded_file_id %}data-ce-regrade="{{ f.slug }}"{% endif %}
+                  {% if f.latest_graded_file_id %}data-ce-regrade="{{ f.slug }}" data-ce-regrade-label="{% if section.number %}Group {{ section.number }}{% else %}Base form{% endif %} · {% if f.track == "M" %}Mentoras{% else %}Emprendedoras{% endif %}"{% endif %}
                 >
                   <svg class="ce-icon" aria-hidden="true"><use href="#ce-i-sparkles"></use></svg>Grade (live)
                 </button>
@@ -519,9 +523,9 @@
 
     document.querySelectorAll("[data-ce-regrade]").forEach(function (button) {
       button.addEventListener("click", function (event) {
-        var slug = button.getAttribute("data-ce-regrade");
+        var label = button.getAttribute("data-ce-regrade-label") || button.getAttribute("data-ce-regrade");
         var ok = window.confirm(
-          "Grade " + slug + " again?\n\nThis creates a fresh results sheet and replaces the current one, including any edits made in the sheet."
+          "Grade " + label + " again?\n\nThis creates a fresh results sheet and replaces the current one, including any edits made in the sheet."
         );
         if (!ok) event.preventDefault();
       });

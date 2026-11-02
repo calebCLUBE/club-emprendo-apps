@@ -2848,6 +2848,10 @@ class GradingAndPairingConfigEditorTests(TestCase):
         self.assertEqual(latest.context["group"], "6")
         self.assertContains(response, "Last run failed")
         self.assertContains(response, 'data-ce-regrade="G7_E_A1"')
+        # Cards are titled by group and track, not by the form's slug or name.
+        self.assertContains(response, "Group 7 · Emprendedoras")
+        self.assertContains(response, "Group 7 · Mentoras")
+        self.assertNotContains(response, "G7 M")
 
         filtered = self.client.get(reverse("admin_grading_home"), {"group": "6"})
         self.assertEqual([row["slug"] for row in filtered.context["forms"]], ["G6_E_A1"])

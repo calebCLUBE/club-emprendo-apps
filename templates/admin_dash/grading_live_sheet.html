@@ -26,57 +26,92 @@
     flex-direction: column;
     background: #fff;
   }
-  .ce-actions {
+  .ce-sheet-bar {
+    position: relative;
+    z-index: 2200;
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
     align-items: center;
-    padding: 8px 10px;
-    border-bottom: 1px solid #e5e7eb;
+    justify-content: space-between;
+    gap: 10px 16px;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--ce-border);
     background: #fff;
   }
-  .ce-btn {
-    min-height: 34px;
-    padding: 0 12px;
-    border: 1px solid #d0d0d0;
-    border-radius: 8px;
-    background: #fff;
-    color: #111;
-    font-weight: 600;
-    cursor: pointer;
-    text-decoration: none;
+  .ce-sheet-bar__context,
+  .ce-sheet-bar__actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 12px;
+    min-width: 0;
+  }
+  a.ce-sheet-bar__back {
     display: inline-flex;
     align-items: center;
-    justify-content: center;
-    box-sizing: border-box;
+    gap: 6px;
+    padding: 6px 8px;
+    border-radius: 8px;
+    color: var(--ce-gray-600);
+    font-size: 13px;
+    font-weight: 600;
   }
-  .ce-btn:hover {
-    background: #f7f7f7;
+  a.ce-sheet-bar__back:hover {
+    background: var(--ce-gray-100);
+    color: var(--ce-gray-900);
   }
-  .ce-btn-primary {
-    border-color: #2563eb;
-    background: #2563eb;
-    color: #fff;
+  .ce-sheet-bar__divider {
+    width: 1px;
+    height: 22px;
+    background: var(--ce-border);
   }
-  .ce-btn-primary:hover {
-    background: #1f56cf;
-    border-color: #1f56cf;
+  .ce-sheet-bar__title {
+    margin: 0;
+    color: var(--ce-text);
+    font-family: var(--ce-font-display);
+    font-size: 17px;
+    font-weight: 750;
+    letter-spacing: -0.01em;
+    white-space: nowrap;
+  }
+  .ce-sheet-bar__title span {
+    color: var(--ce-text-muted);
+    font-family: var(--ce-font-sans);
+    font-size: 13px;
+    font-weight: 500;
+  }
+  .ce-sheet-bar__meta {
+    color: var(--ce-text-muted);
+    font-size: 12.5px;
   }
   .ce-sheet-stage {
     flex: 1 1 auto;
     min-height: 0;
   }
   .ce-empty {
-    padding: 12px;
-    color: #666;
+    padding: 16px;
+    color: var(--ce-text-muted);
     font-size: 13px;
   }
   .ce-warning {
-    padding: 8px 10px;
-    border-bottom: 1px solid #facc15;
-    background: #fef9c3;
-    color: #713f12;
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 9px 16px;
+    border-bottom: 1px solid var(--ce-warning-200);
+    background: var(--ce-warning-50);
+    color: var(--ce-warning-700);
     font-size: 13px;
+  }
+  .ce-warning .ce-icon {
+    flex: 0 0 auto;
+    margin-top: 1px;
+  }
+  @media (max-width: 720px) {
+    .ce-sheet-bar__divider,
+    .ce-sheet-bar__meta {
+      display: none;
+    }
   }
 </style>
 
@@ -84,18 +119,29 @@
   {% csrf_token %}
   <input type="hidden" id="headers_json" name="headers_json" value="">
   <input type="hidden" id="rows_json" name="rows_json" value="">
-  <div class="ce-actions">
-    <button class="ce-btn ce-btn-primary" type="submit">Save Sheet</button>
-    <a class="ce-btn" href="{% url 'admin_grading_download_latest_csv' form_slug %}">Download CSV</a>
-    <a class="ce-btn" href="{% url 'admin_grading_download_latest_excel' form_slug %}">Download Excel</a>
-    <a class="ce-btn" href="{{ back_url }}">{{ back_label }}</a>
-    <span style="color:#6b7280; font-size:12px; margin-left:auto;">
-      {{ form_slug }} · Last generated {{ graded_file.created_at|date:"Y-m-d H:i" }}
-    </span>
+  <div class="ce-sheet-bar">
+    <div class="ce-sheet-bar__context">
+      <a class="ce-sheet-bar__back" href="{{ back_url }}">
+        <svg class="ce-icon" aria-hidden="true"><use href="#ce-i-arrow-left"></use></svg>{{ back_label }}
+      </a>
+      <span class="ce-sheet-bar__divider" aria-hidden="true"></span>
+      <h1 class="ce-sheet-bar__title">{{ form_slug }} <span>Grading results</span></h1>
+      <span class="ce-sheet-bar__meta">Last generated {{ graded_file.created_at|date:"Y-m-d H:i" }}</span>
+    </div>
+    <div class="ce-sheet-bar__actions">
+      <a class="ce-work-btn ce-work-btn--quiet ce-work-btn--sm" href="{% url 'admin_grading_download_latest_csv' form_slug %}">Download CSV</a>
+      <a class="ce-work-btn ce-work-btn--secondary ce-work-btn--sm" href="{% url 'admin_grading_download_latest_excel' form_slug %}">
+        <svg class="ce-icon" aria-hidden="true"><use href="#ce-i-download"></use></svg>Download Excel
+      </a>
+      <button class="ce-work-btn ce-work-btn--sm" type="submit">
+        <svg class="ce-icon" aria-hidden="true"><use href="#ce-i-check"></use></svg>Save Sheet
+      </button>
+    </div>
   </div>
   {% if needs_regeneration %}
     <div class="ce-warning">
-      This graded file was generated with the old grading layout. Run <strong>Grade (live)</strong> again for {{ form_slug }} before using this sheet or downloading Excel/CSV.
+      <svg class="ce-icon ce-icon--sm" aria-hidden="true"><use href="#ce-i-alert"></use></svg>
+      <span>This graded file was generated with the old grading layout. Run <strong>Grade (live)</strong> again for {{ form_slug }} before using this sheet or downloading Excel/CSV.</span>
     </div>
   {% endif %}
 

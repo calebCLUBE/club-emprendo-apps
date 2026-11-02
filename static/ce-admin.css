@@ -1913,7 +1913,7 @@ textarea.ce-work-input {
   color: var(--ce-purple-600);
 }
 
-.ce-work-callout a:any-link {
+.ce-work-callout a:any-link:not(.ce-work-btn) {
   color: inherit;
   font-weight: 650;
   text-decoration: underline;

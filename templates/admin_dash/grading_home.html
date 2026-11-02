@@ -5,273 +5,525 @@
 {% block content %}
 <div class="ce-workspace">
   <style>
-    .ce-grade-shell {
+    .ce-grade-steps {
       display: grid;
-      gap: 14px;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      margin: 0 0 20px;
+      padding: 0;
+      list-style: none;
+      counter-reset: ce-grade-step;
     }
-    .ce-grade-card {
-      background: #fff;
+    .ce-grade-steps li {
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+      padding: 14px 16px;
       border: 1px solid var(--ce-border);
       border-radius: var(--ce-radius-lg);
-      padding: 14px 16px;
+      background: var(--ce-surface);
+      counter-increment: ce-grade-step;
+    }
+    .ce-grade-steps li::before {
+      content: counter(ce-grade-step);
+      flex: 0 0 auto;
+      display: grid;
+      place-items: center;
+      width: 26px;
+      height: 26px;
+      border-radius: 999px;
+      background: var(--ce-green-50);
+      color: var(--ce-green-700);
+      box-shadow: inset 0 0 0 1px var(--ce-green-100);
+      font-size: 13px;
+      font-weight: 750;
+    }
+    .ce-grade-steps strong {
+      display: block;
+      margin-bottom: 2px;
+      color: var(--ce-text);
+      font-size: 14px;
+    }
+    .ce-grade-steps span {
+      color: var(--ce-text-secondary);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .ce-grade-filter {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px 14px;
+      margin: 0 0 18px;
+    }
+    .ce-grade-filter__label {
+      color: var(--ce-text-secondary);
+      font-size: 13px;
+      font-weight: 650;
+    }
+    .ce-grade-filter .ce-work-tabs {
+      flex-wrap: wrap;
+      max-width: 100%;
+    }
+
+    .ce-grade-group + .ce-grade-group {
+      margin-top: 26px;
+    }
+    .ce-grade-group__head {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      gap: 4px 12px;
+      margin: 0 0 10px;
+    }
+    .ce-grade-group__title {
+      margin: 0;
+      color: var(--ce-text);
+      font-family: var(--ce-font-display);
+      font-size: 18px;
+      font-weight: 750;
+      letter-spacing: -0.01em;
+    }
+    .ce-grade-group__meta {
+      margin: 0;
+      color: var(--ce-text-muted);
+      font-size: 13px;
+    }
+    .ce-grade-tracks {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .ce-grade-track {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      min-width: 0;
+      padding: 18px;
+      border: 1px solid var(--ce-border);
+      border-radius: var(--ce-radius-lg);
+      background: var(--ce-surface);
       box-shadow: var(--ce-shadow-xs);
     }
-    .ce-grade-priority-form .ce-work-btn {
-      justify-self: start;
+    .ce-grade-track__head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .ce-grade-track__head > div {
+      min-width: 0;
+    }
+    .ce-grade-track__slug {
+      margin: 8px 0 2px;
+      color: var(--ce-text);
+      font-family: var(--ce-font-display);
+      font-size: 17px;
+      font-weight: 750;
+      overflow-wrap: anywhere;
+    }
+    .ce-grade-track__name {
+      margin: 0;
+      color: var(--ce-text-secondary);
+      font-size: 13px;
+      line-height: 1.4;
+    }
+    .ce-grade-track__head .ce-work-status {
+      flex: 0 0 auto;
+      white-space: nowrap;
+    }
+    a.ce-work-status:hover {
+      text-decoration: underline;
+    }
+
+    .ce-grade-counts {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 0;
+    }
+    .ce-grade-counts > div {
+      display: inline-flex;
+      align-items: baseline;
+      gap: 8px;
+      padding: 6px 12px;
+      border-radius: 999px;
+      background: var(--ce-gray-50);
+      box-shadow: inset 0 0 0 1px var(--ce-border-subtle);
+    }
+    .ce-grade-counts dt {
+      color: var(--ce-text-secondary);
+      font-size: 12.5px;
+      font-weight: 600;
+    }
+    .ce-grade-counts dd {
+      margin: 0;
+      color: var(--ce-text);
+      font-family: var(--ce-font-display);
+      font-size: 16px;
+      font-weight: 750;
+      font-variant-numeric: tabular-nums;
+    }
+    .ce-grade-counts dd.is-zero {
+      color: var(--ce-text-muted);
+    }
+
+    .ce-grade-results {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      background: var(--ce-green-50);
+      box-shadow: inset 0 0 0 1px var(--ce-green-100);
+    }
+    .ce-grade-results__text {
+      flex: 1 1 160px;
+      color: var(--ce-green-800);
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .ce-grade-results__text small {
+      display: block;
+      color: var(--ce-text-secondary);
+      font-size: 12px;
+      font-weight: 500;
+    }
+    .ce-grade-noresults {
+      margin: 0;
+      padding: 10px 12px;
+      border-radius: 10px;
+      background: var(--ce-gray-50);
+      color: var(--ce-text-muted);
+      font-size: 13px;
+      box-shadow: inset 0 0 0 1px var(--ce-border-subtle);
+    }
+
+    .ce-grade-priority-form {
+      display: grid;
+      gap: 10px;
+      margin-top: auto;
+      padding-top: 14px;
+      border-top: 1px solid var(--ce-border-subtle);
     }
     .ce-grade-actions {
       display: flex;
       flex-wrap: wrap;
       gap: 8px;
     }
-    .ce-grade-title {
-      margin: 0;
-      font-size: 24px;
-      line-height: 1.2;
-    }
-    .ce-grade-sub {
-      margin: 6px 0 0;
-      color: #666;
+    .ce-grade-priority > summary {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--ce-text-secondary);
       font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      list-style: none;
     }
-    .ce-grade-row {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
-      align-items: center;
+    .ce-grade-priority > summary::-webkit-details-marker {
+      display: none;
     }
-    .ce-grade-input,
-    .ce-grade-select {
-      height: 38px;
-      min-width: 120px;
-      padding: 0 10px;
-      border: 1px solid var(--ce-border-strong);
-      border-radius: 9px;
-      background: #fff;
-      box-sizing: border-box;
+    .ce-grade-priority > summary:hover {
+      color: var(--ce-text);
     }
-    .ce-grade-file {
-      height: 38px;
-      display: flex;
-      align-items: center;
+    .ce-grade-priority > summary .ce-icon {
+      transition: transform 0.15s ease;
     }
-    .ce-grade-priority-form {
+    .ce-grade-priority[open] > summary .ce-icon {
+      transform: rotate(90deg);
+    }
+    .ce-grade-priority__count {
+      display: none;
+    }
+    .ce-grade-priority.has-emails .ce-grade-priority__count {
+      display: inline-flex;
+    }
+    .ce-grade-priority__body {
       display: grid;
-      gap: 8px;
-      min-width: 280px;
+      gap: 6px;
+      margin-top: 10px;
     }
     .ce-grade-priority-label {
-      font-size: 12px;
-      line-height: 1.25;
-      color: #555;
-      font-weight: 600;
+      color: var(--ce-text);
+      font-size: 13px;
+      font-weight: 650;
     }
     .ce-grade-priority-input {
       width: 100%;
-      min-height: 64px;
-      padding: 8px 10px;
-      border: 1px solid var(--ce-border-strong);
-      border-radius: 9px;
+      min-height: 76px;
       resize: vertical;
       box-sizing: border-box;
       font-family: inherit;
       font-size: 13px;
     }
-    .ce-grade-extra-actions {
+
+    .ce-grade-tools {
+      margin-top: 32px;
+    }
+    .ce-grade-upload {
       display: flex;
       flex-wrap: wrap;
-      gap: 8px;
-      margin-top: 8px;
+      align-items: flex-end;
+      gap: 12px;
     }
-    .ce-grade-table-wrap {
-      overflow: auto;
-      border: 1px solid #ddd;
-      border-radius: 12px;
-      background: #fff;
+    .ce-grade-upload .ce-work-field {
+      min-width: 220px;
     }
-    .ce-grade-table {
-      width: 100%;
-      border-collapse: collapse;
-      min-width: 760px;
+
+    @media (max-width: 1020px) {
+      .ce-grade-steps,
+      .ce-grade-tracks {
+        grid-template-columns: minmax(0, 1fr);
+      }
     }
-    .ce-grade-table th,
-    .ce-grade-table td {
-      padding: 12px;
-      border-bottom: 1px solid #eee;
-      text-align: left;
-      vertical-align: middle;
-    }
-    .ce-grade-table th {
-      font-size: 12px;
-      color: var(--ce-gray-600);
-      background: var(--ce-gray-50);
-    }
-    .ce-grade-table tr:last-child td {
-      border-bottom: 0;
-    }
-    .ce-grade-form-title {
-      font-weight: 700;
-      margin: 0;
-      line-height: 1.2;
-    }
-    .ce-grade-form-sub {
-      color: #666;
-      font-size: 12px;
-      margin-top: 4px;
-      line-height: 1.3;
-    }
-    .ce-grade-muted {
-      color: #777;
-      font-size: 12px;
-    }
-    .ce-grade-drop {
-      border: 1px solid #e7e7e7;
-      border-radius: 10px;
-      background: #fafafa;
-      overflow: hidden;
-    }
-    .ce-grade-drop > summary {
-      cursor: pointer;
-      padding: 11px 12px;
-      font-weight: 700;
-      list-style: none;
-      background: #fff;
-      border-bottom: 1px solid #eee;
-    }
-    .ce-grade-drop > summary::-webkit-details-marker {
-      display: none;
-    }
-    .ce-grade-drop > summary::before {
-      content: "▸ ";
-      color: #666;
-    }
-    .ce-grade-drop[open] > summary::before {
-      content: "▾ ";
-    }
-    .ce-grade-drop-body {
-      padding: 12px;
+    @media (max-width: 560px) {
+      .ce-grade-steps {
+        display: none;
+      }
+      .ce-grade-track {
+        padding: 16px;
+      }
+      .ce-grade-track__head {
+        flex-direction: column-reverse;
+      }
     }
   </style>
 
-  <div class="ce-grade-shell">
-    <div>
-      <nav class="ce-work-crumbs" aria-label="Breadcrumb">
-        <a href="{% url 'admin_profiles_list' %}">Profiles</a>
-        <svg class="ce-icon ce-icon--sm" aria-hidden="true"><use href="#ce-i-chevron-right"></use></svg>
-        <span aria-current="page">Grading</span>
-      </nav>
-      <header class="ce-work-header" style="margin-bottom: 6px;">
-        <div class="ce-work-header__main">
-          <h1 class="ce-work-title">Grading - Current Application</h1>
-          <p class="ce-work-lede">Run live grading jobs for the E_A1 and M_A1 applications.</p>
-        </div>
-      </header>
-    </div>
+  <nav class="ce-work-crumbs" aria-label="Breadcrumb">
+    <a href="{% url 'admin_profiles_list' %}">Profiles</a>
+    <svg class="ce-icon ce-icon--sm" aria-hidden="true"><use href="#ce-i-chevron-right"></use></svg>
+    <span aria-current="page">Grading</span>
+  </nav>
 
-    <div class="ce-grade-card">
-      <form method="get" action="" class="ce-grade-row">
-        <label for="group" style="font-weight:600;">Group</label>
-        <input
-          id="group"
-          name="group"
-          type="text"
-          value="{{ group }}"
-          placeholder="e.g. 6"
-          class="ce-grade-input"
-        />
-        <button class="ce-work-btn ce-work-btn--secondary" type="submit">Filter</button>
-        {% if group %}
-          <a class="ce-work-btn ce-work-btn--quiet" href="/admin/grading/">Clear</a>
+  <header class="ce-work-header">
+    <div class="ce-work-header__main">
+      <h1 class="ce-work-title">Grading - Current Application</h1>
+      <p class="ce-work-lede">Score each group's E_A1 (Emprendedoras) and M_A1 (Mentoras) applications, then review the results sheet.</p>
+    </div>
+  </header>
+
+  <ol class="ce-grade-steps" aria-label="How grading works">
+    <li><div><strong>Check the rules</strong><span>“Edit grading rules” sets what the AI looks for and how much each answer counts.</span></div></li>
+    <li><div><strong>Grade (live)</strong><span>Scores every application approved for grading. It runs in the background and takes a few minutes.</span></div></li>
+    <li><div><strong>Review the results</strong><span>Open the sheet to check or adjust scores, then download it as Excel or CSV.</span></div></li>
+  </ol>
+
+  <div class="ce-work-summary">
+    <div class="ce-work-stat ce-work-stat--brand">
+      <div class="ce-work-stat__label">Applications to grade</div>
+      <div class="ce-work-stat__value">{{ summary.total }}</div>
+      <div class="ce-work-stat__detail">Approved for grading{% if group %} in this view{% endif %}</div>
+    </div>
+    <div class="ce-work-stat">
+      <div class="ce-work-stat__label">Pending</div>
+      <div class="ce-work-stat__value">{{ summary.pending }}</div>
+      <div class="ce-work-stat__detail">No recommendation saved yet</div>
+    </div>
+    <div class="ce-work-stat">
+      <div class="ce-work-stat__label">Results sheets</div>
+      <div class="ce-work-stat__value">{{ summary.with_results }} <small class="ce-work-muted">/ {{ summary.forms }}</small></div>
+      <div class="ce-work-stat__detail">Forms with graded results</div>
+    </div>
+    <div class="ce-work-stat">
+      <div class="ce-work-stat__label">Last graded</div>
+      <div class="ce-work-stat__value">{% if summary.last_graded_at %}{{ summary.last_graded_at|date:"M j" }}{% else %}—{% endif %}</div>
+      <div class="ce-work-stat__detail">{% if summary.running %}{{ summary.running }} grading run{{ summary.running|pluralize }} in progress{% elif summary.last_graded_at %}{{ summary.last_graded_at|date:"Y-m-d H:i" }}{% else %}No results yet{% endif %}</div>
+    </div>
+  </div>
+
+  {% if group_numbers or has_ungrouped_forms %}
+    <div class="ce-grade-filter">
+      <span class="ce-grade-filter__label" id="ce-grade-filter-label">Show</span>
+      <nav class="ce-work-tabs" aria-labelledby="ce-grade-filter-label">
+        <a class="ce-work-tab{% if not group %} is-active{% endif %}" href="{% url 'admin_grading_home' %}"{% if not group %} aria-current="page"{% endif %}>All groups</a>
+        {% for number in group_numbers %}
+          {% with number_text=number|stringformat:"s" %}
+            <a class="ce-work-tab{% if group == number_text %} is-active{% endif %}" href="{% url 'admin_grading_home' %}?group={{ number }}"{% if group == number_text %} aria-current="page"{% endif %}>Group {{ number }}</a>
+          {% endwith %}
+        {% endfor %}
+        {% if has_ungrouped_forms %}
+          <a class="ce-work-tab{% if group == 'none' %} is-active{% endif %}" href="{% url 'admin_grading_home' %}?group=none"{% if group == 'none' %} aria-current="page"{% endif %}>No group</a>
         {% endif %}
-      </form>
+      </nav>
     </div>
+  {% endif %}
 
-    <div class="ce-grade-card">
-      <details class="ce-grade-drop">
-        <summary>Test upload CSV (sandbox)</summary>
-        <div class="ce-grade-drop-body">
-          <form
-            method="post"
-            enctype="multipart/form-data"
-            action="{% url 'admin_grading_upload_test_csv' %}{% if group %}?group={{ group }}{% endif %}"
-            class="ce-grade-row"
-          >
-            {% csrf_token %}
-            <label style="font-weight:600;">Role</label>
-            <select name="role" class="ce-grade-select">
-              <option value="E">Emprendedora (TEST_E_A1)</option>
-              <option value="M">Mentora (TEST_M_A1)</option>
-            </select>
-            <input type="file" name="csv_file" accept=".csv" class="ce-grade-file" />
-            <button class="ce-work-btn ce-work-btn--secondary" type="submit">Upload CSV</button>
-            <span class="ce-grade-muted">Imports only into sandbox forms.</span>
-          </form>
-        </div>
-      </details>
-    </div>
+  {% for section in sections %}
+    <section class="ce-grade-group" aria-labelledby="ce-grade-group-{{ section.key }}">
+      <div class="ce-grade-group__head">
+        <h2 class="ce-grade-group__title" id="ce-grade-group-{{ section.key }}">
+          {% if section.number %}Group {{ section.number }}{% else %}Forms without a group{% endif %}
+        </h2>
+        <p class="ce-grade-group__meta">
+          {% if section.group %}Starts {{ section.group.start_month }} {{ section.group.year }} · {% elif not section.number %}Base application forms · {% endif %}{{ section.pending }} pending
+        </p>
+      </div>
 
-    <div class="ce-grade-table-wrap ce-work-table-wrap">
-      <table class="ce-grade-table ce-work-table">
-        <thead>
-          <tr>
-            <th>Form</th>
-            <th>Total</th>
-            <th>Pending</th>
-            <th>Action</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for f in forms %}
-            <tr>
-              <td>
-                <div class="ce-grade-form-title">{{ f.slug }}</div>
-                <div class="ce-grade-form-sub">{{ f.name }}</div>
-              </td>
-              <td>{{ f.total }}</td>
-              <td>
-                {% if f.pending %}
-                  <strong>{{ f.pending }}</strong>
+      <div class="ce-grade-tracks">
+        {% for f in section.forms %}
+          <article class="ce-grade-track" aria-labelledby="ce-grade-form-{{ f.slug }}">
+            <div class="ce-grade-track__head">
+              <div>
+                {% if f.track == "M" %}
+                  <span class="ce-work-badge ce-work-badge--purple">Mentoras</span>
                 {% else %}
-                  <span class="ce-grade-muted">0</span>
+                  <span class="ce-work-badge ce-work-badge--pink">Emprendedoras</span>
                 {% endif %}
-              </td>
-              <td>
-                <form method="post" action="{% url 'admin_start_grading_job' f.slug %}" class="ce-grade-priority-form">
-                  {% csrf_token %}
-                  <label class="ce-grade-priority-label" for="priority_emails_{{ forloop.counter }}">
+                <h3 class="ce-grade-track__slug" id="ce-grade-form-{{ f.slug }}">{{ f.slug }}</h3>
+                <p class="ce-grade-track__name">{{ f.name }}</p>
+              </div>
+              {% if f.job_state == "running" %}
+                <a class="ce-work-status ce-work-status--info" href="{% url 'admin_grading_job_status' f.latest_job.id %}">Grading now…</a>
+              {% elif f.job_state == "stalled" %}
+                <a class="ce-work-status ce-work-status--warning" href="{% url 'admin_grading_job_status' f.latest_job.id %}">Last run didn't finish</a>
+              {% elif f.job_state == "failed" %}
+                <a class="ce-work-status ce-work-status--danger" href="{% url 'admin_grading_job_status' f.latest_job.id %}">Last run failed</a>
+              {% elif f.latest_graded_file_id %}
+                <span class="ce-work-status">Results ready</span>
+              {% else %}
+                <span class="ce-work-status ce-work-status--muted">Not graded yet</span>
+              {% endif %}
+            </div>
+
+            <dl class="ce-grade-counts">
+              <div title="Applications approved for grading">
+                <dt>Total</dt>
+                <dd{% if not f.total %} class="is-zero"{% endif %}>{{ f.total }}</dd>
+              </div>
+              <div title="Approved applications with no recommendation saved yet">
+                <dt>Pending</dt>
+                <dd{% if not f.pending %} class="is-zero"{% endif %}>{{ f.pending }}</dd>
+              </div>
+            </dl>
+
+            {% if f.latest_graded_file_id %}
+              <div class="ce-grade-results">
+                <span class="ce-grade-results__text">
+                  Results sheet
+                  <small>Latest file: {{ f.latest_graded_at|date:"Y-m-d H:i" }}</small>
+                </span>
+                <a class="ce-work-btn ce-work-btn--secondary ce-work-btn--sm" href="{% url 'admin_grading_live_sheet' f.slug %}">
+                  <svg class="ce-icon" aria-hidden="true"><use href="#ce-i-sheet"></use></svg>Sheet
+                </a>
+                <a class="ce-work-btn ce-work-btn--quiet ce-work-btn--sm" href="{% url 'admin_grading_download_latest_excel' f.slug %}">
+                  <svg class="ce-icon" aria-hidden="true"><use href="#ce-i-download"></use></svg>Download Excel
+                </a>
+                <a class="ce-work-btn ce-work-btn--quiet ce-work-btn--sm" href="{% url 'admin_grading_download_latest_csv' f.slug %}">Download CSV</a>
+              </div>
+            {% else %}
+              <p class="ce-grade-noresults">No results yet. Run “Grade (live)” to create the results sheet.</p>
+            {% endif %}
+
+            <form method="post" action="{% url 'admin_start_grading_job' f.slug %}" class="ce-grade-priority-form">
+              {% csrf_token %}
+              <details class="ce-grade-priority">
+                <summary>
+                  <svg class="ce-icon ce-icon--sm" aria-hidden="true"><use href="#ce-i-chevron-right"></use></svg>
+                  Priority emails (optional)
+                  <span class="ce-work-badge ce-work-badge--green ce-grade-priority__count"></span>
+                </summary>
+                <div class="ce-grade-priority__body">
+                  <label class="ce-grade-priority-label" for="priority_emails_{{ f.slug }}">
                     Priority status emails (optional)
                   </label>
                   <textarea
-                    id="priority_emails_{{ forloop.counter }}"
+                    id="priority_emails_{{ f.slug }}"
                     name="priority_emails"
-                    class="ce-grade-priority-input"
+                    class="ce-grade-priority-input ce-work-input"
                     placeholder="one@email.com&#10;two@email.com"
                   ></textarea>
-                  <div class="ce-grade-actions">
-                    <button class="ce-work-btn ce-work-btn--sm" type="submit">Grade (live)</button>
-                    <a class="ce-work-btn ce-work-btn--secondary ce-work-btn--sm" href="{% url 'admin_grading_config_editor' f.slug %}">
-                      Edit grading rules
-                    </a>
-                  </div>
-                  {% if f.latest_graded_file_id %}
-                    <div class="ce-grade-extra-actions">
-                      <a class="ce-work-btn ce-work-btn--quiet ce-work-btn--sm" href="{% url 'admin_grading_live_sheet' f.slug %}">Sheet</a>
-                      <a class="ce-work-btn ce-work-btn--quiet ce-work-btn--sm" href="{% url 'admin_grading_download_latest_csv' f.slug %}">Download CSV</a>
-                      <a class="ce-work-btn ce-work-btn--quiet ce-work-btn--sm" href="{% url 'admin_grading_download_latest_excel' f.slug %}">Download Excel</a>
-                    </div>
-                    <span class="ce-grade-muted">Latest file: {{ f.latest_graded_at|date:"Y-m-d H:i" }}</span>
-                  {% endif %}
-                </form>
-              </td>
-            </tr>
-          {% empty %}
-            <tr>
-              <td colspan="4" style="text-align:center; color:#666;">No E_A1 or M_A1 forms found.</td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+                  <span class="ce-work-hint">Applicants with these emails get Priority status in this grading run. One email per line.</span>
+                </div>
+              </details>
+              <div class="ce-grade-actions">
+                <button
+                  class="ce-work-btn ce-work-btn--sm"
+                  type="submit"
+                  {% if f.latest_graded_file_id %}data-ce-regrade="{{ f.slug }}"{% endif %}
+                >
+                  <svg class="ce-icon" aria-hidden="true"><use href="#ce-i-sparkles"></use></svg>Grade (live)
+                </button>
+                <a class="ce-work-btn ce-work-btn--secondary ce-work-btn--sm" href="{% url 'admin_grading_config_editor' f.slug %}">
+                  <svg class="ce-icon" aria-hidden="true"><use href="#ce-i-pen"></use></svg>Edit grading rules
+                </a>
+              </div>
+            </form>
+          </article>
+        {% endfor %}
+      </div>
+    </section>
+  {% empty %}
+    <div class="ce-work-panel">
+      <div class="ce-work-empty">
+        <div class="ce-work-empty__icon"><svg class="ce-icon" aria-hidden="true"><use href="#ce-i-clipboard-check"></use></svg></div>
+        {% if group %}
+          <p class="ce-work-empty__title">No E_A1 or M_A1 forms found for this group.</p>
+          <p><a href="{% url 'admin_grading_home' %}">Show all groups</a></p>
+        {% else %}
+          <p class="ce-work-empty__title">No E_A1 or M_A1 forms found.</p>
+        {% endif %}
+      </div>
     </div>
-  </div>
+  {% endfor %}
+
+  <details class="ce-work-details ce-grade-tools">
+    <summary>Test upload CSV (sandbox)</summary>
+    <div class="ce-work-details__body">
+      <p class="ce-work-muted" style="margin-top: 0;">Try grading on sample data without touching real applications. Imports only into sandbox forms.</p>
+      <form
+        method="post"
+        enctype="multipart/form-data"
+        action="{% url 'admin_grading_upload_test_csv' %}{% if group %}?group={{ group }}{% endif %}"
+        class="ce-grade-upload"
+      >
+        {% csrf_token %}
+        <div class="ce-work-field">
+          <label for="ce-grade-test-role">Role</label>
+          <select id="ce-grade-test-role" name="role" class="ce-work-input">
+            <option value="E">Emprendedora (TEST_E_A1)</option>
+            <option value="M">Mentora (TEST_M_A1)</option>
+          </select>
+        </div>
+        <div class="ce-work-field">
+          <label for="ce-grade-test-file">CSV file</label>
+          <input id="ce-grade-test-file" type="file" name="csv_file" accept=".csv" class="ce-work-input" />
+        </div>
+        <button class="ce-work-btn ce-work-btn--secondary" type="submit">
+          <svg class="ce-icon" aria-hidden="true"><use href="#ce-i-upload"></use></svg>Upload CSV
+        </button>
+      </form>
+    </div>
+  </details>
 </div>
+
+<script>
+  (function () {
+    document.querySelectorAll(".ce-grade-priority").forEach(function (box) {
+      var input = box.querySelector("textarea");
+      var count = box.querySelector(".ce-grade-priority__count");
+      if (!input || !count) return;
+      function update() {
+        var emails = (input.value.match(/[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+/g) || []).length;
+        count.textContent = emails ? emails + " added" : "";
+        box.classList.toggle("has-emails", emails > 0);
+      }
+      input.addEventListener("input", update);
+      update();
+    });
+
+    document.querySelectorAll("[data-ce-regrade]").forEach(function (button) {
+      button.addEventListener("click", function (event) {
+        var slug = button.getAttribute("data-ce-regrade");
+        var ok = window.confirm(
+          "Grade " + slug + " again?\n\nThis creates a fresh results sheet and replaces the current one, including any edits made in the sheet."
+        );
+        if (!ok) event.preventDefault();
+      });
+    });
+  })();
+</script>
 {% endblock %}

@@ -14,7 +14,7 @@ from urllib.parse import urlparse
 from xml.sax.saxutils import escape
 from django.core.mail import get_connection
 import time
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from applications.grading import grade_from_answers
 from openai import OpenAI
 from django.core.files.base import ContentFile
@@ -826,9 +826,24 @@ def _prior_application_ids_for_track(
 @staff_member_required
 def grading_job_status(request, job_id: int):
     job = get_object_or_404(GradingJob, id=job_id)
+    is_active = job.status in (GradingJob.STATUS_PENDING, GradingJob.STATUS_RUNNING)
+    has_results = bool(
+        job.form_slug
+        and job.status == GradingJob.STATUS_DONE
+        and GradedFile.objects.filter(form_slug=job.form_slug).exists()
+    )
 
     # The page auto-refreshes while the job is active (currently every 5 seconds).
-    return render(request, "admin_dash/grading_job_status.html", {"job": job})
+    return render(
+        request,
+        "admin_dash/grading_job_status.html",
+        {
+            "job": job,
+            "is_active": is_active,
+            "is_stalled": is_active and timezone.now() - job.updated_at >= GRADING_JOB_STALL_AFTER,
+            "has_results": has_results,
+        },
+    )
 
 
 def _format_graded_participant_history(occurrences: list[dict]) -> str:
@@ -7996,12 +8011,31 @@ def _redirect_back_to_grading(request):
     return redirect(url)
 
 
+GRADING_JOB_STALL_AFTER = timedelta(minutes=30)
+
+
+@staff_member_required
 def grading_home(request):
     group = (request.GET.get("group") or "").strip()
 
-    fds = FormDefinition.objects.filter(slug__regex=CURRENT_GRADING_FORM_RE.pattern).order_by("slug")
-    if group:
-        fds = fds.filter(group__number=group)
+    all_fds = (
+        FormDefinition.objects.filter(slug__regex=CURRENT_GRADING_FORM_RE.pattern)
+        .select_related("group")
+        .order_by("slug")
+    )
+    group_numbers = sorted(
+        {fd.group.number for fd in all_fds if fd.group_id},
+        reverse=True,
+    )
+    has_ungrouped_forms = any(not fd.group_id for fd in all_fds)
+
+    fds = all_fds
+    if group == "none":
+        fds = fds.filter(group__isnull=True)
+    elif group.isdigit():
+        fds = fds.filter(group__number=int(group))
+    elif group:
+        fds = fds.none()
 
     form_slugs = [fd.slug for fd in fds]
     latest_graded_by_slug: dict[str, GradedFile] = {}
@@ -8032,17 +8066,75 @@ def grading_home(request):
         )
     }
 
+    latest_job_by_slug: dict[str, GradingJob] = {}
+    if form_slugs:
+        for job in (
+            GradingJob.objects.filter(form_slug__in=form_slugs)
+            .only("id", "form_slug", "status", "created_at", "updated_at")
+            .order_by("-created_at", "-id")
+            .iterator()
+        ):
+            latest_job_by_slug.setdefault(job.form_slug, job)
+            if len(latest_job_by_slug) == len(form_slugs):
+                break
+
+    now = timezone.now()
     rows = []
+    sections_by_key: dict[str, dict] = {}
     for fd in fds:
         latest_file = latest_graded_by_slug.get(fd.slug)
-        rows.append({
+
+        job = latest_job_by_slug.get(fd.slug)
+        job_state = ""
+        if job:
+            if job.status in (GradingJob.STATUS_PENDING, GradingJob.STATUS_RUNNING):
+                job_state = "running" if now - job.updated_at < GRADING_JOB_STALL_AFTER else "stalled"
+            else:
+                job_state = job.status
+
+        row = {
             "slug": fd.slug,
             "name": fd.name,
+            "track": "M" if fd.slug.upper().endswith("M_A1") else "E",
             "total": totals.get(fd.slug, 0),
             "pending": pending.get(fd.slug, 0),
             "latest_graded_file_id": latest_file.id if latest_file else None,
             "latest_graded_at": latest_file.created_at if latest_file else None,
-        })
+            "latest_job": job,
+            "job_state": job_state,
+        }
+        rows.append(row)
+
+        key = str(fd.group.number) if fd.group_id else "none"
+        section = sections_by_key.setdefault(
+            key,
+            {
+                "key": key,
+                "number": fd.group.number if fd.group_id else None,
+                "group": fd.group if fd.group_id else None,
+                "forms": [],
+            },
+        )
+        section["forms"].append(row)
+
+    # Newest group first; forms without a group (base templates) go last.
+    sections = sorted(
+        sections_by_key.values(),
+        key=lambda section: (section["number"] is None, -(section["number"] or 0)),
+    )
+    for section in sections:
+        section["forms"].sort(key=lambda row: (row["track"] != "E", row["slug"]))
+        section["pending"] = sum(row["pending"] for row in section["forms"])
+
+    graded_dates = [row["latest_graded_at"] for row in rows if row["latest_graded_at"]]
+    summary = {
+        "total": sum(row["total"] for row in rows),
+        "pending": sum(row["pending"] for row in rows),
+        "forms": len(rows),
+        "with_results": sum(1 for row in rows if row["latest_graded_file_id"]),
+        "running": sum(1 for row in rows if row["job_state"] == "running"),
+        "last_graded_at": max(graded_dates) if graded_dates else None,
+    }
 
     return render(
         request,
@@ -8050,6 +8142,10 @@ def grading_home(request):
         {
             "group": group,
             "forms": rows,
+            "sections": sections,
+            "group_numbers": group_numbers,
+            "has_ungrouped_forms": has_ungrouped_forms,
+            "summary": summary,
         },
     )
 
@@ -8220,7 +8316,11 @@ def grading_config_editor(request, form_slug: str):
             "form_def": form,
             "config": config,
             "paragraph_criteria": paragraph_criteria,
+            "paragraph_active_count": sum(1 for c in paragraph_criteria if c.active),
             "structured_groups": structured_groups,
+            "structured_active_count": sum(
+                1 for g in structured_groups if g["criterion"] and g["criterion"].active
+            ),
             "openai_flow": openai_flow,
             "back_url": reverse("admin_grading_home"),
         },

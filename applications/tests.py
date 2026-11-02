@@ -67,6 +67,7 @@ from applications.models import (
     FormDefinition,
     FormGroup,
     GradedFile,
+    GradingJob,
     ApplicationGradingConfig,
     GradingCriterion,
     GradingResponseWeight,
@@ -2804,6 +2805,61 @@ class GradingAndPairingConfigEditorTests(TestCase):
         self.assertContains(response, "M_A1")
         self.assertNotContains(response, "E_A2")
         self.assertNotContains(response, "M_A2")
+
+    def test_grading_home_requires_staff_login(self):
+        self.client.logout()
+
+        response = self.client.get(reverse("admin_grading_home"))
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/login/", response["Location"])
+
+    def test_grading_home_groups_forms_and_filters_by_group(self):
+        group_6 = FormGroup.objects.create(number=6, start_month="Febrero", end_month="Mayo", year=2026)
+        group_7 = FormGroup.objects.create(number=7, start_month="Junio", end_month="Septiembre", year=2026)
+        FormDefinition.objects.create(slug="G6_E_A1", name="G6 E", group=group_6)
+        FormDefinition.objects.create(slug="G7_E_A1", name="G7 E", group=group_7)
+        FormDefinition.objects.create(slug="G7_M_A1", name="G7 M", group=group_7)
+        FormDefinition.objects.create(slug="E_A1", name="Base E")
+        GradedFile.objects.create(form_slug="G7_E_A1", csv_text="Status,email\nSeleccionada,a@example.com\n")
+        GradingJob.objects.create(form_slug="G7_M_A1", status=GradingJob.STATUS_FAILED)
+
+        response = self.client.get(reverse("admin_grading_home"))
+
+        self.assertEqual(response.status_code, 200)
+        sections = response.context["sections"]
+        self.assertEqual([section["number"] for section in sections], [7, 6, None])
+        self.assertEqual([row["slug"] for row in sections[0]["forms"]], ["G7_E_A1", "G7_M_A1"])
+        self.assertEqual(response.context["group_numbers"], [7, 6])
+        self.assertContains(response, reverse("admin_grading_live_sheet", args=["G7_E_A1"]))
+        self.assertContains(response, "Last run failed")
+        self.assertContains(response, 'data-ce-regrade="G7_E_A1"')
+
+        filtered = self.client.get(reverse("admin_grading_home"), {"group": "6"})
+        self.assertEqual([row["slug"] for row in filtered.context["forms"]], ["G6_E_A1"])
+        ungrouped = self.client.get(reverse("admin_grading_home"), {"group": "none"})
+        self.assertEqual([row["slug"] for row in ungrouped.context["forms"]], ["E_A1"])
+        invalid = self.client.get(reverse("admin_grading_home"), {"group": "abc"})
+        self.assertEqual(invalid.status_code, 200)
+        self.assertEqual(invalid.context["forms"], [])
+
+    def test_grading_job_status_links_to_results_when_done(self):
+        GradedFile.objects.create(form_slug="G7_E_A1", csv_text="Status,email\nSeleccionada,a@example.com\n")
+        done = GradingJob.objects.create(
+            form_slug="G7_E_A1",
+            status=GradingJob.STATUS_DONE,
+            log_text="✅ Grading completed successfully\n",
+        )
+        running = GradingJob.objects.create(form_slug="G7_M_A1", status=GradingJob.STATUS_RUNNING)
+
+        done_response = self.client.get(reverse("admin_grading_job_status", args=[done.id]))
+        running_response = self.client.get(reverse("admin_grading_job_status", args=[running.id]))
+
+        self.assertContains(done_response, "Grading completed successfully")
+        self.assertContains(done_response, reverse("admin_grading_live_sheet", args=["G7_E_A1"]))
+        self.assertNotContains(done_response, 'http-equiv="refresh"')
+        self.assertContains(running_response, 'http-equiv="refresh"')
+        self.assertNotContains(running_response, reverse("admin_grading_live_sheet", args=["G7_M_A1"]))
 
     def test_grading_config_editor_creates_default_criteria_for_form(self):
         form = FormDefinition.objects.create(slug="G901_E_A1", name="E A1")

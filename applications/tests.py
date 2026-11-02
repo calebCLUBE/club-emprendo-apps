@@ -2893,6 +2893,20 @@ class GradingAndPairingConfigEditorTests(TestCase):
             [(9, 3, 2, 5), (8, 1, 0, 1)],
         )
         self.assertContains(response, '<tr id="group-9">')
+        self.assertEqual(
+            [(slice_["label"], slice_["value"], slice_["percent"]) for slice_ in response.context["pie"]],
+            [("Group 9", 5, 83), ("Group 8", 1, 17)],
+        )
+
+        # The pie keeps the newest five groups and folds older ones together.
+        for number in range(1, 6):
+            older = FormGroup.objects.create(number=number, start_month="Enero", end_month="Abril", year=2020)
+            apply(FormDefinition.objects.create(slug=f"G{number}_E_A1", name=f"G{number}", group=older), f"p{number}@example.com")
+        pie = self.client.get(reverse("admin_application_counts")).context["pie"]
+        self.assertEqual(
+            [(slice_["label"], slice_["value"]) for slice_ in pie],
+            [("Group 9", 5), ("Group 8", 1), ("Group 5", 1), ("Group 4", 1), ("Group 3", 1), ("Earlier groups", 2)],
+        )
         self.assertContains(
             self.client.get(reverse("admin_grading_home"), {"group": "9"}),
             f'{reverse("admin_application_counts")}#group-9',

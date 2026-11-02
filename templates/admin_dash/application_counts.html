@@ -9,15 +9,137 @@
     .ce-count-table th.ce-work-table__num {
       text-align: right;
     }
-    .ce-count-table .ce-work-table__primary {
-      white-space: nowrap;
-    }
     .ce-count-table td.ce-count-total {
       color: var(--ce-green-800);
       font-weight: 750;
     }
     .ce-count-table tbody tr:target > * {
       background: var(--ce-green-50);
+    }
+
+    .ce-count-chart__body {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 24px 40px;
+    }
+    .ce-count-pie {
+      position: relative;
+      flex: 0 0 auto;
+      width: 220px;
+      max-width: 100%;
+    }
+    .ce-count-pie svg {
+      display: block;
+      width: 100%;
+      height: auto;
+      overflow: visible;
+    }
+    .ce-count-pie path {
+      stroke: var(--ce-surface);
+      stroke-width: 2;
+      stroke-linejoin: round;
+      cursor: default;
+      transition: opacity 0.12s ease;
+    }
+    .ce-count-pie path:focus {
+      outline: none;
+    }
+    .ce-count-pie path:focus-visible {
+      stroke: var(--ce-text);
+    }
+    .ce-count-chart.is-active .ce-count-pie path:not(.is-active) {
+      opacity: 0.4;
+    }
+    .ce-count-tip {
+      position: absolute;
+      z-index: 2;
+      display: grid;
+      grid-template-columns: auto 1fr;
+      align-items: center;
+      gap: 0 8px;
+      min-width: 120px;
+      padding: 8px 10px;
+      border: 1px solid var(--ce-border);
+      border-radius: 8px;
+      background: var(--ce-surface);
+      box-shadow: var(--ce-shadow-md);
+      pointer-events: none;
+      white-space: nowrap;
+    }
+    .ce-count-tip[hidden] {
+      display: none;
+    }
+    .ce-count-tip__key {
+      grid-row: span 2;
+      width: 12px;
+      height: 3px;
+      border-radius: 2px;
+    }
+    .ce-count-tip strong {
+      color: var(--ce-text);
+      font-size: 14px;
+      font-variant-numeric: tabular-nums;
+    }
+    .ce-count-tip span:last-child {
+      color: var(--ce-text-muted);
+      font-size: 12.5px;
+    }
+
+    .ce-count-legend {
+      flex: 1 1 260px;
+      max-width: 420px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+    .ce-count-legend li {
+      display: grid;
+      grid-template-columns: 12px 1fr auto 3.5em;
+      align-items: center;
+      gap: 12px;
+      padding: 7px 8px;
+      border-radius: 8px;
+      list-style: none;
+      font-size: 14px;
+      font-variant-numeric: tabular-nums;
+    }
+    .ce-count-legend li.is-active {
+      background: var(--ce-gray-50);
+    }
+    .ce-count-legend__key {
+      width: 12px;
+      height: 12px;
+      border-radius: 3px;
+    }
+    .ce-count-legend__label {
+      color: var(--ce-text);
+      font-weight: 600;
+    }
+    .ce-count-legend__value {
+      color: var(--ce-text);
+      font-weight: 650;
+      text-align: right;
+    }
+    .ce-count-legend__pct {
+      color: var(--ce-text-muted);
+      text-align: right;
+    }
+
+    @media (max-width: 560px) {
+      .ce-count-table th,
+      .ce-count-table td {
+        padding-right: 8px;
+        padding-left: 8px;
+      }
+      .ce-count-table th:first-child,
+      .ce-count-table td:first-child {
+        padding-left: 14px;
+      }
+      .ce-count-table th:last-child,
+      .ce-count-table td:last-child {
+        padding-right: 14px;
+      }
     }
   </style>
 
@@ -34,6 +156,39 @@
     </div>
   </header>
 
+  {% if pie %}
+    <section class="ce-work-panel ce-count-chart" aria-labelledby="ce-count-chart-title">
+      <div class="ce-work-panel__head">
+        <h2 class="ce-work-panel__title" id="ce-count-chart-title">Share of applications by group</h2>
+        <span class="ce-work-muted">{{ pie_total }} application{{ pie_total|pluralize }}</span>
+      </div>
+      <div class="ce-work-panel__body ce-count-chart__body">
+        <div class="ce-count-pie">
+          <svg viewBox="0 0 200 200" role="img" aria-label="Pie chart: share of applications by group">
+            {% for slice in pie %}
+              <path d="{{ slice.path }}" fill="{{ slice.color }}" tabindex="0"
+                    data-label="{{ slice.label }}" data-value="{{ slice.value }}" data-percent="{{ slice.percent }}"
+                    aria-label="{{ slice.label }}: {{ slice.value }} applications, {{ slice.percent }}%"></path>
+            {% endfor %}
+          </svg>
+          <div class="ce-count-tip" aria-hidden="true" hidden>
+            <span class="ce-count-tip__key"></span><strong></strong><span></span>
+          </div>
+        </div>
+        <ul class="ce-count-legend">
+          {% for slice in pie %}
+            <li>
+              <span class="ce-count-legend__key" style="background: {{ slice.color }}"></span>
+              <span class="ce-count-legend__label">{{ slice.label }}</span>
+              <span class="ce-count-legend__value">{{ slice.value }}</span>
+              <span class="ce-count-legend__pct">{{ slice.percent }}%</span>
+            </li>
+          {% endfor %}
+        </ul>
+      </div>
+    </section>
+  {% endif %}
+
   <section class="ce-work-panel">
     <div class="ce-work-table-wrap ce-work-table-wrap--flush">
       <table class="ce-work-table ce-count-table">
@@ -49,7 +204,7 @@
           {% for row in rows %}
             <tr id="group-{{ row.number|default:'none' }}">
               <td>
-                <div class="ce-work-table__primary">{% if row.number %}Group {{ row.number }}{% else %}Base forms (no group){% endif %}</div>
+                <div class="ce-work-table__primary">{% if row.number %}Group&nbsp;{{ row.number }}{% else %}Base forms (no group){% endif %}</div>
                 {% if row.group %}<div class="ce-work-table__sub">Starts {{ row.group.start_month }} {{ row.group.year }}</div>{% endif %}
               </td>
               <td class="ce-work-table__num">{{ row.emprendedoras }}</td>
@@ -66,4 +221,61 @@
 
   <p class="ce-work-muted">The same person is matched by email (or ID number when there's no email). Someone who applied as both an Emprendedora and a Mentora counts once in each column.</p>
 </div>
+
+<script>
+  (function () {
+    var chart = document.querySelector(".ce-count-chart");
+    if (!chart) return;
+    var pie = chart.querySelector(".ce-count-pie");
+    var svg = pie.querySelector("svg");
+    var slices = Array.prototype.slice.call(svg.querySelectorAll("path"));
+    var rows = Array.prototype.slice.call(chart.querySelectorAll(".ce-count-legend li"));
+    var tip = pie.querySelector(".ce-count-tip");
+
+    function place(x, y) {
+      var maxX = pie.clientWidth - tip.offsetWidth;
+      tip.style.left = Math.max(0, Math.min(x + 12, maxX)) + "px";
+      tip.style.top = Math.max(0, y - tip.offsetHeight - 12) + "px";
+    }
+
+    function show(index, x, y) {
+      var slice = slices[index];
+      chart.classList.add("is-active");
+      slices.forEach(function (s, i) { s.classList.toggle("is-active", i === index); });
+      rows.forEach(function (r, i) { r.classList.toggle("is-active", i === index); });
+      tip.querySelector(".ce-count-tip__key").style.background = slice.getAttribute("fill");
+      tip.querySelector("strong").textContent = slice.dataset.value + " · " + slice.dataset.percent + "%";
+      tip.querySelector("span:last-child").textContent = slice.dataset.label;
+      tip.hidden = false;
+      if (x === undefined) {
+        var box = slice.getBBox();
+        var scale = svg.clientWidth / 200;
+        x = (box.x + box.width / 2) * scale;
+        y = (box.y + box.height / 2) * scale;
+      }
+      place(x, y);
+    }
+
+    function hide() {
+      chart.classList.remove("is-active");
+      slices.forEach(function (s) { s.classList.remove("is-active"); });
+      rows.forEach(function (r) { r.classList.remove("is-active"); });
+      tip.hidden = true;
+    }
+
+    slices.forEach(function (slice, index) {
+      slice.addEventListener("pointermove", function (event) {
+        var rect = pie.getBoundingClientRect();
+        show(index, event.clientX - rect.left, event.clientY - rect.top);
+      });
+      slice.addEventListener("pointerleave", hide);
+      slice.addEventListener("focus", function () { show(index); });
+      slice.addEventListener("blur", hide);
+    });
+    rows.forEach(function (row, index) {
+      row.addEventListener("pointerenter", function () { show(index); });
+      row.addEventListener("pointerleave", hide);
+    });
+  })();
+</script>
 {% endblock %}

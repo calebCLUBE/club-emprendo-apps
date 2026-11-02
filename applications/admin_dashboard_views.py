@@ -1,5 +1,6 @@
 import io
 import logging
+import math
 import os
 import re
 import threading
@@ -5261,7 +5262,45 @@ def applications_dashboard(request):
     return render(request, "admin_dash/applications_dashboard.html", context)
 
 
+# Categorical slots validated for neighboring slices (incl. wrap-around) on white.
+APPLICATION_PIE_COLORS = ("#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4")
+APPLICATION_PIE_OTHER_COLOR = "#c3c2b7"
+
+
 @staff_member_required
 def application_counts(request):
     rows = _deduplicated_application_counts()
-    return render(request, "admin_dash/application_counts.html", {"rows": rows})
+
+    # Pie of each group's share: the newest five groups with applications,
+    # everything older (and base forms) folded into one gray slice.
+    with_applications = [row for row in rows if row["total"]]
+    newest, earlier = with_applications[:5], with_applications[5:]
+    items = [
+        (f"Group {row['number']}" if row["number"] else "Base forms", row["total"], color)
+        for row, color in zip(newest, APPLICATION_PIE_COLORS)
+    ]
+    if earlier:
+        items.append(("Earlier groups", sum(row["total"] for row in earlier), APPLICATION_PIE_OTHER_COLOR))
+    pie_total = sum(value for _label, value, _color in items)
+    pie = []
+    angle = -math.pi / 2
+    for label, value, color in items:
+        share = value / pie_total
+        end = angle + 2 * math.pi * share
+        if share >= 1:
+            path = "M 100 4 A 96 96 0 1 1 100 196 A 96 96 0 1 1 100 4 Z"
+        else:
+            x0, y0 = 100 + 96 * math.cos(angle), 100 + 96 * math.sin(angle)
+            x1, y1 = 100 + 96 * math.cos(end), 100 + 96 * math.sin(end)
+            path = (
+                f"M 100 100 L {x0:.2f} {y0:.2f} "
+                f"A 96 96 0 {1 if share > 0.5 else 0} 1 {x1:.2f} {y1:.2f} Z"
+            )
+        pie.append({"label": label, "value": value, "percent": round(share * 100), "color": color, "path": path})
+        angle = end
+
+    return render(
+        request,
+        "admin_dash/application_counts.html",
+        {"rows": rows, "pie": pie, "pie_total": pie_total},
+    )

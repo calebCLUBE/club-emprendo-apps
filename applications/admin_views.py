@@ -8014,9 +8014,72 @@ def _redirect_back_to_grading(request):
 GRADING_JOB_STALL_AFTER = timedelta(minutes=30)
 
 
-def _grading_forms_for_group(group: str):
-    """Current E_A1/M_A1 forms for one group (number, "none" for base forms),
-    plus the dropdown options. A blank group picks the default."""
+APPLICANT_EMAIL_ANSWER_SLUGS = ("email", "correo", "correo_electronico")
+APPLICANT_DOCUMENT_ANSWER_SLUGS = ("cedula", "id_number")
+
+
+def _deduplicated_application_counts() -> list[dict]:
+    """Applications per group and track, counting each person once (matched
+    by email, else ID number). Second-stage (A2) forms count toward the
+    same group and track as their first-stage form."""
+    first_stage = list(
+        FormDefinition.objects.filter(slug__regex=CURRENT_GRADING_FORM_RE.pattern).select_related("group")
+    )
+    form_targets = {
+        fd.slug: (fd.group, "M" if fd.slug.endswith("M_A1") else "E") for fd in first_stage
+    }
+    target_by_form_id = {fd.id: form_targets[fd.slug] for fd in first_stage}
+    for form_id, slug in FormDefinition.objects.filter(
+        slug__in=[slug[:-1] + "2" for slug in form_targets]
+    ).values_list("id", "slug"):
+        target_by_form_id[form_id] = form_targets[slug[:-1] + "1"]
+
+    apps = Application.objects.filter(form_id__in=target_by_form_id)
+    answers: dict[int, dict[str, str]] = {}
+    for app_id, slug, value in Answer.objects.filter(
+        application__in=apps,
+        question__slug__in=APPLICANT_EMAIL_ANSWER_SLUGS + APPLICANT_DOCUMENT_ANSWER_SLUGS,
+    ).values_list("application_id", "question__slug", "value"):
+        answers.setdefault(app_id, {})[slug] = value or ""
+
+    rows: dict[int | None, dict] = {}
+    for group, _track in target_by_form_id.values():
+        number = group.number if group else None
+        rows.setdefault(number, {"number": number, "group": group, "E": set(), "M": set()})
+    for app_id, app_email, form_id in apps.values_list("id", "email", "form_id"):
+        group, track = target_by_form_id[form_id]
+        answer_map = answers.get(app_id, {})
+        email = next((answer_map[s] for s in APPLICANT_EMAIL_ANSWER_SLUGS if answer_map.get(s)), "") or app_email or ""
+        email = email.strip().lower()
+        document = "".join(
+            ch for ch in (answer_map.get("cedula") or answer_map.get("id_number") or "").strip().lower()
+            if ch.isalnum()
+        )
+        if email:
+            person = ("email", email)
+        elif document:
+            person = ("document", document)
+        else:
+            person = ("application", str(app_id))
+        rows[group.number if group else None][track].add(person)
+
+    ordered = sorted(rows.values(), key=lambda row: (row["number"] is None, -(row["number"] or 0)))
+    return [
+        {
+            "number": row["number"],
+            "group": row["group"],
+            "emprendedoras": len(row["E"]),
+            "mentoras": len(row["M"]),
+            "total": len(row["E"]) + len(row["M"]),
+        }
+        for row in ordered
+    ]
+
+
+@staff_member_required
+def grading_home(request):
+    group = (request.GET.get("group") or "").strip()
+
     all_fds = (
         FormDefinition.objects.filter(slug__regex=CURRENT_GRADING_FORM_RE.pattern)
         .select_related("group")
@@ -8051,87 +8114,6 @@ def _grading_forms_for_group(group: str):
         fds = fds.filter(group__number=int(group))
     elif group:
         fds = fds.none()
-    return fds, group, group_options
-
-
-APPLICANT_EMAIL_ANSWER_SLUGS = ("email", "correo", "correo_electronico")
-APPLICANT_DOCUMENT_ANSWER_SLUGS = ("cedula", "id_number")
-
-
-def _real_application_count(first_stage_forms) -> dict:
-    """Count applications the way grading does: submissions on the
-    first-stage forms and their second-stage (A2) forms, one per person
-    (email, else ID number), keeping only people with a submission that
-    qualified (approved for grading)."""
-    forms = list(first_stage_forms)
-    second_stage = FormDefinition.objects.filter(slug__in=[fd.slug[:-1] + "2" for fd in forms])
-    apps = Application.objects.filter(Q(form__in=forms) | Q(form__in=second_stage))
-
-    answers: dict[int, dict[str, str]] = {}
-    for app_id, slug, value in Answer.objects.filter(
-        application__in=apps,
-        question__slug__in=APPLICANT_EMAIL_ANSWER_SLUGS + APPLICANT_DOCUMENT_ANSWER_SLUGS,
-    ).values_list("application_id", "question__slug", "value"):
-        answers.setdefault(app_id, {})[slug] = value or ""
-
-    submissions_by_person: dict[tuple[str, str], list[dict]] = {}
-    qualified_people: set[tuple[str, str]] = set()
-    submitted = 0
-    for app_id, app_email, app_name, created_at, form_slug, approved in apps.order_by("created_at", "id").values_list(
-        "id", "email", "name", "created_at", "form__slug", "approved_for_grading"
-    ):
-        submitted += 1
-        answer_map = answers.get(app_id, {})
-        email = next((answer_map[s] for s in APPLICANT_EMAIL_ANSWER_SLUGS if answer_map.get(s)), "") or app_email or ""
-        email = email.strip().lower()
-        document = "".join(
-            ch for ch in (answer_map.get("cedula") or answer_map.get("id_number") or "").strip().lower()
-            if ch.isalnum()
-        )
-        if email:
-            person = ("email", email)
-        elif document:
-            person = ("document", document)
-        else:
-            person = ("application", str(app_id))
-        submissions_by_person.setdefault(person, []).append(
-            {
-                "id": app_id,
-                "name": app_name,
-                "created_at": created_at,
-                "second_stage": form_slug.endswith("A2"),
-                "qualified": approved,
-            }
-        )
-        if approved:
-            qualified_people.add(person)
-
-    duplicates = [
-        {
-            "label": value if kind == "email" else f"ID {value}",
-            "name": next((sub["name"] for sub in subs if sub["name"]), ""),
-            "submissions": subs,
-        }
-        for (kind, value), subs in submissions_by_person.items()
-        if len(subs) > 1
-    ]
-    duplicates.sort(key=lambda person: (-len(person["submissions"]), person["label"]))
-
-    return {
-        "submitted": submitted,
-        "duplicates": submitted - len(submissions_by_person),
-        "duplicate_people": duplicates,
-        "not_qualified": len(submissions_by_person) - len(qualified_people),
-        "real": len(qualified_people),
-        "people": qualified_people,
-    }
-
-
-@staff_member_required
-def grading_home(request):
-    fds, group, group_options = _grading_forms_for_group(
-        (request.GET.get("group") or "").strip()
-    )
 
     form_slugs = [fd.slug for fd in fds]
     latest_graded_by_slug: dict[str, GradedFile] = {}

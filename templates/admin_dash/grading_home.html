@@ -364,7 +364,7 @@
           {% if section.number %}Group {{ section.number }}{% else %}Forms without a group{% endif %}
         </h2>
         <p class="ce-grade-group__meta">
-          {% if section.group %}Starts {{ section.group.start_month }} {{ section.group.year }} · {% elif not section.number %}Base application forms · {% endif %}{{ section.pending }} pending · <a href="{% url 'admin_application_counts' %}?group={{ group }}">Real application count</a>
+          {% if section.group %}Starts {{ section.group.start_month }} {{ section.group.year }} · {% elif not section.number %}Base application forms · {% endif %}{{ section.pending }} pending · <a href="{% url 'admin_application_counts' %}#group-{{ section.number|default:'none' }}">Application count</a>
         </p>
       </div>
 

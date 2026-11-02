@@ -2861,55 +2861,41 @@ class GradingAndPairingConfigEditorTests(TestCase):
         self.assertEqual(invalid.status_code, 200)
         self.assertEqual(invalid.context["forms"], [])
 
-    def test_application_counts_match_grading_rules(self):
-        group = FormGroup.objects.create(number=9, start_month="Enero", end_month="Abril", year=2027)
-        e_a1 = FormDefinition.objects.create(slug="G9_E_A1", name="G9 E", group=group)
-        e_a2 = FormDefinition.objects.create(slug="G9_E_A2", name="G9 E second stage", group=group)
-        m_a1 = FormDefinition.objects.create(slug="G9_M_A1", name="G9 M", group=group)
+    def test_application_counts_remove_duplicates_per_group(self):
+        group_9 = FormGroup.objects.create(number=9, start_month="Enero", end_month="Abril", year=2027)
+        group_8 = FormGroup.objects.create(number=8, start_month="Octubre", end_month="Enero", year=2026)
+        e_a1 = FormDefinition.objects.create(slug="G9_E_A1", name="G9 E", group=group_9)
+        e_a2 = FormDefinition.objects.create(slug="G9_E_A2", name="G9 E second stage", group=group_9)
+        m_a1 = FormDefinition.objects.create(slug="G9_M_A1", name="G9 M", group=group_9)
+        g8_e = FormDefinition.objects.create(slug="G8_E_A1", name="G8 E", group=group_8)
         cedula = Question.objects.create(form=e_a1, text="Cédula", slug="cedula", field_type=Question.SHORT_TEXT)
 
-        def apply(form, email, approved=True, document=""):
-            app = Application.objects.create(form=form, email=email, approved_for_grading=approved)
+        def apply(form, email, document=""):
+            app = Application.objects.create(form=form, email=email)
             if document:
                 Answer.objects.create(application=app, question=cedula, value=document)
-            return app
 
         apply(e_a1, "ana@example.com")
-        apply(e_a1, "ANA@example.com ")  # repeat, different casing
+        apply(e_a1, "ANA@example.com ")  # duplicate, different casing
         apply(e_a2, "ana@example.com")  # second stage, same person
         apply(e_a1, "bea@example.com")
-        apply(e_a1, "nope@example.com", approved=False)
-        apply(e_a1, "dora@example.com", approved=False)
-        apply(e_a1, "dora@example.com")  # qualified on the second try
         apply(e_a1, "", document="1.234.567")
         apply(e_a1, "", document="1234567")  # same ID number, no email
         apply(m_a1, "bea@example.com")
         apply(m_a1, "cami@example.com")
+        apply(g8_e, "ana@example.com")  # a different group counts separately
 
-        response = self.client.get(reverse("admin_application_counts"), {"group": "9"})
+        response = self.client.get(reverse("admin_application_counts"))
 
         self.assertEqual(response.status_code, 200)
-        emprendedoras, mentoras = response.context["tracks"]
         self.assertEqual(
-            {k: emprendedoras[k] for k in ("submitted", "duplicates", "not_qualified", "real")},
-            {"submitted": 9, "duplicates": 4, "not_qualified": 1, "real": 4},
+            [(row["number"], row["emprendedoras"], row["mentoras"], row["total"]) for row in response.context["rows"]],
+            [(9, 3, 2, 5), (8, 1, 0, 1)],
         )
-        self.assertEqual((mentoras["submitted"], mentoras["real"]), (2, 2))
-        self.assertEqual(response.context["total_real"], 6)
-        self.assertEqual(response.context["both_tracks"], 1)
-        self.assertEqual(response.context["unique_people"], 5)
-        self.assertContains(response, "1 applied to both tracks")
-        self.assertEqual(
-            [(person["label"], len(person["submissions"])) for person in emprendedoras["duplicate_people"]],
-            [("ana@example.com", 3), ("ID 1234567", 2), ("dora@example.com", 2)],
-        )
-        self.assertContains(response, "See the 3 people who applied more than once")
-        self.assertContains(response, "Second-stage form")
-        self.assertContains(response, '<option value="9" selected>Group 9 · Enero 2027</option>', html=True)
-
+        self.assertContains(response, '<tr id="group-9">')
         self.assertContains(
             self.client.get(reverse("admin_grading_home"), {"group": "9"}),
-            f'{reverse("admin_application_counts")}?group=9',
+            f'{reverse("admin_application_counts")}#group-9',
         )
 
     def test_grading_job_status_links_to_results_when_done(self):

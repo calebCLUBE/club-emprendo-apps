@@ -2879,6 +2879,8 @@ class GradingAndPairingConfigEditorTests(TestCase):
         apply(e_a2, "ana@example.com")  # second stage, same person
         apply(e_a1, "bea@example.com")
         apply(e_a1, "nope@example.com", approved=False)
+        apply(e_a1, "dora@example.com", approved=False)
+        apply(e_a1, "dora@example.com")  # qualified on the second try
         apply(e_a1, "", document="1.234.567")
         apply(e_a1, "", document="1234567")  # same ID number, no email
         apply(m_a1, "bea@example.com")
@@ -2889,19 +2891,19 @@ class GradingAndPairingConfigEditorTests(TestCase):
         self.assertEqual(response.status_code, 200)
         emprendedoras, mentoras = response.context["tracks"]
         self.assertEqual(
-            {k: emprendedoras[k] for k in ("submitted", "not_approved", "duplicates", "real")},
-            {"submitted": 7, "not_approved": 1, "duplicates": 3, "real": 3},
+            {k: emprendedoras[k] for k in ("submitted", "duplicates", "not_qualified", "real")},
+            {"submitted": 9, "duplicates": 4, "not_qualified": 1, "real": 4},
         )
         self.assertEqual((mentoras["submitted"], mentoras["real"]), (2, 2))
-        self.assertEqual(response.context["total_real"], 5)
+        self.assertEqual(response.context["total_real"], 6)
         self.assertEqual(response.context["both_tracks"], 1)
-        self.assertEqual(response.context["unique_people"], 4)
+        self.assertEqual(response.context["unique_people"], 5)
         self.assertContains(response, "1 applied to both tracks")
         self.assertEqual(
-            [(person["label"], len(person["submissions"])) for person in emprendedoras["repeats"]],
-            [("ana@example.com", 3), ("ID 1234567", 2)],
+            [(person["label"], len(person["submissions"])) for person in emprendedoras["duplicate_people"]],
+            [("ana@example.com", 3), ("ID 1234567", 2), ("dora@example.com", 2)],
         )
-        self.assertContains(response, "See the 3 repeats (2 people)")
+        self.assertContains(response, "See the 3 people who applied more than once")
         self.assertContains(response, "Second-stage form")
         self.assertContains(response, '<option value="9" selected>Group 9 · Enero 2027</option>', html=True)
 

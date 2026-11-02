@@ -8059,28 +8059,28 @@ APPLICANT_DOCUMENT_ANSWER_SLUGS = ("cedula", "id_number")
 
 
 def _real_application_count(first_stage_forms) -> dict:
-    """Count applications the way grading does: approved submissions on the
+    """Count applications the way grading does: submissions on the
     first-stage forms and their second-stage (A2) forms, one per person
-    (email, else ID number)."""
+    (email, else ID number), keeping only people with a submission that
+    qualified (approved for grading)."""
     forms = list(first_stage_forms)
     second_stage = FormDefinition.objects.filter(slug__in=[fd.slug[:-1] + "2" for fd in forms])
     apps = Application.objects.filter(Q(form__in=forms) | Q(form__in=second_stage))
-    submitted = apps.count()
-    approved = apps.filter(approved_for_grading=True)
 
     answers: dict[int, dict[str, str]] = {}
     for app_id, slug, value in Answer.objects.filter(
-        application__in=approved,
+        application__in=apps,
         question__slug__in=APPLICANT_EMAIL_ANSWER_SLUGS + APPLICANT_DOCUMENT_ANSWER_SLUGS,
     ).values_list("application_id", "question__slug", "value"):
         answers.setdefault(app_id, {})[slug] = value or ""
 
     submissions_by_person: dict[tuple[str, str], list[dict]] = {}
-    approved_count = 0
-    for app_id, app_email, app_name, created_at, form_slug in approved.order_by("created_at", "id").values_list(
-        "id", "email", "name", "created_at", "form__slug"
+    qualified_people: set[tuple[str, str]] = set()
+    submitted = 0
+    for app_id, app_email, app_name, created_at, form_slug, approved in apps.order_by("created_at", "id").values_list(
+        "id", "email", "name", "created_at", "form__slug", "approved_for_grading"
     ):
-        approved_count += 1
+        submitted += 1
         answer_map = answers.get(app_id, {})
         email = next((answer_map[s] for s in APPLICANT_EMAIL_ANSWER_SLUGS if answer_map.get(s)), "") or app_email or ""
         email = email.strip().lower()
@@ -8095,10 +8095,18 @@ def _real_application_count(first_stage_forms) -> dict:
         else:
             person = ("application", str(app_id))
         submissions_by_person.setdefault(person, []).append(
-            {"id": app_id, "name": app_name, "created_at": created_at, "form_slug": form_slug}
+            {
+                "id": app_id,
+                "name": app_name,
+                "created_at": created_at,
+                "second_stage": form_slug.endswith("A2"),
+                "qualified": approved,
+            }
         )
+        if approved:
+            qualified_people.add(person)
 
-    repeats = [
+    duplicates = [
         {
             "label": value if kind == "email" else f"ID {value}",
             "name": next((sub["name"] for sub in subs if sub["name"]), ""),
@@ -8107,16 +8115,15 @@ def _real_application_count(first_stage_forms) -> dict:
         for (kind, value), subs in submissions_by_person.items()
         if len(subs) > 1
     ]
-    repeats.sort(key=lambda person: (-len(person["submissions"]), person["label"]))
+    duplicates.sort(key=lambda person: (-len(person["submissions"]), person["label"]))
 
-    people = set(submissions_by_person)
     return {
         "submitted": submitted,
-        "not_approved": submitted - approved_count,
-        "duplicates": approved_count - len(people),
-        "real": len(people),
-        "people": people,
-        "repeats": repeats,
+        "duplicates": submitted - len(submissions_by_person),
+        "duplicate_people": duplicates,
+        "not_qualified": len(submissions_by_person) - len(qualified_people),
+        "real": len(qualified_people),
+        "people": qualified_people,
     }
 
 

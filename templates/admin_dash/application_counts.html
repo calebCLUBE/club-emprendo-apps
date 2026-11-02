@@ -165,7 +165,7 @@
   <header class="ce-work-header">
     <div class="ce-work-header__main">
       <h1 class="ce-work-title">Application counts</h1>
-      <p class="ce-work-lede">How many real applications {{ group_label|default:"this group" }} received: people who qualified, counted once each.</p>
+      <p class="ce-work-lede">How many real applications {{ group_label|default:"this group" }} received, without duplicates or people who didn't qualify.</p>
     </div>
     {% if group_options %}
       <div class="ce-work-actions">
@@ -193,7 +193,7 @@
         <div class="ce-work-stat">
           <div class="ce-work-stat__label">{{ track.label }}</div>
           <div class="ce-work-stat__value">{{ track.real }}</div>
-          <div class="ce-work-stat__detail">From {{ track.submitted }} form{{ track.submitted|pluralize }} submitted</div>
+          <div class="ce-work-stat__detail">From {{ track.submitted }} application{{ track.submitted|pluralize }} submitted</div>
         </div>
       {% endfor %}
       <div class="ce-work-stat">
@@ -212,41 +212,42 @@
           <div class="ce-work-panel__body">
             <dl class="ce-count-steps">
               <div>
-                <dt>Forms submitted<small>First- and second-stage application forms</small></dt>
+                <dt>Applications submitted<small>Every time someone sent this group's application</small></dt>
                 <dd>{{ track.submitted }}</dd>
               </div>
               <div>
-                <dt>Didn't qualify<small>Answers didn't meet the requirements</small></dt>
-                <dd>{% if track.not_approved %}−{% endif %}{{ track.not_approved }}</dd>
+                <dt>Duplicates<small>Same person applied more than once</small></dt>
+                <dd>{% if track.duplicates %}−{% endif %}{{ track.duplicates }}</dd>
               </div>
               <div>
-                <dt>Repeats<small>Same person submitted more than once</small></dt>
-                <dd>{% if track.duplicates %}−{% endif %}{{ track.duplicates }}</dd>
+                <dt>Didn't qualify<small>People whose answers didn't meet the requirements</small></dt>
+                <dd>{% if track.not_qualified %}−{% endif %}{{ track.not_qualified }}</dd>
               </div>
               <div class="ce-count-steps__total">
                 <dt>Real applications</dt>
                 <dd>{{ track.real }}</dd>
               </div>
             </dl>
-            {% if track.repeats %}
+            {% if track.duplicate_people %}
               <details class="ce-work-details ce-count-repeats">
-                <summary>See the {{ track.duplicates }} repeat{{ track.duplicates|pluralize }} ({{ track.repeats|length }} {{ track.repeats|length|pluralize:"person,people" }})</summary>
+                <summary>See the {{ track.duplicate_people|length }} {{ track.duplicate_people|length|pluralize:"person,people" }} who applied more than once</summary>
                 <div class="ce-work-details__body">
-                  <p class="ce-work-muted">Each person below counts once. Their other submissions are the repeats.</p>
+                  <p class="ce-work-muted">Each person counts once. Their extra applications are the {{ track.duplicates }} duplicate{{ track.duplicates|pluralize }}.</p>
                   <ul class="ce-count-repeats__list">
-                    {% for person in track.repeats %}
+                    {% for person in track.duplicate_people %}
                       <li>
                         <div class="ce-count-repeats__who">
                           <strong>{{ person.name|default:person.label }}</strong>
                           {% if person.name %}<span>{{ person.label }}</span>{% endif %}
-                          <span class="ce-work-badge">{{ person.submissions|length }} submissions</span>
+                          <span class="ce-work-badge">Applied {{ person.submissions|length }} times</span>
                         </div>
                         <ul class="ce-count-repeats__subs">
                           {% for sub in person.submissions %}
                             <li>
                               <a href="{% url 'admin_database_submission_detail' sub.id %}">#{{ sub.id }}</a>
                               · {{ sub.created_at|date:"M j, Y H:i" }}
-                              · {% if sub.form_slug|slice:"-2:" == "A2" %}Second-stage form{% else %}Application form{% endif %}
+                              {% if sub.second_stage %}· Second-stage form{% endif %}
+                              · {% if sub.qualified %}Qualified{% else %}Didn't qualify{% endif %}
                             </li>
                           {% endfor %}
                         </ul>
@@ -262,7 +263,7 @@
     </div>
 
     <p class="ce-work-muted ce-count-note">
-      Counted the same way <a href="{% url 'admin_grading_home' %}?group={{ group }}">grading</a> does: only applications that passed the requirement questions, one per person, matched by email (or ID number when there's no email). People who applied to both tracks count once in each track.
+      Counted the same way <a href="{% url 'admin_grading_home' %}?group={{ group }}">grading</a> does: one per person, matched by email (or ID number when there's no email), and only people who passed the requirement questions. People who applied to both tracks count once in each track.
     </p>
   {% else %}
     <div class="ce-work-empty">

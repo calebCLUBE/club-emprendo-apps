@@ -3371,7 +3371,25 @@ def _sync_group_from_linked_google_sheet(
     sheet_url: str | None = None,
     request=None,
 ) -> dict:
-    source_url = str(sheet_url if sheet_url is not None else participant_list.google_sheet_url or "").strip()
+    imported = _import_linked_google_sheet(
+        group=group,
+        participant_list=participant_list,
+        sheet_url=sheet_url,
+    )
+    return _write_back_linked_google_sheet(imported, request=request)
+
+
+def _import_linked_google_sheet(
+    *,
+    group,
+    participant_list,
+    sheet_url: str | None = None,
+) -> dict:
+    """Read the group's linked Google Sheet into participant_list (unsaved).
+
+    Historial is filled in afterwards by _write_back_linked_google_sheet.
+    """
+    source_url =str(sheet_url if sheet_url is not None else participant_list.google_sheet_url or "").strip()
     if not source_url:
         raise ValueError("Paste a Google Sheet link first.")
 
@@ -3539,6 +3557,30 @@ def _sync_group_from_linked_google_sheet(
         )
 
     participant_list.google_sheet_tabs = stored_tabs
+    return {
+        "group": group,
+        "participant_list": participant_list,
+        "source_url": source_url,
+        "spreadsheet": spreadsheet,
+        "configs": configs,
+        "canonical_rows": canonical_rows,
+        "stored_tabs": stored_tabs,
+        "missing_google_columns": missing_google_columns,
+    }
+
+
+def _write_back_linked_google_sheet(imported: dict, *, request=None) -> dict:
+    """Fill Historial from every group's saved rows, then write it and the
+    checkboxes back to the group's Google Sheet."""
+    group = imported["group"]
+    participant_list = imported["participant_list"]
+    source_url = imported["source_url"]
+    spreadsheet = imported["spreadsheet"]
+    configs = imported["configs"]
+    canonical_rows = imported["canonical_rows"]
+    stored_tabs = imported["stored_tabs"]
+    missing_google_columns = imported["missing_google_columns"]
+
     history_indexes = _participant_history_indexes(
         _participant_history_occurrences(participant_list)
     )
@@ -3635,37 +3677,52 @@ def _sync_group_from_linked_google_sheet(
 
 
 def _sync_all_linked_group_sheets(request=None) -> dict:
-    """Refresh every group's own linked Google Sheet, one group at a time.
+    """Refresh every group's own linked Google Sheet.
 
     Used by the "Refresh all linked sheets" action on the Participants page,
     and by anything else that wants every group's cached rows brought current
     (the impact dashboard only reads these cached rows, so this is how staff
     refresh it in bulk instead of visiting each group).
+
+    Every sheet is imported and saved before any Historial is written back,
+    so each group's Historial reflects the other groups' latest sheets.
     """
     linked_lists = (
         GroupParticipantList.objects.select_related("group")
         .exclude(google_sheet_url="")
         .order_by("group__number")
     )
+    imported: list[dict] = []
     synced: list[dict] = []
     failed: list[dict] = []
+
+    def record_failure(participant_list, exc):
+        participant_list.google_sheet_sync_error = str(exc)
+        participant_list.save(update_fields=["google_sheet_sync_error", "updated_at"])
+        failed.append({"group_number": participant_list.group.number, "error": str(exc)})
+
     for participant_list in linked_lists:
-        group = participant_list.group
-        if not group:
+        if not participant_list.group:
             continue
         try:
-            result = _sync_group_from_linked_google_sheet(
-                group=group,
+            item = _import_linked_google_sheet(
+                group=participant_list.group,
                 participant_list=participant_list,
                 sheet_url=participant_list.google_sheet_url,
-                request=request,
             )
+            participant_list.save()
         except Exception as exc:
-            participant_list.google_sheet_sync_error = str(exc)
-            participant_list.save(update_fields=["google_sheet_sync_error", "updated_at"])
-            failed.append({"group_number": group.number, "error": str(exc)})
+            record_failure(participant_list, exc)
             continue
-        synced.append({"group_number": group.number, **result})
+        imported.append(item)
+    for item in imported:
+        try:
+            result = _write_back_linked_google_sheet(item, request=request)
+        except Exception as exc:
+            record_failure(item["participant_list"], exc)
+            continue
+        synced.append({"group_number": item["group"].number, **result})
+    failed.sort(key=lambda item: item["group_number"])
     return {"synced": synced, "failed": failed}
 
 

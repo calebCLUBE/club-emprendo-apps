@@ -10661,6 +10661,48 @@ class ParticipantsCapacitacionCheckTests(TestCase):
 
     @patch("applications.admin_profiles_views.update_google_spreadsheet_values")
     @patch("applications.admin_profiles_views.fetch_google_spreadsheet_tabs")
+    def test_refresh_all_historial_sees_newer_groups_in_one_pass(
+        self,
+        mock_fetch_tabs,
+        mock_update_values,
+    ):
+        old_url = "https://docs.google.com/spreadsheets/d/linked-sheet-123/edit"
+        new_url = "https://docs.google.com/spreadsheets/d/linked-sheet-994/edit"
+        self.participant_list.google_sheet_url = old_url
+        self.participant_list.save(update_fields=["google_sheet_url", "updated_at"])
+        newer_group = FormGroup.objects.create(
+            number=994,
+            start_day=1,
+            start_month="mayo",
+            end_month="mayo",
+            year=2026,
+        )
+        # Group 994's saved rows are empty; only its Google Sheet has m1 as an
+        # Emprendedora, so Group 993 only sees it if every sheet is read first.
+        GroupParticipantList.objects.create(group=newer_group, google_sheet_url=new_url)
+        newer_payload = self._linked_google_workbook_payload()
+        newer_payload["tabs"][0]["values"] = [admin_profiles_views.MENTORAS_HEADERS]
+        newer_payload["tabs"][1]["values"][1][5] = "m1@example.com"
+        payloads = {old_url: self._linked_google_workbook_payload(), new_url: newer_payload}
+        mock_fetch_tabs.side_effect = lambda url: payloads[url]
+        mock_update_values.return_value = 0
+
+        summary = admin_profiles_views._sync_all_linked_group_sheets()
+
+        self.assertEqual([item["group_number"] for item in summary["synced"]], [993, 994])
+        old_sheet_cells = [
+            str(cell)
+            for call in mock_update_values.call_args_list if call.args[0] == old_url
+            for update in call.args[1]
+            for row in update["values"]
+            for cell in row
+        ]
+        self.assertTrue(any("G994 · Emprendedora" in cell for cell in old_sheet_cells))
+        self.participant_list.refresh_from_db()
+        self.assertIn("G994 · Emprendedora", self.participant_list.mentoras_sheet_rows[0][-1])
+
+    @patch("applications.admin_profiles_views.update_google_spreadsheet_values")
+    @patch("applications.admin_profiles_views.fetch_google_spreadsheet_tabs")
     def test_group_link_merges_checked_values_from_google_and_website(
         self,
         mock_fetch_tabs,

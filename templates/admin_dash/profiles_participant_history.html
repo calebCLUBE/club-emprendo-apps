@@ -39,8 +39,12 @@
       display: grid;
       grid-template-columns: minmax(300px, 1.7fr) repeat(4, minmax(150px, .7fr));
       gap: 10px;
-      align-items: end;
+      /* Top-align so every dropdown lines up; help text hangs below its field. */
+      align-items: start;
       margin-top: 14px;
+    }
+    .ce-history-form .ce-muted {
+      margin-top: 4px;
     }
     .ce-history-form label {
       display: block;

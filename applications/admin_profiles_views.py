@@ -4665,9 +4665,7 @@ def profiles_list(request):
         "group_options": payload["group_options"],
         "total_profiles": payload["total_profiles"],
         "visible_profiles": payload["visible_profiles"],
-        "graded_profiles": payload["graded_profiles"],
-        "participated_profiles": payload["participated_profiles"],
-        "contract_signed_profiles": payload["contract_signed_profiles"],
+        "program_stats": _participant_program_stats(),
     }
     return render(request, "admin_dash/profiles_list.html", context)
 
@@ -5307,6 +5305,32 @@ def _participant_groups_overview(today=None) -> dict | None:
         "today_left": pct(today) if shown else None,
         "today_label": f"{short(today)} {today.year}",
         "undated": undated,
+    }
+
+
+def _participant_program_stats() -> dict:
+    """Profiles-page headline numbers, counted as unique people across every group.
+
+    Started, graduated and currently active use the Impact dashboard's sources
+    (linked Google Sheets and uploaded historical groups) and status rules.
+    """
+    from .admin_dashboard_views import (
+        _dedupe_participant_records,
+        _impact_currently_active_people,
+        _participant_records,
+    )
+
+    overview = _participant_groups_overview() or {}
+    try:
+        records = _dedupe_participant_records(_participant_records())
+    except DatabaseError:
+        records = []
+    return {
+        "active_groups": overview.get("running_count", 0),
+        "active_group_numbers": [row["number"] for row in overview.get("running_groups", [])],
+        "started": len({record["person_key"] for record in records if record["started"]}),
+        "graduated": len({record["person_key"] for record in records if record["graduated"]}),
+        "active_now": len(_impact_currently_active_people(records)),
     }
 
 

@@ -86,25 +86,26 @@
 
   <div class="ce-work-summary">
     <div class="ce-work-stat ce-work-stat--brand">
-      <div class="ce-work-stat__label">Total profiles</div>
-      <div class="ce-work-stat__value">{{ total_profiles }}</div>
+      <div class="ce-work-stat__label">Active groups</div>
+      <div class="ce-work-stat__value">{{ program_stats.active_groups }}</div>
+      <div class="ce-work-stat__detail">
+        {% for number in program_stats.active_group_numbers %}Group&nbsp;{{ number }}{% if not forloop.last %} · {% endif %}{% empty %}No group is running right now{% endfor %}
+      </div>
     </div>
     <div class="ce-work-stat">
-      <div class="ce-work-stat__label">Visible profiles</div>
-      <div class="ce-work-stat__value">{{ visible_profiles }}</div>
-      <div class="ce-work-stat__detail">Matching the current filters</div>
+      <div class="ce-work-stat__label">Started the program</div>
+      <div class="ce-work-stat__value">{{ program_stats.started }}</div>
+      <div class="ce-work-stat__detail">People, all groups</div>
     </div>
     <div class="ce-work-stat">
-      <div class="ce-work-stat__label">Graded profiles</div>
-      <div class="ce-work-stat__value">{{ graded_profiles }}</div>
+      <div class="ce-work-stat__label">Graduated</div>
+      <div class="ce-work-stat__value">{{ program_stats.graduated }}</div>
+      <div class="ce-work-stat__detail">People, all groups</div>
     </div>
     <div class="ce-work-stat">
-      <div class="ce-work-stat__label">Participated (yes)</div>
-      <div class="ce-work-stat__value">{{ participated_profiles }}</div>
-    </div>
-    <div class="ce-work-stat">
-      <div class="ce-work-stat__label">Contracts signed</div>
-      <div class="ce-work-stat__value">{{ contract_signed_profiles }}</div>
+      <div class="ce-work-stat__label">Currently active</div>
+      <div class="ce-work-stat__value">{{ program_stats.active_now }}</div>
+      <div class="ce-work-stat__detail">Activa in a group running now</div>
     </div>
   </div>
 
@@ -150,6 +151,7 @@
 
   <div class="ce-profiles-sheet">
     <p class="ce-work-hint">
+      <span style="display:block; margin-bottom:4px; color:var(--ce-text);"><strong>{{ visible_profiles }}</strong> of {{ total_profiles }} profiles match the current filters.</span>
       Opens all filtered rows in a spreadsheet. Select one cell or drag across several cells to copy values;
       click a row number or column letter to copy the entire row or column, then use Ctrl+C (Windows) or Command+C (Mac).
     </p>

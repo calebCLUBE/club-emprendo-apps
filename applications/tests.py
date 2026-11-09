@@ -9573,6 +9573,49 @@ class ParticipantsGroupsOverviewTests(TestCase):
         self.assertIsNone(group_page.context["groups_overview"])
         self.assertNotContains(group_page, "Groups running now")
 
+    def test_profiles_page_counts_active_groups_and_unique_participants(self):
+        sheet = "https://docs.google.com/spreadsheets/d/test/edit"
+        GroupParticipantList.objects.create(
+            group=self.recent,
+            google_sheet_url=sheet,
+            mentoras_sheet_rows=[
+                ["", "G", 1, "Grad", "", "grad@example.com"],
+                ["", "NCPP", 2, "Dropped", "", "drop@example.com"],
+                # Activa left on a finished group is not "currently active".
+                ["", "A", 3, "Stale", "", "stale@example.com"],
+                # Siguiente grupo never counts as starting.
+                ["", "SG", 4, "Moved", "", "moved@example.com"],
+            ],
+        )
+        GroupParticipantList.objects.filter(group=self.running).update(
+            google_sheet_url=sheet,
+            mentoras_sheet_rows=[["", "A", 1, "Grad", "", "grad@example.com"]],
+            emprendedoras_sheet_rows=[["", "A", 1, "Active", "", "active@example.com"]],
+        )
+        # Lists without a linked sheet stay out of the totals, as on the Impact dashboard.
+        GroupParticipantList.objects.create(
+            group=self.upcoming,
+            emprendedoras_sheet_rows=[["", "A", 1, "Unlinked", "", "unlinked@example.com"]],
+        )
+
+        with patch("applications.admin_profiles_views.timezone.localdate", return_value=date(2026, 3, 15)):
+            response = self.client.get(reverse("admin_profiles_list"))
+
+        self.assertEqual(
+            response.context["program_stats"],
+            {
+                "active_groups": 1,
+                "active_group_numbers": [21],
+                # grad, drop, stale and active; grad counts once despite two groups.
+                "started": 4,
+                "graduated": 1,
+                "active_now": 2,
+            },
+        )
+        self.assertContains(response, '<div class="ce-work-stat__label">Active groups</div>')
+        self.assertContains(response, '<div class="ce-work-stat__label">Currently active</div>')
+        self.assertNotContains(response, "Contracts signed")
+
 
 class ParticipantsCapacitacionCheckTests(TestCase):
     def setUp(self):

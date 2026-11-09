@@ -5174,6 +5174,142 @@ def profiles_sheet(request):
     return render(request, "admin_dash/profiles_sheet.html", context)
 
 
+_TIMELINE_MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+# Completed groups stay on the timeline this long after they end, for context.
+_TIMELINE_RECENT_DAYS = 183
+
+
+def _participant_groups_overview(today=None) -> dict | None:
+    """Which non-archived groups are running now, plus a timeline of their program windows.
+
+    A group is "In progress" from its start date through the end of its ending
+    month, the same rule the group summary and Impact dashboard use.
+    """
+    import calendar
+    from datetime import date, timedelta
+
+    from .admin_dashboard_views import _impact_group_is_completed, _impact_group_start_date
+    from .admin_views import _month_name_to_number
+
+    today = today or timezone.localdate()
+    try:
+        groups = FormGroup.objects.order_by("number")
+        if _formgroup_is_active_column_exists():
+            groups = groups.filter(is_active=True)
+        groups = list(groups)
+    except DatabaseError:
+        # A local database behind migrations should not break the page.
+        return None
+
+    def short(day):
+        return f"{day.day} {_TIMELINE_MONTHS[day.month - 1]}"
+
+    dated, undated = [], []
+    for group in groups:
+        start = _impact_group_start_date(group)
+        end_month = _month_name_to_number(group.end_month)
+        end_year = group.end_year or group.year
+        if not start or not end_month or not end_year:
+            undated.append(group.number)
+            continue
+        end = date(end_year, end_month, calendar.monthrange(end_year, end_month)[1])
+        if _impact_group_is_completed(group, as_of=today):
+            state = "completed"
+        elif start > today:
+            state = "upcoming"
+        else:
+            state = "running"
+        dated.append({"group": group, "start": start, "end": end, "state": state})
+
+    running = [item for item in dated if item["state"] == "running"]
+    upcoming = [item for item in dated if item["state"] == "upcoming"]
+    shown = [
+        item for item in dated
+        if item["state"] != "completed" or (today - item["end"]).days <= _TIMELINE_RECENT_DAYS
+    ]
+    shown.sort(key=lambda item: (item["start"], item["group"].number))
+
+    lists = {
+        participant_list.group_id: participant_list
+        for participant_list in GroupParticipantList.objects.filter(
+            group_id__in=[item["group"].id for item in shown]
+        )
+    }
+
+    def count(participant_list, rows_field, emails_field, headers):
+        if not participant_list:
+            return 0
+        rows = _normalize_sheet_rows(getattr(participant_list, rows_field, []), headers)
+        return len(rows) or len(_norm_email_list(getattr(participant_list, emails_field, "")))
+
+    axis_start = axis_end = None
+    if shown:
+        first = min([item["start"] for item in shown] + [today])
+        last = max([item["end"] for item in shown] + [today])
+        axis_start = first.replace(day=1)
+        axis_end = date(last.year, last.month, calendar.monthrange(last.year, last.month)[1]) + timedelta(days=1)
+    span = (axis_end - axis_start).days if shown else 1
+
+    def pct(day):
+        return round(100 * (day - axis_start).days / span, 2)
+
+    state_labels = {"running": "In progress", "upcoming": "Upcoming", "completed": "Completed"}
+    rows = []
+    for item in shown:
+        group, start, end = item["group"], item["start"], item["end"]
+        participant_list = lists.get(group.id)
+        mentoras = count(participant_list, "mentoras_sheet_rows", "mentoras_emails_text", MENTORAS_HEADERS)
+        emprendedoras = count(
+            participant_list, "emprendedoras_sheet_rows", "emprendedoras_emails_text", EMPRENDEDORAS_HEADERS
+        )
+        dates = (
+            f"{short(start)} – {short(end)} {end.year}"
+            if start.year == end.year
+            else f"{short(start)} {start.year} – {short(end)} {end.year}"
+        )
+        left = pct(start)
+        rows.append({
+            "number": group.number,
+            "name": (group.custom_name or "").strip(),
+            "state": item["state"],
+            "state_label": state_labels[item["state"]],
+            "dates": dates,
+            "left": left,
+            "width": max(round(pct(end + timedelta(days=1)) - left, 2), 0.5),
+            "mentoras": mentoras,
+            "emprendedoras": emprendedoras,
+        })
+
+    ticks = []
+    if shown:
+        months = []
+        cursor = axis_start
+        while cursor < axis_end:
+            months.append(cursor)
+            cursor = date(cursor.year + cursor.month // 12, cursor.month % 12 + 1, 1)
+        step = max(1, -(-len(months) // 8))
+        for index, month in enumerate(months[::step]):
+            label = _TIMELINE_MONTHS[month.month - 1]
+            if index == 0 or month.month <= step:
+                label = f"{label} {month.year}"
+            ticks.append({"left": pct(month), "label": label})
+
+    running_numbers = {item["group"].number for item in running}
+    return {
+        "running_count": len(running),
+        "upcoming_count": len(upcoming),
+        "running_participants": sum(
+            row["mentoras"] + row["emprendedoras"] for row in rows if row["number"] in running_numbers
+        ),
+        "running_groups": [row for row in rows if row["number"] in running_numbers],
+        "rows": rows,
+        "ticks": ticks,
+        "today_left": pct(today) if shown else None,
+        "today_label": f"{short(today)} {today.year}",
+        "undated": undated,
+    }
+
+
 @staff_member_required
 def profiles_participants(request):
     group_raw = (request.GET.get("group") or request.POST.get("group") or "").strip()
@@ -5784,6 +5920,7 @@ def profiles_participants(request):
     has_list = bool(participant_list and (mentoras_rows or emprendedoras_rows))
 
     context = {
+        "groups_overview": None if selected_group else _participant_groups_overview(),
         "group_summary": participant_group_summary(selected_group) if selected_group else None,
         "selected_group_archived": bool(selected_group and _formgroup_is_active_column_exists() and not selected_group.is_active),
         "groups": groups,

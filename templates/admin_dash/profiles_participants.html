@@ -290,6 +290,90 @@
     </details>
     {% endif %}
   {% else %}
+    {% if groups_overview %}
+      {% with ov=groups_overview %}
+      <section class="ce-work-panel ce-gnow" aria-labelledby="ce-gnow-title">
+        <div class="ce-work-panel__head">
+          <div>
+            <h2 class="ce-work-panel__title" id="ce-gnow-title">Groups running now</h2>
+            <p class="ce-work-panel__hint">A group is in progress from its start date through the end of its ending month. Archived groups are left out.</p>
+          </div>
+          <span class="ce-work-muted">As of {{ ov.today_label }}</span>
+        </div>
+        <div class="ce-work-panel__body">
+          <div class="ce-work-summary">
+            <div class="ce-work-stat ce-work-stat--brand ce-gnow__hero">
+              <div class="ce-work-stat__label">In progress</div>
+              <div class="ce-work-stat__value">{{ ov.running_count }}</div>
+              <div class="ce-work-stat__detail">
+                {% for row in ov.running_groups %}Group&nbsp;{{ row.number }}{% if not forloop.last %} · {% endif %}{% empty %}No group is running right now{% endfor %}
+              </div>
+            </div>
+            <div class="ce-work-stat">
+              <div class="ce-work-stat__label">Upcoming</div>
+              <div class="ce-work-stat__value">{{ ov.upcoming_count }}</div>
+              <div class="ce-work-stat__detail">group{{ ov.upcoming_count|pluralize }} not started yet</div>
+            </div>
+            <div class="ce-work-stat">
+              <div class="ce-work-stat__label">Participants in running groups</div>
+              <div class="ce-work-stat__value">{{ ov.running_participants }}</div>
+              <div class="ce-work-stat__detail">mentoras + emprendedoras on their lists</div>
+            </div>
+          </div>
+
+          {% if ov.rows %}
+            <ul class="ce-gnow__legend" aria-label="Legend">
+              <li><span class="ce-gnow__key ce-gnow__key--running"></span>In progress</li>
+              <li><span class="ce-gnow__key ce-gnow__key--upcoming"></span>Upcoming</li>
+              <li><span class="ce-gnow__key ce-gnow__key--completed"></span>Completed (last 6 months)</li>
+            </ul>
+            <div class="ce-gtl">
+              <div class="ce-gtl__row ce-gtl__row--axis" aria-hidden="true">
+                <span class="ce-gtl__label"></span>
+                <span class="ce-gtl__track">
+                  <span class="ce-gtl__today-label" style="left: {{ ov.today_left }}%">Today</span>
+                </span>
+              </div>
+              {% for row in ov.rows %}
+                <a class="ce-gtl__row ce-gtl__row--{{ row.state }}" href="?group={{ row.number }}"
+                   data-title="Group {{ row.number }}{% if row.name %} · {{ row.name }}{% endif %}"
+                   data-state="{{ row.state_label }}" data-dates="{{ row.dates }}"
+                   data-people="{{ row.mentoras }} mentora{{ row.mentoras|pluralize }} · {{ row.emprendedoras }} emprendedora{{ row.emprendedoras|pluralize }}">
+                  <span class="ce-gtl__label">
+                    <span class="ce-gtl__name"><strong>Group&nbsp;{{ row.number }}</strong>{% if row.name %} <span>{{ row.name }}</span>{% endif %}</span>
+                    <span class="ce-gtl__meta">{{ row.state_label }} · {{ row.dates }}</span>
+                  </span>
+                  <span class="ce-gtl__track">
+                    {% for tick in ov.ticks %}<span class="ce-gtl__grid" style="left: {{ tick.left }}%"></span>{% endfor %}
+                    <span class="ce-gtl__today" style="left: {{ ov.today_left }}%"></span>
+                    <span class="ce-gtl__bar" style="left: {{ row.left }}%; width: {{ row.width }}%"></span>
+                  </span>
+                </a>
+              {% endfor %}
+              <div class="ce-gtl__row ce-gtl__row--axis ce-gtl__row--ticks" aria-hidden="true">
+                <span class="ce-gtl__label"></span>
+                <span class="ce-gtl__track">
+                  {% for tick in ov.ticks %}<span class="ce-gtl__tick" style="left: {{ tick.left }}%">{{ tick.label }}</span>{% endfor %}
+                </span>
+              </div>
+              <div class="ce-gtl__tip" aria-hidden="true" hidden>
+                <strong></strong><span class="ce-gtl__tip-state"></span><span class="ce-gtl__tip-dates"></span><span class="ce-gtl__tip-people"></span>
+              </div>
+            </div>
+          {% else %}
+            <p class="ce-work-muted" style="margin:0;">No group has dates in the last six months or later.</p>
+          {% endif %}
+          {% if ov.undated %}
+            <p class="ce-work-muted ce-gnow__note">
+              Not shown because the start or end month is missing:
+              {% for number in ov.undated %}Group&nbsp;{{ number }}{% if not forloop.last %}, {% endif %}{% endfor %}.
+            </p>
+          {% endif %}
+        </div>
+      </section>
+      {% endwith %}
+    {% endif %}
+
     <section class="ce-work-panel">
       <div class="ce-work-empty">
         <strong>Choose a group to begin.</strong>
@@ -298,4 +382,234 @@
     </section>
   {% endif %}
 </div>
+
+{% if groups_overview.rows %}
+<style>
+  .ce-gnow__hero .ce-work-stat__value {
+    font-size: 48px;
+  }
+  .ce-gnow__legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 18px;
+    margin: 0 0 14px;
+    padding: 0;
+    list-style: none;
+    color: var(--ce-text-secondary);
+    font-size: 13px;
+  }
+  .ce-gnow__legend li {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+  }
+  .ce-gnow__key {
+    width: 14px;
+    height: 10px;
+    border-radius: 3px;
+  }
+  .ce-gnow__key--running,
+  .ce-gtl__row--running .ce-gtl__bar {
+    background: var(--ce-green-500);
+  }
+  .ce-gnow__key--upcoming,
+  .ce-gtl__row--upcoming .ce-gtl__bar {
+    border: 1.5px dashed var(--ce-green-500);
+    background: var(--ce-green-100);
+  }
+  .ce-gnow__key--completed,
+  .ce-gtl__row--completed .ce-gtl__bar {
+    background: var(--ce-gray-400);
+  }
+  .ce-gnow__note {
+    margin: 14px 0 0;
+    font-size: 13px;
+  }
+
+  .ce-gtl {
+    --ce-gtl-label: 270px;
+    position: relative;
+  }
+  .ce-gtl__row {
+    display: grid;
+    grid-template-columns: var(--ce-gtl-label) minmax(0, 1fr);
+    column-gap: 16px;
+    align-items: stretch;
+    padding: 0 10px;
+    border-radius: var(--ce-radius-sm);
+    color: inherit;
+    text-decoration: none;
+  }
+  a.ce-gtl__row:hover,
+  a.ce-gtl__row:focus-visible {
+    background: var(--ce-gray-50);
+  }
+  a.ce-gtl__row:focus-visible {
+    outline: none;
+    box-shadow: var(--ce-focus-ring);
+  }
+  .ce-gtl__label {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    min-width: 0;
+    padding: 9px 0;
+  }
+  .ce-gtl__name {
+    overflow: hidden;
+    color: var(--ce-text);
+    font-size: 14px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .ce-gtl__name span {
+    color: var(--ce-text-muted);
+  }
+  .ce-gtl__meta {
+    color: var(--ce-text-muted);
+    font-size: 12.5px;
+    font-variant-numeric: tabular-nums;
+  }
+  .ce-gtl__row--running .ce-gtl__meta {
+    color: var(--ce-green-700);
+    font-weight: 600;
+  }
+  .ce-gtl__track {
+    position: relative;
+    min-height: 44px;
+  }
+  .ce-gtl__grid,
+  .ce-gtl__today {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: var(--ce-border-subtle);
+  }
+  .ce-gtl__today {
+    z-index: 1;
+    width: 2px;
+    margin-left: -1px;
+    background: var(--ce-text);
+  }
+  .ce-gtl__bar {
+    position: absolute;
+    top: 50%;
+    z-index: 2;
+    height: 14px;
+    border-radius: 4px;
+    transform: translateY(-50%);
+  }
+  .ce-gtl__row--axis .ce-gtl__track {
+    min-height: 22px;
+  }
+  .ce-gtl__today-label {
+    position: absolute;
+    bottom: 2px;
+    padding: 1px 7px;
+    border-radius: 999px;
+    background: var(--ce-text);
+    color: #fff;
+    font-size: 11.5px;
+    font-weight: 650;
+    transform: translateX(-50%);
+    white-space: nowrap;
+  }
+  .ce-gtl__tick {
+    position: absolute;
+    top: 4px;
+    padding-left: 4px;
+    color: var(--ce-text-muted);
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  .ce-gtl__tip {
+    position: absolute;
+    z-index: 5;
+    display: grid;
+    gap: 2px;
+    min-width: 170px;
+    padding: 8px 10px;
+    border: 1px solid var(--ce-border);
+    border-radius: 8px;
+    background: var(--ce-surface);
+    box-shadow: var(--ce-shadow-md);
+    color: var(--ce-text-secondary);
+    font-size: 12.5px;
+    pointer-events: none;
+    white-space: nowrap;
+  }
+  .ce-gtl__tip[hidden] {
+    display: none;
+  }
+  .ce-gtl__tip strong {
+    color: var(--ce-text);
+    font-size: 13.5px;
+  }
+  .ce-gtl__tip-people {
+    color: var(--ce-text);
+    font-variant-numeric: tabular-nums;
+  }
+
+  @media (max-width: 640px) {
+    .ce-gtl__row {
+      grid-template-columns: minmax(0, 1fr);
+      padding: 0 6px;
+    }
+    .ce-gtl__row--axis .ce-gtl__label {
+      display: none;
+    }
+    .ce-gtl__label {
+      padding: 8px 0 0;
+    }
+    .ce-gtl__track {
+      min-height: 26px;
+    }
+    .ce-gtl__tick:nth-child(even) {
+      display: none;
+    }
+  }
+</style>
+
+<script>
+  (function () {
+    var chart = document.querySelector(".ce-gtl");
+    if (!chart) return;
+    var tip = chart.querySelector(".ce-gtl__tip");
+    var rows = Array.prototype.slice.call(chart.querySelectorAll("a.ce-gtl__row"));
+
+    function show(row, x, y) {
+      tip.querySelector("strong").textContent = row.dataset.title;
+      tip.querySelector(".ce-gtl__tip-state").textContent = row.dataset.state;
+      tip.querySelector(".ce-gtl__tip-dates").textContent = row.dataset.dates;
+      tip.querySelector(".ce-gtl__tip-people").textContent = row.dataset.people;
+      tip.hidden = false;
+      var bounds = chart.getBoundingClientRect();
+      if (x === undefined) {
+        var bar = row.querySelector(".ce-gtl__bar").getBoundingClientRect();
+        x = bar.left + bar.width / 2 - bounds.left;
+        y = bar.top - bounds.top;
+      }
+      var maxX = chart.clientWidth - tip.offsetWidth;
+      tip.style.left = Math.max(0, Math.min(x + 12, maxX)) + "px";
+      tip.style.top = Math.max(0, y - tip.offsetHeight - 10) + "px";
+    }
+
+    function hide() {
+      tip.hidden = true;
+    }
+
+    rows.forEach(function (row) {
+      var track = row.querySelector(".ce-gtl__track");
+      track.addEventListener("pointermove", function (event) {
+        var bounds = chart.getBoundingClientRect();
+        show(row, event.clientX - bounds.left, event.clientY - bounds.top);
+      });
+      track.addEventListener("pointerleave", hide);
+      row.addEventListener("focus", function () { show(row); });
+      row.addEventListener("blur", hide);
+    });
+  })();
+</script>
+{% endif %}
 {% endblock %}

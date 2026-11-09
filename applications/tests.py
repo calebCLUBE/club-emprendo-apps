@@ -9504,6 +9504,76 @@ class ParticipantsPageSafetyTests(TestCase):
         self.assertEqual(self.group.custom_name, "")
 
 
+class ParticipantsGroupsOverviewTests(TestCase):
+    def setUp(self):
+        user_model = get_user_model()
+        self.client.force_login(
+            user_model.objects.create_superuser(email="admin@example.com", password="testpass123")
+        )
+
+        def group(number, start_month, end_month, year, end_year=None, **extra):
+            return FormGroup.objects.create(
+                number=number, start_day=1, start_month=start_month, end_month=end_month,
+                year=year, end_year=end_year, **extra,
+            )
+
+        self.running = group(21, "febrero", "mayo", 2026, custom_name="Cohorte Norte")
+        self.upcoming = group(22, "junio", "septiembre", 2026)
+        self.recent = group(20, "octubre", "enero", 2025, end_year=2026)
+        group(10, "enero", "abril", 2024)  # Ended long ago: left off the timeline.
+        group(23, "marzo", "junio", 2026, is_active=False)  # Archived groups never count.
+        group(24, "marzo", "", 2026)  # No ending month: listed as undated.
+        GroupParticipantList.objects.create(
+            group=self.running,
+            mentoras_sheet_rows=[["", "A", 1, "M1"], ["", "A", 2, "M2"]],
+            emprendedoras_emails_text="a@example.com\nb@example.com\nc@example.com",
+        )
+
+    def test_overview_counts_running_groups_and_orders_timeline_by_start(self):
+        overview = admin_profiles_views._participant_groups_overview(today=date(2026, 3, 15))
+
+        self.assertEqual(overview["running_count"], 1)
+        self.assertEqual(overview["upcoming_count"], 1)
+        self.assertEqual(overview["running_participants"], 5)
+        self.assertEqual(
+            [(row["number"], row["state"]) for row in overview["rows"]],
+            [(20, "completed"), (21, "running"), (22, "upcoming")],
+        )
+        running = overview["rows"][1]
+        self.assertEqual((running["mentoras"], running["emprendedoras"]), (2, 3))
+        self.assertEqual(running["dates"], "1 Feb – 31 May 2026")
+        self.assertEqual(overview["rows"][0]["dates"], "1 Oct 2025 – 31 Jan 2026")
+        self.assertEqual(overview["undated"], [24])
+        # The axis runs Oct 2025 – Sep 2026, so mid-March sits a little under halfway.
+        self.assertEqual(overview["rows"][0]["left"], 0)
+        self.assertTrue(0 < running["left"] < overview["today_left"] < 50)
+
+        # Still running throughout its ending month, completed the month after.
+        self.assertEqual(
+            admin_profiles_views._participant_groups_overview(today=date(2026, 5, 31))["running_count"], 1
+        )
+        self.assertEqual(
+            admin_profiles_views._participant_groups_overview(today=date(2026, 6, 1))["running_count"], 1
+        )
+        self.assertEqual(
+            [row["number"] for row in
+             admin_profiles_views._participant_groups_overview(today=date(2026, 6, 1))["running_groups"]],
+            [22],
+        )
+
+    def test_participants_landing_shows_overview_but_group_page_does_not(self):
+        with patch("applications.admin_profiles_views.timezone.localdate", return_value=date(2026, 3, 15)):
+            response = self.client.get(reverse("admin_profiles_participants"))
+        self.assertContains(response, "Groups running now")
+        self.assertEqual(response.context["groups_overview"]["running_count"], 1)
+        self.assertContains(response, 'href="?group=21"')
+        self.assertNotContains(response, 'href="?group=23"')
+
+        group_page = self.client.get(reverse("admin_profiles_participants"), {"group": 21})
+        self.assertIsNone(group_page.context["groups_overview"])
+        self.assertNotContains(group_page, "Groups running now")
+
+
 class ParticipantsCapacitacionCheckTests(TestCase):
     def setUp(self):
         self.real_verify_writeback = admin_profiles_views._verify_linked_participant_sheet_writeback
